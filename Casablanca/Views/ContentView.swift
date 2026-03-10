@@ -4,6 +4,8 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State var viewModel: MeetingListViewModel
+    @State private var recordingService = AudioRecordingService()
+    @State private var transcriptionService = TranscriptionService()
 
     var body: some View {
         NavigationSplitView {
@@ -25,44 +27,43 @@ struct ContentView: View {
                 NotesEditorView(
                     meeting: meeting,
                     onStartRecording: {
-                        meeting.status = .recording
-                        // Recording will be handled in Phase 2
+                        viewModel.beginRecording(for: meeting)
                     },
                     onBack: {
                         viewModel.selectedMeeting = nil
                     }
                 )
             case .recording:
-                // Placeholder for Phase 2
-                VStack {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.stateRecording)
-                    Text("Recording view coming in Phase 2")
-                        .font(.headline)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                RecordingView(
+                    meeting: meeting,
+                    recordingService: recordingService,
+                    onBack: {
+                        viewModel.selectedMeeting = nil
+                    }
+                )
             case .processing:
-                // Placeholder for Phase 3/5
-                VStack {
-                    ProgressView()
-                    Text("Processing...")
-                        .font(.headline)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TranscriptionView(
+                    meeting: meeting,
+                    transcriptionService: transcriptionService,
+                    onComplete: {
+                        // Stay on the same meeting — it will switch to .completed
+                    },
+                    onCancel: {
+                        meeting.status = .completed
+                        try? modelContext.save()
+                    }
+                )
             case .completed:
-                // Placeholder for Phase 6
-                VStack {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.accentSuccess)
-                    Text("Review view coming in Phase 6")
-                        .font(.headline)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                RecordedMeetingView(
+                    meeting: meeting,
+                    onRecordAgain: {
+                        viewModel.beginRecording(for: meeting)
+                    },
+                    onTranscribe: {
+                        meeting.status = .processing
+                        try? modelContext.save()
+                    }
+                )
             case .upcoming:
                 DashboardView(viewModel: viewModel)
             }

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("ollamaEndpoint") private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
     @AppStorage("whisperModelSize") private var whisperModelSize = "base"
+    @AppStorage("defaultTranscriptionLanguage") private var defaultTranscriptionLanguage = "en-US"
 
     var body: some View {
         TabView {
@@ -53,12 +54,16 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         Form {
-            Section("Whisper (Transcription)") {
-                Picker("Model size", selection: $whisperModelSize) {
-                    Text("Tiny (fastest)").tag("tiny")
-                    Text("Base (balanced)").tag("base")
-                    Text("Small (accurate)").tag("small")
+            Section("Transcription") {
+                Picker("Default language", selection: $defaultTranscriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
+                        Text(lang.name).tag(lang.id)
+                    }
                 }
+
+                Text("Can be overridden per meeting before transcribing")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
             }
 
             Section("Ollama (Summarization)") {

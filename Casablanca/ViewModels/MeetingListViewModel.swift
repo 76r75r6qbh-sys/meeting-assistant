@@ -17,6 +17,10 @@ final class MeetingListViewModel {
         self.modelContext = context
     }
 
+    func save() {
+        try? modelContext?.save()
+    }
+
     var groupedEvents: [(date: Date, events: [EKEvent])] {
         calendarService.eventsGroupedByDay()
     }
@@ -81,6 +85,28 @@ final class MeetingListViewModel {
         modelContext.insert(meeting)
         try? modelContext.save()
         return meeting
+    }
+
+    func beginRecording(for event: EKEvent) {
+        guard let meeting = findOrCreateMeeting(for: event) else { return }
+        beginRecording(for: meeting)
+    }
+
+    func beginRecording(for meeting: Meeting) {
+        meeting.status = .recording
+        selectedMeeting = meeting
+        save()
+    }
+
+    func beginNotes(for event: EKEvent) {
+        guard let meeting = findOrCreateMeeting(for: event) else { return }
+        beginNotes(for: meeting)
+    }
+
+    func beginNotes(for meeting: Meeting) {
+        meeting.status = .notesOnly
+        selectedMeeting = meeting
+        save()
     }
 
     func dayLabel(for date: Date) -> String {
