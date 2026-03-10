@@ -6,6 +6,10 @@ struct SettingsView: View {
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
     @AppStorage("whisperModelSize") private var whisperModelSize = "base"
     @AppStorage("defaultTranscriptionLanguage") private var defaultTranscriptionLanguage = "en-US"
+    @AppStorage("summaryPromptTemplate") private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
+    @State private var availableOllamaModels: [String] = []
+    @State private var isLoadingOllamaModels = false
+    @State private var ollamaModelsError = ""
 
     var body: some View {
         TabView {
@@ -19,7 +23,10 @@ struct SettingsView: View {
                     Label("AI", systemImage: "sparkles")
                 }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 560, height: 520)
+        .task {
+            await refreshOllamaModels()
+        }
     }
 
     private var generalSettings: some View {
@@ -69,15 +76,104 @@ struct SettingsView: View {
             Section("Ollama (Summarization)") {
                 TextField("Endpoint", text: $ollamaEndpoint)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        Task {
+                            await refreshOllamaModels()
+                        }
+                    }
 
-                TextField("Model", text: $ollamaModel)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Model", selection: $ollamaModel) {
+                        ForEach(ollamaModelOptions, id: \.self) { model in
+                            if availableOllamaModels.contains(model) {
+                                Text(model).tag(model)
+                            } else {
+                                Text("\(model) (not installed)").tag(model)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .disabled(isLoadingOllamaModels || ollamaModelOptions.isEmpty)
 
-                Text("Make sure Ollama is running and the model is pulled")
+                    Button("Refresh Models") {
+                        Task {
+                            await refreshOllamaModels()
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(isLoadingOllamaModels)
+                }
+
+                if isLoadingOllamaModels {
+                    HStack(spacing: CasaSpace.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading installed Ollama models…")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                } else if !ollamaModelsError.isEmpty {
+                    Text(ollamaModelsError)
+                        .font(.caption)
+                        .foregroundStyle(Color.red)
+                } else if availableOllamaModels.isEmpty {
+                    Text("No Ollama models were found at this endpoint yet.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                } else if !availableOllamaModels.contains(ollamaModel) {
+                    Text("The current model is not installed at this endpoint. Pick one of the detected models above.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
+
+                Text("Casablanca loads the installed models from Ollama so summarization uses a valid local model.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
+
+            Section("Summary Prompt") {
+                TextEditor(text: $summaryPromptTemplate)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 220)
+
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{timestamped_notes}}, {{freeform_notes}}")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Button("Reset to Default Prompt") {
+                    summaryPromptTemplate = SummarizationService.defaultPromptTemplate
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            }
         }
         .padding()
+    }
+
+    private var ollamaModelOptions: [String] {
+        if availableOllamaModels.contains(ollamaModel) || ollamaModel.isEmpty {
+            return availableOllamaModels
+        }
+        return [ollamaModel] + availableOllamaModels
+    }
+
+    private func refreshOllamaModels() async {
+        isLoadingOllamaModels = true
+        ollamaModelsError = ""
+
+        defer {
+            isLoadingOllamaModels = false
+        }
+
+        do {
+            let models = try await SummarizationService.fetchAvailableModels(endpoint: ollamaEndpoint)
+            availableOllamaModels = models
+
+            if ollamaModel.isEmpty, let firstModel = models.first {
+                ollamaModel = firstModel
+            }
+        } catch {
+            availableOllamaModels = []
+            ollamaModelsError = error.localizedDescription
+        }
     }
 }

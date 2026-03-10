@@ -87,6 +87,11 @@ final class MeetingListViewModel {
         return meeting
     }
 
+    func beginManualMeeting(title: String = "") {
+        guard let meeting = createManualMeeting(title: title) else { return }
+        beginNotes(for: meeting)
+    }
+
     func beginRecording(for event: EKEvent) {
         guard let meeting = findOrCreateMeeting(for: event) else { return }
         beginRecording(for: meeting)

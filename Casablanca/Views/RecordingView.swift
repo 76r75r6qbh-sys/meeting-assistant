@@ -93,6 +93,23 @@ struct RecordingView: View {
                     .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
             }
 
+            HStack(spacing: CasaSpace.sm) {
+                Text("Transcription Language")
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+
+                Picker("Transcription Language", selection: $meeting.transcriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                        Text(language.name).tag(language.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 180)
+                .onChange(of: meeting.transcriptionLanguage) {
+                    save()
+                }
+            }
+
             Text(statusMessage)
                 .font(.body)
                 .foregroundStyle(Color.textSecondary)
