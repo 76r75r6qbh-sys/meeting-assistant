@@ -1,4 +1,6 @@
 @preconcurrency import AVFoundation
+import AudioToolbox
+import CoreAudio
 import CoreGraphics
 import Observation
 @preconcurrency import ScreenCaptureKit
@@ -6,6 +8,12 @@ import Observation
 struct RecordingResult {
     let outputURL: URL
     let duration: TimeInterval
+}
+
+struct AudioInputDevice: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let deviceID: AudioDeviceID
 }
 
 enum RecordingError: LocalizedError {
@@ -52,6 +60,8 @@ enum RecordingError: LocalizedError {
 @MainActor
 @Observable
 final class AudioRecordingService {
+    static let systemDefaultDevicePreferenceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+
     private(set) var isRecording = false
     private(set) var isPreparing = false
     private(set) var activeMeetingID: UUID?
@@ -59,9 +69,16 @@ final class AudioRecordingService {
     private(set) var audioLevel: Double = 0
     private(set) var outputURL: URL?
     private(set) var errorMessage: String?
+    private(set) var availableInputDevices: [AudioInputDevice] = []
+    private(set) var selectedInputDeviceID = ""
+    private(set) var isSystemAudioEnabled = true
 
     private var session: RecordingSession?
     private var timerTask: Task<Void, Never>?
+
+    init() {
+        refreshInputDevices(forcePreferredSelection: true)
+    }
 
     func startRecording(for meeting: Meeting) async throws {
         guard session == nil else {
@@ -74,8 +91,11 @@ final class AudioRecordingService {
         elapsedTime = 0
 
         do {
+            refreshInputDevices()
             let session = try RecordingSession(
                 meeting: meeting,
+                inputDeviceID: currentInputDevice?.deviceID,
+                systemAudioEnabled: isSystemAudioEnabled,
                 onLevelUpdate: { [weak self] level in
                     Task { @MainActor [weak self] in
                         self?.audioLevel = level
@@ -135,6 +155,53 @@ final class AudioRecordingService {
         errorMessage = nil
     }
 
+    func refreshInputDevices(forcePreferredSelection: Bool = false) {
+        let devices = Self.fetchInputDevices()
+        availableInputDevices = devices
+
+        if forcePreferredSelection {
+            selectedInputDeviceID = Self.preferredInputDeviceID(in: devices) ?? devices.first?.id ?? ""
+            return
+        }
+
+        if let selected = devices.first(where: { $0.id == selectedInputDeviceID }) {
+            selectedInputDeviceID = selected.id
+            return
+        }
+
+        selectedInputDeviceID = Self.preferredInputDeviceID(in: devices) ?? devices.first?.id ?? ""
+    }
+
+    func selectInputDevice(_ deviceID: String) async {
+        guard let device = availableInputDevices.first(where: { $0.id == deviceID }) else {
+            return
+        }
+
+        do {
+            try session?.setMicrophoneDevice(device.deviceID)
+            selectedInputDeviceID = device.id
+        } catch {
+            errorMessage = error.localizedDescription
+            refreshInputDevices()
+        }
+    }
+
+    func toggleSystemAudioEnabled() {
+        isSystemAudioEnabled.toggle()
+        session?.setSystemAudioEnabled(isSystemAudioEnabled)
+    }
+
+    static func availableRecordingInputDevices() -> [AudioInputDevice] {
+        fetchInputDevices()
+    }
+
+    static func systemDefaultInputDeviceName() -> String? {
+        guard let deviceID = defaultInputDeviceID() else {
+            return nil
+        }
+        return deviceName(deviceID)
+    }
+
     private func startTimer(from startDate: Date) {
         timerTask?.cancel()
         timerTask = Task {
@@ -144,6 +211,160 @@ final class AudioRecordingService {
             }
         }
     }
+
+    private var currentInputDevice: AudioInputDevice? {
+        if let selected = availableInputDevices.first(where: { $0.id == selectedInputDeviceID }) {
+            return selected
+        }
+        return availableInputDevices.first
+    }
+}
+
+private extension AudioRecordingService {
+    static func preferredInputDeviceID(in devices: [AudioInputDevice]) -> String? {
+        let storedPreference = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultRecordingInputDeviceID)
+            ?? AppPreferenceValue.systemDefaultRecordingInputDevice
+
+        if storedPreference == AppPreferenceValue.systemDefaultRecordingInputDevice {
+            guard let defaultDeviceID = defaultInputDeviceID() else {
+                return nil
+            }
+
+            return devices.first(where: { $0.deviceID == defaultDeviceID })?.id
+        }
+
+        return devices.first(where: { $0.id == storedPreference })?.id
+    }
+
+    static func fetchInputDevices() -> [AudioInputDevice] {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &propertyAddress, 0, nil, &size) == noErr else {
+            return []
+        }
+
+        let deviceCount = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &size,
+            &deviceIDs
+        ) == noErr else {
+            return []
+        }
+
+        return deviceIDs.compactMap { deviceID in
+            guard hasInputChannels(deviceID),
+                  let name = deviceName(deviceID)
+            else {
+                return nil
+            }
+
+            return AudioInputDevice(
+                id: String(deviceID),
+                name: name,
+                deviceID: deviceID
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func defaultInputDeviceID() -> AudioDeviceID? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+
+        guard status == noErr, deviceID != 0 else {
+            return nil
+        }
+
+        return deviceID
+    }
+
+    private static func deviceName(_ deviceID: AudioDeviceID) -> String? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var name: CFString?
+        var size = UInt32(MemoryLayout<CFString>.size)
+
+        let status = withUnsafeMutablePointer(to: &name) { namePointer in
+            AudioObjectGetPropertyData(
+                deviceID,
+                &propertyAddress,
+                0,
+                nil,
+                &size,
+                namePointer
+            )
+        }
+
+        guard status == noErr, let name else {
+            return nil
+        }
+
+        return name as String
+    }
+
+    private static func hasInputChannels(_ deviceID: AudioDeviceID) -> Bool {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &propertyAddress, 0, nil, &size) == noErr else {
+            return false
+        }
+
+        let bufferListPointer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { bufferListPointer.deallocate() }
+
+        guard AudioObjectGetPropertyData(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            &size,
+            bufferListPointer
+        ) == noErr else {
+            return false
+        }
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(
+            bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
+        )
+        return bufferList.contains { $0.mNumberChannels > 0 }
+    }
 }
 
 private final class RecordingSession: NSObject, @unchecked Sendable {
@@ -151,6 +372,8 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     let startedAt = Date()
     private let microphoneTempURL: URL
     private let systemAudioTempURL: URL
+    private var selectedInputDeviceID: AudioDeviceID?
+    private var systemAudioEnabled: Bool
 
     private let onLevelUpdate: (Double) -> Void
     private let onFailure: (Error) -> Void
@@ -183,6 +406,8 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
     init(
         meeting: Meeting,
+        inputDeviceID: AudioDeviceID?,
+        systemAudioEnabled: Bool,
         onLevelUpdate: @escaping (Double) -> Void,
         onFailure: @escaping (Error) -> Void
     ) throws {
@@ -191,6 +416,8 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         self.outputURL = try Self.makeOutputURL(for: meeting)
         self.microphoneTempURL = Self.makeTemporaryURL(for: self.outputURL, suffix: "mic")
         self.systemAudioTempURL = Self.makeTemporaryURL(for: self.outputURL, suffix: "system")
+        self.selectedInputDeviceID = inputDeviceID
+        self.systemAudioEnabled = systemAudioEnabled
         super.init()
         streamDelegate.onStop = { [weak self] error in
             self?.onFailure(error)
@@ -239,6 +466,29 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         return RecordingResult(outputURL: outputURL, duration: duration)
     }
 
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {
+        selectedInputDeviceID = deviceID
+
+        guard didStartEngine else {
+            return
+        }
+
+        try reconfigureMicrophoneInput()
+    }
+
+    func setSystemAudioEnabled(_ enabled: Bool) {
+        systemAudioEnabled = enabled
+
+        if !enabled {
+            levelQueue.async { [weak self] in
+                guard let self else { return }
+                self.latestSystemLevel = 0
+                self.lastSystemLevelAt = 0
+                self.publishCombinedLevelLocked()
+            }
+        }
+    }
+
     private func configureEngine() throws {
         guard let fileFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -261,10 +511,25 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         self.microphoneFileHandle = microphoneFileHandle
         self.systemAudioFileHandle = systemAudioFileHandle
 
-        let inputFormat = engine.inputNode.inputFormat(forBus: 0)
         if !engine.attachedNodes.contains(microphoneSinkNode) {
             engine.attach(microphoneSinkNode)
         }
+
+        try configureMicrophoneInput()
+
+        engine.prepare()
+        try engine.start()
+        didStartEngine = true
+    }
+
+    private func configureMicrophoneInput() throws {
+        if let selectedInputDeviceID {
+            try Self.setInputDevice(selectedInputDeviceID, on: engine.inputNode)
+        }
+
+        let inputFormat = engine.inputNode.inputFormat(forBus: 0)
+        engine.disconnectNodeOutput(engine.inputNode)
+        engine.disconnectNodeInput(microphoneSinkNode)
         engine.connect(engine.inputNode, to: microphoneSinkNode, format: inputFormat)
 
         engine.inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputFormat) { [weak self] buffer, _ in
@@ -279,7 +544,16 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
                 self?.processMicrophoneBuffer(copiedBuffer)
             }
         }
+    }
 
+    private func reconfigureMicrophoneInput() throws {
+        if engine.inputNode.numberOfInputs > 0 {
+            engine.inputNode.removeTap(onBus: 0)
+        }
+
+        engine.stop()
+        didStartEngine = false
+        try configureMicrophoneInput()
         engine.prepare()
         try engine.start()
         didStartEngine = true
@@ -351,8 +625,17 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             return
         }
 
-        publishSystemLevel(from: convertedBuffer)
-        writeSystemAudioBuffer(convertedBuffer)
+        if systemAudioEnabled {
+            publishSystemLevel(from: convertedBuffer)
+            writeSystemAudioBuffer(convertedBuffer)
+        } else {
+            levelQueue.async { [weak self] in
+                guard let self else { return }
+                self.latestSystemLevel = 0
+                self.lastSystemLevelAt = 0
+                self.publishCombinedLevelLocked()
+            }
+        }
     }
 
     private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -634,6 +917,28 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             }
         default:
             throw RecordingError.microphonePermissionDenied
+        }
+    }
+
+    private static func setInputDevice(_ deviceID: AudioDeviceID, on inputNode: AVAudioInputNode) throws {
+        guard let audioUnit = inputNode.audioUnit else {
+            throw RecordingError.systemAudioCaptureFailed("Casablanca could not access the microphone input unit.")
+        }
+
+        var deviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+
+        guard status == noErr else {
+            throw RecordingError.systemAudioCaptureFailed(
+                "Casablanca could not switch microphones (Core Audio \(status))."
+            )
         }
     }
 

@@ -28,6 +28,10 @@
 		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
 		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
+		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
+		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
+		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
+		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +57,9 @@
 		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
+		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
+		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -61,6 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10024 /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +113,8 @@
 				B10004 /* CalendarService.swift */,
 				B10016 /* AudioRecordingService.swift */,
 				B10020 /* TranscriptionService.swift */,
+				B10023 /* SummarizationService.swift */,
+				B10024 /* ExportService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -127,6 +137,7 @@
 				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
 				B10021 /* TranscriptionView.swift */,
+				B10025 /* MenuBarMeetingView.swift */,
 				B10014 /* SettingsView.swift */,
 				E10011 /* Components */,
 			);
@@ -192,6 +203,9 @@
 			dependencies = (
 			);
 			name = Casablanca;
+			packageProductDependencies = (
+				J10002 /* WhisperKit */,
+			);
 			productName = Casablanca;
 			productReference = C10001 /* Casablanca.app */;
 			productType = "com.apple.product-type.application";
@@ -220,6 +234,9 @@
 				Base,
 			);
 			mainGroup = E10001;
+			packageReferences = (
+				J10001 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
 			productRefGroup = E10009 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -228,6 +245,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		J10001 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		J10002 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = J10001 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		F10003 /* Resources */ = {
@@ -265,6 +301,9 @@
 				A10019 /* TranscriptionService.swift in Sources */,
 				A10020 /* TranscriptionView.swift in Sources */,
 				A10021 /* MarkdownTextEditor.swift in Sources */,
+				A10022 /* SummarizationService.swift in Sources */,
+				A10023 /* ExportService.swift in Sources */,
+				A10025 /* MenuBarMeetingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

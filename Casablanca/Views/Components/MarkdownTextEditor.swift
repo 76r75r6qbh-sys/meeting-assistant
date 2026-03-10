@@ -347,6 +347,18 @@ enum MarkdownConverter {
         for (index, line) in lines.enumerated() {
             var processedLine = line
             var paragraphPrefix = ""
+            var lineBaseFont = baseFont
+
+            if processedLine.hasPrefix("# ") {
+                processedLine = String(processedLine.dropFirst(2))
+                lineBaseFont = .systemFont(ofSize: baseFont.pointSize + 8, weight: .bold)
+            } else if processedLine.hasPrefix("## ") {
+                processedLine = String(processedLine.dropFirst(3))
+                lineBaseFont = .systemFont(ofSize: baseFont.pointSize + 4, weight: .bold)
+            } else if processedLine.hasPrefix("### ") {
+                processedLine = String(processedLine.dropFirst(4))
+                lineBaseFont = .systemFont(ofSize: baseFont.pointSize + 2, weight: .bold)
+            }
 
             // Handle bullet lists
             if processedLine.hasPrefix("- ") {
@@ -364,12 +376,12 @@ enum MarkdownConverter {
             }
 
             // Parse inline formatting
-            let attributed = parseInlineFormatting(processedLine, baseFont: baseFont, fontManager: fm)
+            let attributed = parseInlineFormatting(processedLine, baseFont: lineBaseFont, fontManager: fm)
 
             // Prepend list prefix
             if !paragraphPrefix.isEmpty {
                 let prefixAttrs: [NSAttributedString.Key: Any] = [
-                    .font: baseFont,
+                    .font: lineBaseFont,
                     .foregroundColor: NSColor.labelColor,
                 ]
                 let prefixStr = NSAttributedString(string: paragraphPrefix, attributes: prefixAttrs)
@@ -383,7 +395,7 @@ enum MarkdownConverter {
 
             // Add newline between lines (not after last)
             if index < lines.count - 1 {
-                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont]))
+                result.append(NSAttributedString(string: "\n", attributes: [.font: lineBaseFont]))
             }
         }
 

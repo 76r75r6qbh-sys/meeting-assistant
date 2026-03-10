@@ -41,6 +41,7 @@ struct RecordingView: View {
         }
         .navigationTitle("\(meeting.title) · Recording")
         .task {
+            recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startIfNeeded()
         }
         .alert("Recording Error", isPresented: recordingErrorBinding) {
@@ -91,6 +92,57 @@ struct RecordingView: View {
                     .font(.system(.title3, design: .rounded, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
+            }
+
+            HStack(spacing: CasaSpace.sm) {
+                Text("Transcription Language")
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+
+                Picker("Transcription Language", selection: $meeting.transcriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                        Text(language.name).tag(language.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 180)
+                .onChange(of: meeting.transcriptionLanguage) {
+                    save()
+                }
+            }
+
+            HStack(spacing: CasaSpace.md) {
+                HStack(spacing: CasaSpace.sm) {
+                    Text("Microphone")
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+
+                    if recordingService.availableInputDevices.isEmpty {
+                        Text("No microphone found")
+                            .font(.callout)
+                            .foregroundStyle(Color.textTertiary)
+                    } else {
+                        Picker("Microphone", selection: selectedMicrophoneBinding) {
+                            ForEach(recordingService.availableInputDevices) { device in
+                                Text(device.name).tag(device.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 220)
+                        .disabled(recordingService.isPreparing)
+                    }
+                }
+
+                Button {
+                    recordingService.toggleSystemAudioEnabled()
+                } label: {
+                    Label(
+                        recordingService.isSystemAudioEnabled ? "System Audio On" : "System Audio Off",
+                        systemImage: recordingService.isSystemAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"
+                    )
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(recordingService.isPreparing)
             }
 
             Text(statusMessage)
@@ -300,9 +352,23 @@ struct RecordingView: View {
             return "Casablanca is attaching to your microphone and system audio."
         }
         if recordingService.isRecording {
-            return "Microphone and system audio are being mixed into a single local WAV file."
+            if recordingService.isSystemAudioEnabled {
+                return "The selected microphone and system audio are being mixed into a single local WAV file."
+            }
+            return "Only the selected microphone is being recorded right now. System audio is muted."
         }
         return "Waiting for the recording pipeline to start."
+    }
+
+    private var selectedMicrophoneBinding: Binding<String> {
+        Binding(
+            get: { recordingService.selectedInputDeviceID },
+            set: { newValue in
+                Task {
+                    await recordingService.selectInputDevice(newValue)
+                }
+            }
+        )
     }
 
     private var formattedElapsed: String {
@@ -371,6 +437,7 @@ struct RecordingView: View {
 
     private func save() {
         try? modelContext.save()
+        ExportService.exportAutomaticallyIfEnabled(meeting)
     }
 
     private func openPrivacySettings(anchor: String) {

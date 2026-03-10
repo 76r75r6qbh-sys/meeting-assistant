@@ -3,7 +3,7 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @State var viewModel: MeetingListViewModel
+    @Bindable var viewModel: MeetingListViewModel
     @State private var recordingService = AudioRecordingService()
     @State private var transcriptionService = TranscriptionService()
 

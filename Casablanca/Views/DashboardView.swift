@@ -228,9 +228,7 @@ struct DashboardView: View {
 
     private var manualMeetingButton: some View {
         Button {
-            if let meeting = viewModel.createManualMeeting(title: "") {
-                viewModel.selectedMeeting = meeting
-            }
+            viewModel.beginManualMeeting()
         } label: {
             Label("Manual Meeting", systemImage: "plus.circle")
         }
@@ -244,9 +242,7 @@ struct DashboardView: View {
             Text("Your calendar is clear. Start a manual meeting or check back later.")
         } actions: {
             Button {
-                if let meeting = viewModel.createManualMeeting(title: "") {
-                    viewModel.selectedMeeting = meeting
-                }
+                viewModel.beginManualMeeting()
             } label: {
                 Label("Start Manual Meeting", systemImage: "plus.circle")
             }
