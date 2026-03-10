@@ -54,7 +54,7 @@ struct MeetingCardView: View {
                 Text(timeUntil)
                     .font(.caption)
                     .monospacedDigit()
-                    .foregroundStyle(Color.accentPrimary)
+                    .foregroundStyle(Color.accentColor)
             }
 
             // Action buttons
@@ -89,6 +89,7 @@ struct MeetingCardView: View {
         }
         .cardStyle(isHighlighted: isNextUpcoming)
         .opacity(isPast ? 0.7 : 1.0)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -102,7 +103,7 @@ struct MeetingCardView: View {
     private var dotColor: Color {
         if isHappening { return .stateLive }
         if isPast { return .stateIdle }
-        if isNextUpcoming { return .accentPrimary }
+        if isNextUpcoming { return .accentColor }
         return .stateIdle.opacity(0.5)
     }
 

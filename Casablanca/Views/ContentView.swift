@@ -6,14 +6,15 @@ struct ContentView: View {
     @Bindable var viewModel: MeetingListViewModel
     @State private var recordingService = AudioRecordingService()
     @State private var transcriptionService = TranscriptionService()
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
         }
-        .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         .onAppear {
             viewModel.setModelContext(modelContext)
         }

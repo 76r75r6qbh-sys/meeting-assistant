@@ -55,7 +55,7 @@ struct DashboardView: View {
                         set: { selectedDay = $0 }
                     ))
                 }
-                .animation(.easeInOut(duration: CasaDuration.standard), value: selectedDay)
+                .animation(CasaAnimation.standard, value: selectedDay)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -102,7 +102,7 @@ struct DashboardView: View {
                             .frame(minWidth: 96, alignment: .leading)
                             .padding(.vertical, CasaSpace.sm)
                             .padding(.horizontal, CasaSpace.md)
-                            .background(isSelectedDay(date) ? Color.accentPrimary : Color.backgroundTertiary)
+                            .background(isSelectedDay(date) ? Color.accentColor : Color.backgroundTertiary)
                             .foregroundStyle(isSelectedDay(date) ? Color.white : Color.textPrimary)
                             .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
                             .overlay {
@@ -155,7 +155,6 @@ struct DashboardView: View {
             }
             .padding(CasaSpace.lg)
         }
-        .cardStyle()
     }
 
     private var previousDay: Date? {

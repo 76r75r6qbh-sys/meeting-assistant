@@ -17,7 +17,6 @@ struct TranscriptionView: View {
             Divider()
             segmentsList
         }
-        .background(Color.backgroundPrimary)
         .navigationTitle("\(meeting.title) \u{00B7} Transcribing")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -109,7 +108,7 @@ struct TranscriptionView: View {
             .onChange(of: transcriptionService.currentSegments.count) {
                 // Auto-scroll to latest segment
                 if let last = transcriptionService.currentSegments.last {
-                    withAnimation(.easeOut(duration: CasaDuration.standard)) {
+                    withAnimation(CasaAnimation.standard) {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }

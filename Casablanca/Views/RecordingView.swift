@@ -14,6 +14,7 @@ struct RecordingView: View {
     @State private var showFreeformNotes = false
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @FocusState private var isNoteFieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,13 +31,25 @@ struct RecordingView: View {
             Divider()
             footer
         }
-        .background(Color.backgroundPrimary)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(action: onBack) {
                     Label("Back", systemImage: "chevron.left")
                 }
                 .disabled(recordingService.isRecording && recordingService.activeMeetingID == meeting.id)
+            }
+
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: CasaSpace.sm) {
+                    Circle()
+                        .fill(recordingService.isRecording ? Color.stateRecording : Color.stateIdle)
+                        .frame(width: 8, height: 8)
+                    Text(formattedElapsed)
+                        .font(.body.monospacedDigit())
+                        .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(recordingService.isRecording ? "Recording, elapsed time \(formattedElapsed)" : "Not recording")
             }
         }
         .navigationTitle("\(meeting.title) · Recording")
@@ -75,11 +88,12 @@ struct RecordingView: View {
                         .frame(width: 10, height: 10)
                         .scaleEffect(recordingService.isRecording ? 1 : 0.85)
                         .animation(
-                            recordingService.isRecording
-                            ? .easeInOut(duration: CasaDuration.standard).repeatForever(autoreverses: true)
+                            recordingService.isRecording && !reduceMotion
+                            ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
                             : .default,
                             value: recordingService.isRecording
                         )
+                        .accessibilityLabel(recordingService.isRecording ? "Recording in progress" : "Not recording")
 
                     Text(statusTitle)
                         .font(.headline)
@@ -89,9 +103,10 @@ struct RecordingView: View {
                 Spacer()
 
                 Text(formattedElapsed)
-                    .font(.system(.title3, design: .rounded, weight: .semibold))
+                    .font(.system(.title3, design: .default, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
+                    .accessibilityLabel("Elapsed time: \(formattedElapsed)")
             }
 
             HStack(spacing: CasaSpace.sm) {
@@ -208,7 +223,7 @@ struct RecordingView: View {
                 }
                 .onChange(of: meeting.timestampedNotes.count) {
                     if let last = meeting.timestampedNotes.last {
-                        withAnimation(.easeOut(duration: CasaDuration.standard)) {
+                        withAnimation(CasaAnimation.standard) {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
@@ -226,10 +241,10 @@ struct RecordingView: View {
         HStack(alignment: .top, spacing: CasaSpace.sm) {
             Text(note.formattedTimestamp)
                 .font(.caption.monospaced())
-                .foregroundStyle(Color.accentPrimary)
+                .foregroundStyle(Color.accentColor)
                 .padding(.horizontal, CasaSpace.xs)
                 .padding(.vertical, CasaSpace.xxs)
-                .background(Color.accentPrimary.opacity(0.1))
+                .background(Color.accentColor.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
                 .frame(minWidth: 52, alignment: .center)
 
@@ -266,13 +281,14 @@ struct RecordingView: View {
                 Image(systemName: "plus.circle.fill")
                     .font(.title3)
                     .foregroundStyle(noteText.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? Color.textTertiary : Color.accentPrimary)
+                        ? Color.textTertiary : Color.accentColor)
             }
             .buttonStyle(.plain)
             .disabled(noteText.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .padding(.horizontal, CasaSpace.lg)
         .padding(.vertical, CasaSpace.md)
+        .background(.bar)
     }
 
     // MARK: - Freeform Notes

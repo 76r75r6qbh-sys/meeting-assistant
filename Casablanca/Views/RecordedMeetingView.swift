@@ -34,6 +34,22 @@ struct RecordedMeetingView: View {
         .frame(maxWidth: CasaLayout.contentMaxWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("\(meeting.title) \u{00B7} \(meeting.transcript != nil ? "Transcribed" : "Saved")")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if meeting.transcript == nil && meeting.recordingFileURL != nil {
+                    Button(action: onTranscribe) {
+                        Label("Transcribe", systemImage: "waveform")
+                    }
+                }
+
+                Button {
+                    exportMeeting()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(!canExport)
+            }
+        }
         .task(id: meeting.id) {
             await triggerAutomaticSummaryIfNeeded()
         }
@@ -49,49 +65,58 @@ struct RecordedMeetingView: View {
     // MARK: - Status Card
 
     private var statusCard: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
-            Label("Recording Saved", systemImage: "checkmark.circle.fill")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Color.accentSuccess)
+        GroupBox {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                Label("Recording Saved", systemImage: "checkmark.circle.fill")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.accentSuccess)
 
-            if meeting.transcript != nil {
-                Text("Meeting has been recorded and transcribed.")
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
-            } else {
-                Text("The meeting audio is stored locally and ready for transcription.")
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
+                if meeting.transcript != nil {
+                    Text("Meeting has been recorded and transcribed.")
+                        .font(.body)
+                        .foregroundStyle(Color.textSecondary)
+                } else {
+                    Text("The meeting audio is stored locally and ready for transcription.")
+                        .font(.body)
+                        .foregroundStyle(Color.textSecondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .cardStyle()
     }
 
-    // MARK: - Metadata Card
+    // MARK: - Metadata
 
     private var metadataCard: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
-            metadataRow(title: "Meeting", value: meeting.title)
-            metadataRow(title: "Scheduled", value: meeting.formattedTime)
+        GroupBox {
+            VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                LabeledContent("Meeting", value: meeting.title)
+                LabeledContent("Scheduled", value: meeting.formattedTime)
 
-            if let duration = meeting.recordingDuration {
-                metadataRow(title: "Recorded", value: duration.formattedRecordingDuration)
-            }
+                if let duration = meeting.recordingDuration {
+                    LabeledContent("Recorded", value: duration.formattedRecordingDuration)
+                }
 
-            if let recordingPath = meeting.recordingFileURL {
-                metadataRow(title: "File", value: recordingPath)
+                if let recordingPath = meeting.recordingFileURL {
+                    LabeledContent("File") {
+                        Text(recordingPath)
+                            .textSelection(.enabled)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .cardStyle()
     }
 
     // MARK: - Transcript Card
 
     private var summaryCard: some View {
+        GroupBox {
         VStack(alignment: .leading, spacing: CasaSpace.md) {
             HStack {
                 Label("Summary", systemImage: "sparkles")
                     .font(.headline)
+                    .symbolRenderingMode(.hierarchical)
 
                 Spacer()
 
@@ -148,16 +173,19 @@ struct RecordedMeetingView: View {
                     .foregroundStyle(Color.textSecondary)
             }
         }
-        .cardStyle()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder
     private var transcriptCard: some View {
         if let transcript = meeting.transcript {
+            GroupBox {
             VStack(alignment: .leading, spacing: CasaSpace.md) {
                 HStack {
                     Label("Transcript", systemImage: "doc.text")
                         .font(.headline)
+                        .symbolRenderingMode(.hierarchical)
 
                     Spacer()
 
@@ -196,7 +224,8 @@ struct RecordedMeetingView: View {
                         .lineSpacing(4)
                 }
             }
-            .cardStyle()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -205,6 +234,7 @@ struct RecordedMeetingView: View {
     @ViewBuilder
     private var timestampedNotesCard: some View {
         if !meeting.timestampedNotes.isEmpty {
+            GroupBox {
             VStack(alignment: .leading, spacing: CasaSpace.md) {
                 HStack {
                     Label("Meeting Notes", systemImage: "clock")
@@ -246,10 +276,10 @@ struct RecordedMeetingView: View {
                             HStack(alignment: .top, spacing: CasaSpace.sm) {
                                 Text(note.formattedTimestamp)
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(Color.accentPrimary)
+                                    .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, CasaSpace.xs)
                                     .padding(.vertical, CasaSpace.xxs)
-                                    .background(Color.accentPrimary.opacity(0.1))
+                                    .background(Color.accentColor.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
                                     .frame(minWidth: 52, alignment: .center)
 
@@ -278,7 +308,7 @@ struct RecordedMeetingView: View {
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty
-                                    ? Color.textTertiary : Color.accentPrimary)
+                                    ? Color.textTertiary : Color.accentColor)
                         }
                         .buttonStyle(.plain)
                         .disabled(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -288,7 +318,8 @@ struct RecordedMeetingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
                 }
             }
-            .cardStyle()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -296,10 +327,12 @@ struct RecordedMeetingView: View {
 
     @ViewBuilder
     private var freeformNotesCard: some View {
+        GroupBox {
         VStack(alignment: .leading, spacing: CasaSpace.md) {
             HStack {
                 Label("Notes", systemImage: "pencil.line")
                     .font(.headline)
+                    .symbolRenderingMode(.hierarchical)
 
                 Spacer()
 
@@ -343,7 +376,8 @@ struct RecordedMeetingView: View {
                     .italic()
             }
         }
-        .cardStyle()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     // MARK: - Language & Actions
@@ -363,7 +397,6 @@ struct RecordedMeetingView: View {
                     .labelsHidden()
                     .frame(width: 160)
                 }
-                .cardStyle()
             }
 
             HStack(spacing: CasaSpace.sm) {
@@ -569,18 +602,6 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private func metadataRow(title: String, value: String) -> some View {
-        HStack(alignment: .top) {
-            Text(title)
-                .foregroundStyle(Color.textTertiary)
-                .frame(width: 80, alignment: .leading)
-
-            Text(value)
-                .foregroundStyle(Color.textPrimary)
-                .textSelection(.enabled)
-        }
-        .font(.body)
-    }
 }
 
 private extension TimeInterval {

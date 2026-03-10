@@ -7,7 +7,34 @@ final class MeetingListViewModel {
     private let calendarService: CalendarService
     private var modelContext: ModelContext?
 
-    var selectedMeeting: Meeting?
+    var selectedMeeting: Meeting? {
+        didSet {
+            // Keep sidebar selection in sync
+            if let meeting = selectedMeeting {
+                _sidebarSelection = .meeting(meeting.id)
+            } else {
+                _sidebarSelection = .dashboard
+            }
+        }
+    }
+
+    private var _sidebarSelection: SidebarDestination = .dashboard
+
+    var sidebarSelection: SidebarDestination? {
+        get { _sidebarSelection }
+        set {
+            guard let newValue else { return }
+            _sidebarSelection = newValue
+            switch newValue {
+            case .dashboard:
+                selectedMeeting = nil
+            case .meeting(let id):
+                if selectedMeeting?.id != id {
+                    selectedMeeting = fetchMeeting(byID: id)
+                }
+            }
+        }
+    }
 
     init(calendarService: CalendarService) {
         self.calendarService = calendarService
@@ -53,6 +80,16 @@ final class MeetingListViewModel {
 
     func refreshEvents() async {
         await calendarService.fetchUpcomingEvents()
+    }
+
+    func fetchMeeting(byID id: UUID) -> Meeting? {
+        guard let modelContext else { return nil }
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate { meeting in
+                meeting.id == id
+            }
+        )
+        return try? modelContext.fetch(descriptor).first
     }
 
     func findOrCreateMeeting(for event: EKEvent) -> Meeting? {

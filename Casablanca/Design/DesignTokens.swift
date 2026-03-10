@@ -8,6 +8,7 @@ enum CasaSpace {
     static let sm: CGFloat = 8
     static let md: CGFloat = 12
     static let lg: CGFloat = 16
+    static let standard: CGFloat = 20
     static let xl: CGFloat = 24
     static let xxl: CGFloat = 32
     static let xxxl: CGFloat = 48
@@ -22,7 +23,7 @@ enum CasaRadius {
     static let xl: CGFloat = 12
 }
 
-// MARK: - Animation Durations
+// MARK: - Animation Durations (legacy — prefer CasaAnimation springs)
 
 enum CasaDuration {
     static let micro: Double = 0.1
@@ -30,6 +31,16 @@ enum CasaDuration {
     static let standard: Double = 0.2
     static let emphasis: Double = 0.3
     static let slow: Double = 0.4
+}
+
+// MARK: - Spring Animations (Apple HIG recommended)
+
+enum CasaAnimation {
+    static let micro = Animation.spring(response: 0.15, dampingFraction: 0.9)
+    static let fast = Animation.spring(response: 0.2, dampingFraction: 0.85)
+    static let standard = Animation.smooth
+    static let emphasis = Animation.spring(response: 0.4, dampingFraction: 0.75)
+    static let slow = Animation.spring(response: 0.5, dampingFraction: 0.8)
 }
 
 // MARK: - Layout Constants
