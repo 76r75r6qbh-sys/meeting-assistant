@@ -1,5 +1,8 @@
 import AVFoundation
 import Foundation
+import WhisperKit
+
+private typealias WhisperPipeline = WhisperKit
 
 /// Transcription segment with timestamp
 struct TranscriptSegment: Identifiable, Codable {
@@ -55,7 +58,7 @@ enum TranscriptionError: LocalizedError {
         case .fileNotFound(let path):
             return "Audio file not found at \(path)"
         case .invalidAudioFormat:
-            return "The audio file format is not supported. Expected WAV 16kHz mono."
+            return "The audio file could not be prepared for transcription."
         case .transcriptionFailed(let reason):
             return "Transcription failed: \(reason)"
         case .modelNotAvailable(let model):
@@ -66,14 +69,15 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
-/// Local transcription service using macOS Speech Recognition.
-///
-/// Uses Apple's on-device speech recognition (SFSpeechRecognizer) which works
-/// out of the box on macOS 14+ with no additional downloads. For higher accuracy,
-/// WhisperKit can be integrated as a future enhancement.
+/// Local transcription service backed by WhisperKit.
 @MainActor
 @Observable
 final class TranscriptionService {
+    struct WhisperModelOption: Identifiable {
+        let id: String
+        let name: String
+    }
+
     var isTranscribing = false
     var progress: Double = 0
     var statusMessage = ""
@@ -86,8 +90,20 @@ final class TranscriptionService {
         ("nl-NL", "Dutch"),
     ]
 
+    static let availableWhisperModels: [WhisperModelOption] = [
+        WhisperModelOption(id: "openai_whisper-tiny", name: "Tiny"),
+        WhisperModelOption(id: "openai_whisper-base", name: "Base"),
+        WhisperModelOption(id: "openai_whisper-small", name: "Small"),
+        WhisperModelOption(id: "openai_whisper-medium", name: "Medium"),
+        WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3"),
+    ]
+
+    private static let whisperControlTokenRegex = try! NSRegularExpression(pattern: #"<\|[^|>]+?\|>"#)
+
     private var transcriptionTask: Task<TranscriptionResult, Error>?
     private var highWaterProgress: Double = 0
+    private var whisperKit: WhisperPipeline?
+    private var loadedWhisperModelID: String?
 
     /// Transcribe an audio file at the given URL
     func transcribe(fileURL: URL, localeIdentifier: String = "en-US") async throws -> TranscriptionResult {
@@ -121,12 +137,9 @@ final class TranscriptionService {
         statusMessage = "Cancelled"
     }
 
-    // MARK: - Speech Recognition Implementation
+    // MARK: - Whisper Implementation
 
     private func performTranscription(fileURL: URL, localeIdentifier: String) async throws -> TranscriptionResult {
-        await updateStatus("Loading audio file...", progress: 0.05)
-
-        // Get audio duration for progress tracking
         let asset = AVURLAsset(url: fileURL)
         let duration: TimeInterval
         if #available(macOS 15, *) {
@@ -139,56 +152,167 @@ final class TranscriptionService {
             throw TranscriptionError.invalidAudioFormat
         }
 
-        let locale = Locale(identifier: localeIdentifier)
-        await updateStatus("Starting speech recognition (\(locale.language.languageCode?.identifier ?? localeIdentifier))...", progress: 0.1)
+        await updateStatus("Preparing local Whisper model...", progress: 0.05)
 
-        // Use Apple's SFSpeechRecognizer for on-device transcription
-        let segments = try await transcribeWithSpeechFramework(fileURL: fileURL, totalDuration: duration, locale: locale)
+        let whisperKit = try await loadWhisperKit()
+        whisperKit.segmentDiscoveryCallback = { [weak self] segments in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let mappedSegments = segments
+                    .compactMap { segment in
+                        Self.makeTranscriptSegment(
+                            startTime: TimeInterval(segment.start),
+                            endTime: TimeInterval(segment.end),
+                            rawText: segment.text
+                        )
+                    }
+                self.currentSegments = mappedSegments
+
+                let lastTimestamp = mappedSegments.last?.endTime ?? 0
+                let progressValue = min(0.1 + (lastTimestamp / max(duration, 1)) * 0.85, 0.95)
+                let clampedProgress = max(progressValue, self.highWaterProgress)
+                self.highWaterProgress = clampedProgress
+                self.progress = clampedProgress
+                self.statusMessage = "Transcribing with local Whisper..."
+            }
+        }
+
+        let decodeOptions = DecodingOptions(
+            verbose: false,
+            task: .transcribe,
+            language: Self.whisperLanguageCode(for: localeIdentifier),
+            temperature: 0,
+            withoutTimestamps: false,
+            wordTimestamps: false,
+            chunkingStrategy: .vad
+        )
+
+        let results = try await whisperKit.transcribe(
+            audioPath: fileURL.path,
+            decodeOptions: decodeOptions,
+            callback: { _ in
+                Task.isCancelled ? false : true
+            }
+        )
 
         try Task.checkCancellation()
 
+        let segments = results
+            .flatMap(\.segments)
+            .compactMap { segment in
+                Self.makeTranscriptSegment(
+                    startTime: TimeInterval(segment.start),
+                    endTime: TimeInterval(segment.end),
+                    rawText: segment.text
+                )
+            }
+        currentSegments = segments
         await updateStatus("Transcription complete", progress: 1.0)
 
-        let fullText = segments.map(\.text).joined(separator: " ")
+        let fullText = results
+            .map(\.text)
+            .map(Self.cleanWhisperText)
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
         return TranscriptionResult(segments: segments, fullText: fullText, duration: duration)
     }
 
-    private func transcribeWithSpeechFramework(fileURL: URL, totalDuration: TimeInterval, locale: Locale) async throws -> [TranscriptSegment] {
-        guard NSClassFromString("SFSpeechRecognizer") != nil else {
-            throw TranscriptionError.transcriptionFailed("Speech framework not available")
+    private func loadWhisperKit() async throws -> WhisperPipeline {
+        let selectedModel = UserDefaults.standard.string(forKey: AppPreferenceKey.whisperModel)
+            ?? AppPreferenceValue.defaultWhisperModel
+
+        if let whisperKit, loadedWhisperModelID == selectedModel {
+            return whisperKit
         }
 
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TranscriptSegment], Error>) in
-            SpeechRecognitionHelper.recognize(
-                fileURL: fileURL,
-                totalDuration: totalDuration,
-                locale: locale,
-                onProgress: { [weak self] progress, message, segments in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        // Monotonically increasing progress — never go backwards
-                        let clampedProgress = max(progress, self.highWaterProgress)
-                        self.highWaterProgress = clampedProgress
-                        self.progress = clampedProgress
-                        self.statusMessage = message
-                        self.currentSegments = segments
-                    }
-                },
-                completion: { result in
-                    switch result {
-                    case .success(let segments):
-                        continuation.resume(returning: segments)
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
+        do {
+            let pipeline = try await WhisperPipeline(
+                WhisperKitConfig(
+                    model: selectedModel,
+                    downloadBase: try Self.whisperDownloadBaseURL(),
+                    verbose: false,
+                    logLevel: .none,
+                    prewarm: false,
+                    load: true,
+                    download: true
+                )
+            )
+            pipeline.modelStateCallback = { [weak self] _, newState in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch newState {
+                    case .downloading:
+                        self.statusMessage = "Downloading local Whisper model..."
+                    case .downloaded:
+                        self.statusMessage = "Local Whisper model downloaded. Loading..."
+                    case .loading, .prewarming:
+                        self.statusMessage = "Loading local Whisper model..."
+                    case .loaded, .prewarmed:
+                        if self.statusMessage.isEmpty || self.progress < 0.1 {
+                            self.statusMessage = "Local Whisper model ready."
+                        }
+                    default:
+                        break
                     }
                 }
-            )
+            }
+            self.whisperKit = pipeline
+            self.loadedWhisperModelID = selectedModel
+            return pipeline
+        } catch {
+            throw TranscriptionError.modelNotAvailable(error.localizedDescription)
         }
     }
 
     private func updateStatus(_ message: String, progress: Double) async {
         self.statusMessage = message
         self.progress = progress
+    }
+
+    private static func whisperLanguageCode(for localeIdentifier: String) -> String {
+        let locale = Locale(identifier: localeIdentifier)
+        if #available(macOS 14, *) {
+            if let languageCode = locale.language.languageCode?.identifier {
+                return languageCode
+            }
+        }
+        return localeIdentifier.split(separator: "-").first.map(String.init) ?? "en"
+    }
+
+    private static func cleanWhisperText(_ text: String) -> String {
+        let nsRange = NSRange(text.startIndex..., in: text)
+        let withoutControlTokens = whisperControlTokenRegex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: nsRange,
+            withTemplate: " "
+        )
+
+        let withoutExtraWhitespace = withoutControlTokens
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+([,.;:!?])"#, with: "$1", options: .regularExpression)
+
+        return withoutExtraWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func makeTranscriptSegment(startTime: TimeInterval, endTime: TimeInterval, rawText: String) -> TranscriptSegment? {
+        let cleanedText = cleanWhisperText(rawText)
+        guard !cleanedText.isEmpty else {
+            return nil
+        }
+
+        return TranscriptSegment(
+            startTime: startTime,
+            endTime: endTime,
+            text: cleanedText
+        )
+    }
+
+    private static func whisperDownloadBaseURL() throws -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let modelsDirectory = appSupport.appendingPathComponent("Casablanca/Models", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+        return modelsDirectory
     }
 
     // MARK: - Transcription File Storage
@@ -215,141 +339,5 @@ final class TranscriptionService {
 
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
         return fileURL
-    }
-}
-
-// MARK: - Speech Recognition Helper
-
-import Speech
-
-/// Helper that wraps SFSpeechRecognizer for audio file transcription
-private final class SpeechRecognitionHelper: NSObject {
-
-    static func recognize(
-        fileURL: URL,
-        totalDuration: TimeInterval,
-        locale: Locale,
-        onProgress: @escaping (Double, String, [TranscriptSegment]) -> Void,
-        completion: @escaping (Result<[TranscriptSegment], Error>) -> Void
-    ) {
-        // Request authorization
-        SFSpeechRecognizer.requestAuthorization { status in
-            guard status == .authorized else {
-                completion(.failure(TranscriptionError.transcriptionFailed(
-                    "Speech recognition not authorized. Please enable it in System Settings > Privacy & Security > Speech Recognition."
-                )))
-                return
-            }
-
-            guard let recognizer = SFSpeechRecognizer(locale: locale) else {
-                completion(.failure(TranscriptionError.transcriptionFailed("Speech recognizer not available for \(locale.identifier). Check that the language is installed in System Settings > General > Language & Region.")))
-                return
-            }
-
-            guard recognizer.isAvailable else {
-                completion(.failure(TranscriptionError.transcriptionFailed("Speech recognizer is not currently available")))
-                return
-            }
-
-            let request = SFSpeechURLRecognitionRequest(url: fileURL)
-            request.shouldReportPartialResults = true
-            request.addsPunctuation = true
-
-            // Use on-device if available, otherwise fall back to default
-            if recognizer.supportsOnDeviceRecognition {
-                request.requiresOnDeviceRecognition = true
-            }
-
-            var bestSegments: [TranscriptSegment] = []
-            var bestMerged: [TranscriptSegment] = []
-            var hasCompleted = false
-
-            recognizer.recognitionTask(with: request) { result, error in
-                if hasCompleted { return }
-
-                if let result {
-                    // Build segments from transcription results
-                    let newSegments = result.bestTranscription.segments.map { segment in
-                        TranscriptSegment(
-                            startTime: segment.timestamp,
-                            endTime: segment.timestamp + segment.duration,
-                            text: segment.substring
-                        )
-                    }
-
-                    // Keep the best (most content) segments seen so far —
-                    // SFSpeechRecognizer can revise the final result to be empty
-                    if newSegments.count >= bestSegments.count {
-                        bestSegments = newSegments
-                        bestMerged = Self.mergeSegments(bestSegments, maxGap: 1.5, maxLength: 200)
-                    }
-
-                    // Report progress based on how far into the audio we are
-                    let lastTimestamp = result.bestTranscription.segments.last?.timestamp ?? 0
-                    let progressValue = min(0.1 + (lastTimestamp / max(totalDuration, 1)) * 0.85, 0.95)
-                    let progressPercent = Int(progressValue * 100)
-                    onProgress(progressValue, "Transcribing... \(progressPercent)%", bestMerged)
-
-                    if result.isFinal {
-                        hasCompleted = true
-                        onProgress(0.98, "Finalizing transcript...", bestMerged)
-                        completion(.success(bestMerged))
-                    }
-                }
-
-                if let error, !hasCompleted {
-                    hasCompleted = true
-                    // SFSpeechRecognizer often fires an error after partial results
-                    // without ever setting isFinal. Return best segments we collected.
-                    if !bestMerged.isEmpty {
-                        onProgress(0.98, "Finalizing transcript...", bestMerged)
-                        completion(.success(bestMerged))
-                    } else {
-                        completion(.failure(TranscriptionError.transcriptionFailed(error.localizedDescription)))
-                    }
-                }
-            }
-        }
-    }
-
-    /// Merge very short consecutive segments into longer sentence-like chunks
-    private static func mergeSegments(_ segments: [TranscriptSegment], maxGap: TimeInterval, maxLength: Int) -> [TranscriptSegment] {
-        guard !segments.isEmpty else { return [] }
-
-        var merged: [TranscriptSegment] = []
-        var currentStart = segments[0].startTime
-        var currentEnd = segments[0].endTime
-        var currentText = segments[0].text
-
-        for i in 1..<segments.count {
-            let segment = segments[i]
-            let gap = segment.startTime - currentEnd
-            let wouldBeTooLong = (currentText.count + segment.text.count + 1) > maxLength
-
-            if gap > maxGap || wouldBeTooLong {
-                // Finish current merged segment
-                merged.append(TranscriptSegment(
-                    startTime: currentStart,
-                    endTime: currentEnd,
-                    text: currentText.trimmingCharacters(in: .whitespaces)
-                ))
-                currentStart = segment.startTime
-                currentEnd = segment.endTime
-                currentText = segment.text
-            } else {
-                // Merge into current
-                currentEnd = segment.endTime
-                currentText += " " + segment.text
-            }
-        }
-
-        // Don't forget the last segment
-        merged.append(TranscriptSegment(
-            startTime: currentStart,
-            endTime: currentEnd,
-            text: currentText.trimmingCharacters(in: .whitespaces)
-        ))
-
-        return merged
     }
 }

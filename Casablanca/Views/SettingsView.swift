@@ -1,15 +1,20 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("obsidianVaultPath") private var obsidianVaultPath = ""
-    @AppStorage("ollamaEndpoint") private var ollamaEndpoint = "http://localhost:11434"
-    @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
-    @AppStorage("whisperModelSize") private var whisperModelSize = "base"
-    @AppStorage("defaultTranscriptionLanguage") private var defaultTranscriptionLanguage = "en-US"
-    @AppStorage("summaryPromptTemplate") private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
+    @AppStorage(AppPreferenceKey.obsidianVaultPath) private var obsidianVaultPath = ""
+    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
+    @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+    @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
+    @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
+    @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
+    @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
+    @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @State private var availableOllamaModels: [String] = []
     @State private var isLoadingOllamaModels = false
     @State private var ollamaModelsError = ""
+    @State private var availableInputDevices: [AudioInputDevice] = []
+    @State private var systemDefaultInputDeviceName = ""
 
     var body: some View {
         TabView {
@@ -25,6 +30,7 @@ struct SettingsView: View {
         }
         .frame(width: 560, height: 520)
         .task {
+            refreshRecordingInputDevices()
             await refreshOllamaModels()
         }
     }
@@ -54,6 +60,31 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
+
+                Toggle("Automatically export notes to Obsidian", isOn: $autoExportNotesToObsidian)
+
+                Text("When enabled, Casablanca keeps the raw notes file up to date automatically and re-exports completed meetings after transcription or summary updates.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Recording") {
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
+                        ForEach(recordingInputOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+
+                    Button("Refresh Devices") {
+                        refreshRecordingInputDevices()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
             }
         }
         .padding()
@@ -69,6 +100,22 @@ struct SettingsView: View {
                 }
 
                 Text("Can be overridden per meeting before transcribing")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Picker("Local Whisper model", selection: $whisperModel) {
+                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+
+                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
+
+                Text("When enabled, Casablanca generates the meeting summary as soon as a recording finishes transcribing.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -156,6 +203,40 @@ struct SettingsView: View {
         return [ollamaModel] + availableOllamaModels
     }
 
+    private var recordingInputOptions: [(id: String, label: String)] {
+        var options: [(id: String, label: String)] = [
+            (
+                id: AppPreferenceValue.systemDefaultRecordingInputDevice,
+                label: systemDefaultPickerLabel
+            )
+        ]
+
+        if defaultRecordingInputDeviceID != AppPreferenceValue.systemDefaultRecordingInputDevice,
+           !availableInputDevices.contains(where: { $0.id == defaultRecordingInputDeviceID }) {
+            options.append((
+                id: defaultRecordingInputDeviceID,
+                label: "Unavailable device (\(defaultRecordingInputDeviceID))"
+            ))
+        }
+
+        options.append(contentsOf: availableInputDevices.map { ($0.id, $0.name) })
+        return options
+    }
+
+    private var systemDefaultPickerLabel: String {
+        if systemDefaultInputDeviceName.isEmpty {
+            return "System Default"
+        }
+        return "System Default (\(systemDefaultInputDeviceName))"
+    }
+
+    private var systemDefaultInputDeviceDescription: String {
+        if systemDefaultInputDeviceName.isEmpty {
+            return "Choose a specific microphone or let Casablanca follow the current macOS system default input device."
+        }
+        return "macOS currently reports “\(systemDefaultInputDeviceName)” as the system default microphone."
+    }
+
     private func refreshOllamaModels() async {
         isLoadingOllamaModels = true
         ollamaModelsError = ""
@@ -175,5 +256,14 @@ struct SettingsView: View {
             availableOllamaModels = []
             ollamaModelsError = error.localizedDescription
         }
+    }
+
+    private func refreshRecordingInputDevices() {
+        if defaultRecordingInputDeviceID.isEmpty {
+            defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+        }
+
+        availableInputDevices = AudioRecordingService.availableRecordingInputDevices()
+        systemDefaultInputDeviceName = AudioRecordingService.systemDefaultInputDeviceName() ?? ""
     }
 }

@@ -98,7 +98,7 @@ final class SummarizationService {
         defer { isSummarizing = false }
 
         let prompt = Self.renderPrompt(
-            template: UserDefaults.standard.string(forKey: "summaryPromptTemplate") ?? Self.defaultPromptTemplate,
+            template: UserDefaults.standard.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             meeting: meeting,
             transcript: transcript,
             timestampedNotes: timestampedNotes,
@@ -111,7 +111,7 @@ final class SummarizationService {
         request.timeoutInterval = 120
         request.httpBody = try JSONEncoder().encode(
             OllamaGenerateRequest(
-                model: UserDefaults.standard.string(forKey: "ollamaModel") ?? "llama3.2",
+                model: UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaModel) ?? "llama3.2",
                 prompt: prompt,
                 stream: false
             )
@@ -157,7 +157,7 @@ final class SummarizationService {
 
     static func fetchAvailableModels(endpoint: String? = nil) async throws -> [String] {
         guard let url = makeURL(
-            endpoint: endpoint ?? UserDefaults.standard.string(forKey: "ollamaEndpoint") ?? "http://localhost:11434",
+            endpoint: endpoint ?? UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434",
             path: "tags"
         ) else {
             throw SummarizationError.invalidEndpoint
@@ -191,7 +191,7 @@ final class SummarizationService {
 
     private func makeGenerateURL() -> URL? {
         Self.makeURL(
-            endpoint: UserDefaults.standard.string(forKey: "ollamaEndpoint") ?? "http://localhost:11434",
+            endpoint: UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434",
             path: "generate"
         )
     }

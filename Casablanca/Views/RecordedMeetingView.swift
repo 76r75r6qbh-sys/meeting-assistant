@@ -13,6 +13,8 @@ struct RecordedMeetingView: View {
     @State private var isEditingNotes = false
     @State private var newNoteText = ""
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
+    @State private var saveTask: Task<Void, Never>?
+    @State private var didTriggerAutomaticSummary = false
 
     var body: some View {
         ScrollView {
@@ -32,6 +34,9 @@ struct RecordedMeetingView: View {
         .frame(maxWidth: CasaLayout.contentMaxWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("\(meeting.title) \u{00B7} \(meeting.transcript != nil ? "Transcribed" : "Saved")")
+        .task(id: meeting.id) {
+            await triggerAutomaticSummaryIfNeeded()
+        }
         .alert("Summary Error", isPresented: summaryErrorBinding) {
             Button("OK", role: .cancel) {
                 summarizationService.clearError()
@@ -320,7 +325,7 @@ struct RecordedMeetingView: View {
                     )
                     .frame(minHeight: 120)
                     .onChange(of: meeting.userNotes) {
-                        save()
+                        debouncedSave()
                     }
                 }
                 .padding(CasaSpace.sm)
@@ -381,6 +386,14 @@ struct RecordedMeetingView: View {
                     .disabled(!canSummarize || summarizationService.isSummarizing)
                 }
 
+                Button {
+                    exportMeeting()
+                } label: {
+                    Label("Export to Obsidian", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(!canExport)
+
                 if meeting.transcript != nil {
                     Button(action: onRecordAgain) {
                         Label("Record Again", systemImage: "record.circle")
@@ -435,6 +448,12 @@ struct RecordedMeetingView: View {
         meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasNotes
     }
 
+    private var canExport: Bool {
+        meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || hasNotes
+    }
+
     private var summaryErrorBinding: Binding<Bool> {
         Binding(
             get: { summarizationService.errorMessage != nil },
@@ -456,8 +475,76 @@ struct RecordedMeetingView: View {
         }
     }
 
+    private func exportMeeting() {
+        save()
+
+        do {
+            let result = try ExportService.exportCompletedMeeting(meeting)
+            let message: String
+            if result.summaryURL != nil {
+                message = "Saved the summary note and raw notes to your Obsidian meeting notes folder."
+            } else {
+                message = "Saved raw notes to Obsidian. Generate a summary and export again to add the summary note."
+            }
+
+            presentExportAlert(
+                title: "Export Complete",
+                message: message,
+                exportedURLs: result.exportedURLs
+            )
+        } catch {
+            presentExportAlert(
+                title: "Export Failed",
+                message: error.localizedDescription,
+                exportedURLs: []
+            )
+        }
+    }
+
     private func save() {
         try? modelContext.save()
+        ExportService.exportAutomaticallyIfEnabled(meeting)
+    }
+
+    private func debouncedSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            save()
+        }
+    }
+
+    private func triggerAutomaticSummaryIfNeeded() async {
+        guard !didTriggerAutomaticSummary,
+              UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSummarizeAfterTranscription),
+              meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        else {
+            return
+        }
+
+        didTriggerAutomaticSummary = true
+        await summarizeMeeting()
+    }
+
+    private func presentExportAlert(title: String, message: String, exportedURLs: [URL]) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+
+        if exportedURLs.isEmpty {
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting(exportedURLs)
+        }
     }
 
     @ViewBuilder

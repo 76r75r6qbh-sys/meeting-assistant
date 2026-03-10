@@ -1,6 +1,23 @@
 import Foundation
 import SwiftData
 
+enum AppPreferenceKey {
+    static let obsidianVaultPath = "obsidianVaultPath"
+    static let ollamaEndpoint = "ollamaEndpoint"
+    static let ollamaModel = "ollamaModel"
+    static let whisperModel = "whisperModel"
+    static let defaultTranscriptionLanguage = "defaultTranscriptionLanguage"
+    static let summaryPromptTemplate = "summaryPromptTemplate"
+    static let autoExportNotesToObsidian = "autoExportNotesToObsidian"
+    static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
+    static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
+}
+
+enum AppPreferenceValue {
+    static let systemDefaultRecordingInputDevice = "system-default"
+    static let defaultWhisperModel = "openai_whisper-base"
+}
+
 enum MeetingStatus: String, Codable {
     case upcoming
     case notesOnly
@@ -69,7 +86,7 @@ final class Meeting {
         self.status = status
         self.userNotes = ""
         self.timestampedNotes = []
-        self.transcriptionLanguage = UserDefaults.standard.string(forKey: "defaultTranscriptionLanguage") ?? "en-US"
+        self.transcriptionLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultTranscriptionLanguage) ?? "en-US"
         self.createdAt = Date()
     }
 

@@ -141,13 +141,12 @@ struct TranscriptionView: View {
 
             let result = try await transcriptionService.transcribe(fileURL: fileURL, localeIdentifier: meeting.transcriptionLanguage)
 
-            // Store transcript on the meeting
             meeting.transcript = result.formattedTranscript
             meeting.status = .completed
             save()
 
-            // Save transcript locally
             _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
+            ExportService.exportAutomaticallyIfEnabled(meeting)
 
             onComplete()
         } catch is CancellationError {

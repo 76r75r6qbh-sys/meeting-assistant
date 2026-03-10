@@ -63,7 +63,7 @@ struct NotesEditorView: View {
                 Spacer()
 
                 Button {
-                    save()
+                    exportNotes()
                 } label: {
                     Label("Save & Export", systemImage: "square.and.arrow.up")
                 }
@@ -111,5 +111,44 @@ struct NotesEditorView: View {
 
     private func save() {
         try? modelContext.save()
+        ExportService.exportAutomaticallyIfEnabled(meeting)
+    }
+
+    private func exportNotes() {
+        save()
+
+        do {
+            let result = try ExportService.exportRawNotes(meeting)
+            presentExportAlert(
+                title: "Export Complete",
+                message: "Saved raw notes to your Obsidian meeting notes folder.",
+                exportedURLs: result.exportedURLs
+            )
+        } catch {
+            presentExportAlert(
+                title: "Export Failed",
+                message: error.localizedDescription,
+                exportedURLs: []
+            )
+        }
+    }
+
+    private func presentExportAlert(title: String, message: String, exportedURLs: [URL]) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+
+        if exportedURLs.isEmpty {
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting(exportedURLs)
+        }
     }
 }
