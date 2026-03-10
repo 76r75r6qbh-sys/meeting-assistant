@@ -37,6 +37,16 @@ final class MeetingListViewModel {
         calendarService.authorizationStatus == .fullAccess
     }
 
+    var currentOrNextEvent: EKEvent? {
+        let now = Date()
+
+        if let currentEvent = calendarService.events.first(where: { isHappeningNow($0, referenceDate: now) }) {
+            return currentEvent
+        }
+
+        return calendarService.events.first(where: { $0.startDate > now })
+    }
+
     func requestCalendarAccess() async {
         _ = await calendarService.requestAccess()
     }
@@ -151,5 +161,9 @@ final class MeetingListViewModel {
             return "in \(hours)h \(minutes)m"
         }
         return "in \(minutes)m"
+    }
+
+    func isHappeningNow(_ event: EKEvent, referenceDate: Date = Date()) -> Bool {
+        event.startDate <= referenceDate && event.endDate > referenceDate
     }
 }

@@ -31,6 +31,7 @@
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
 		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
 		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
+		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +59,7 @@
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
 		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -135,6 +137,7 @@
 				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
 				B10021 /* TranscriptionView.swift */,
+				B10025 /* MenuBarMeetingView.swift */,
 				B10014 /* SettingsView.swift */,
 				E10011 /* Components */,
 			);
@@ -300,6 +303,7 @@
 				A10021 /* MarkdownTextEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
 				A10023 /* ExportService.swift in Sources */,
+				A10025 /* MenuBarMeetingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
