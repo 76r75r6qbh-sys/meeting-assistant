@@ -38,6 +38,23 @@ struct NotesEditorView: View {
 
             // Bottom bar with actions
             HStack {
+                HStack(spacing: CasaSpace.sm) {
+                    Text("Language")
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+
+                    Picker("Language", selection: $meeting.transcriptionLanguage) {
+                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                            Text(language.name).tag(language.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 170)
+                    .onChange(of: meeting.transcriptionLanguage) {
+                        save()
+                    }
+                }
+
                 Button(action: onStartRecording) {
                     Label("Start Recording", systemImage: "record.circle")
                 }

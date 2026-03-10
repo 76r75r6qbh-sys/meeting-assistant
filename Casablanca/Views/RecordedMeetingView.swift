@@ -7,6 +7,7 @@ struct RecordedMeetingView: View {
     let onTranscribe: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @State private var summarizationService = SummarizationService()
     @State private var showingTranscript = false
     @State private var showingNotes = true
     @State private var isEditingNotes = false
@@ -18,6 +19,7 @@ struct RecordedMeetingView: View {
             VStack(alignment: .leading, spacing: CasaSpace.xl) {
                 statusCard
                 metadataCard
+                summaryCard
                 transcriptCard
                 timestampedNotesCard
                 freeformNotesCard
@@ -30,6 +32,13 @@ struct RecordedMeetingView: View {
         .frame(maxWidth: CasaLayout.contentMaxWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("\(meeting.title) \u{00B7} \(meeting.transcript != nil ? "Transcribed" : "Saved")")
+        .alert("Summary Error", isPresented: summaryErrorBinding) {
+            Button("OK", role: .cancel) {
+                summarizationService.clearError()
+            }
+        } message: {
+            Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
+        }
     }
 
     // MARK: - Status Card
@@ -72,6 +81,70 @@ struct RecordedMeetingView: View {
     }
 
     // MARK: - Transcript Card
+
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.md) {
+            HStack {
+                Label("Summary", systemImage: "sparkles")
+                    .font(.headline)
+
+                Spacer()
+
+                if let summary = meeting.summary, !summary.isEmpty {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(summary, forType: .string)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                            .font(.caption)
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                }
+
+                if meeting.summary?.isEmpty == false {
+                    Button {
+                        Task {
+                            await summarizeMeeting()
+                        }
+                    } label: {
+                        Label("Regenerate", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(!canSummarize || summarizationService.isSummarizing)
+                } else {
+                    Button {
+                        Task {
+                            await summarizeMeeting()
+                        }
+                    } label: {
+                        Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(!canSummarize || summarizationService.isSummarizing)
+                }
+            }
+
+            if summarizationService.isSummarizing {
+                HStack(spacing: CasaSpace.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+
+                    Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
+                        .font(.body)
+                        .foregroundStyle(Color.textSecondary)
+                }
+            } else if let summary = meeting.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                renderedMarkdownSummary(summary)
+            } else {
+                Text("Generate a structured summary from the transcript and notes. The prompt can be adjusted in Settings.")
+                    .font(.body)
+                    .foregroundStyle(Color.textSecondary)
+            }
+        }
+        .cardStyle()
+    }
 
     @ViewBuilder
     private var transcriptCard: some View {
@@ -296,6 +369,18 @@ struct RecordedMeetingView: View {
                     .buttonStyle(PrimaryButtonStyle())
                 }
 
+                if meeting.transcript != nil || hasNotes {
+                    Button {
+                        Task {
+                            await summarizeMeeting()
+                        }
+                    } label: {
+                        Label(meeting.summary == nil ? "Summarize" : "Refresh Summary", systemImage: "sparkles")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(!canSummarize || summarizationService.isSummarizing)
+                }
+
                 if meeting.transcript != nil {
                     Button(action: onRecordAgain) {
                         Label("Record Again", systemImage: "record.circle")
@@ -342,8 +427,59 @@ struct RecordedMeetingView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    private var hasNotes: Bool {
+        !meeting.timestampedNotes.isEmpty || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canSummarize: Bool {
+        meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasNotes
+    }
+
+    private var summaryErrorBinding: Binding<Bool> {
+        Binding(
+            get: { summarizationService.errorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    summarizationService.clearError()
+                }
+            }
+        )
+    }
+
+    private func summarizeMeeting() async {
+        do {
+            let summary = try await summarizationService.summarize(meeting: meeting)
+            meeting.summary = summary
+            save()
+        } catch {
+            summarizationService.errorMessage = error.localizedDescription
+        }
+    }
+
     private func save() {
         try? modelContext.save()
+    }
+
+    @ViewBuilder
+    private func renderedMarkdownSummary(_ summary: String) -> some View {
+        let rendered = MarkdownConverter.markdownToAttributedString(
+            summary,
+            baseFont: .systemFont(ofSize: NSFont.systemFontSize)
+        )
+
+        if !rendered.string.isEmpty {
+            let attributed = AttributedString(rendered)
+            Text(attributed)
+                .foregroundStyle(Color.textPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(summary)
+                .font(.body)
+                .foregroundStyle(Color.textPrimary)
+                .textSelection(.enabled)
+                .lineSpacing(4)
+        }
     }
 
     private func metadataRow(title: String, value: String) -> some View {
