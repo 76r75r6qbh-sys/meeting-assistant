@@ -7,24 +7,30 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10001 /* CasablancaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
-		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
-		A10003 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
-		A10004 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
-		A10005 /* MeetingListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
-		A10006 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
-		A10007 /* MeetingCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
-		A10008 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
-		A10009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
-		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
-		A10011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10011; };
-		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
-		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
-		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014; };
+		A10001 /* CasablancaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* CasablancaApp.swift */; };
+		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
+		A10003 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* Meeting.swift */; };
+		A10004 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* CalendarService.swift */; };
+		A10005 /* MeetingListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* MeetingListViewModel.swift */; };
+		A10006 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* DashboardView.swift */; };
+		A10007 /* MeetingCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* MeetingCardView.swift */; };
+		A10008 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* DesignTokens.swift */; };
+		A10009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* Theme.swift */; };
+		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* Permissions.swift */; };
+		A10011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10011 /* Assets.xcassets */; };
+		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
+		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
+		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
+		A10015 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* AudioRecordingService.swift */; };
+		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
+		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
+		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
+		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
+		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
+		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10001 /* CasablancaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -40,6 +46,14 @@
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
+		B10016 /* AudioRecordingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingService.swift; sourceTree = "<group>"; };
+		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
+		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
+		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
+		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
+		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
+		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
+		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +103,8 @@
 			isa = PBXGroup;
 			children = (
 				B10004 /* CalendarService.swift */,
+				B10016 /* AudioRecordingService.swift */,
+				B10020 /* TranscriptionService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -108,6 +124,9 @@
 				B10006 /* DashboardView.swift */,
 				B10012 /* SidebarView.swift */,
 				B10013 /* NotesEditorView.swift */,
+				B10017 /* RecordingView.swift */,
+				B10019 /* RecordedMeetingView.swift */,
+				B10021 /* TranscriptionView.swift */,
 				B10014 /* SettingsView.swift */,
 				E10011 /* Components */,
 			);
@@ -151,6 +170,8 @@
 			isa = PBXGroup;
 			children = (
 				B10007 /* MeetingCardView.swift */,
+				B10018 /* AudioLevelMeterView.swift */,
+				B10022 /* MarkdownTextEditor.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -160,7 +181,7 @@
 /* Begin PBXNativeTarget section */
 		F10001 /* Casablanca */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = G10003;
+			buildConfigurationList = G10003 /* Build configuration list for PBXNativeTarget "Casablanca" */;
 			buildPhases = (
 				F10002 /* Sources */,
 				D10001 /* Frameworks */,
@@ -190,7 +211,7 @@
 					};
 				};
 			};
-			buildConfigurationList = G10001;
+			buildConfigurationList = G10001 /* Build configuration list for PBXProject "Casablanca" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -237,6 +258,13 @@
 				A10012 /* SidebarView.swift in Sources */,
 				A10013 /* NotesEditorView.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
+				A10015 /* AudioRecordingService.swift in Sources */,
+				A10016 /* RecordingView.swift in Sources */,
+				A10017 /* AudioLevelMeterView.swift in Sources */,
+				A10018 /* RecordedMeetingView.swift in Sources */,
+				A10019 /* TranscriptionService.swift in Sources */,
+				A10020 /* TranscriptionView.swift in Sources */,
+				A10021 /* MarkdownTextEditor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -301,12 +329,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Casablanca;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Casablanca needs access to your calendar to show upcoming meetings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Casablanca needs microphone access to record meeting audio.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Casablanca needs screen and system audio recording access to capture meeting audio.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Casablanca uses on-device speech recognition to transcribe meeting recordings locally.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -329,12 +360,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Casablanca;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Casablanca needs access to your calendar to show upcoming meetings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Casablanca needs microphone access to record meeting audio.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Casablanca needs screen and system audio recording access to capture meeting audio.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Casablanca uses on-device speech recognition to transcribe meeting recordings locally.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -370,7 +404,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = H10001 /* Project object */;
 }

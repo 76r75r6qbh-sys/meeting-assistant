@@ -44,6 +44,7 @@ final class CalendarService {
 
         let predicate = store.predicateForEvents(withStart: startOfToday, end: endDate, calendars: nil)
         let fetchedEvents = store.events(matching: predicate)
+            .filter { !$0.isAllDay }
             .sorted { $0.startDate < $1.startDate }
 
         await MainActor.run {

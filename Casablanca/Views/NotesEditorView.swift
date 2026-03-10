@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -7,18 +8,31 @@ struct NotesEditorView: View {
     let onBack: () -> Void
 
     @State private var saveTask: Task<Void, Never>?
+    @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         VStack(spacing: 0) {
-            // Notes editor - full height
-            TextEditor(text: $meeting.userNotes)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(CasaSpace.lg)
-                .onChange(of: meeting.userNotes) {
-                    debouncedSave()
-                }
+            // Timestamped notes summary (if any exist from a previous recording)
+            if !meeting.timestampedNotes.isEmpty {
+                previousNotesBar
+                Divider()
+            }
+
+            // Formatting toolbar
+            MarkdownFormattingToolbar(coordinator: editorCoordinator)
+            Divider()
+
+            // Markdown-aware notes editor
+            MarkdownTextEditor(
+                text: $meeting.userNotes,
+                font: .systemFont(ofSize: NSFont.systemFontSize),
+                coordinator: $editorCoordinator
+            )
+            .padding(CasaSpace.lg)
+            .onChange(of: meeting.userNotes) {
+                debouncedSave()
+            }
 
             Divider()
 
@@ -37,7 +51,8 @@ struct NotesEditorView: View {
                     Label("Save & Export", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && meeting.timestampedNotes.isEmpty)
             }
             .padding(CasaSpace.lg)
         }
@@ -49,7 +64,23 @@ struct NotesEditorView: View {
                 }
             }
         }
-        .navigationTitle("\(meeting.title) \u{00B7} \(meeting.formattedTime)")
+        .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
+    }
+
+    private var previousNotesBar: some View {
+        HStack(spacing: CasaSpace.sm) {
+            Image(systemName: "clock")
+                .foregroundStyle(Color.accentPrimary)
+
+            Text("\(meeting.timestampedNotes.count) timestamped notes from recording")
+                .font(.caption)
+                .foregroundStyle(Color.textSecondary)
+
+            Spacer()
+        }
+        .padding(.horizontal, CasaSpace.lg)
+        .padding(.vertical, CasaSpace.sm)
+        .background(Color.accentPrimary.opacity(0.05))
     }
 
     private func debouncedSave() {
