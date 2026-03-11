@@ -40,7 +40,6 @@ struct RecordedMeetingView: View {
                 Button(action: onRecordAgain) {
                     Label("Record Again", systemImage: "record.circle")
                 }
-                .buttonStyle(SecondaryButtonStyle())
 
                 if let recordingURL {
                     Button {
@@ -48,7 +47,6 @@ struct RecordedMeetingView: View {
                     } label: {
                         Label("Show in Finder", systemImage: "folder")
                     }
-                    .buttonStyle(SecondaryButtonStyle())
                 }
             }
         }
@@ -421,7 +419,6 @@ struct RecordedMeetingView: View {
             Button(action: onTranscribe) {
                 Label("Transcribe", systemImage: "waveform")
             }
-            .modifier(ToolbarActionButtonStyle(isPrimary: isPrimary))
         case .summarize:
             Button {
                 Task {
@@ -430,7 +427,6 @@ struct RecordedMeetingView: View {
             } label: {
                 Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
             }
-            .modifier(ToolbarActionButtonStyle(isPrimary: isPrimary))
             .disabled(!canSummarize || summarizationService.isSummarizing)
         case .export:
             Button {
@@ -438,7 +434,6 @@ struct RecordedMeetingView: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-            .modifier(ToolbarActionButtonStyle(isPrimary: isPrimary))
             .disabled(!canExport)
         }
     }
@@ -651,19 +646,6 @@ private enum ReviewPrimaryAction: Equatable {
     case transcribe
     case summarize
     case export
-}
-
-private struct ToolbarActionButtonStyle: ViewModifier {
-    let isPrimary: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if isPrimary {
-            content.buttonStyle(PrimaryButtonStyle())
-        } else {
-            content.buttonStyle(SecondaryButtonStyle())
-        }
-    }
 }
 
 private extension TimeInterval {
