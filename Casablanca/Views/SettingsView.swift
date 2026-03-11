@@ -28,7 +28,7 @@ struct SettingsView: View {
                     Label("AI", systemImage: "sparkles")
                 }
         }
-        .frame(width: 560, height: 520)
+        .frame(minWidth: 520, idealWidth: 560)
         .task {
             refreshRecordingInputDevices()
             await refreshOllamaModels()
@@ -40,7 +40,6 @@ struct SettingsView: View {
             Section("Obsidian Vault") {
                 HStack {
                     TextField("Vault path", text: $obsidianVaultPath)
-                        .textFieldStyle(.roundedBorder)
 
                     Button("Browse...") {
                         let panel = NSOpenPanel()
@@ -87,7 +86,7 @@ struct SettingsView: View {
                     .foregroundStyle(Color.textTertiary)
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 
     private var aiSettings: some View {
@@ -122,7 +121,6 @@ struct SettingsView: View {
 
             Section("Ollama (Summarization)") {
                 TextField("Endpoint", text: $ollamaEndpoint)
-                    .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         Task {
                             await refreshOllamaModels()
@@ -193,7 +191,7 @@ struct SettingsView: View {
                 .buttonStyle(SecondaryButtonStyle())
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 
     private var ollamaModelOptions: [String] {

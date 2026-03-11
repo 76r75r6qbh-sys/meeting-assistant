@@ -37,6 +37,14 @@ struct CasablancaApp: App {
         )
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Manual Meeting") {
+                    appModel.meetingListViewModel.beginManualMeeting()
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+        }
 
         MenuBarExtra("Casablanca", systemImage: "record.circle") {
             MenuBarMeetingView(viewModel: appModel.meetingListViewModel)

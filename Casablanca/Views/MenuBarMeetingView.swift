@@ -59,7 +59,7 @@ struct MenuBarMeetingView: View {
             VStack(alignment: .leading, spacing: CasaSpace.xs) {
                 Text(viewModel.isHappeningNow(event) ? "Current meeting" : "Upcoming meeting")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(viewModel.isHappeningNow(event) ? Color.stateRecording : Color.accentPrimary)
+                    .foregroundStyle(viewModel.isHappeningNow(event) ? Color.stateRecording : Color.accentColor)
 
                 Text(event.title ?? "Untitled Meeting")
                     .font(.headline)

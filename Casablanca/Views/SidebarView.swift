@@ -6,30 +6,19 @@ struct SidebarView: View {
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
 
     var body: some View {
-        List(selection: Binding(
-            get: { viewModel.selectedMeeting },
-            set: { viewModel.selectedMeeting = $0 }
-        )) {
+        List(selection: $viewModel.sidebarSelection) {
             // Dashboard link
             Section {
-                Button {
-                    viewModel.selectedMeeting = nil
-                } label: {
-                    Label("Dashboard", systemImage: "calendar")
-                }
-                .foregroundStyle(viewModel.selectedMeeting == nil ? Color.accentPrimary : Color.textSecondary)
+                Label("Dashboard", systemImage: "calendar")
+                    .tag(SidebarDestination.dashboard)
             }
 
             // Recent meetings with notes/recordings
             if !recentMeetings.isEmpty {
                 Section("Recent") {
                     ForEach(recentMeetings) { meeting in
-                        Button {
-                            viewModel.selectedMeeting = meeting
-                        } label: {
-                            SidebarMeetingRow(meeting: meeting)
-                        }
-                        .foregroundStyle(viewModel.selectedMeeting?.id == meeting.id ? Color.accentPrimary : Color.textPrimary)
+                        SidebarMeetingRow(meeting: meeting)
+                            .tag(SidebarDestination.meeting(meeting.id))
                     }
                 }
             }
@@ -62,7 +51,8 @@ struct SidebarMeetingRow: View {
 
             Spacer()
         }
-        .frame(height: CasaLayout.sidebarItemHeight)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(meeting.title), \(statusAccessibilityLabel), \(formattedDate)")
     }
 
     @ViewBuilder
@@ -91,9 +81,26 @@ struct SidebarMeetingRow: View {
         }
     }
 
+    private var statusAccessibilityLabel: String {
+        switch meeting.status {
+        case .recording: return "Recording"
+        case .processing: return "Processing"
+        case .notesOnly: return "Notes only"
+        case .completed: return "Completed"
+        case .upcoming: return "Upcoming"
+        }
+    }
+
     private var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         return formatter.string(from: meeting.date)
     }
+}
+
+// MARK: - Sidebar Navigation Destination
+
+enum SidebarDestination: Hashable {
+    case dashboard
+    case meeting(UUID)
 }

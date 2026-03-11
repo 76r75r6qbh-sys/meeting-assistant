@@ -72,8 +72,8 @@ struct NotesEditorView: View {
                     && meeting.timestampedNotes.isEmpty)
             }
             .padding(CasaSpace.lg)
+            .background(.bar)
         }
-        .background(Color.backgroundPrimary)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(action: onBack) {
@@ -87,7 +87,7 @@ struct NotesEditorView: View {
     private var previousNotesBar: some View {
         HStack(spacing: CasaSpace.sm) {
             Image(systemName: "clock")
-                .foregroundStyle(Color.accentPrimary)
+                .foregroundStyle(Color.accentColor)
 
             Text("\(meeting.timestampedNotes.count) timestamped notes from recording")
                 .font(.caption)
@@ -97,7 +97,7 @@ struct NotesEditorView: View {
         }
         .padding(.horizontal, CasaSpace.lg)
         .padding(.vertical, CasaSpace.sm)
-        .background(Color.accentPrimary.opacity(0.05))
+        .background(Color.accentColor.opacity(0.05))
     }
 
     private func debouncedSave() {

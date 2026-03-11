@@ -33,7 +33,7 @@ extension Color {
     // Border
     static let borderSubtle = Color(nsColor: .separatorColor)
     static let borderDefault = Color(nsColor: .tertiaryLabelColor).opacity(0.3)
-    static let borderFocus = Color.accentPrimary
+    static let borderFocus = Color.accentColor
 
     // Accent
     static let accentPrimary = Color(red: 0.357, green: 0.431, blue: 0.961)     // #5B6EF5
@@ -68,7 +68,7 @@ struct CardStyle: ViewModifier {
             .overlay(alignment: .leading) {
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.accentPrimary)
+                        .fill(Color.accentColor)
                         .frame(width: 3)
                         .padding(.vertical, CasaSpace.xs)
                 }
@@ -82,47 +82,35 @@ extension View {
     }
 }
 
-struct PrimaryButtonStyle: ButtonStyle {
+// MARK: - Native macOS Button Style Wrappers
+// These wrap native styles to respect system accent color, focus rings,
+// Increased Contrast, and standard macOS press feedback (no scale effect).
+
+struct PrimaryButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.body.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 12)
-            .background(configuration.isPressed ? Color.accentPrimaryHover : Color.accentPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeOut(duration: CasaDuration.micro), value: configuration.isPressed)
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
     }
 }
 
-struct GhostButtonStyle: ButtonStyle {
+struct GhostButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.body)
-            .foregroundStyle(Color.textSecondary)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 12)
-            .background(configuration.isPressed ? Color.backgroundActive : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-            .animation(.easeOut(duration: CasaDuration.micro), value: configuration.isPressed)
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.borderless)
     }
 }
 
-struct SecondaryButtonStyle: ButtonStyle {
+struct SecondaryButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.body.weight(.medium))
-            .foregroundStyle(Color.textPrimary)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 12)
-            .background(configuration.isPressed ? Color.backgroundActive : Color.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: CasaRadius.md)
-                    .strokeBorder(Color.borderDefault, lineWidth: 1)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeOut(duration: CasaDuration.micro), value: configuration.isPressed)
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
     }
 }
