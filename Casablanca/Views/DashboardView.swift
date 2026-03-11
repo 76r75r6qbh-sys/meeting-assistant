@@ -18,6 +18,7 @@ struct DashboardView: View {
                 meetingListView
             }
         }
+        .frame(maxWidth: CasaLayout.contentMaxWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncSelectedDay()
@@ -96,30 +97,27 @@ struct DashboardView: View {
     }
 
     private func dayPage(date _: Date, events: [EventKit.EKEvent]) -> some View {
-        GeometryReader { proxy in
-            ScrollView {
-                LazyVGrid(columns: gridColumns(for: proxy.size.width), alignment: .leading, spacing: CasaSpace.lg) {
-                    ForEach(events, id: \.eventIdentifier) { event in
-                        MeetingCardView(
-                            event: event,
-                            isNextUpcoming: viewModel.isNextUpcoming(event),
-                            timeUntil: viewModel.timeUntil(event),
-                            onStartRecording: {
-                                viewModel.beginRecording(for: event)
-                            },
-                            onTakeNotes: {
-                                viewModel.beginNotes(for: event)
-                            },
-                            onViewDetails: {
-                                viewModel.openMeetingDetails(for: event)
-                            }
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: CasaSpace.lg) {
+                ForEach(events, id: \.eventIdentifier) { event in
+                    MeetingCardView(
+                        event: event,
+                        isNextUpcoming: viewModel.isNextUpcoming(event),
+                        timeUntil: viewModel.timeUntil(event),
+                        onStartRecording: {
+                            viewModel.beginRecording(for: event)
+                        },
+                        onTakeNotes: {
+                            viewModel.beginNotes(for: event)
+                        },
+                        onViewDetails: {
+                            viewModel.openMeetingDetails(for: event)
+                        }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                .padding(.vertical, CasaSpace.xs)
             }
+            .padding(.vertical, CasaSpace.xs)
         }
     }
 
@@ -200,23 +198,6 @@ struct DashboardView: View {
 
     private func meetingCountLabel(for count: Int) -> String {
         count == 1 ? "1 meeting" : "\(count) meetings"
-    }
-
-    private func gridColumns(for width: CGFloat) -> [GridItem] {
-        let columnCount: Int
-        switch width {
-        case ..<720:
-            columnCount = 1
-        case ..<1080:
-            columnCount = 2
-        default:
-            columnCount = 3
-        }
-
-        return Array(
-            repeating: GridItem(.flexible(), spacing: CasaSpace.lg, alignment: .top),
-            count: columnCount
-        )
     }
 
     private var emptyStateView: some View {

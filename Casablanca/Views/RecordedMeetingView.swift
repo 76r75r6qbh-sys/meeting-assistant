@@ -18,24 +18,13 @@ struct RecordedMeetingView: View {
     @FocusState private var isNewNoteFieldFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                infoBar
-
-                if shouldShowPipelineBanner {
-                    pipelineBanner
-                }
-
-                summaryCard
-                transcriptCard
-                timestampedNotesCard
-                freeformNotesCard
-
-                Spacer(minLength: 0)
+        GeometryReader { proxy in
+            ScrollView {
+                contentLayout(for: proxy.size.width)
+                    .padding(CasaSpace.xl)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(CasaSpace.xl)
         }
-        .frame(maxWidth: CasaLayout.contentMaxWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(meeting.title)
         .toolbar {
@@ -72,6 +61,40 @@ struct RecordedMeetingView: View {
             }
         } message: {
             Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
+        }
+    }
+
+    @ViewBuilder
+    private func contentLayout(for width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            infoBar
+
+            if shouldShowPipelineBanner {
+                pipelineBanner
+            }
+
+            if usesTwoColumnLayout(for: width) {
+                HStack(alignment: .top, spacing: CasaSpace.xl) {
+                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+                        summaryCard
+                        transcriptCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+                        timestampedNotesCard
+                        freeformNotesCard
+                    }
+                    .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
+                }
+            } else {
+                summaryCard
+                transcriptCard
+                timestampedNotesCard
+                freeformNotesCard
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -498,6 +521,14 @@ struct RecordedMeetingView: View {
         }
 
         return nil
+    }
+
+    private func usesTwoColumnLayout(for width: CGFloat) -> Bool {
+        width >= 1040
+    }
+
+    private func notesColumnWidth(for width: CGFloat) -> CGFloat {
+        min(max(width * 0.34, 320), 420)
     }
 
     private var summaryErrorBinding: Binding<Bool> {
