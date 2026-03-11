@@ -11,7 +11,8 @@ struct RecordingView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var noteText = ""
-    @State private var showFreeformNotes = false
+    @State private var showFreeformNotes = true
+    @State private var showingAudioSettings = false
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @FocusState private var isNoteFieldFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -38,21 +39,8 @@ struct RecordingView: View {
                 }
                 .disabled(recordingService.isRecording && recordingService.activeMeetingID == meeting.id)
             }
-
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: CasaSpace.sm) {
-                    Circle()
-                        .fill(recordingService.isRecording ? Color.stateRecording : Color.stateIdle)
-                        .frame(width: 8, height: 8)
-                    Text(formattedElapsed)
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(recordingService.isRecording ? "Recording, elapsed time \(formattedElapsed)" : "Not recording")
-            }
         }
-        .navigationTitle("\(meeting.title) · Recording")
+        .navigationTitle(meeting.title)
         .task {
             recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startIfNeeded()
@@ -80,7 +68,7 @@ struct RecordingView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
+        VStack(alignment: .leading, spacing: CasaSpace.lg) {
             HStack(alignment: .center) {
                 HStack(spacing: CasaSpace.sm) {
                     Circle()
@@ -95,7 +83,7 @@ struct RecordingView: View {
                         )
                         .accessibilityLabel(recordingService.isRecording ? "Recording in progress" : "Not recording")
 
-                    Text(statusTitle)
+                    Text(recordingService.isRecording ? "Recording" : "Preparing")
                         .font(.headline)
                         .foregroundStyle(Color.textPrimary)
                 }
@@ -105,71 +93,15 @@ struct RecordingView: View {
                 Text(formattedElapsed)
                     .font(.system(.title3, design: .default, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(recordingService.isRecording ? Color.stateRecording : Color.textSecondary)
+                    .foregroundStyle(Color.textSecondary)
                     .accessibilityLabel("Elapsed time: \(formattedElapsed)")
             }
-
-            HStack(spacing: CasaSpace.sm) {
-                Text("Transcription Language")
-                    .font(.caption)
-                    .foregroundStyle(Color.textSecondary)
-
-                Picker("Transcription Language", selection: $meeting.transcriptionLanguage) {
-                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
-                        Text(language.name).tag(language.id)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 180)
-                .onChange(of: meeting.transcriptionLanguage) {
-                    save()
-                }
-            }
-
-            HStack(spacing: CasaSpace.md) {
-                HStack(spacing: CasaSpace.sm) {
-                    Text("Microphone")
-                        .font(.caption)
-                        .foregroundStyle(Color.textSecondary)
-
-                    if recordingService.availableInputDevices.isEmpty {
-                        Text("No microphone found")
-                            .font(.callout)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Picker("Microphone", selection: selectedMicrophoneBinding) {
-                            ForEach(recordingService.availableInputDevices) { device in
-                                Text(device.name).tag(device.id)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 220)
-                        .disabled(recordingService.isPreparing)
-                    }
-                }
-
-                Button {
-                    recordingService.toggleSystemAudioEnabled()
-                } label: {
-                    Label(
-                        recordingService.isSystemAudioEnabled ? "System Audio On" : "System Audio Off",
-                        systemImage: recordingService.isSystemAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill"
-                    )
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(recordingService.isPreparing)
-            }
-
-            Text(statusMessage)
-                .font(.body)
-                .foregroundStyle(Color.textSecondary)
 
             HStack {
                 AudioLevelMeterView(level: recordingService.audioLevel)
 
                 Spacer()
 
-                // Toggle between timestamped and freeform notes
                 Picker("", selection: $showFreeformNotes) {
                     Label("Timestamped", systemImage: "clock")
                         .tag(false)
@@ -178,18 +110,42 @@ struct RecordingView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 200)
-
-                if let outputURL = recordingService.outputURL {
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-                    } label: {
-                        Label("Show Recording", systemImage: "folder")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
             }
+
+            DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
+                VStack(alignment: .leading, spacing: CasaSpace.md) {
+                    if recordingService.availableInputDevices.isEmpty {
+                        Text("No microphone found")
+                            .font(.body)
+                            .foregroundStyle(Color.textTertiary)
+                    } else {
+                        Picker("Microphone", selection: selectedMicrophoneBinding) {
+                            ForEach(recordingService.availableInputDevices) { device in
+                                Text(device.name).tag(device.id)
+                            }
+                        }
+                        .disabled(recordingService.isPreparing)
+                    }
+
+                    Toggle(isOn: Binding(
+                        get: { recordingService.isSystemAudioEnabled },
+                        set: { newValue in
+                            if newValue != recordingService.isSystemAudioEnabled {
+                                recordingService.toggleSystemAudioEnabled()
+                            }
+                        }
+                    )) {
+                        Label("Capture system audio", systemImage: "speaker.wave.2.fill")
+                    }
+                    .disabled(recordingService.isPreparing)
+                }
+                .padding(.top, CasaSpace.sm)
+            }
+            .tint(Color.textPrimary)
         }
-        .padding(CasaSpace.xl)
+        .padding(.horizontal, CasaSpace.xl)
+        .padding(.top, CasaSpace.xl)
+        .padding(.bottom, CasaSpace.xxl)
     }
 
     // MARK: - Timestamped Notes
@@ -200,17 +156,17 @@ struct RecordingView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     if meeting.timestampedNotes.isEmpty {
-                        VStack(spacing: CasaSpace.sm) {
-                            Image(systemName: "text.badge.plus")
-                                .font(.title2)
-                                .foregroundStyle(Color.textTertiary)
-                            Text("Type a note below and press Return to add it with a timestamp")
-                                .font(.body)
-                                .foregroundStyle(Color.textTertiary)
-                                .multilineTextAlignment(.center)
+                        ContentUnavailableView {
+                            Label("No Timestamped Notes Yet", systemImage: "clock")
+                        } description: {
+                            Text("Type a note below or switch to freeform notes.")
+                        } actions: {
+                            Button("Use Freeform Notes") {
+                                showFreeformNotes = true
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(CasaSpace.xxxl)
+                        .frame(maxWidth: .infinity, minHeight: 320)
                     } else {
                         LazyVStack(alignment: .leading, spacing: CasaSpace.xs) {
                             ForEach(meeting.timestampedNotes) { note in
@@ -241,10 +197,10 @@ struct RecordingView: View {
         HStack(alignment: .top, spacing: CasaSpace.sm) {
             Text(note.formattedTimestamp)
                 .font(.caption.monospaced())
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.textSecondary)
                 .padding(.horizontal, CasaSpace.xs)
                 .padding(.vertical, CasaSpace.xxs)
-                .background(Color.accentColor.opacity(0.1))
+                .background(Color.backgroundHover)
                 .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
                 .frame(minWidth: 52, alignment: .center)
 
@@ -263,7 +219,7 @@ struct RecordingView: View {
             if recordingService.isRecording {
                 Text(formattedElapsed)
                     .font(.caption.monospaced())
-                    .foregroundStyle(Color.stateRecording)
+                    .foregroundStyle(Color.textSecondary)
                     .frame(minWidth: 52)
             }
 
@@ -351,29 +307,6 @@ struct RecordingView: View {
         noteText = ""
         save()
         isNoteFieldFocused = true
-    }
-
-    private var statusTitle: String {
-        if recordingService.isPreparing {
-            return "Preparing Audio Capture"
-        }
-        if recordingService.isRecording {
-            return "Recording Meeting"
-        }
-        return "Starting Recording"
-    }
-
-    private var statusMessage: String {
-        if recordingService.isPreparing {
-            return "Casablanca is attaching to your microphone and system audio."
-        }
-        if recordingService.isRecording {
-            if recordingService.isSystemAudioEnabled {
-                return "The selected microphone and system audio are being mixed into a single local WAV file."
-            }
-            return "Only the selected microphone is being recorded right now. System audio is muted."
-        }
-        return "Waiting for the recording pipeline to start."
     }
 
     private var selectedMicrophoneBinding: Binding<String> {

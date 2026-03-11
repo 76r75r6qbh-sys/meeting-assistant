@@ -7,47 +7,47 @@ struct RecordedMeetingView: View {
     let onTranscribe: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @State private var summarizationService = SummarizationService()
-    @State private var showingTranscript = false
-    @State private var showingNotes = true
     @State private var isEditingNotes = false
     @State private var newNoteText = ""
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
+    @FocusState private var isNewNoteFieldFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CasaSpace.xl) {
-                statusCard
-                metadataCard
-                summaryCard
-                transcriptCard
-                timestampedNotesCard
-                freeformNotesCard
-                languageAndActions
-
-                Spacer(minLength: 0)
+        GeometryReader { proxy in
+            ScrollView {
+                contentLayout(for: proxy.size.width)
+                    .padding(CasaSpace.xl)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(CasaSpace.xl)
         }
-        .frame(maxWidth: CasaLayout.contentMaxWidth, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("\(meeting.title) \u{00B7} \(meeting.transcript != nil ? "Transcribed" : "Saved")")
+        .navigationTitle(meeting.title)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                if meeting.transcript == nil && meeting.recordingFileURL != nil {
-                    Button(action: onTranscribe) {
-                        Label("Transcribe", systemImage: "waveform")
-                    }
+                if let primaryToolbarAction {
+                    toolbarButton(for: primaryToolbarAction, isPrimary: true)
                 }
 
-                Button {
-                    exportMeeting()
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                if primaryToolbarAction != .export, canExport {
+                    toolbarButton(for: .export, isPrimary: false)
                 }
-                .disabled(!canExport)
+
+                Button(action: onRecordAgain) {
+                    Label("Record Again", systemImage: "record.circle")
+                }
+
+                if let recordingURL {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([recordingURL])
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+                }
             }
         }
         .task(id: meeting.id) {
@@ -62,125 +62,153 @@ struct RecordedMeetingView: View {
         }
     }
 
-    // MARK: - Status Card
+    @ViewBuilder
+    private func contentLayout(for width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            infoBar
 
-    private var statusCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                Label("Recording Saved", systemImage: "checkmark.circle.fill")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(Color.accentSuccess)
-
-                if meeting.transcript != nil {
-                    Text("Meeting has been recorded and transcribed.")
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                } else {
-                    Text("The meeting audio is stored locally and ready for transcription.")
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                }
+            if shouldShowPipelineBanner {
+                pipelineBanner
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if usesTwoColumnLayout(for: width) {
+                HStack(alignment: .top, spacing: CasaSpace.xl) {
+                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+                        summaryCard
+                        transcriptCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+                        timestampedNotesCard
+                        freeformNotesCard
+                    }
+                    .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
+                }
+            } else {
+                summaryCard
+                transcriptCard
+                timestampedNotesCard
+                freeformNotesCard
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
-    // MARK: - Metadata
-
-    private var metadataCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.sm) {
-                LabeledContent("Meeting", value: meeting.title)
-                LabeledContent("Scheduled", value: meeting.formattedTime)
+    private var infoBar: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.md) {
+            HStack(spacing: CasaSpace.md) {
+                Label(meeting.formattedTime, systemImage: "calendar")
 
                 if let duration = meeting.recordingDuration {
-                    LabeledContent("Recorded", value: duration.formattedRecordingDuration)
+                    Label(duration.formattedRecordingDuration, systemImage: "timer")
                 }
 
-                if let recordingPath = meeting.recordingFileURL {
-                    LabeledContent("File") {
-                        Text(recordingPath)
-                            .textSelection(.enabled)
+                if recordingURL != nil {
+                    Label("Recording saved locally", systemImage: "waveform")
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(Color.textSecondary)
+            .symbolRenderingMode(.hierarchical)
+
+            if meeting.transcript == nil, recordingURL != nil {
+                HStack(spacing: CasaSpace.md) {
+                    Text("Language")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textSecondary)
+
+                    Picker("Language", selection: $meeting.transcriptionLanguage) {
+                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                            Text(language.name).tag(language.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .onChange(of: meeting.transcriptionLanguage) {
+                        save()
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - Transcript Card
-
-    private var summaryCard: some View {
+    private var pipelineBanner: some View {
         GroupBox {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
-            HStack {
-                Label("Summary", systemImage: "sparkles")
-                    .font(.headline)
-                    .symbolRenderingMode(.hierarchical)
-
-                Spacer()
-
-                if let summary = meeting.summary, !summary.isEmpty {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(summary, forType: .string)
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .font(.caption)
-                    }
-                    .buttonStyle(GhostButtonStyle())
-                }
-
-                if meeting.summary?.isEmpty == false {
-                    Button {
-                        Task {
-                            await summarizeMeeting()
-                        }
-                    } label: {
-                        Label("Regenerate", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
-                            .font(.caption)
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .disabled(!canSummarize || summarizationService.isSummarizing)
-                } else {
-                    Button {
-                        Task {
-                            await summarizeMeeting()
-                        }
-                    } label: {
-                        Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
-                            .font(.caption)
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!canSummarize || summarizationService.isSummarizing)
-                }
-            }
-
-            if summarizationService.isSummarizing {
-                HStack(spacing: CasaSpace.sm) {
+            HStack(spacing: CasaSpace.sm) {
+                if summarizationService.isSummarizing {
                     ProgressView()
                         .controlSize(.small)
-
-                    Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
-                        .font(.body)
+                } else {
+                    Image(systemName: "sparkles")
                         .foregroundStyle(Color.textSecondary)
                 }
-            } else if let summary = meeting.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                renderedMarkdownSummary(summary)
-            } else {
-                Text("Generate a structured summary from the transcript and notes. The prompt can be adjusted in Settings.")
+
+                Text(pipelineStatusText)
                     .font(.body)
                     .foregroundStyle(Color.textSecondary)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    @ViewBuilder
+    private var summaryCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                HStack {
+                    Label("Summary", systemImage: "sparkles")
+                        .font(.headline)
+                        .symbolRenderingMode(.hierarchical)
+
+                    Spacer()
+
+                    if let summary = meeting.summary, !summary.isEmpty {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(summary, forType: .string)
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                    }
+                }
+
+                if summarizationService.isSummarizing {
+                    HStack(spacing: CasaSpace.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+
+                        Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
+                            .font(.body)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                } else if let summary = meeting.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    renderedMarkdownSummary(summary)
+                } else {
+                    ContentUnavailableView {
+                        Label("No Summary Yet", systemImage: "sparkles")
+                    } description: {
+                        Text("Generate a structured summary from the transcript and notes.")
+                    } actions: {
+                        if canSummarize {
+                            Button("Summarize") {
+                                Task {
+                                    await summarizeMeeting()
+                                }
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var transcriptCard: some View {
-        if let transcript = meeting.transcript {
-            GroupBox {
+        GroupBox {
             VStack(alignment: .leading, spacing: CasaSpace.md) {
                 HStack {
                     Label("Transcript", systemImage: "doc.text")
@@ -189,97 +217,99 @@ struct RecordedMeetingView: View {
 
                     Spacer()
 
-                    Button {
-                        showingTranscript.toggle()
-                    } label: {
-                        Label(
-                            showingTranscript ? "Collapse" : "Expand",
-                            systemImage: showingTranscript ? "chevron.up" : "chevron.down"
-                        )
-                        .font(.caption)
+                    if let transcript = meeting.transcript, !transcript.isEmpty {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(transcript, forType: .string)
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .buttonStyle(GhostButtonStyle())
                     }
-                    .buttonStyle(GhostButtonStyle())
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(transcript, forType: .string)
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .font(.caption)
-                    }
-                    .buttonStyle(GhostButtonStyle())
                 }
 
-                if showingTranscript {
-                    Text(transcript)
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                        .textSelection(.enabled)
-                        .lineSpacing(4)
+                if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ScrollView {
+                        Text(transcript)
+                            .font(.body)
+                            .foregroundStyle(Color.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .lineSpacing(4)
+                    }
+                    .frame(maxHeight: 280)
                 } else {
-                    let preview = transcript.components(separatedBy: "\n").prefix(3).joined(separator: "\n")
-                    Text(preview + (transcript.contains("\n") ? "\n..." : ""))
-                        .font(.body)
-                        .foregroundStyle(Color.textTertiary)
-                        .lineSpacing(4)
+                    ContentUnavailableView {
+                        Label("No Transcript Yet", systemImage: "waveform")
+                    } description: {
+                        Text("Transcribe the saved recording to review searchable text.")
+                    } actions: {
+                        if recordingURL != nil {
+                            Button("Transcribe") {
+                                onTranscribe()
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 
-    // MARK: - Timestamped Notes Card
-
-    @ViewBuilder
     private var timestampedNotesCard: some View {
-        if !meeting.timestampedNotes.isEmpty {
-            GroupBox {
+        GroupBox {
             VStack(alignment: .leading, spacing: CasaSpace.md) {
                 HStack {
                     Label("Meeting Notes", systemImage: "clock")
                         .font(.headline)
+                        .symbolRenderingMode(.hierarchical)
 
-                    Text("\(meeting.timestampedNotes.count)")
-                        .font(.caption)
-                        .foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, CasaSpace.xs)
-                        .padding(.vertical, CasaSpace.xxs)
-                        .background(Color.backgroundHover)
-                        .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
+                    if !meeting.timestampedNotes.isEmpty {
+                        Text("\(meeting.timestampedNotes.count)")
+                            .font(.caption)
+                            .foregroundStyle(Color.textTertiary)
+                            .padding(.horizontal, CasaSpace.xs)
+                            .padding(.vertical, CasaSpace.xxs)
+                            .background(Color.backgroundHover)
+                            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
+                    }
 
                     Spacer()
 
-                    Button {
-                        showingNotes.toggle()
-                    } label: {
-                        Label(
-                            showingNotes ? "Collapse" : "Expand",
-                            systemImage: showingNotes ? "chevron.up" : "chevron.down"
-                        )
-                        .font(.caption)
+                    if !meeting.timestampedNotes.isEmpty {
+                        Button {
+                            copyTimestampedNotes()
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .buttonStyle(GhostButtonStyle())
                     }
-                    .buttonStyle(GhostButtonStyle())
-
-                    Button {
-                        copyTimestampedNotes()
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .font(.caption)
-                    }
-                    .buttonStyle(GhostButtonStyle())
                 }
 
-                if showingNotes {
+                if meeting.timestampedNotes.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Timestamped Notes Yet", systemImage: "clock.badge.questionmark")
+                    } description: {
+                        Text("Add a quick note to capture a point from the recording.")
+                    } actions: {
+                        Button("Add Note") {
+                            isNewNoteFieldFocused = true
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
+                    }
+                } else {
                     VStack(alignment: .leading, spacing: CasaSpace.xs) {
                         ForEach(meeting.timestampedNotes) { note in
                             HStack(alignment: .top, spacing: CasaSpace.sm) {
                                 Text(note.formattedTimestamp)
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(Color.textSecondary)
                                     .padding(.horizontal, CasaSpace.xs)
                                     .padding(.vertical, CasaSpace.xxs)
-                                    .background(Color.accentColor.opacity(0.1))
+                                    .background(Color.backgroundHover)
                                     .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
                                     .frame(minWidth: 52, alignment: .center)
 
@@ -293,176 +323,131 @@ struct RecordedMeetingView: View {
                             .padding(.vertical, CasaSpace.xxs)
                         }
                     }
+                }
 
-                    // Add note inline
-                    HStack(spacing: CasaSpace.sm) {
-                        TextField("Add a note...", text: $newNoteText)
-                            .textFieldStyle(.plain)
-                            .font(.body)
-                            .onSubmit {
-                                addNote()
-                            }
-
-                        Button {
+                HStack(spacing: CasaSpace.sm) {
+                    TextField("Add a note...", text: $newNoteText)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                        .focused($isNewNoteFieldFocused)
+                        .onSubmit {
                             addNote()
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty
-                                    ? Color.textTertiary : Color.accentColor)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                    Button {
+                        addNote()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty
+                                ? Color.textTertiary : Color.accentColor)
                     }
-                    .padding(CasaSpace.sm)
-                    .background(Color.backgroundHover)
-                    .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - Freeform Notes Card
-
-    @ViewBuilder
-    private var freeformNotesCard: some View {
-        GroupBox {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
-            HStack {
-                Label("Notes", systemImage: "pencil.line")
-                    .font(.headline)
-                    .symbolRenderingMode(.hierarchical)
-
-                Spacer()
-
-                Button {
-                    isEditingNotes.toggle()
-                } label: {
-                    Label(
-                        isEditingNotes ? "Done" : "Edit",
-                        systemImage: isEditingNotes ? "checkmark" : "pencil"
-                    )
-                    .font(.caption)
-                }
-                .buttonStyle(GhostButtonStyle())
-            }
-
-            if isEditingNotes {
-                VStack(spacing: 0) {
-                    MarkdownFormattingToolbar(coordinator: editorCoordinator)
-                    MarkdownTextEditor(
-                        text: $meeting.userNotes,
-                        font: .systemFont(ofSize: NSFont.systemFontSize),
-                        coordinator: $editorCoordinator
-                    )
-                    .frame(minHeight: 120)
-                    .onChange(of: meeting.userNotes) {
-                        debouncedSave()
-                    }
+                    .buttonStyle(.plain)
+                    .disabled(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .padding(CasaSpace.sm)
                 .background(Color.backgroundHover)
                 .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-            } else if !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(meeting.userNotes)
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
-                    .textSelection(.enabled)
-            } else {
-                Text("No freeform notes. Click Edit to add some.")
-                    .font(.body)
-                    .foregroundStyle(Color.textTertiary)
-                    .italic()
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - Language & Actions
+    private var freeformNotesCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                HStack {
+                    Label("Notes", systemImage: "pencil.line")
+                        .font(.headline)
+                        .symbolRenderingMode(.hierarchical)
 
-    private var languageAndActions: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
-            if meeting.transcript == nil && meeting.recordingFileURL != nil {
-                HStack(spacing: CasaSpace.md) {
-                    Text("Language")
+                    Spacer()
+
+                    Button {
+                        isEditingNotes.toggle()
+                    } label: {
+                        Label(
+                            isEditingNotes ? "Done" : "Edit",
+                            systemImage: isEditingNotes ? "checkmark" : "pencil"
+                        )
+                        .font(.caption)
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                }
+
+                if isEditingNotes {
+                    VStack(spacing: 0) {
+                        MarkdownFormattingToolbar(coordinator: editorCoordinator)
+                        MarkdownTextEditor(
+                            text: $meeting.userNotes,
+                            font: .systemFont(ofSize: NSFont.systemFontSize),
+                            coordinator: $editorCoordinator
+                        )
+                        .frame(minHeight: 160)
+                        .onChange(of: meeting.userNotes) {
+                            debouncedSave()
+                        }
+                    }
+                    .padding(CasaSpace.sm)
+                    .background(Color.backgroundHover)
+                    .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
+                } else if !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(meeting.userNotes)
                         .font(.body)
                         .foregroundStyle(Color.textSecondary)
-                    Picker("", selection: $meeting.transcriptionLanguage) {
-                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
-                            Text(lang.name).tag(lang.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 160)
-                }
-            }
-
-            HStack(spacing: CasaSpace.sm) {
-                if meeting.transcript == nil && meeting.recordingFileURL != nil {
-                    Button(action: onTranscribe) {
-                        Label("Transcribe", systemImage: "waveform")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                }
-
-                if meeting.transcript != nil || hasNotes {
-                    Button {
-                        Task {
-                            await summarizeMeeting()
-                        }
-                    } label: {
-                        Label(meeting.summary == nil ? "Summarize" : "Refresh Summary", systemImage: "sparkles")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .disabled(!canSummarize || summarizationService.isSummarizing)
-                }
-
-                Button {
-                    exportMeeting()
-                } label: {
-                    Label("Export to Obsidian", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(!canExport)
-
-                if meeting.transcript != nil {
-                    Button(action: onRecordAgain) {
-                        Label("Record Again", systemImage: "record.circle")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
+                        .textSelection(.enabled)
                 } else {
-                    Button(action: onRecordAgain) {
-                        Label("Record Again", systemImage: "record.circle")
+                    ContentUnavailableView {
+                        Label("No Freeform Notes Yet", systemImage: "text.alignleft")
+                    } description: {
+                        Text("Use freeform notes for ideas, follow-ups, and context that do not need timestamps.")
+                    } actions: {
+                        Button("Edit Notes") {
+                            isEditingNotes = true
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                }
-
-                if let url = meeting.recordingFileURL.map(URL.init(fileURLWithPath:)) {
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    } label: {
-                        Label("Show in Finder", systemImage: "folder")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - Helpers
+    @ViewBuilder
+    private func toolbarButton(for action: ReviewPrimaryAction, isPrimary: Bool) -> some View {
+        switch action {
+        case .transcribe:
+            Button(action: onTranscribe) {
+                Label("Transcribe", systemImage: "waveform")
+            }
+        case .summarize:
+            Button {
+                Task {
+                    await summarizeMeeting()
+                }
+            } label: {
+                Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
+            }
+            .disabled(!canSummarize || summarizationService.isSummarizing)
+        case .export:
+            Button {
+                exportMeeting()
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .disabled(!canExport)
+        }
+    }
 
     private func addNote() {
         let trimmed = newNoteText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
 
-        // Use recording duration as the timestamp context for post-recording notes
         let timestamp = meeting.recordingDuration ?? 0
         let note = TimestampedNote(timestamp: timestamp, text: trimmed)
         meeting.timestampedNotes.append(note)
         newNoteText = ""
         save()
+        isNewNoteFieldFocused = true
     }
 
     private func copyTimestampedNotes() {
@@ -485,6 +470,60 @@ struct RecordedMeetingView: View {
         meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || hasNotes
+    }
+
+    private var recordingURL: URL? {
+        guard let path = meeting.recordingFileURL else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    private var shouldShowPipelineBanner: Bool {
+        summarizationService.isSummarizing
+            || (autoSummarizeAfterTranscription
+                && meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+    }
+
+    private var pipelineStatusText: String {
+        if summarizationService.isSummarizing {
+            return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
+        }
+
+        if autoSummarizeAfterTranscription && autoExportNotesToObsidian {
+            return "Casablanca is moving this meeting through summary and export automatically."
+        }
+
+        if autoSummarizeAfterTranscription {
+            return "Casablanca will generate the summary automatically."
+        }
+
+        return "The next recommended step is ready in the toolbar."
+    }
+
+    private var primaryToolbarAction: ReviewPrimaryAction? {
+        if meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           recordingURL != nil {
+            return .transcribe
+        }
+
+        if meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           canSummarize {
+            return .summarize
+        }
+
+        if canExport {
+            return .export
+        }
+
+        return nil
+    }
+
+    private func usesTwoColumnLayout(for width: CGFloat) -> Bool {
+        width >= 1040
+    }
+
+    private func notesColumnWidth(for width: CGFloat) -> CGFloat {
+        min(max(width * 0.34, 320), 420)
     }
 
     private var summaryErrorBinding: Binding<Bool> {
@@ -550,7 +589,7 @@ struct RecordedMeetingView: View {
 
     private func triggerAutomaticSummaryIfNeeded() async {
         guard !didTriggerAutomaticSummary,
-              UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSummarizeAfterTranscription),
+              autoSummarizeAfterTranscription,
               meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         else {
@@ -601,7 +640,12 @@ struct RecordedMeetingView: View {
                 .lineSpacing(4)
         }
     }
+}
 
+private enum ReviewPrimaryAction: Equatable {
+    case transcribe
+    case summarize
+    case export
 }
 
 private extension TimeInterval {

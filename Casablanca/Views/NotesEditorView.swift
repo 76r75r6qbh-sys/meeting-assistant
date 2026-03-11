@@ -36,25 +36,7 @@ struct NotesEditorView: View {
 
             Divider()
 
-            // Bottom bar with actions
             HStack {
-                HStack(spacing: CasaSpace.sm) {
-                    Text("Language")
-                        .font(.caption)
-                        .foregroundStyle(Color.textSecondary)
-
-                    Picker("Language", selection: $meeting.transcriptionLanguage) {
-                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
-                            Text(language.name).tag(language.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 170)
-                    .onChange(of: meeting.transcriptionLanguage) {
-                        save()
-                    }
-                }
-
                 Button(action: onStartRecording) {
                     Label("Start Recording", systemImage: "record.circle")
                 }
@@ -87,7 +69,7 @@ struct NotesEditorView: View {
     private var previousNotesBar: some View {
         HStack(spacing: CasaSpace.sm) {
             Image(systemName: "clock")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.textSecondary)
 
             Text("\(meeting.timestampedNotes.count) timestamped notes from recording")
                 .font(.caption)

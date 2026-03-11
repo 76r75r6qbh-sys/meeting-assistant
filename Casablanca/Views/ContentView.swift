@@ -24,7 +24,7 @@ struct ContentView: View {
     private var detailView: some View {
         if let meeting = viewModel.selectedMeeting {
             switch meeting.status {
-            case .notesOnly:
+            case .notesOnly, .upcoming:
                 NotesEditorView(
                     meeting: meeting,
                     onStartRecording: {
@@ -65,8 +65,6 @@ struct ContentView: View {
                         try? modelContext.save()
                     }
                 )
-            case .upcoming:
-                DashboardView(viewModel: viewModel)
             }
         } else {
             DashboardView(viewModel: viewModel)
