@@ -18,7 +18,6 @@ struct DashboardView: View {
                 meetingListView
             }
         }
-        .frame(maxWidth: CasaLayout.contentMaxWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncSelectedDay()
@@ -31,38 +30,26 @@ struct DashboardView: View {
                 await viewModel.refreshEvents()
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.beginManualMeeting()
+                } label: {
+                    Label("Start Manual Meeting", systemImage: "plus")
+                }
+            }
+        }
     }
 
     private var meetingListView: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
             dayNavigator
 
-            if !groupedEvents.isEmpty {
-                GeometryReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: CasaSpace.lg) {
-                            ForEach(groupedEvents, id: \.date) { group in
-                                dayPage(date: group.date, events: group.events)
-                                    .frame(width: proxy.size.width)
-                                    .tag(group.date)
-                            }
-                        }
-                        .scrollTargetLayout()
-                    }
-                    .scrollTargetBehavior(.paging)
-                    .scrollPosition(id: Binding(
-                        get: { selectedDay ?? dayIdentifiers.first },
-                        set: { selectedDay = $0 }
-                    ))
-                }
-                .animation(CasaAnimation.standard, value: selectedDay)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            HStack {
-                Spacer()
-                manualMeetingButton
-                Spacer()
+            if let activeDay = selectedDay,
+               let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: activeDay) }) {
+                dayPage(date: group.date, events: group.events)
+                    .animation(CasaAnimation.standard, value: activeDay)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(CasaSpace.xl)
@@ -86,34 +73,17 @@ struct DashboardView: View {
             .buttonStyle(SecondaryButtonStyle())
             .disabled(previousDay == nil)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: CasaSpace.sm) {
-                    ForEach(dayIdentifiers, id: \.self) { date in
-                        Button {
-                            selectedDay = date
-                        } label: {
-                            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                                Text(dayChipTitle(for: date))
-                                    .font(.headline)
-                                Text(dayChipSubtitle(for: date))
-                                    .font(.caption)
-                                    .foregroundStyle(isSelectedDay(date) ? Color.white.opacity(0.75) : Color.textTertiary)
-                            }
-                            .frame(minWidth: 96, alignment: .leading)
-                            .padding(.vertical, CasaSpace.sm)
-                            .padding(.horizontal, CasaSpace.md)
-                            .background(isSelectedDay(date) ? Color.accentColor : Color.backgroundTertiary)
-                            .foregroundStyle(isSelectedDay(date) ? Color.white : Color.textPrimary)
-                            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: CasaRadius.lg)
-                                    .strokeBorder(isSelectedDay(date) ? Color.clear : Color.borderSubtle, lineWidth: 1)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(selectedDayTitle)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Text(selectedDaySubtitle)
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
             }
+
+            Spacer()
 
             Button {
                 stepDay(by: 1)
@@ -125,35 +95,31 @@ struct DashboardView: View {
         }
     }
 
-    private func dayPage(date: Date, events: [EventKit.EKEvent]) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CasaSpace.lg) {
-                VStack(alignment: .leading, spacing: CasaSpace.xs) {
-                    Text(viewModel.dayLabel(for: date))
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(Color.textPrimary)
-
-                    Text(meetingCountLabel(for: events.count))
-                        .font(.footnote)
-                        .foregroundStyle(Color.textSecondary)
+    private func dayPage(date _: Date, events: [EventKit.EKEvent]) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: gridColumns(for: proxy.size.width), alignment: .leading, spacing: CasaSpace.lg) {
+                    ForEach(events, id: \.eventIdentifier) { event in
+                        MeetingCardView(
+                            event: event,
+                            isNextUpcoming: viewModel.isNextUpcoming(event),
+                            timeUntil: viewModel.timeUntil(event),
+                            onStartRecording: {
+                                viewModel.beginRecording(for: event)
+                            },
+                            onTakeNotes: {
+                                viewModel.beginNotes(for: event)
+                            },
+                            onViewDetails: {
+                                viewModel.openMeetingDetails(for: event)
+                            }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
                 }
-
-                ForEach(events, id: \.eventIdentifier) { event in
-                    MeetingCardView(
-                        event: event,
-                        isNextUpcoming: viewModel.isNextUpcoming(event),
-                        timeUntil: viewModel.timeUntil(event),
-                        onStartRecording: {
-                            viewModel.beginRecording(for: event)
-                        },
-                        onTakeNotes: {
-                            viewModel.beginNotes(for: event)
-                        }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
+                .padding(.vertical, CasaSpace.xs)
             }
-            .padding(CasaSpace.lg)
         }
     }
 
@@ -197,8 +163,19 @@ struct DashboardView: View {
         }
     }
 
-    private func isSelectedDay(_ date: Date) -> Bool {
-        Calendar.current.isDate(selectedDay ?? date, inSameDayAs: date)
+    private var selectedDayTitle: String {
+        guard let selectedDay else { return "" }
+        return dayChipTitle(for: selectedDay)
+    }
+
+    private var selectedDaySubtitle: String {
+        guard let selectedDay,
+              let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selectedDay) })
+        else {
+            return ""
+        }
+
+        return "\(dayChipSubtitle(for: selectedDay)) · \(meetingCountLabel(for: group.events.count))"
     }
 
     private func dayChipTitle(for date: Date) -> String {
@@ -225,13 +202,21 @@ struct DashboardView: View {
         count == 1 ? "1 meeting" : "\(count) meetings"
     }
 
-    private var manualMeetingButton: some View {
-        Button {
-            viewModel.beginManualMeeting()
-        } label: {
-            Label("Manual Meeting", systemImage: "plus.circle")
+    private func gridColumns(for width: CGFloat) -> [GridItem] {
+        let columnCount: Int
+        switch width {
+        case ..<720:
+            columnCount = 1
+        case ..<1080:
+            columnCount = 2
+        default:
+            columnCount = 3
         }
-        .buttonStyle(SecondaryButtonStyle())
+
+        return Array(
+            repeating: GridItem(.flexible(), spacing: CasaSpace.lg, alignment: .top),
+            count: columnCount
+        )
     }
 
     private var emptyStateView: some View {

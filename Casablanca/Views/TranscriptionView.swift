@@ -8,6 +8,8 @@ struct TranscriptionView: View {
     let onCancel: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @State private var didStart = false
     @State private var error: TranscriptionError?
 
@@ -79,6 +81,12 @@ struct TranscriptionView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
+
+            if autoSummarizeAfterTranscription {
+                Text(pipelineMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+            }
         }
         .padding(CasaSpace.xl)
     }
@@ -92,7 +100,7 @@ struct TranscriptionView: View {
                             Text(segment.formattedTimestamp)
                                 .font(.caption)
                                 .monospacedDigit()
-                                .foregroundStyle(Color.textTertiary)
+                                .foregroundStyle(Color.textSecondary)
                                 .frame(width: 60, alignment: .leading)
 
                             Text(segment.text)
@@ -161,5 +169,12 @@ struct TranscriptionView: View {
 
     private func save() {
         try? modelContext.save()
+    }
+
+    private var pipelineMessage: String {
+        if autoExportNotesToObsidian {
+            return "After transcription, Casablanca will continue through summary and export automatically."
+        }
+        return "After transcription, Casablanca will continue to summary automatically."
     }
 }
