@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
+import IOKit.pwr_mgt
 import Observation
 @preconcurrency import ScreenCaptureKit
 
@@ -62,6 +63,7 @@ final class AudioRecordingService {
 
     private var session: RecordingSession?
     private var timerTask: Task<Void, Never>?
+    private let wakeAssertion = RecordingWakeAssertion()
 
     func startRecording(for meeting: Meeting) async throws {
         guard session == nil else {
@@ -90,12 +92,14 @@ final class AudioRecordingService {
             try await session.start()
 
             self.session = session
+            wakeAssertion.acquire()
             activeMeetingID = meeting.id
             outputURL = session.outputURL
             isRecording = true
             isPreparing = false
             startTimer(from: session.startedAt)
         } catch {
+            wakeAssertion.release()
             errorMessage = error.localizedDescription
             isPreparing = false
             session = nil
@@ -112,6 +116,7 @@ final class AudioRecordingService {
 
         defer {
             self.session = nil
+            wakeAssertion.release()
             isRecording = false
             isPreparing = false
             activeMeetingID = nil
@@ -143,6 +148,56 @@ final class AudioRecordingService {
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
+    }
+}
+
+private final class RecordingWakeAssertion {
+    private var displayAssertionID: IOPMAssertionID = 0
+    private var systemAssertionID: IOPMAssertionID = 0
+    private let reason = "Casablanca is recording a meeting" as CFString
+
+    func acquire() {
+        createAssertionIfNeeded(
+            type: kIOPMAssertionTypePreventUserIdleDisplaySleep,
+            id: &displayAssertionID
+        )
+        createAssertionIfNeeded(
+            type: kIOPMAssertionTypePreventUserIdleSystemSleep,
+            id: &systemAssertionID
+        )
+    }
+
+    func release() {
+        releaseAssertion(&displayAssertionID)
+        releaseAssertion(&systemAssertionID)
+    }
+
+    private func createAssertionIfNeeded(type: String, id: inout IOPMAssertionID) {
+        guard id == 0 else { return }
+
+        var assertionID: IOPMAssertionID = 0
+        let status = IOPMAssertionCreateWithName(
+            type as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason,
+            &assertionID
+        )
+
+        guard status == kIOReturnSuccess else {
+            return
+        }
+
+        id = assertionID
+    }
+
+    private func releaseAssertion(_ id: inout IOPMAssertionID) {
+        guard id != 0 else { return }
+        IOPMAssertionRelease(id)
+        id = 0
+    }
+
+    deinit {
+        release()
     }
 }
 
