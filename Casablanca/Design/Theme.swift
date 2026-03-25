@@ -61,10 +61,6 @@ struct CardStyle: ViewModifier {
             .padding(CasaSpace.md)
             .background(Color.backgroundTertiary)
             .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: CasaRadius.lg)
-                    .strokeBorder(Color.borderSubtle, lineWidth: 1)
-            )
             .overlay(alignment: .leading) {
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: 2)

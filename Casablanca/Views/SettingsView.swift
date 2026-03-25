@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var ollamaModelsError = ""
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
+    @State private var isEditingSummaryPrompt = false
 
     var body: some View {
         TabView {
@@ -59,12 +60,6 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
-
-                Toggle("Automatically export notes to Obsidian", isOn: $autoExportNotesToObsidian)
-
-                Text("When enabled, Casablanca keeps the raw notes file up to date automatically and re-exports completed meetings after transcription or summary updates.")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
             }
 
             Section("Recording") {
@@ -82,6 +77,16 @@ struct SettingsView: View {
                 }
 
                 Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Automation") {
+                Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
+
+                Toggle("Automatically export notes to Obsidian", isOn: $autoExportNotesToObsidian)
+
+                Text("Automations run in sequence after recording: transcription, summary generation, then Obsidian export when enabled.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -109,12 +114,6 @@ struct SettingsView: View {
                 }
 
                 Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-
-                Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
-
-                Text("When enabled, Casablanca generates the meeting summary as soon as a recording finishes transcribing.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -177,21 +176,24 @@ struct SettingsView: View {
             }
 
             Section("Summary Prompt") {
-                TextEditor(text: $summaryPromptTemplate)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 220)
+                Button("Customize Prompt...") {
+                    isEditingSummaryPrompt = true
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("Open the prompt editor in a separate sheet to adjust the summary structure and placeholders.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
 
                 Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{timestamped_notes}}, {{freeform_notes}}")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
-
-                Button("Reset to Default Prompt") {
-                    summaryPromptTemplate = SummarizationService.defaultPromptTemplate
-                }
-                .buttonStyle(SecondaryButtonStyle())
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $isEditingSummaryPrompt) {
+            summaryPromptSheet
+        }
     }
 
     private var ollamaModelOptions: [String] {
@@ -263,5 +265,45 @@ struct SettingsView: View {
 
         availableInputDevices = AudioRecordingService.availableRecordingInputDevices()
         systemDefaultInputDeviceName = AudioRecordingService.systemDefaultInputDeviceName() ?? ""
+    }
+
+    private var summaryPromptSheet: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            HStack {
+                VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                    Text("Customize Summary Prompt")
+                        .font(.title3.weight(.semibold))
+                    Text("This template is sent to Ollama whenever Casablanca generates a summary.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textSecondary)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    isEditingSummaryPrompt = false
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+
+            TextEditor(text: $summaryPromptTemplate)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 320)
+
+            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{timestamped_notes}}, {{freeform_notes}}")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+
+            HStack {
+                Button("Reset to Default Prompt") {
+                    summaryPromptTemplate = SummarizationService.defaultPromptTemplate
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Spacer()
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(minWidth: 640, minHeight: 440)
     }
 }

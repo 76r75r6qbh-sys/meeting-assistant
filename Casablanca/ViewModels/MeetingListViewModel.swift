@@ -6,6 +6,7 @@ import SwiftUI
 final class MeetingListViewModel {
     private let calendarService: CalendarService
     private var modelContext: ModelContext?
+    var meetingSearchText = ""
 
     var selectedMeeting: Meeting? {
         didSet {
@@ -150,6 +151,11 @@ final class MeetingListViewModel {
         save()
     }
 
+    func openMeetingDetails(for event: EKEvent) {
+        guard let meeting = findOrCreateMeeting(for: event) else { return }
+        selectedMeeting = meeting
+    }
+
     func beginNotes(for event: EKEvent) {
         guard let meeting = findOrCreateMeeting(for: event) else { return }
         beginNotes(for: meeting)
@@ -202,5 +208,18 @@ final class MeetingListViewModel {
 
     func isHappeningNow(_ event: EKEvent, referenceDate: Date = Date()) -> Bool {
         event.startDate <= referenceDate && event.endDate > referenceDate
+    }
+
+    func filteredRecentMeetings(from meetings: [Meeting]) -> [Meeting] {
+        let query = meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredMeetings = meetings.filter { $0.status != .upcoming }
+
+        guard !query.isEmpty else {
+            return filteredMeetings
+        }
+
+        return filteredMeetings.filter { meeting in
+            meeting.title.localizedCaseInsensitiveContains(query)
+        }
     }
 }

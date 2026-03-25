@@ -7,13 +7,11 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $viewModel.sidebarSelection) {
-            // Dashboard link
             Section {
                 Label("Dashboard", systemImage: "calendar")
                     .tag(SidebarDestination.dashboard)
             }
 
-            // Recent meetings with notes/recordings
             if !recentMeetings.isEmpty {
                 Section("Recent") {
                     ForEach(recentMeetings) { meeting in
@@ -24,10 +22,35 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .searchable(text: $viewModel.meetingSearchText, placement: .sidebar)
+        .overlay {
+            if recentMeetings.isEmpty {
+                ContentUnavailableView {
+                    Label(
+                        viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "No Recent Meetings"
+                        : "No Matching Meetings",
+                        systemImage: "magnifyingglass"
+                    )
+                } description: {
+                    Text(
+                        viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Completed and in-progress meetings appear here."
+                        : "Try a different meeting title."
+                    )
+                } actions: {
+                    Button("Go to Dashboard") {
+                        viewModel.sidebarSelection = .dashboard
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+                .padding(CasaSpace.xl)
+            }
+        }
     }
 
     private var recentMeetings: [Meeting] {
-        meetings.filter { $0.status != .upcoming }
+        viewModel.filteredRecentMeetings(from: meetings)
     }
 }
 
@@ -60,23 +83,28 @@ struct SidebarMeetingRow: View {
         switch meeting.status {
         case .recording:
             Image(systemName: "record.circle")
-                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
                 .foregroundStyle(Color.stateRecording)
         case .processing:
             Image(systemName: "sparkles")
-                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
                 .foregroundStyle(Color.stateProcessing)
         case .notesOnly:
             Image(systemName: "pencil.line")
-                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
                 .foregroundStyle(Color.textSecondary)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
                 .foregroundStyle(Color.accentSuccess)
         case .upcoming:
             Image(systemName: "circle")
-                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
                 .foregroundStyle(Color.stateIdle)
         }
     }
