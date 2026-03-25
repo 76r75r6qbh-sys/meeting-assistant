@@ -9,6 +9,8 @@ struct NotesEditorView: View {
 
     @State private var saveTask: Task<Void, Never>?
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
+    @State private var exportMessage: String?
+    @State private var exportError: String?
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
@@ -62,14 +64,16 @@ struct NotesEditorView: View {
 
                 Spacer()
 
-                Button {
-                    save()
-                } label: {
-                    Label("Save & Export", systemImage: "square.and.arrow.up")
+                if ObsidianExportService.isAvailable {
+                    Button {
+                        exportToObsidian()
+                    } label: {
+                        Label("Export to Obsidian", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && meeting.timestampedNotes.isEmpty)
                 }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    && meeting.timestampedNotes.isEmpty)
             }
             .padding(CasaSpace.lg)
         }
@@ -82,6 +86,16 @@ struct NotesEditorView: View {
             }
         }
         .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
+        .alert("Exported to Obsidian", isPresented: exportSuccessBinding) {
+            Button("OK", role: .cancel) { exportMessage = nil }
+        } message: {
+            Text(exportMessage ?? "")
+        }
+        .alert("Export Error", isPresented: exportErrorBinding) {
+            Button("OK", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
     }
 
     private var previousNotesBar: some View {
@@ -107,6 +121,30 @@ struct NotesEditorView: View {
             guard !Task.isCancelled else { return }
             save()
         }
+    }
+
+    private func exportToObsidian() {
+        save()
+        do {
+            let notesURL = try ObsidianExportService.exportRawNotes(meeting: meeting)
+            exportMessage = "Notes exported to:\n\(notesURL.lastPathComponent)"
+        } catch {
+            exportError = error.localizedDescription
+        }
+    }
+
+    private var exportSuccessBinding: Binding<Bool> {
+        Binding(
+            get: { exportMessage != nil },
+            set: { if !$0 { exportMessage = nil } }
+        )
+    }
+
+    private var exportErrorBinding: Binding<Bool> {
+        Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )
     }
 
     private func save() {

@@ -13,6 +13,8 @@ struct RecordedMeetingView: View {
     @State private var isEditingNotes = false
     @State private var newNoteText = ""
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
+    @State private var exportMessage: String?
+    @State private var exportError: String?
 
     var body: some View {
         ScrollView {
@@ -38,6 +40,16 @@ struct RecordedMeetingView: View {
             }
         } message: {
             Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
+        }
+        .alert("Exported to Obsidian", isPresented: exportSuccessBinding) {
+            Button("OK", role: .cancel) { exportMessage = nil }
+        } message: {
+            Text(exportMessage ?? "")
+        }
+        .alert("Export Error", isPresented: exportErrorBinding) {
+            Button("OK", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
         }
     }
 
@@ -401,6 +413,15 @@ struct RecordedMeetingView: View {
                     }
                     .buttonStyle(SecondaryButtonStyle())
                 }
+
+                if ObsidianExportService.isAvailable {
+                    Button {
+                        exportToObsidian()
+                    } label: {
+                        Label("Export to Obsidian", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
             }
         }
     }
@@ -454,6 +475,29 @@ struct RecordedMeetingView: View {
         } catch {
             summarizationService.errorMessage = error.localizedDescription
         }
+    }
+
+    private func exportToObsidian() {
+        do {
+            let (summaryURL, notesURL) = try ObsidianExportService.exportAll(meeting: meeting)
+            exportMessage = "Summary saved to:\n\(summaryURL.lastPathComponent)\n\nNotes saved to:\n\(notesURL.lastPathComponent)"
+        } catch {
+            exportError = error.localizedDescription
+        }
+    }
+
+    private var exportSuccessBinding: Binding<Bool> {
+        Binding(
+            get: { exportMessage != nil },
+            set: { if !$0 { exportMessage = nil } }
+        )
+    }
+
+    private var exportErrorBinding: Binding<Bool> {
+        Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )
     }
 
     private func save() {
