@@ -207,7 +207,7 @@ final class AudioRecordingService {
         timerTask = Task {
             while !Task.isCancelled {
                 elapsedTime = Date().timeIntervalSince(startDate)
-                try? await Task.sleep(for: .milliseconds(250))
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
@@ -403,6 +403,9 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     private var latestDisplayedLevel = 0.0
     private var lastMicrophoneLevelAt = 0.0
     private var lastSystemLevelAt = 0.0
+    private var lastLevelPublishAt = 0.0
+
+    private let levelPublishInterval = 1.0 / 15.0
 
     init(
         meeting: Meeting,
@@ -711,6 +714,11 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             latestDisplayedLevel = 0
         }
 
+        guard now - lastLevelPublishAt >= levelPublishInterval else {
+            return
+        }
+
+        lastLevelPublishAt = now
         onLevelUpdate(latestDisplayedLevel)
     }
 
