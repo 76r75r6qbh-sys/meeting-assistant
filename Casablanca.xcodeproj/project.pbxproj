@@ -35,6 +35,7 @@
 		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
 		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
 		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
+		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +68,7 @@
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
 		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
+		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -132,6 +134,7 @@
 			children = (
 				B10003 /* Meeting.swift */,
 				B10026 /* TodoItem.swift */,
+				B10029 /* PendingTodoReview.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -347,6 +350,7 @@
 				A10025 /* MenuBarMeetingView.swift in Sources */,
 				A10026 /* TodoItem.swift in Sources */,
 				A10027 /* SummaryResponseParser.swift in Sources */,
+				A10029 /* PendingTodoReview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
