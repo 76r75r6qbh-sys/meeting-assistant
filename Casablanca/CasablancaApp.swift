@@ -10,7 +10,7 @@ struct CasablancaApp: App {
 
     init() {
         do {
-            sharedModelContainer = try ModelContainer(for: Meeting.self)
+            sharedModelContainer = try ModelContainer(for: Meeting.self, TodoItem.self)
         } catch {
             fatalError("Failed to create model container: \(error)")
         }

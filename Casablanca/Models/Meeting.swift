@@ -68,6 +68,7 @@ final class Meeting {
     var recordingDuration: Double?
     var transcriptionLanguage: String = "en-US"
     var createdAt: Date
+    @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
 
     init(
         title: String,
@@ -88,6 +89,7 @@ final class Meeting {
         self.timestampedNotes = []
         self.transcriptionLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultTranscriptionLanguage) ?? "en-US"
         self.createdAt = Date()
+        self.todos = []
     }
 
     var isUpcoming: Bool {
