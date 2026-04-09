@@ -15,6 +15,8 @@ struct RecordedMeetingView: View {
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
+    @State private var pendingReview: PendingTodoReview?
+    @State private var pendingTodoTexts: [String] = []
     @FocusState private var isNewNoteFieldFocused: Bool
 
     var body: some View {
@@ -60,6 +62,22 @@ struct RecordedMeetingView: View {
         } message: {
             Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
         }
+        .sheet(item: $pendingReview) { review in
+            TodoReviewSheet(
+                meetingTitle: meeting.title,
+                summary: review.summary,
+                todoTexts: $pendingTodoTexts,
+                onSave: {
+                    saveTodos(texts: pendingTodoTexts)
+                    pendingReview = nil
+                },
+                onDiscard: {
+                    pendingReview = nil
+                    save()
+                }
+            )
+            .interactiveDismissDisabled()
+        }
     }
 
     @ViewBuilder
@@ -85,11 +103,13 @@ struct RecordedMeetingView: View {
                     }
                     .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
                 }
+                actionItemsCard
             } else {
                 summaryCard
                 transcriptCard
                 timestampedNotesCard
                 freeformNotesCard
+                actionItemsCard
             }
 
             Spacer(minLength: 0)
@@ -539,9 +559,18 @@ struct RecordedMeetingView: View {
 
     private func summarizeMeeting() async {
         do {
-            let summary = try await summarizationService.summarize(meeting: meeting)
-            meeting.summary = summary
-            save()
+            let parsed = try await summarizationService.summarize(meeting: meeting)
+            meeting.summary = parsed.summary
+            if !parsed.todoTexts.isEmpty {
+                pendingTodoTexts = parsed.todoTexts
+                pendingReview = PendingTodoReview(
+                    meetingID: meeting.id,
+                    summary: parsed.summary,
+                    todoTexts: parsed.todoTexts
+                )
+            } else {
+                save()
+            }
         } catch {
             summarizationService.errorMessage = error.localizedDescription
         }
@@ -570,6 +599,45 @@ struct RecordedMeetingView: View {
                 message: error.localizedDescription,
                 exportedURLs: []
             )
+        }
+    }
+
+    private func saveTodos(texts: [String]) {
+        for text in texts where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let todo = TodoItem(text: text, meeting: meeting)
+            modelContext.insert(todo)
+        }
+        save()
+    }
+
+    @ViewBuilder
+    private var actionItemsCard: some View {
+        if !meeting.todos.isEmpty {
+            GroupBox {
+                VStack(alignment: .leading, spacing: CasaSpace.md) {
+                    Label("Action Items", systemImage: "checklist")
+                        .font(.headline)
+                        .symbolRenderingMode(.hierarchical)
+
+                    ForEach(meeting.todos.sorted(by: { $0.createdAt < $1.createdAt })) { todo in
+                        HStack(spacing: CasaSpace.sm) {
+                            Button {
+                                todo.isCompleted.toggle()
+                                try? modelContext.save()
+                            } label: {
+                                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)
+                            }
+                            .buttonStyle(.borderless)
+
+                            Text(todo.text)
+                                .strikethrough(todo.isCompleted)
+                                .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
