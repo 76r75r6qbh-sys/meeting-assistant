@@ -47,6 +47,7 @@ final class SummarizationService {
     ## Follow-ups
 
     Keep action items concrete and include owners when they are stated.
+    Each action item MUST be a `- ` bullet under "## Action Items". If there are no action items, write "## Action Items" with nothing below it.
 
     Meeting title: {{title}}
     Scheduled time: {{scheduled_time}}
@@ -76,7 +77,7 @@ final class SummarizationService {
     private(set) var statusMessage = ""
     var errorMessage: String?
 
-    func summarize(meeting: Meeting) async throws -> String {
+    func summarize(meeting: Meeting) async throws -> SummaryResponseParser.ParsedResponse {
         let transcript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         let timestampedNotes = meeting.timestampedNotes
@@ -148,7 +149,7 @@ final class SummarizationService {
         }
 
         statusMessage = "Summary generated"
-        return summary
+        return SummaryResponseParser.parse(summary)
     }
 
     func clearError() {
