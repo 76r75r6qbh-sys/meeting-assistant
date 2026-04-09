@@ -33,6 +33,8 @@
 		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
 		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
 		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
+		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
+		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -63,8 +65,29 @@
 		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
+		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
+		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
+		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		F10007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = H10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10001;
+			remoteInfo = Casablanca;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		F10006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F10001 /* Casablanca */;
+			targetProxy = F10007 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D10001 /* Frameworks */ = {
@@ -82,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				E10002 /* Casablanca */,
+				E10012 /* CasablancaTests */,
 				E10009 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -120,6 +144,7 @@
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				B10024 /* ExportService.swift */,
+				B10027 /* SummaryResponseParser.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -170,8 +195,17 @@
 			isa = PBXGroup;
 			children = (
 				C10001 /* Casablanca.app */,
+				C10002 /* CasablancaTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E10012 /* CasablancaTests */ = {
+			isa = PBXGroup;
+			children = (
+				B10028 /* SummaryResponseParserTests.swift */,
+			);
+			path = CasablancaTests;
 			sourceTree = "<group>";
 		};
 		E10010 /* Resources */ = {
@@ -215,6 +249,22 @@
 			productReference = C10001 /* Casablanca.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F10004 /* CasablancaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = G10007 /* Build configuration list for PBXNativeTarget "CasablancaTests" */;
+			buildPhases = (
+				F10005 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F10006 /* PBXTargetDependency */,
+			);
+			name = CasablancaTests;
+			productName = CasablancaTests;
+			productReference = C10002 /* CasablancaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -227,6 +277,10 @@
 				TargetAttributes = {
 					F10001 = {
 						CreatedOnToolsVersion = 15.4;
+					};
+					F10004 = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = F10001;
 					};
 				};
 			};
@@ -247,6 +301,7 @@
 			projectRoot = "";
 			targets = (
 				F10001 /* Casablanca */,
+				F10004 /* CasablancaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -291,6 +346,15 @@
 				A10023 /* ExportService.swift in Sources */,
 				A10025 /* MenuBarMeetingView.swift in Sources */,
 				A10026 /* TodoItem.swift in Sources */,
+				A10027 /* SummaryResponseParser.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10028 /* SummaryResponseParserTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -408,6 +472,40 @@
 			};
 			name = Release;
 		};
+		G10008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 77YQ5E8KT3;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Casablanca.app/Contents/MacOS/Casablanca";
+			};
+			name = Debug;
+		};
+		G10009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Casablanca.app/Contents/MacOS/Casablanca";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -425,6 +523,15 @@
 			buildConfigurations = (
 				G10005 /* Debug */,
 				G10006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		G10007 /* Build configuration list for PBXNativeTarget "CasablancaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G10008 /* Debug */,
+				G10009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
