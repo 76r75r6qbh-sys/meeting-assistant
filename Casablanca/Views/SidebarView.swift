@@ -19,8 +19,8 @@ struct SidebarView: View {
 
             Section {
                 Label("To-Dos", systemImage: "checklist")
-                    .tag(SidebarDestination.todos)
                     .badge(openTodoCount)
+                    .tag(SidebarDestination.todos)
             }
 
             Section("Recent") {
