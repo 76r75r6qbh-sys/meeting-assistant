@@ -8,31 +8,25 @@ final class MeetingListViewModel {
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
-    var selectedMeeting: Meeting? {
+    var sidebarSelection: SidebarDestination? = .dashboard {
         didSet {
-            // Keep sidebar selection in sync
-            if let meeting = selectedMeeting {
-                _sidebarSelection = .meeting(meeting.id)
-            } else if _sidebarSelection != .todos {
-                _sidebarSelection = .dashboard
+            guard oldValue != sidebarSelection else { return }
+            switch sidebarSelection {
+            case .dashboard, .todos, .none:
+                if selectedMeeting != nil { selectedMeeting = nil }
+            case .meeting(let id):
+                if selectedMeeting?.id != id { selectedMeeting = fetchMeeting(byID: id) }
             }
         }
     }
 
-    private var _sidebarSelection: SidebarDestination = .dashboard
-
-    var sidebarSelection: SidebarDestination? {
-        get { _sidebarSelection }
-        set {
-            guard let newValue else { return }
-            _sidebarSelection = newValue
-            switch newValue {
-            case .dashboard, .todos:
-                selectedMeeting = nil
-            case .meeting(let id):
-                if selectedMeeting?.id != id {
-                    selectedMeeting = fetchMeeting(byID: id)
-                }
+    var selectedMeeting: Meeting? {
+        didSet {
+            guard oldValue?.id != selectedMeeting?.id else { return }
+            if let meeting = selectedMeeting {
+                sidebarSelection = .meeting(meeting.id)
+            } else if sidebarSelection != .todos {
+                sidebarSelection = .dashboard
             }
         }
     }
