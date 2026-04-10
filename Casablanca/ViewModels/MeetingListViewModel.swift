@@ -13,7 +13,7 @@ final class MeetingListViewModel {
             // Keep sidebar selection in sync
             if let meeting = selectedMeeting {
                 _sidebarSelection = .meeting(meeting.id)
-            } else {
+            } else if _sidebarSelection != .todos {
                 _sidebarSelection = .dashboard
             }
         }
