@@ -25,8 +25,17 @@ struct SidebarView: View {
                 .badge(openTodoCount)
             }
 
-            if !recentMeetings.isEmpty {
-                Section("Recent") {
+            Section("Recent") {
+                if recentMeetings.isEmpty {
+                    Text(
+                        viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "No recent meetings yet."
+                        : "No matching meetings."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .listRowBackground(Color.clear)
+                } else {
                     ForEach(recentMeetings) { meeting in
                         SidebarMeetingRow(meeting: meeting)
                             .tag(SidebarDestination.meeting(meeting.id))
@@ -36,30 +45,6 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .searchable(text: $viewModel.meetingSearchText, placement: .sidebar)
-        .overlay {
-            if recentMeetings.isEmpty {
-                ContentUnavailableView {
-                    Label(
-                        viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "No Recent Meetings"
-                        : "No Matching Meetings",
-                        systemImage: "magnifyingglass"
-                    )
-                } description: {
-                    Text(
-                        viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "Completed and in-progress meetings appear here."
-                        : "Try a different meeting title."
-                    )
-                } actions: {
-                    Button("Go to Dashboard") {
-                        viewModel.sidebarSelection = .dashboard
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
-                .padding(CasaSpace.xl)
-            }
-        }
     }
 
     private var recentMeetings: [Meeting] {
