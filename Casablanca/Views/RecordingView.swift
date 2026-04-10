@@ -3,7 +3,7 @@ import SwiftData
 import SwiftUI
 
 struct RecordingView: View {
-    private enum NotesMode { case timestamped, freeform, todos }
+    private enum NotesMode { case timestamped, freeform }
 
     @Bindable var meeting: Meeting
     @Bindable var recordingService: AudioRecordingService
@@ -30,9 +30,12 @@ struct RecordingView: View {
             case .timestamped:
                 timestampedNotesArea
             case .freeform:
-                freeformNotesEditor
-            case .todos:
-                todosArea
+                HStack(spacing: 0) {
+                    freeformNotesEditor
+                    Divider()
+                    todosArea
+                        .frame(width: 260)
+                }
             }
 
             Divider()
@@ -111,10 +114,9 @@ struct RecordingView: View {
                 Picker("Notes Mode", selection: $notesMode) {
                     Text("Timestamped").tag(NotesMode.timestamped)
                     Text("Freeform").tag(NotesMode.freeform)
-                    Text("To-Dos").tag(NotesMode.todos)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 240)
+                .frame(width: 180)
             }
 
             DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
