@@ -37,6 +37,7 @@
 		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
 		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
+		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -71,6 +72,7 @@
 		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
 		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
+		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -175,6 +177,7 @@
 				B10025 /* MenuBarMeetingView.swift */,
 				B10014 /* SettingsView.swift */,
 				B10030 /* TodoReviewSheet.swift */,
+				B10031 /* TodosView.swift */,
 				E10011 /* Components */,
 			);
 			path = Views;
@@ -355,6 +358,7 @@
 				A10027 /* SummaryResponseParser.swift in Sources */,
 				A10029 /* PendingTodoReview.swift in Sources */,
 				A10030 /* TodoReviewSheet.swift in Sources */,
+				A10031 /* TodosView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
