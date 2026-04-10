@@ -3,6 +3,8 @@ import SwiftData
 import SwiftUI
 
 struct RecordingView: View {
+    private enum NotesMode { case timestamped, freeform, todos }
+
     @Bindable var meeting: Meeting
     @Bindable var recordingService: AudioRecordingService
     let onBack: () -> Void
@@ -11,7 +13,8 @@ struct RecordingView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var noteText = ""
-    @State private var showFreeformNotes = true
+    @State private var notesMode: NotesMode = .timestamped
+    @State private var newTodoText = ""
     @State private var showingAudioSettings = false
     @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @FocusState private var isNoteFieldFocused: Bool
@@ -23,10 +26,13 @@ struct RecordingView: View {
             Divider()
 
             // Main content area
-            if showFreeformNotes {
-                freeformNotesEditor
-            } else {
+            switch notesMode {
+            case .timestamped:
                 timestampedNotesArea
+            case .freeform:
+                freeformNotesEditor
+            case .todos:
+                todosArea
             }
 
             Divider()
@@ -102,14 +108,13 @@ struct RecordingView: View {
 
                 Spacer()
 
-                Picker("", selection: $showFreeformNotes) {
-                    Label("Timestamped", systemImage: "clock")
-                        .tag(false)
-                    Label("Freeform", systemImage: "text.alignleft")
-                        .tag(true)
+                Picker("Notes Mode", selection: $notesMode) {
+                    Text("Timestamped").tag(NotesMode.timestamped)
+                    Text("Freeform").tag(NotesMode.freeform)
+                    Text("To-Dos").tag(NotesMode.todos)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 200)
+                .frame(width: 240)
             }
 
             DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
@@ -162,7 +167,7 @@ struct RecordingView: View {
                             Text("Type a note below or switch to freeform notes.")
                         } actions: {
                             Button("Use Freeform Notes") {
-                                showFreeformNotes = true
+                                notesMode = .freeform
                             }
                             .buttonStyle(SecondaryButtonStyle())
                         }
@@ -265,6 +270,74 @@ struct RecordingView: View {
         }
     }
 
+    // MARK: - To-Dos
+
+    @ViewBuilder
+    private var todosArea: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                if meeting.todos.isEmpty {
+                    Text("No to-dos yet. Add one below.")
+                        .font(.body)
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 320, alignment: .center)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: CasaSpace.xs) {
+                        ForEach(meeting.todos) { todo in
+                            HStack(spacing: CasaSpace.sm) {
+                                Button {
+                                    todo.isCompleted.toggle()
+                                    save()
+                                } label: {
+                                    Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+                                        .font(.body)
+                                        .foregroundStyle(todo.isCompleted ? Color.accentColor : Color.textTertiary)
+                                }
+                                .buttonStyle(.plain)
+
+                                Text(todo.text)
+                                    .font(.body)
+                                    .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
+                                    .strikethrough(todo.isCompleted, color: Color.textTertiary)
+                                    .textSelection(.enabled)
+
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, CasaSpace.xs)
+                        }
+                    }
+                    .padding(CasaSpace.lg)
+                }
+            }
+
+            Divider()
+
+            // Todo input bar
+            HStack(spacing: CasaSpace.sm) {
+                TextField("Add a to-do...", text: $newTodoText)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .onSubmit {
+                        addTodo()
+                    }
+
+                Button {
+                    addTodo()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(newTodoText.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? Color.textTertiary : Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(newTodoText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, CasaSpace.lg)
+            .padding(.vertical, CasaSpace.md)
+            .background(.bar)
+        }
+    }
+
     // MARK: - Footer
 
     private var footer: some View {
@@ -307,6 +380,16 @@ struct RecordingView: View {
         noteText = ""
         save()
         isNoteFieldFocused = true
+    }
+
+    private func addTodo() {
+        let trimmed = newTodoText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+
+        let todoItem = TodoItem(text: trimmed, meeting: meeting)
+        modelContext.insert(todoItem)
+        try? modelContext.save()
+        newTodoText = ""
     }
 
     private var selectedMicrophoneBinding: Binding<String> {
