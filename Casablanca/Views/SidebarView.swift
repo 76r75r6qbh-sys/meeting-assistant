@@ -5,24 +5,22 @@ struct SidebarView: View {
     @Bindable var viewModel: MeetingListViewModel
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
+    // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
+    @State private var selection: SidebarDestination? = .dashboard
 
     private var openTodoCount: Int { openTodos.count }
 
     var body: some View {
-        List(selection: $viewModel.sidebarSelection) {
+        List(selection: $selection) {
             Section {
                 Label("Dashboard", systemImage: "calendar")
                     .tag(SidebarDestination.dashboard)
             }
 
             Section {
-                Label {
-                    Text("To-Dos")
-                } icon: {
-                    Image(systemName: "checklist")
-                }
-                .tag(SidebarDestination.todos)
-                .badge(openTodoCount)
+                Label("To-Dos", systemImage: "checklist")
+                    .tag(SidebarDestination.todos)
+                    .badge(openTodoCount)
             }
 
             Section("Recent") {
@@ -45,6 +43,14 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .searchable(text: $viewModel.meetingSearchText, placement: .sidebar)
+        // Sync @State → ViewModel when user taps a sidebar row
+        .onChange(of: selection) { _, new in
+            viewModel.sidebarSelection = new
+        }
+        // Sync ViewModel → @State when code sets selection (e.g. beginRecording)
+        .onChange(of: viewModel.sidebarSelection) { _, new in
+            if selection != new { selection = new }
+        }
     }
 
     private var recentMeetings: [Meeting] {
