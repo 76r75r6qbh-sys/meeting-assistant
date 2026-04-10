@@ -22,51 +22,56 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let meeting = viewModel.selectedMeeting {
-            switch meeting.status {
-            case .notesOnly, .upcoming:
-                NotesEditorView(
-                    meeting: meeting,
-                    onStartRecording: {
-                        viewModel.beginRecording(for: meeting)
-                    },
-                    onBack: {
-                        viewModel.selectedMeeting = nil
-                    }
-                )
-            case .recording:
-                RecordingView(
-                    meeting: meeting,
-                    recordingService: recordingService,
-                    onBack: {
-                        viewModel.selectedMeeting = nil
-                    }
-                )
-            case .processing:
-                TranscriptionView(
-                    meeting: meeting,
-                    transcriptionService: transcriptionService,
-                    onComplete: {
-                        // Stay on the same meeting — it will switch to .completed
-                    },
-                    onCancel: {
-                        meeting.status = .completed
-                        try? modelContext.save()
-                    }
-                )
-            case .completed:
-                RecordedMeetingView(
-                    meeting: meeting,
-                    onRecordAgain: {
-                        viewModel.beginRecording(for: meeting)
-                    },
-                    onTranscribe: {
-                        meeting.status = .processing
-                        try? modelContext.save()
-                    }
-                )
+        switch viewModel.sidebarSelection {
+        case .todos:
+            TodosView(viewModel: viewModel)
+        case .meeting(let id):
+            if let meeting = viewModel.selectedMeeting ?? viewModel.fetchMeeting(byID: id) {
+                switch meeting.status {
+                case .notesOnly, .upcoming:
+                    NotesEditorView(
+                        meeting: meeting,
+                        onStartRecording: {
+                            viewModel.beginRecording(for: meeting)
+                        },
+                        onBack: {
+                            viewModel.selectedMeeting = nil
+                        }
+                    )
+                case .recording:
+                    RecordingView(
+                        meeting: meeting,
+                        recordingService: recordingService,
+                        onBack: {
+                            viewModel.selectedMeeting = nil
+                        }
+                    )
+                case .processing:
+                    TranscriptionView(
+                        meeting: meeting,
+                        transcriptionService: transcriptionService,
+                        onComplete: {},
+                        onCancel: {
+                            meeting.status = .completed
+                            try? modelContext.save()
+                        }
+                    )
+                case .completed:
+                    RecordedMeetingView(
+                        meeting: meeting,
+                        onRecordAgain: {
+                            viewModel.beginRecording(for: meeting)
+                        },
+                        onTranscribe: {
+                            meeting.status = .processing
+                            try? modelContext.save()
+                        }
+                    )
+                }
+            } else {
+                DashboardView(viewModel: viewModel)
             }
-        } else {
+        case .dashboard, .none:
             DashboardView(viewModel: viewModel)
         }
     }

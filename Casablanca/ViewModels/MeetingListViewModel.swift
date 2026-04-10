@@ -27,7 +27,7 @@ final class MeetingListViewModel {
             guard let newValue else { return }
             _sidebarSelection = newValue
             switch newValue {
-            case .dashboard:
+            case .dashboard, .todos:
                 selectedMeeting = nil
             case .meeting(let id):
                 if selectedMeeting?.id != id {

@@ -4,12 +4,25 @@ import SwiftData
 struct SidebarView: View {
     @Bindable var viewModel: MeetingListViewModel
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
+    @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
+
+    private var openTodoCount: Int { openTodos.count }
 
     var body: some View {
         List(selection: $viewModel.sidebarSelection) {
             Section {
                 Label("Dashboard", systemImage: "calendar")
                     .tag(SidebarDestination.dashboard)
+            }
+
+            Section {
+                Label {
+                    Text("To-Dos")
+                } icon: {
+                    Image(systemName: "checklist")
+                }
+                .tag(SidebarDestination.todos)
+                .badge(openTodoCount)
             }
 
             if !recentMeetings.isEmpty {
@@ -130,5 +143,6 @@ struct SidebarMeetingRow: View {
 
 enum SidebarDestination: Hashable {
     case dashboard
+    case todos
     case meeting(UUID)
 }
