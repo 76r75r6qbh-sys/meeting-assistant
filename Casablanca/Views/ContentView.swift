@@ -7,9 +7,13 @@ struct ContentView: View {
     @State private var recordingService = AudioRecordingService()
     @State private var transcriptionService = TranscriptionService()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var detailRoute: SidebarDestination? = .dashboard
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        // Force @Observable tracking in ContentView's own body context, not inside
+        // the NavigationSplitView detail closure (which has its own rendering context).
+        let _ = viewModel.sidebarSelection
+        return NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(viewModel: viewModel)
                 .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
@@ -18,11 +22,14 @@ struct ContentView: View {
         .onAppear {
             viewModel.setModelContext(modelContext)
         }
+        .onChange(of: viewModel.sidebarSelection) { _, new in
+            detailRoute = new
+        }
     }
 
     @ViewBuilder
     private var detailView: some View {
-        switch viewModel.sidebarSelection {
+        switch detailRoute {
         case .todos:
             TodosView(viewModel: viewModel)
         case .meeting(let id):
