@@ -7,6 +7,7 @@ struct MeetingWorkspacePresentation {
     let activeMeetingID: UUID?
     let isRecording: Bool
     let isPreparing: Bool
+    let isFinalizing: Bool
 
     var isActiveMeeting: Bool {
         activeMeetingID == meeting.id
@@ -25,7 +26,16 @@ struct MeetingWorkspacePresentation {
     }
 
     var backButtonDisabled: Bool {
-        isActiveMeeting && isRecording
+        isFinalizing || (isActiveMeeting && isRecording)
+    }
+
+    var showsBlockingOverlay: Bool {
+        isFinalizing
+    }
+
+    var blockingOverlayTitle: String? {
+        guard isFinalizing else { return nil }
+        return "Recording finaliseren..."
     }
 
     var stateLabel: String {
@@ -64,6 +74,7 @@ struct FreeformWorkspacePresentation: Equatable {
 
 struct NotesEditorView: View {
     private enum NotesMode { case timestamped, freeform }
+    private enum RecordingActionPhase { case start, stop }
 
     @Bindable var meeting: Meeting
     @Bindable var recordingService: AudioRecordingService
@@ -80,22 +91,31 @@ struct NotesEditorView: View {
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
     @State private var showingAudioSettings = false
+    @State private var isFinalizingRecording = false
+    @State private var recordingActionPhase: RecordingActionPhase = .start
     @FocusState private var isNoteFieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            if presentation.showsRecordingChrome {
-                header
+        ZStack {
+            VStack(spacing: 0) {
+                if presentation.showsRecordingChrome {
+                    header
+                    Divider()
+                } else if !meeting.timestampedNotes.isEmpty {
+                    previousNotesBar
+                    Divider()
+                }
+
+                mainContent
+
                 Divider()
-            } else if !meeting.timestampedNotes.isEmpty {
-                previousNotesBar
-                Divider()
+                footer
             }
+            .blur(radius: presentation.showsBlockingOverlay ? 1.5 : 0)
 
-            mainContent
-
-            Divider()
-            footer
+            if presentation.showsBlockingOverlay {
+                finalizingOverlay
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -117,21 +137,28 @@ struct NotesEditorView: View {
             await startRecordingIfNeeded()
         }
         .alert("Recording Error", isPresented: recordingErrorBinding) {
-            Button("Retry") {
-                recordingService.clearError()
-                didTriggerStart = false
-                Task {
-                    await startRecordingIfNeeded()
+            if recordingActionPhase == .start {
+                Button("Retry") {
+                    recordingService.clearError()
+                    didTriggerStart = false
+                    Task {
+                        await startRecordingIfNeeded()
+                    }
                 }
-            }
 
-            Button("Open Privacy Settings") {
-                openRelevantPrivacySettings()
-            }
+                Button("Open Privacy Settings") {
+                    openRelevantPrivacySettings()
+                }
 
-            Button("Back to Notes", role: .cancel) {
-                meeting.status = .notesOnly
-                save()
+                Button("Back to Notes", role: .cancel) {
+                    meeting.status = .notesOnly
+                    save()
+                }
+            } else {
+                Button("OK", role: .cancel) {
+                    meeting.status = .notesOnly
+                    save()
+                }
             }
         } message: {
             Text(recordingService.errorMessage ?? "Unable to start recording.")
@@ -143,7 +170,8 @@ struct NotesEditorView: View {
             meeting: meeting,
             activeMeetingID: recordingService.activeMeetingID,
             isRecording: recordingService.isRecording,
-            isPreparing: recordingService.isPreparing
+            isPreparing: recordingService.isPreparing,
+            isFinalizing: isFinalizingRecording
         )
     }
 
@@ -563,6 +591,34 @@ struct NotesEditorView: View {
         .background(.bar)
     }
 
+    private var finalizingOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+
+            VStack(spacing: CasaSpace.md) {
+                ProgressView()
+                    .controlSize(.regular)
+
+                Text(presentation.blockingOverlayTitle ?? "Recording finaliseren...")
+                    .font(.headline)
+                    .foregroundStyle(Color.textPrimary)
+
+                Text("Even geduld, Casablanca maakt de opname klaar voor transcriptie.")
+                    .font(.body)
+                    .foregroundStyle(Color.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(CasaSpace.xxl)
+            .frame(width: 360)
+            .background(Color.backgroundPrimary.opacity(0.96))
+            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
+            .shadow(color: .black.opacity(0.12), radius: 20, y: 10)
+        }
+        .transition(.opacity)
+    }
+
     private func addTimestampedNote() {
         let trimmed = noteText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
@@ -640,6 +696,7 @@ struct NotesEditorView: View {
             return
         }
 
+        recordingActionPhase = .start
         didTriggerStart = true
 
         do {
@@ -654,13 +711,22 @@ struct NotesEditorView: View {
     }
 
     private func stopRecording() async {
+        guard !isFinalizingRecording else { return }
+
+        recordingActionPhase = .stop
+        isFinalizingRecording = true
+
         do {
             let result = try await recordingService.stopRecording()
             meeting.recordingFileURL = result.outputURL.path
             meeting.recordingDuration = result.duration
             meeting.status = .processing
             save()
-        } catch {}
+        } catch {
+            isFinalizingRecording = false
+            meeting.status = .notesOnly
+            save()
+        }
     }
 
     private func loadPrepMarkdown() {

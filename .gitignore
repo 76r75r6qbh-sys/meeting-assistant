@@ -4,6 +4,7 @@ xcuserdata/
 
 ## Build artifacts
 build/
+.build/
 DerivedData/
 
 ## macOS metadata

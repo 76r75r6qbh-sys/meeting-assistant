@@ -95,7 +95,8 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             meeting: meeting,
             activeMeetingID: nil,
             isRecording: false,
-            isPreparing: false
+            isPreparing: false,
+            isFinalizing: false
         )
 
         XCTAssertFalse(presentation.showsRecordingChrome)
@@ -110,7 +111,8 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             meeting: meeting,
             activeMeetingID: meeting.id,
             isRecording: true,
-            isPreparing: false
+            isPreparing: false,
+            isFinalizing: false
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
@@ -125,12 +127,28 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             meeting: meeting,
             activeMeetingID: meeting.id,
             isRecording: false,
-            isPreparing: true
+            isPreparing: true,
+            isFinalizing: false
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
         XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
+    }
+
+    func testFinalizingWorkspaceShowsBlockingOverlay() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: meeting.id,
+            isRecording: false,
+            isPreparing: false,
+            isFinalizing: true
+        )
+
+        XCTAssertTrue(presentation.showsBlockingOverlay)
+        XCTAssertEqual(presentation.blockingOverlayTitle, "Recording finaliseren...")
+        XCTAssertTrue(presentation.backButtonDisabled)
     }
 
     func testFreeformWorkspaceKeepsTodosVisibleOutsideRecording() {
@@ -295,6 +313,34 @@ final class SidebarMeetingRowActionTests: XCTestCase {
         let actions = SidebarMeetingRowActions(section: .upcoming)
 
         XCTAssertTrue(actions.contextMenuActions.isEmpty)
+    }
+}
+
+final class AudioRecordingPipelineTests: XCTestCase {
+    func testCaptureFirstPipelineDefersRealtimeConversionForBothTracks() {
+        let pipeline = DeferredRecordingPipeline.captureFirst
+
+        XCTAssertTrue(pipeline.microphone.writesRawCaptureBuffers)
+        XCTAssertFalse(pipeline.microphone.requiresRealtimeConversion)
+        XCTAssertTrue(pipeline.systemAudio.writesRawCaptureBuffers)
+        XCTAssertFalse(pipeline.systemAudio.requiresRealtimeConversion)
+    }
+
+    func testCaptureFirstPipelineDoesNotRequireScreenFrames() {
+        XCTAssertFalse(DeferredRecordingPipeline.captureFirst.requiresScreenStreamOutput)
+    }
+
+    func testDeferredPipelineUsesLongestTrackForOutputFrameCount() {
+        let pipeline = DeferredRecordingPipeline.captureFirst
+
+        XCTAssertEqual(
+            pipeline.expectedOutputFrameCount(microphoneFrames: 1_600, systemAudioFrames: 3_200),
+            3_200
+        )
+        XCTAssertEqual(
+            pipeline.expectedOutputFrameCount(microphoneFrames: 4_800, systemAudioFrames: 0),
+            4_800
+        )
     }
 }
 

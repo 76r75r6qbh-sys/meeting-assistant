@@ -57,6 +57,44 @@ enum RecordingError: LocalizedError {
     }
 }
 
+enum RecordingTrackKind {
+    case microphone
+    case systemAudio
+}
+
+struct DeferredTrackCapturePlan: Equatable {
+    let kind: RecordingTrackKind
+    let writesRawCaptureBuffers: Bool
+    let requiresRealtimeConversion: Bool
+}
+
+struct DeferredRecordingPipeline: Equatable {
+    let microphone: DeferredTrackCapturePlan
+    let systemAudio: DeferredTrackCapturePlan
+    let requiresScreenStreamOutput: Bool
+
+    static let captureFirst = DeferredRecordingPipeline(
+        microphone: DeferredTrackCapturePlan(
+            kind: .microphone,
+            writesRawCaptureBuffers: true,
+            requiresRealtimeConversion: false
+        ),
+        systemAudio: DeferredTrackCapturePlan(
+            kind: .systemAudio,
+            writesRawCaptureBuffers: true,
+            requiresRealtimeConversion: false
+        ),
+        requiresScreenStreamOutput: false
+    )
+
+    func expectedOutputFrameCount(
+        microphoneFrames: AVAudioFramePosition,
+        systemAudioFrames: AVAudioFramePosition
+    ) -> AVAudioFramePosition {
+        max(microphoneFrames, systemAudioFrames)
+    }
+}
+
 @MainActor
 @Observable
 final class AudioRecordingService {
@@ -372,6 +410,7 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     let startedAt = Date()
     private let microphoneTempURL: URL
     private let systemAudioTempURL: URL
+    private let pipeline = DeferredRecordingPipeline.captureFirst
     private var selectedInputDeviceID: AudioDeviceID?
     private var systemAudioEnabled: Bool
 
@@ -387,14 +426,15 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
     private var stream: SCStream?
     private var streamOutput: SystemAudioStreamOutput?
-    private var screenOutput: ScreenStreamOutput?
-    private var fileFormat: AVAudioFormat?
-    private var microphoneFileHandle: FileHandle?
-    private var systemAudioFileHandle: FileHandle?
-    private var microphoneConverter: AVAudioConverter?
+    private var outputFormat: AVAudioFormat?
+    private var microphoneCaptureFile: AVAudioFile?
+    private var systemAudioCaptureFile: AVAudioFile?
+    private var microphoneCaptureFormat: AVAudioFormat?
+    private var systemAudioCaptureFormat: AVAudioFormat?
+    private var microphoneCaptureConverter: AVAudioConverter?
     private var systemSourceSignature: AudioFormatSignature?
     private var microphoneSourceSignature: AudioFormatSignature?
-    private var systemAudioConverter: AVAudioConverter?
+    private var systemAudioCaptureConverter: AVAudioConverter?
     private var didStartEngine = false
     private var capturedMicrophoneFrames: AVAudioFramePosition = 0
     private var capturedSystemAudioFrames: AVAudioFramePosition = 0
@@ -440,7 +480,6 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         }
 
         streamOutput = nil
-        screenOutput = nil
         stream = nil
 
         microphoneProcessingQueue.sync { }
@@ -451,10 +490,8 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         }
         engine.stop()
         didStartEngine = false
-        try? microphoneFileHandle?.close()
-        try? systemAudioFileHandle?.close()
-        microphoneFileHandle = nil
-        systemAudioFileHandle = nil
+        microphoneCaptureFile = nil
+        systemAudioCaptureFile = nil
 
         guard capturedMicrophoneFrames > 0 || capturedSystemAudioFrames > 0 else {
             try? FileManager.default.removeItem(at: microphoneTempURL)
@@ -493,7 +530,7 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     }
 
     private func configureEngine() throws {
-        guard let fileFormat = AVAudioFormat(
+        guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16_000,
             channels: 1,
@@ -502,17 +539,13 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             throw RecordingError.failedToCreateAudioFile
         }
 
-        self.fileFormat = fileFormat
-
-        guard FileManager.default.createFile(atPath: microphoneTempURL.path, contents: nil),
-              FileManager.default.createFile(atPath: systemAudioTempURL.path, contents: nil),
-              let microphoneFileHandle = try? FileHandle(forWritingTo: microphoneTempURL),
-              let systemAudioFileHandle = try? FileHandle(forWritingTo: systemAudioTempURL)
-        else {
-            throw RecordingError.failedToCreateAudioFile
-        }
-        self.microphoneFileHandle = microphoneFileHandle
-        self.systemAudioFileHandle = systemAudioFileHandle
+        self.outputFormat = outputFormat
+        microphoneCaptureFile = nil
+        systemAudioCaptureFile = nil
+        microphoneCaptureFormat = nil
+        systemAudioCaptureFormat = nil
+        microphoneCaptureConverter = nil
+        systemAudioCaptureConverter = nil
 
         if !engine.attachedNodes.contains(microphoneSinkNode) {
             engine.attach(microphoneSinkNode)
@@ -563,7 +596,7 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     }
 
     private func configureSystemAudioCapture() async throws {
-        guard let fileFormat else { return }
+        guard outputFormat != nil else { return }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -583,22 +616,21 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             configuration.showsCursor = false
             configuration.capturesAudio = true
             configuration.excludesCurrentProcessAudio = true
-            configuration.sampleRate = Int(fileFormat.sampleRate)
-            configuration.channelCount = Int(fileFormat.channelCount)
 
             let stream = SCStream(filter: filter, configuration: configuration, delegate: streamDelegate)
             let output = SystemAudioStreamOutput { [weak self] sampleBuffer in
                 self?.handleSystemAudioSampleBuffer(sampleBuffer)
             }
-            let screenOutput = ScreenStreamOutput()
 
             try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: streamQueue)
-            try stream.addStreamOutput(screenOutput, type: .screen, sampleHandlerQueue: streamQueue)
+            if pipeline.requiresScreenStreamOutput {
+                let screenOutput = ScreenStreamOutput()
+                try stream.addStreamOutput(screenOutput, type: .screen, sampleHandlerQueue: streamQueue)
+            }
             try await stream.startCapture()
 
             self.stream = stream
             self.streamOutput = output
-            self.screenOutput = screenOutput
         } catch let error as RecordingError {
             throw error
         } catch {
@@ -608,29 +640,43 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
     private func handleSystemAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard didStartEngine,
-              let fileFormat,
               let sourceBuffer = sampleBuffer.makePCMBuffer()
         else {
             return
         }
 
         let sourceSignature = AudioFormatSignature(sourceBuffer.format)
-        if systemSourceSignature != sourceSignature {
-            systemSourceSignature = sourceSignature
-            systemAudioConverter = AVAudioConverter(from: sourceBuffer.format, to: fileFormat)
+        if systemAudioCaptureFormat == nil {
+            do {
+                try prepareSystemAudioCapture(format: sourceBuffer.format)
+            } catch {
+                onFailure(error)
+                return
+            }
         }
 
-        guard let convertedBuffer = convert(
-            buffer: sourceBuffer,
-            with: systemAudioConverter,
-            targetFormat: fileFormat
+        if systemSourceSignature != sourceSignature,
+           let systemAudioCaptureFormat {
+            systemSourceSignature = sourceSignature
+            let captureSignature = AudioFormatSignature(systemAudioCaptureFormat)
+            systemAudioCaptureConverter = captureSignature == sourceSignature
+                ? nil
+                : AVAudioConverter(from: sourceBuffer.format, to: systemAudioCaptureFormat)
+        }
+
+        guard let captureBuffer = prepareCaptureBuffer(
+            sourceBuffer,
+            targetFormat: systemAudioCaptureFormat,
+            converter: systemAudioCaptureConverter,
+            requiresRealtimeConversion: pipeline.systemAudio.requiresRealtimeConversion,
+            onFailure: onFailure
         ) else {
             return
         }
 
         if systemAudioEnabled {
-            publishSystemLevel(from: convertedBuffer)
-            writeSystemAudioBuffer(convertedBuffer)
+            publishSystemLevel(from: captureBuffer)
+            writeSystemAudioBuffer(captureBuffer)
         } else {
             levelQueue.async { [weak self] in
                 guard let self else { return }
@@ -642,29 +688,43 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     }
 
     private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
-        let sourceSignature = AudioFormatSignature(buffer.format)
-        if microphoneSourceSignature != sourceSignature, let fileFormat {
-            microphoneSourceSignature = sourceSignature
-            microphoneConverter = AVAudioConverter(from: buffer.format, to: fileFormat)
+        if microphoneCaptureFormat == nil {
+            do {
+                try prepareMicrophoneCapture(format: buffer.format)
+            } catch {
+                onFailure(error)
+                return
+            }
         }
 
-        guard let fileFormat,
-              let convertedBuffer = convert(
-            buffer: buffer,
-            with: microphoneConverter,
-            targetFormat: fileFormat
+        let sourceSignature = AudioFormatSignature(buffer.format)
+        if microphoneSourceSignature != sourceSignature,
+           let microphoneCaptureFormat {
+            microphoneSourceSignature = sourceSignature
+            let captureSignature = AudioFormatSignature(microphoneCaptureFormat)
+            microphoneCaptureConverter = captureSignature == sourceSignature
+                ? nil
+                : AVAudioConverter(from: buffer.format, to: microphoneCaptureFormat)
+        }
+
+        guard let captureBuffer = prepareCaptureBuffer(
+            buffer,
+            targetFormat: microphoneCaptureFormat,
+            converter: microphoneCaptureConverter,
+            requiresRealtimeConversion: pipeline.microphone.requiresRealtimeConversion,
+            onFailure: onFailure
         ) else {
             return
         }
 
-        writeMicrophoneBuffer(convertedBuffer)
+        writeMicrophoneBuffer(captureBuffer)
     }
 
     private func writeMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let microphoneFileHandle else { return }
+        guard let microphoneCaptureFile else { return }
 
         do {
-            try microphoneFileHandle.write(contentsOf: Self.rawPCMData(from: buffer))
+            try microphoneCaptureFile.write(from: buffer)
             capturedMicrophoneFrames += AVAudioFramePosition(buffer.frameLength)
         } catch {
             onFailure(error)
@@ -672,10 +732,10 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     }
 
     private func writeSystemAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let systemAudioFileHandle else { return }
+        guard let systemAudioCaptureFile else { return }
 
         do {
-            try systemAudioFileHandle.write(contentsOf: Self.rawPCMData(from: buffer))
+            try systemAudioCaptureFile.write(from: buffer)
             capturedSystemAudioFrames += AVAudioFramePosition(buffer.frameLength)
         } catch {
             onFailure(error)
@@ -774,52 +834,38 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         return min(max((decibels + 50) / 50, 0), 1)
     }
 
-    private func convert(
-        buffer: AVAudioPCMBuffer,
-        with converter: AVAudioConverter?,
-        targetFormat: AVAudioFormat
+    private func prepareMicrophoneCapture(format: AVAudioFormat) throws {
+        microphoneCaptureFormat = format
+        microphoneCaptureFile = try Self.makeCaptureFile(at: microphoneTempURL, format: format)
+        microphoneSourceSignature = AudioFormatSignature(format)
+    }
+
+    private func prepareSystemAudioCapture(format: AVAudioFormat) throws {
+        systemAudioCaptureFormat = format
+        systemAudioCaptureFile = try Self.makeCaptureFile(at: systemAudioTempURL, format: format)
+        systemSourceSignature = AudioFormatSignature(format)
+    }
+
+    private func prepareCaptureBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        targetFormat: AVAudioFormat?,
+        converter: AVAudioConverter?,
+        requiresRealtimeConversion: Bool,
+        onFailure: @escaping (Error) -> Void
     ) -> AVAudioPCMBuffer? {
-        if AudioFormatSignature(buffer.format) == AudioFormatSignature(targetFormat) {
+        guard let targetFormat else { return nil }
+
+        if !requiresRealtimeConversion,
+           AudioFormatSignature(buffer.format) == AudioFormatSignature(targetFormat) {
             return buffer
         }
 
-        guard let converter else { return nil }
-        converter.reset()
-
-        let ratio = targetFormat.sampleRate / buffer.format.sampleRate
-        let expectedFrames = max(AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32, 64)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: expectedFrames) else {
-            return nil
-        }
-
-        var error: NSError?
-        let inputState = SingleBufferInputState(buffer)
-
-        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-            guard let nextBuffer = inputState.takeBuffer() else {
-                outStatus.pointee = .endOfStream
-                return nil
-            }
-
-            outStatus.pointee = .haveData
-            return nextBuffer
-        }
-
-        if let error {
-            onFailure(error)
-            return nil
-        }
-
-        switch status {
-        case .haveData, .endOfStream:
-            return outputBuffer.frameLength > 0 ? outputBuffer : nil
-        case .inputRanDry:
-            return outputBuffer.frameLength > 0 ? outputBuffer : nil
-        case .error:
-            return nil
-        @unknown default:
-            return nil
-        }
+        return Self.convert(
+            buffer: buffer,
+            with: converter,
+            targetFormat: targetFormat,
+            onFailure: onFailure
+        )
     }
 
     private func mixTemporaryRecordings() throws {
@@ -834,17 +880,21 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             "systemBytes=\(systemAudioBytes)"
         )
 
-        let microphoneHandle = capturedMicrophoneFrames > 0
-            ? try? FileHandle(forReadingFrom: microphoneTempURL)
+        let microphoneFile = capturedMicrophoneFrames > 0
+            ? try? AVAudioFile(forReading: microphoneTempURL)
             : nil
-        let systemAudioHandle = capturedSystemAudioFrames > 0
-            ? try? FileHandle(forReadingFrom: systemAudioTempURL)
+        let systemAudioFile = capturedSystemAudioFrames > 0
+            ? try? AVAudioFile(forReading: systemAudioTempURL)
             : nil
 
-        guard microphoneHandle != nil || systemAudioHandle != nil else {
+        guard microphoneFile != nil || systemAudioFile != nil else {
             throw RecordingError.failedToFinalizeRecording(
                 "Casablanca could not reopen its temporary recordings. micFrames=\(capturedMicrophoneFrames), micBytes=\(microphoneBytes), systemFrames=\(capturedSystemAudioFrames), systemBytes=\(systemAudioBytes)."
             )
+        }
+
+        guard let outputFormat else {
+            throw RecordingError.failedToFinalizeRecording("Casablanca lost its output mix format before finalizing.")
         }
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -857,18 +907,31 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         }
 
         let chunkFrames = 4_096
-        let chunkBytes = chunkFrames * MemoryLayout<Float>.size
         var mixedAudioByteCount = 0
+        var microphoneConverter: AVAudioConverter?
+        var systemAudioConverter: AVAudioConverter?
+
+        let expectedOutputFrames = pipeline.expectedOutputFrameCount(
+            microphoneFrames: capturedMicrophoneFrames,
+            systemAudioFrames: capturedSystemAudioFrames
+        )
 
         do {
             try outputHandle.write(contentsOf: Data(repeating: 0, count: 44))
 
             while true {
-                let microphoneData = try microphoneHandle?.read(upToCount: chunkBytes) ?? Data()
-                let systemAudioData = try systemAudioHandle?.read(upToCount: chunkBytes) ?? Data()
-
-                let microphoneSamples = Self.floatSamples(from: microphoneData)
-                let systemAudioSamples = Self.floatSamples(from: systemAudioData)
+                let microphoneSamples = try Self.readConvertedSamples(
+                    from: microphoneFile,
+                    converter: &microphoneConverter,
+                    targetFormat: outputFormat,
+                    chunkFrameCount: AVAudioFrameCount(chunkFrames)
+                )
+                let systemAudioSamples = try Self.readConvertedSamples(
+                    from: systemAudioFile,
+                    converter: &systemAudioConverter,
+                    targetFormat: outputFormat,
+                    chunkFrameCount: AVAudioFrameCount(chunkFrames)
+                )
                 let frameCount = max(microphoneSamples.count, systemAudioSamples.count)
 
                 guard frameCount > 0 else { break }
@@ -899,14 +962,17 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
             try outputHandle.seek(toOffset: 0)
             try outputHandle.write(contentsOf: Self.wavHeader(dataByteCount: mixedAudioByteCount))
             try outputHandle.close()
-            try? microphoneHandle?.close()
-            try? systemAudioHandle?.close()
         } catch {
             try? outputHandle.close()
-            try? microphoneHandle?.close()
-            try? systemAudioHandle?.close()
             throw RecordingError.failedToFinalizeRecording(
                 "Casablanca could not read one of the temporary recordings: \(error.localizedDescription)"
+            )
+        }
+
+        let renderedFrameCount = mixedAudioByteCount / MemoryLayout<Int16>.size
+        if expectedOutputFrames > 0, renderedFrameCount == 0 {
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca produced an empty final mix despite capturing audio. expectedFrames=\(expectedOutputFrames)."
             )
         }
 
@@ -997,7 +1063,7 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         outputURL
             .deletingPathExtension()
             .appendingPathExtension(suffix)
-            .appendingPathExtension("pcm")
+            .appendingPathExtension("caf")
     }
 
     private static func fileSize(at url: URL) -> Int64 {
@@ -1005,18 +1071,131 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         return Int64(values?.fileSize ?? 0)
     }
 
-    private static func rawPCMData(from buffer: AVAudioPCMBuffer) -> Data {
-        guard let channelData = buffer.floatChannelData?.pointee else {
-            return Data()
+    private static func makeCaptureFile(at url: URL, format: AVAudioFormat) throws -> AVAudioFile {
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
         }
 
-        let sampleCount = Int(buffer.frameLength)
-        return Data(bytes: channelData, count: sampleCount * MemoryLayout<Float>.size)
+        return try AVAudioFile(
+            forWriting: url,
+            settings: format.settings,
+            commonFormat: format.commonFormat,
+            interleaved: format.isInterleaved
+        )
     }
 
-    private static func floatSamples(from data: Data) -> [Float] {
-        data.withUnsafeBytes { rawBuffer in
-            Array(rawBuffer.bindMemory(to: Float.self))
+    private static func convert(
+        buffer: AVAudioPCMBuffer,
+        with converter: AVAudioConverter?,
+        targetFormat: AVAudioFormat,
+        onFailure: ((Error) -> Void)? = nil
+    ) -> AVAudioPCMBuffer? {
+        if AudioFormatSignature(buffer.format) == AudioFormatSignature(targetFormat) {
+            return buffer
+        }
+
+        guard let converter else { return nil }
+        converter.reset()
+
+        let ratio = targetFormat.sampleRate / buffer.format.sampleRate
+        let expectedFrames = max(AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32, 64)
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: expectedFrames) else {
+            return nil
+        }
+
+        var error: NSError?
+        let inputState = SingleBufferInputState(buffer)
+
+        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+            guard let nextBuffer = inputState.takeBuffer() else {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+
+            outStatus.pointee = .haveData
+            return nextBuffer
+        }
+
+        if let error {
+            onFailure?(error)
+            return nil
+        }
+
+        switch status {
+        case .haveData, .endOfStream, .inputRanDry:
+            return outputBuffer.frameLength > 0 ? outputBuffer : nil
+        case .error:
+            return nil
+        @unknown default:
+            return nil
+        }
+    }
+
+    private static func readConvertedSamples(
+        from file: AVAudioFile?,
+        converter: inout AVAudioConverter?,
+        targetFormat: AVAudioFormat,
+        chunkFrameCount: AVAudioFrameCount
+    ) throws -> [Float] {
+        guard let file else { return [] }
+
+        let sourceFormat = file.processingFormat
+        let sourceToTargetRatio = max(sourceFormat.sampleRate / targetFormat.sampleRate, 1)
+        let sourceFrameCount = max(
+            AVAudioFrameCount(Double(chunkFrameCount) * sourceToTargetRatio) + 32,
+            chunkFrameCount
+        )
+
+        guard let sourceBuffer = AVAudioPCMBuffer(
+            pcmFormat: sourceFormat,
+            frameCapacity: sourceFrameCount
+        ) else {
+            return []
+        }
+
+        try file.read(into: sourceBuffer, frameCount: sourceFrameCount)
+        guard sourceBuffer.frameLength > 0 else { return [] }
+
+        let convertedBuffer: AVAudioPCMBuffer
+        if AudioFormatSignature(sourceFormat) == AudioFormatSignature(targetFormat) {
+            convertedBuffer = sourceBuffer
+        } else {
+            if converter == nil {
+                converter = AVAudioConverter(from: sourceFormat, to: targetFormat)
+            }
+
+            guard let converted = Self.convert(
+                buffer: sourceBuffer,
+                with: converter,
+                targetFormat: targetFormat
+            ) else {
+                return []
+            }
+            convertedBuffer = converted
+        }
+
+        return floatSamples(from: convertedBuffer)
+    }
+
+    private static func floatSamples(from buffer: AVAudioPCMBuffer) -> [Float] {
+        guard buffer.frameLength > 0 else { return [] }
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let channelData = buffer.floatChannelData?.pointee else { return [] }
+            return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
+        case .pcmFormatInt16:
+            guard let channelData = buffer.int16ChannelData?.pointee else { return [] }
+            return UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)).map {
+                Float($0) / Float(Int16.max)
+            }
+        case .pcmFormatInt32:
+            guard let channelData = buffer.int32ChannelData?.pointee else { return [] }
+            return UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)).map {
+                Float($0) / Float(Int32.max)
+            }
+        default:
+            return []
         }
     }
 
