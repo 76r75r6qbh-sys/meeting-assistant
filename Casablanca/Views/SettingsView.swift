@@ -56,7 +56,11 @@ struct SettingsView: View {
                 }
 
                 if obsidianVaultPath.isEmpty {
-                    Text("Select your Obsidian vault to enable export")
+                    Text("Select your Obsidian vault to enable notes export and todo sync.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                } else {
+                    Text("Casablanca stores generic todos in `tasks/Casablanca Todos.md` and syncs meeting action items from your meeting notes files.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }

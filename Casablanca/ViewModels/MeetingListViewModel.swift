@@ -5,6 +5,8 @@ import SwiftUI
 @Observable
 final class MeetingListViewModel {
     private let calendarService: CalendarService
+    private let removeItemAtURL: (URL) throws -> Void
+    private let meetingHasPrep: (Meeting) -> Bool
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -26,8 +28,18 @@ final class MeetingListViewModel {
         }
     }
 
-    init(calendarService: CalendarService) {
+    init(
+        calendarService: CalendarService,
+        meetingHasPrep: @escaping (Meeting) -> Bool = { meeting in
+            MeetingPrepService.hasPrep(for: meeting)
+        },
+        removeItemAtURL: @escaping (URL) throws -> Void = { url in
+            try FileManager.default.removeItem(at: url)
+        }
+    ) {
         self.calendarService = calendarService
+        self.meetingHasPrep = meetingHasPrep
+        self.removeItemAtURL = removeItemAtURL
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -156,6 +168,28 @@ final class MeetingListViewModel {
         save()
     }
 
+    func deleteMeeting(_ meeting: Meeting) throws {
+        guard let modelContext else { return }
+
+        if let recordingPath = meeting.recordingFileURL {
+            let recordingURL = URL(fileURLWithPath: recordingPath)
+            do {
+                try removeItemAtURL(recordingURL)
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                // Missing recording files should not block deleting the meeting record.
+            }
+        }
+
+        let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
+        modelContext.delete(meeting)
+
+        if isSelectedMeeting {
+            sidebarSelection = .dashboard
+        }
+
+        try modelContext.save()
+    }
+
     func dayLabel(for date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
@@ -200,15 +234,46 @@ final class MeetingListViewModel {
     }
 
     func filteredRecentMeetings(from meetings: [Meeting]) -> [Meeting] {
-        let query = meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filteredMeetings = meetings.filter { $0.status != .upcoming }
+        filteredMeetings(from: meetings, in: .recent)
+    }
 
-        guard !query.isEmpty else {
-            return filteredMeetings
+    func filteredUpcomingMeetings(from meetings: [Meeting]) -> [Meeting] {
+        filteredMeetings(from: meetings, in: .upcoming)
+    }
+
+    func sidebarSection(for meeting: Meeting, now: Date = Date()) -> SidebarMeetingSection {
+        if meeting.status == .upcoming {
+            return .upcoming
         }
 
-        return filteredMeetings.filter { meeting in
+        if meeting.date > now && meetingHasPrep(meeting) {
+            return .upcoming
+        }
+
+        return .recent
+    }
+
+    private func filteredMeetings(from meetings: [Meeting], in section: SidebarMeetingSection) -> [Meeting] {
+        let query = meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredMeetings = meetings.filter { sidebarSection(for: $0) == section }
+
+        guard !query.isEmpty else {
+            return sortMeetings(filteredMeetings, in: section)
+        }
+
+        let queryFiltered = filteredMeetings.filter { meeting in
             meeting.title.localizedCaseInsensitiveContains(query)
+        }
+
+        return sortMeetings(queryFiltered, in: section)
+    }
+
+    private func sortMeetings(_ meetings: [Meeting], in section: SidebarMeetingSection) -> [Meeting] {
+        switch section {
+        case .upcoming:
+            return meetings.sorted { $0.date < $1.date }
+        case .recent:
+            return meetings.sorted { $0.date > $1.date }
         }
     }
 }

@@ -12,7 +12,6 @@ struct RecordedMeetingView: View {
     @State private var summarizationService = SummarizationService()
     @State private var isEditingNotes = false
     @State private var newNoteText = ""
-    @State private var editorCoordinator: MarkdownTextEditorCoordinator?
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
     @State private var pendingReview: PendingTodoReview?
@@ -396,11 +395,9 @@ struct RecordedMeetingView: View {
 
                 if isEditingNotes {
                     VStack(spacing: 0) {
-                        MarkdownFormattingToolbar(coordinator: editorCoordinator)
-                        MarkdownTextEditor(
+                        ToastMarkdownEditor(
                             text: $meeting.userNotes,
-                            font: .systemFont(ofSize: NSFont.systemFontSize),
-                            coordinator: $editorCoordinator
+                            placeholder: "Capture decisions, follow-ups, and context..."
                         )
                         .frame(minHeight: 160)
                         .onChange(of: meeting.userNotes) {
@@ -604,10 +601,12 @@ struct RecordedMeetingView: View {
 
     private func saveTodos(texts: [String]) {
         for text in texts where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let todo = TodoItem(text: text, meeting: meeting)
-            modelContext.insert(todo)
+            try? ObsidianTodoSyncService.createMeetingTodo(
+                text: text,
+                meeting: meeting,
+                in: modelContext
+            )
         }
-        save()
     }
 
     @ViewBuilder
@@ -622,8 +621,11 @@ struct RecordedMeetingView: View {
                     ForEach(meeting.todos.sorted(by: { $0.createdAt < $1.createdAt })) { todo in
                         HStack(spacing: CasaSpace.sm) {
                             Button {
-                                todo.isCompleted.toggle()
-                                try? modelContext.save()
+                                try? ObsidianTodoSyncService.setCompleted(
+                                    !todo.isCompleted,
+                                    for: todo,
+                                    in: modelContext
+                                )
                             } label: {
                                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)

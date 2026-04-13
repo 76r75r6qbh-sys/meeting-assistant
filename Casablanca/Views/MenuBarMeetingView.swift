@@ -55,7 +55,9 @@ struct MenuBarMeetingView: View {
     }
 
     private func eventCard(for event: EKEvent) -> some View {
-        VStack(alignment: .leading, spacing: CasaSpace.md) {
+        let actionLayout = MeetingEntryActionLayout(isPast: false)
+
+        return VStack(alignment: .leading, spacing: CasaSpace.md) {
             VStack(alignment: .leading, spacing: CasaSpace.xs) {
                 Text(viewModel.isHappeningNow(event) ? "Current meeting" : "Upcoming meeting")
                     .font(.caption.weight(.semibold))
@@ -71,14 +73,41 @@ struct MenuBarMeetingView: View {
                     .foregroundStyle(Color.textSecondary)
             }
 
-            Button {
-                viewModel.beginRecording(for: event)
-                openMainWindow()
-            } label: {
-                Label("Start Recording", systemImage: "record.circle")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(actionLayout.visibleActions, id: \.rawValue) { action in
+                if action == .takeNotes {
+                    Button {
+                        switch action {
+                        case .startRecording:
+                            viewModel.beginRecording(for: event)
+                        case .takeNotes:
+                            viewModel.beginNotes(for: event)
+                        case .viewDetails:
+                            viewModel.openMeetingDetails(for: event)
+                        }
+                        openMainWindow()
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                } else {
+                    Button {
+                        switch action {
+                        case .startRecording:
+                            viewModel.beginRecording(for: event)
+                        case .takeNotes:
+                            viewModel.beginNotes(for: event)
+                        case .viewDetails:
+                            viewModel.openMeetingDetails(for: event)
+                        }
+                        openMainWindow()
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
             }
-            .buttonStyle(PrimaryButtonStyle())
         }
         .padding(CasaSpace.md)
         .cardStyle()

@@ -1,12 +1,31 @@
 import SwiftUI
 import SwiftData
 
+enum SidebarMeetingSection: Hashable {
+    case upcoming
+    case recent
+}
+
+enum SidebarMeetingRowAction: Hashable {
+    case deleteMeeting
+}
+
+struct SidebarMeetingRowActions {
+    let section: SidebarMeetingSection
+
+    var contextMenuActions: [SidebarMeetingRowAction] {
+        section == .upcoming ? [] : [.deleteMeeting]
+    }
+}
+
 struct SidebarView: View {
     @Bindable var viewModel: MeetingListViewModel
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
     @State private var selection: SidebarDestination? = .dashboard
+    @State private var meetingPendingDeletion: Meeting?
+    @State private var deletionErrorMessage: String?
 
     private var openTodoCount: Int { openTodos.count }
 
@@ -23,6 +42,21 @@ struct SidebarView: View {
                     .tag(SidebarDestination.todos)
             }
 
+            if !upcomingMeetings.isEmpty {
+                Section("Upcoming") {
+                    ForEach(upcomingMeetings) { meeting in
+                        SidebarMeetingRow(
+                            meeting: meeting,
+                            section: .upcoming,
+                            onDeleteRequest: {
+                                meetingPendingDeletion = meeting
+                            }
+                        )
+                        .tag(SidebarDestination.meeting(meeting.id))
+                    }
+                }
+            }
+
             Section("Recent") {
                 if recentMeetings.isEmpty {
                     Text(
@@ -35,7 +69,13 @@ struct SidebarView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     ForEach(recentMeetings) { meeting in
-                        SidebarMeetingRow(meeting: meeting)
+                        SidebarMeetingRow(
+                            meeting: meeting,
+                            section: .recent,
+                            onDeleteRequest: {
+                                meetingPendingDeletion = meeting
+                            }
+                        )
                             .tag(SidebarDestination.meeting(meeting.id))
                     }
                 }
@@ -43,6 +83,34 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .searchable(text: $viewModel.meetingSearchText, placement: .sidebar)
+        .confirmationDialog(
+            meetingPendingDeletion.map { "Delete \"\($0.title)\"?" } ?? "Delete Meeting?",
+            isPresented: Binding(
+                get: { meetingPendingDeletion != nil },
+                set: { newValue in
+                    if !newValue {
+                        meetingPendingDeletion = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Meeting", role: .destructive) {
+                confirmDeleteMeeting()
+            }
+            Button("Cancel", role: .cancel) {
+                meetingPendingDeletion = nil
+            }
+        } message: {
+            Text("This removes the meeting, notes, transcript, summary, to-dos, and saved recording from Casablanca.")
+        }
+        .alert("Unable to Delete Meeting", isPresented: deletionErrorBinding) {
+            Button("OK", role: .cancel) {
+                deletionErrorMessage = nil
+            }
+        } message: {
+            Text(deletionErrorMessage ?? "Unknown error")
+        }
         // Sync @State → ViewModel when user taps a sidebar row
         .onChange(of: selection) { _, new in
             viewModel.sidebarSelection = new
@@ -56,10 +124,44 @@ struct SidebarView: View {
     private var recentMeetings: [Meeting] {
         viewModel.filteredRecentMeetings(from: meetings)
     }
+
+    private var upcomingMeetings: [Meeting] {
+        viewModel.filteredUpcomingMeetings(from: meetings)
+    }
+
+    private var deletionErrorBinding: Binding<Bool> {
+        Binding(
+            get: { deletionErrorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    deletionErrorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func confirmDeleteMeeting() {
+        guard let meeting = meetingPendingDeletion else { return }
+
+        meetingPendingDeletion = nil
+
+        do {
+            try viewModel.deleteMeeting(meeting)
+            selection = viewModel.sidebarSelection
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+        }
+    }
 }
 
 struct SidebarMeetingRow: View {
     let meeting: Meeting
+    let section: SidebarMeetingSection
+    let onDeleteRequest: () -> Void
+
+    private var actions: SidebarMeetingRowActions {
+        SidebarMeetingRowActions(section: section)
+    }
 
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
@@ -77,6 +179,14 @@ struct SidebarMeetingRow: View {
             }
 
             Spacer()
+        }
+        .contextMenu {
+            ForEach(actions.contextMenuActions, id: \.self) { action in
+                switch action {
+                case .deleteMeeting:
+                    Button("Delete Meeting…", role: .destructive, action: onDeleteRequest)
+                }
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(meeting.title), \(statusAccessibilityLabel), \(formattedDate)")

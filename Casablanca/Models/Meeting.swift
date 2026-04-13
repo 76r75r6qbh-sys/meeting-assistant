@@ -26,6 +26,25 @@ enum MeetingStatus: String, Codable {
     case completed
 }
 
+enum MeetingDetailPresentation: Equatable {
+    case workspace
+    case processing
+    case completed
+}
+
+extension MeetingStatus {
+    var detailPresentation: MeetingDetailPresentation {
+        switch self {
+        case .upcoming, .notesOnly, .recording:
+            return .workspace
+        case .processing:
+            return .processing
+        case .completed:
+            return .completed
+        }
+    }
+}
+
 struct TimestampedNote: Codable, Identifiable, Hashable {
     let id: UUID
     let timestamp: TimeInterval

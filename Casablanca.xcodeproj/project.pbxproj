@@ -38,6 +38,17 @@
 		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
 		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
+		A10032 /* MarkdownConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* MarkdownConverter.swift */; };
+		A10033 /* MarkdownEditorBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MarkdownEditorBundleTests.swift */; };
+		A10034 /* MarkdownEditor in Resources */ = {isa = PBXBuildFile; fileRef = B10034 /* MarkdownEditor */; };
+		A10035 /* MeetingStartFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* MeetingStartFlowTests.swift */; };
+		A10036 /* MeetingPrepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MeetingPrepService.swift */; };
+		A10037 /* MeetingPrepServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MeetingPrepServiceTests.swift */; };
+		A10038 /* ObsidianTodoMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* ObsidianTodoMarkdownTests.swift */; };
+		A10039 /* ObsidianMeetingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039 /* ObsidianMeetingFiles.swift */; };
+		A10040 /* ObsidianTodoMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* ObsidianTodoMarkdown.swift */; };
+		A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* ObsidianTodoSyncServiceTests.swift */; };
+		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -73,6 +84,17 @@
 		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
 		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
+		B10032 /* MarkdownConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownConverter.swift; sourceTree = "<group>"; };
+		B10033 /* MarkdownEditorBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorBundleTests.swift; sourceTree = "<group>"; };
+		B10034 /* MarkdownEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MarkdownEditor; sourceTree = "<group>"; };
+		B10035 /* MeetingStartFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartFlowTests.swift; sourceTree = "<group>"; };
+		B10036 /* MeetingPrepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepService.swift; sourceTree = "<group>"; };
+		B10037 /* MeetingPrepServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceTests.swift; sourceTree = "<group>"; };
+		B10038 /* ObsidianTodoMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdownTests.swift; sourceTree = "<group>"; };
+		B10039 /* ObsidianMeetingFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingFiles.swift; sourceTree = "<group>"; };
+		B10040 /* ObsidianTodoMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdown.swift; sourceTree = "<group>"; };
+		B10041 /* ObsidianTodoSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncServiceTests.swift; sourceTree = "<group>"; };
+		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -151,6 +173,10 @@
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				B10024 /* ExportService.swift */,
+				B10036 /* MeetingPrepService.swift */,
+				B10039 /* ObsidianMeetingFiles.swift */,
+				B10040 /* ObsidianTodoMarkdown.swift */,
+				B10042 /* ObsidianTodoSyncService.swift */,
 				B10027 /* SummaryResponseParser.swift */,
 			);
 			path = Services;
@@ -196,6 +222,7 @@
 			isa = PBXGroup;
 			children = (
 				B10010 /* Permissions.swift */,
+				B10032 /* MarkdownConverter.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -213,6 +240,11 @@
 			isa = PBXGroup;
 			children = (
 				B10028 /* SummaryResponseParserTests.swift */,
+				B10033 /* MarkdownEditorBundleTests.swift */,
+				B10035 /* MeetingStartFlowTests.swift */,
+				B10037 /* MeetingPrepServiceTests.swift */,
+				B10038 /* ObsidianTodoMarkdownTests.swift */,
+				B10041 /* ObsidianTodoSyncServiceTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -221,6 +253,7 @@
 			isa = PBXGroup;
 			children = (
 				B10011 /* Assets.xcassets */,
+				B10034 /* MarkdownEditor */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -321,6 +354,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10011 /* Assets.xcassets in Resources */,
+				A10034 /* MarkdownEditor in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +393,11 @@
 				A10029 /* PendingTodoReview.swift in Sources */,
 				A10030 /* TodoReviewSheet.swift in Sources */,
 				A10031 /* TodosView.swift in Sources */,
+				A10032 /* MarkdownConverter.swift in Sources */,
+				A10036 /* MeetingPrepService.swift in Sources */,
+				A10039 /* ObsidianMeetingFiles.swift in Sources */,
+				A10040 /* ObsidianTodoMarkdown.swift in Sources */,
+				A10042 /* ObsidianTodoSyncService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -367,6 +406,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10028 /* SummaryResponseParserTests.swift in Sources */,
+				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
+				A10035 /* MeetingStartFlowTests.swift in Sources */,
+				A10037 /* MeetingPrepServiceTests.swift in Sources */,
+				A10038 /* ObsidianTodoMarkdownTests.swift in Sources */,
+				A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

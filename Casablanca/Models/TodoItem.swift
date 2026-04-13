@@ -8,13 +8,22 @@ final class TodoItem {
     var text: String
     var isCompleted: Bool
     var createdAt: Date
+    var sourceFilePath: String?
     var meeting: Meeting?
 
-    init(text: String, meeting: Meeting? = nil) {
-        self.id = UUID()
+    init(
+        id: UUID = UUID(),
+        text: String,
+        isCompleted: Bool = false,
+        createdAt: Date = Date(),
+        sourceFilePath: String? = nil,
+        meeting: Meeting? = nil
+    ) {
+        self.id = id
         self.text = text
-        self.isCompleted = false
-        self.createdAt = Date()
+        self.isCompleted = isCompleted
+        self.createdAt = createdAt
+        self.sourceFilePath = sourceFilePath
         self.meeting = meeting
     }
 }

@@ -19,6 +19,10 @@ struct ContentView: View {
         } detail: {
             detailView
         }
+        .task {
+            viewModel.setModelContext(modelContext)
+            try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+        }
         .onAppear {
             viewModel.setModelContext(modelContext)
         }
@@ -34,21 +38,12 @@ struct ContentView: View {
             TodosView(viewModel: viewModel)
         case .meeting(let id):
             if let meeting = viewModel.selectedMeeting ?? viewModel.fetchMeeting(byID: id) {
-                switch meeting.status {
-                case .notesOnly, .upcoming:
+                switch meeting.status.detailPresentation {
+                case .workspace:
                     NotesEditorView(
                         meeting: meeting,
-                        onStartRecording: {
-                            viewModel.beginRecording(for: meeting)
-                        },
-                        onBack: {
-                            viewModel.selectedMeeting = nil
-                        }
-                    )
-                case .recording:
-                    RecordingView(
-                        meeting: meeting,
                         recordingService: recordingService,
+                        autoStartRecording: meeting.status == .recording,
                         onBack: {
                             viewModel.selectedMeeting = nil
                         }

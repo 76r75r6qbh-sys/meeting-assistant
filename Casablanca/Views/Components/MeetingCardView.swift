@@ -1,6 +1,46 @@
 import EventKit
 import SwiftUI
 
+enum MeetingEntryAction: String, CaseIterable {
+    case startRecording
+    case takeNotes
+    case viewDetails
+
+    var title: String {
+        switch self {
+        case .startRecording:
+            return "Start Recording"
+        case .takeNotes:
+            return "Take Notes"
+        case .viewDetails:
+            return "View Details"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .startRecording:
+            return "record.circle"
+        case .takeNotes:
+            return "pencil.line"
+        case .viewDetails:
+            return "doc.text"
+        }
+    }
+}
+
+struct MeetingEntryActionLayout {
+    let isPast: Bool
+
+    var visibleActions: [MeetingEntryAction] {
+        isPast ? [.viewDetails] : [.startRecording, .takeNotes]
+    }
+
+    var contextMenuActions: [MeetingEntryAction] {
+        isPast ? [.takeNotes, .viewDetails] : [.startRecording, .takeNotes, .viewDetails]
+    }
+}
+
 struct MeetingCardView: View {
     let event: EKEvent
     let isNextUpcoming: Bool
@@ -16,6 +56,10 @@ struct MeetingCardView: View {
     private var isHappening: Bool {
         let now = Date()
         return event.startDate <= now && event.endDate > now
+    }
+
+    private var actionLayout: MeetingEntryActionLayout {
+        MeetingEntryActionLayout(isPast: isPast)
     }
 
     var body: some View {
@@ -51,27 +95,40 @@ struct MeetingCardView: View {
                 Spacer()
             }
 
-            Button(action: primaryAction) {
-                Label(primaryActionTitle, systemImage: primaryActionIcon)
-            }
-            .buttonStyle(PrimaryButtonStyle())
+            actionButtons
         }
         .cardStyle(isHighlighted: isNextUpcoming)
         .opacity(isPast ? 0.7 : 1.0)
         .accessibilityElement(children: .combine)
         .contextMenu {
-            if !isPast {
-                Button("Start Recording", systemImage: "record.circle") {
-                    onStartRecording()
+            ForEach(actionLayout.contextMenuActions, id: \.rawValue) { action in
+                Button(action.title, systemImage: action.systemImage) {
+                    perform(action)
                 }
             }
+        }
+    }
 
-            Button("Take Notes Only", systemImage: "pencil.line") {
-                onTakeNotes()
-            }
-
-            Button("View Details", systemImage: "doc.text") {
-                onViewDetails()
+    private var actionButtons: some View {
+        HStack(spacing: CasaSpace.sm) {
+            ForEach(actionLayout.visibleActions, id: \.rawValue) { action in
+                if isPrimaryAction(action) {
+                    Button {
+                        perform(action)
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                } else {
+                    Button {
+                        perform(action)
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
             }
         }
     }
@@ -107,25 +164,18 @@ struct MeetingCardView: View {
         return names.joined(separator: ", ")
     }
 
-    private var primaryActionTitle: String {
-        if isPast {
-            return "View Details"
-        }
-        return "Start Recording"
+    private func isPrimaryAction(_ action: MeetingEntryAction) -> Bool {
+        action == .startRecording || action == .viewDetails
     }
 
-    private var primaryActionIcon: String {
-        if isPast {
-            return "doc.text"
-        }
-        return "record.circle"
-    }
-
-    private func primaryAction() {
-        if isPast {
-            onViewDetails()
-        } else {
+    private func perform(_ action: MeetingEntryAction) {
+        switch action {
+        case .startRecording:
             onStartRecording()
+        case .takeNotes:
+            onTakeNotes()
+        case .viewDetails:
+            onViewDetails()
         }
     }
 }
