@@ -37,23 +37,28 @@ final class PermissionsBehaviorTests: XCTestCase {
     }
 }
 
-final class CaptureFileSettingsTests: XCTestCase {
-    func testCaptureFileSettingsNormalizeToLinearPCM() {
+final class TemporaryRecordingPCMStorageTests: XCTestCase {
+    func testRawPCMStorageRoundTripsFloatSamples() {
         let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: 24_000,
+            sampleRate: 16_000,
             channels: 1,
             interleaved: false
         )!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4)!
+        buffer.frameLength = 4
+        buffer.floatChannelData!.pointee[0] = -0.25
+        buffer.floatChannelData!.pointee[1] = 0.0
+        buffer.floatChannelData!.pointee[2] = 0.5
+        buffer.floatChannelData!.pointee[3] = 1.0
 
-        let settings = CaptureFileSettings.make(for: format)
+        let data = TemporaryRecordingPCMStorage.data(from: buffer)
+        let samples = TemporaryRecordingPCMStorage.samples(from: data)
 
-        XCTAssertEqual(settings[AVFormatIDKey] as? UInt32, kAudioFormatLinearPCM)
-        XCTAssertEqual(settings[AVSampleRateKey] as? Double, 24_000)
-        XCTAssertEqual(settings[AVNumberOfChannelsKey] as? UInt32, 1)
-        XCTAssertEqual(settings[AVLinearPCMBitDepthKey] as? UInt32, 32)
-        XCTAssertEqual(settings[AVLinearPCMIsFloatKey] as? Bool, true)
-        XCTAssertEqual(settings[AVLinearPCMIsBigEndianKey] as? Bool, false)
-        XCTAssertEqual(settings[AVLinearPCMIsNonInterleaved] as? Bool, true)
+        XCTAssertEqual(samples.count, 4)
+        XCTAssertEqual(samples[0], -0.25, accuracy: 0.0001)
+        XCTAssertEqual(samples[1], 0.0, accuracy: 0.0001)
+        XCTAssertEqual(samples[2], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(samples[3], 1.0, accuracy: 0.0001)
     }
 }
