@@ -22,19 +22,28 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 ## Build
 
 ```bash
-xcodebuild -project Casablanca.xcodeproj \
-  -scheme Casablanca \
-  -configuration Release \
-  -derivedDataPath .build/release \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY=''
+./scripts/build-release.sh
 ```
 
-The built app bundle is produced at:
+This script:
+
+- builds the app in `Release`
+- re-signs the `.app` bundle so resources are sealed correctly
+- verifies the signature with `codesign --verify`
+- produces a zip asset in `.build/release-assets/`
+
+The built app bundle is produced at a path like:
 
 ```text
-.build/release/Build/Products/Release/Casablanca.app
+.build/release-dist/Build/Products/Release/Casablanca.app
+```
+
+Optional environment variables:
+
+```bash
+SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' ./scripts/build-release.sh
+DERIVED_DATA_PATH=.build/custom-release ./scripts/build-release.sh
+ZIP_OUTPUT_PATH=.build/release-assets/Casablanca-custom.zip ./scripts/build-release.sh
 ```
 
 ## Test
@@ -52,4 +61,5 @@ xcodebuild test -project Casablanca.xcodeproj \
 ## Notes
 
 - The GitHub release for `v0.1.0` ships a zipped `.app` bundle.
-- The release artifact is unsigned unless you rebuild with your own signing identity.
+- A raw `xcodebuild` output with signing disabled is not suitable for distribution by itself; re-sign the bundle before sharing it.
+- Ad-hoc signing avoids the broken “app is damaged” bundle state, but macOS still requires Developer ID signing and notarization for a frictionless public download experience.
