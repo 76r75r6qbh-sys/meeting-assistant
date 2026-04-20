@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Casablanca
 
@@ -33,5 +34,26 @@ final class PermissionsBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(state, .denied)
+    }
+}
+
+final class CaptureFileSettingsTests: XCTestCase {
+    func testCaptureFileSettingsNormalizeToLinearPCM() {
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 24_000,
+            channels: 1,
+            interleaved: false
+        )!
+
+        let settings = CaptureFileSettings.make(for: format)
+
+        XCTAssertEqual(settings[AVFormatIDKey] as? UInt32, kAudioFormatLinearPCM)
+        XCTAssertEqual(settings[AVSampleRateKey] as? Double, 24_000)
+        XCTAssertEqual(settings[AVNumberOfChannelsKey] as? UInt32, 1)
+        XCTAssertEqual(settings[AVLinearPCMBitDepthKey] as? UInt32, 32)
+        XCTAssertEqual(settings[AVLinearPCMIsFloatKey] as? Bool, true)
+        XCTAssertEqual(settings[AVLinearPCMIsBigEndianKey] as? Bool, false)
+        XCTAssertEqual(settings[AVLinearPCMIsNonInterleaved] as? Bool, true)
     }
 }

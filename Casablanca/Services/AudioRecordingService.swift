@@ -95,6 +95,38 @@ struct DeferredRecordingPipeline: Equatable {
     }
 }
 
+enum CaptureFileSettings {
+    static func make(for format: AVAudioFormat) -> [String: Any] {
+        let bitDepth: UInt32
+        let isFloat: Bool
+
+        switch format.commonFormat {
+        case .pcmFormatFloat32:
+            bitDepth = 32
+            isFloat = true
+        case .pcmFormatInt16:
+            bitDepth = 16
+            isFloat = false
+        case .pcmFormatInt32:
+            bitDepth = 32
+            isFloat = false
+        default:
+            bitDepth = 32
+            isFloat = true
+        }
+
+        return [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: format.channelCount,
+            AVLinearPCMBitDepthKey: bitDepth,
+            AVLinearPCMIsFloatKey: isFloat,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: !format.isInterleaved
+        ]
+    }
+}
+
 @MainActor
 @Observable
 final class AudioRecordingService {
@@ -918,7 +950,14 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
         do {
             try outputHandle.write(contentsOf: Data(repeating: 0, count: 44))
+        } catch {
+            try? outputHandle.close()
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not initialize the final WAV file: \(Self.describeFinalizationError(error))."
+            )
+        }
 
+        do {
             while true {
                 let microphoneSamples = try Self.readConvertedSamples(
                     from: microphoneFile,
@@ -958,14 +997,21 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
                 try outputHandle.write(contentsOf: mixedData)
                 mixedAudioByteCount += mixedData.count
             }
+        } catch {
+            try? outputHandle.close()
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not read one of the temporary recordings: \(Self.describeFinalizationError(error))."
+            )
+        }
 
+        do {
             try outputHandle.seek(toOffset: 0)
             try outputHandle.write(contentsOf: Self.wavHeader(dataByteCount: mixedAudioByteCount))
             try outputHandle.close()
         } catch {
             try? outputHandle.close()
             throw RecordingError.failedToFinalizeRecording(
-                "Casablanca could not read one of the temporary recordings: \(error.localizedDescription)"
+                "Casablanca could not finalize the final WAV file: \(Self.describeFinalizationError(error))."
             )
         }
 
@@ -1086,10 +1132,15 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
         return try AVAudioFile(
             forWriting: url,
-            settings: format.settings,
+            settings: CaptureFileSettings.make(for: format),
             commonFormat: format.commonFormat,
             interleaved: format.isInterleaved
         )
+    }
+
+    private static func describeFinalizationError(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
 
     private static func convert(
