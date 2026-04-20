@@ -1017,7 +1017,15 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     }
 
     private static func ensureScreenCapturePermission() throws {
-        guard CGPreflightScreenCaptureAccess() else {
+        switch ScreenCapturePermissionState.resolve(
+            preflight: { CGPreflightScreenCaptureAccess() },
+            request: { CGRequestScreenCaptureAccess() }
+        ) {
+        case .granted:
+            return
+        case .grantedRequiresRestart:
+            throw RecordingError.systemAudioPermissionRequiresRestart
+        case .denied:
             throw RecordingError.systemAudioPermissionDenied
         }
     }

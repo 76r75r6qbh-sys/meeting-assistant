@@ -1,6 +1,23 @@
 import AVFoundation
+import CoreGraphics
 import EventKit
-import ScreenCaptureKit
+
+enum ScreenCapturePermissionState: Equatable {
+    case granted
+    case grantedRequiresRestart
+    case denied
+
+    static func resolve(
+        preflight: () -> Bool,
+        request: () -> Bool
+    ) -> ScreenCapturePermissionState {
+        if preflight() {
+            return .granted
+        }
+
+        return request() ? .grantedRequiresRestart : .denied
+    }
+}
 
 @Observable
 final class PermissionsManager {
@@ -37,17 +54,9 @@ final class PermissionsManager {
     }
 
     func checkScreenCapture() async {
-        do {
-            // Attempting to get shareable content triggers the permission prompt
-            // if not yet authorized, and succeeds silently if already authorized
-            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            await MainActor.run {
-                screenCaptureAuthorized = true
-            }
-        } catch {
-            await MainActor.run {
-                screenCaptureAuthorized = false
-            }
+        let isAuthorized = CGPreflightScreenCaptureAccess()
+        await MainActor.run {
+            screenCaptureAuthorized = isAuthorized
         }
     }
 

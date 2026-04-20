@@ -49,7 +49,18 @@
 		A10040 /* ObsidianTodoMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* ObsidianTodoMarkdown.swift */; };
 		A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* ObsidianTodoSyncServiceTests.swift */; };
 		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
+		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F10007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = H10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10001;
+			remoteInfo = Casablanca;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
@@ -95,27 +106,10 @@
 		B10040 /* ObsidianTodoMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdown.swift; sourceTree = "<group>"; };
 		B10041 /* ObsidianTodoSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncServiceTests.swift; sourceTree = "<group>"; };
 		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
-		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXContainerItemProxy section */
-		F10007 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = H10001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F10001;
-			remoteInfo = Casablanca;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXTargetDependency section */
-		F10006 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = F10001 /* Casablanca */;
-			targetProxy = F10007 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D10001 /* Frameworks */ = {
@@ -236,19 +230,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		E10012 /* CasablancaTests */ = {
-			isa = PBXGroup;
-			children = (
-				B10028 /* SummaryResponseParserTests.swift */,
-				B10033 /* MarkdownEditorBundleTests.swift */,
-				B10035 /* MeetingStartFlowTests.swift */,
-				B10037 /* MeetingPrepServiceTests.swift */,
-				B10038 /* ObsidianTodoMarkdownTests.swift */,
-				B10041 /* ObsidianTodoSyncServiceTests.swift */,
-			);
-			path = CasablancaTests;
-			sourceTree = "<group>";
-		};
 		E10010 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -266,6 +247,20 @@
 				B10022 /* MarkdownTextEditor.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		E10012 /* CasablancaTests */ = {
+			isa = PBXGroup;
+			children = (
+				B10028 /* SummaryResponseParserTests.swift */,
+				B10033 /* MarkdownEditorBundleTests.swift */,
+				B10035 /* MeetingStartFlowTests.swift */,
+				B10037 /* MeetingPrepServiceTests.swift */,
+				B10038 /* ObsidianTodoMarkdownTests.swift */,
+				B10041 /* ObsidianTodoSyncServiceTests.swift */,
+				B10043 /* PermissionsBehaviorTests.swift */,
+			);
+			path = CasablancaTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -411,10 +406,19 @@
 				A10037 /* MeetingPrepServiceTests.swift in Sources */,
 				A10038 /* ObsidianTodoMarkdownTests.swift in Sources */,
 				A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */,
+				A10043 /* PermissionsBehaviorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F10006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F10001 /* Casablanca */;
+			targetProxy = F10007 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		G10002 /* Debug */ = {
