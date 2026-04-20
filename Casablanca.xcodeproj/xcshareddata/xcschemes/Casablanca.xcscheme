@@ -21,20 +21,6 @@
                ReferencedContainer = "container:Casablanca.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "NO"
-            buildForProfiling = "NO"
-            buildForArchiving = "NO"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "F10004"
-               BuildableName = "CasablancaTests.xctest"
-               BlueprintName = "CasablancaTests"
-               ReferencedContainer = "container:Casablanca.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
