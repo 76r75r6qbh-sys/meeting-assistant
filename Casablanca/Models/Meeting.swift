@@ -11,6 +11,7 @@ enum AppPreferenceKey {
     static let autoExportNotesToObsidian = "autoExportNotesToObsidian"
     static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
     static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
+    static let recordingWorkspaceFocusMode = "recordingWorkspaceFocusMode"
 }
 
 enum AppPreferenceValue {

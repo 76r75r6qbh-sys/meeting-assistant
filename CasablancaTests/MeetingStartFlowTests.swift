@@ -89,6 +89,10 @@ final class MeetingStartFlowTests: XCTestCase {
 
 @MainActor
 final class MeetingWorkspacePresentationTests: XCTestCase {
+    func testMeetingNotesModeDefaultsToFreeform() {
+        XCTAssertEqual(MeetingNotesMode.defaultForWorkspaceEntry, .freeform)
+    }
+
     func testNotesOnlyWorkspaceShowsStartRecordingButton() {
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .notesOnly)
         let presentation = MeetingWorkspacePresentation(
@@ -96,7 +100,8 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             activeMeetingID: nil,
             isRecording: false,
             isPreparing: false,
-            isFinalizing: false
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
         )
 
         XCTAssertFalse(presentation.showsRecordingChrome)
@@ -112,13 +117,32 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             activeMeetingID: meeting.id,
             isRecording: true,
             isPreparing: false,
-            isFinalizing: false
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
+        XCTAssertTrue(presentation.showsExpandedRecordingChrome)
+        XCTAssertFalse(presentation.showsCompactRecordingControls)
         XCTAssertFalse(presentation.showsStartRecordingButton)
         XCTAssertTrue(presentation.showsTimestampedTools)
         XCTAssertTrue(presentation.backButtonDisabled)
+    }
+
+    func testFocusedRecordingWorkspaceHidesExpandedRecordingChrome() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: meeting.id,
+            isRecording: true,
+            isPreparing: false,
+            isFinalizing: false,
+            prefersRecordingFocusMode: true
+        )
+
+        XCTAssertTrue(presentation.showsRecordingChrome)
+        XCTAssertFalse(presentation.showsExpandedRecordingChrome)
+        XCTAssertTrue(presentation.showsCompactRecordingControls)
     }
 
     func testPreparingWorkspaceKeepsUserInSameScreen() {
@@ -128,12 +152,31 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             activeMeetingID: meeting.id,
             isRecording: false,
             isPreparing: true,
-            isFinalizing: false
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
+        XCTAssertTrue(presentation.showsExpandedRecordingChrome)
         XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
+    }
+
+    func testNotesOnlyWorkspaceIgnoresFocusedRecordingPreference() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .notesOnly)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: nil,
+            isRecording: false,
+            isPreparing: false,
+            isFinalizing: false,
+            prefersRecordingFocusMode: true
+        )
+
+        XCTAssertFalse(presentation.showsRecordingChrome)
+        XCTAssertFalse(presentation.showsExpandedRecordingChrome)
+        XCTAssertFalse(presentation.showsCompactRecordingControls)
+        XCTAssertTrue(presentation.showsStartRecordingButton)
     }
 
     func testFinalizingWorkspaceShowsBlockingOverlay() {
@@ -143,11 +186,29 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
             activeMeetingID: meeting.id,
             isRecording: false,
             isPreparing: false,
-            isFinalizing: true
+            isFinalizing: true,
+            prefersRecordingFocusMode: false
         )
 
         XCTAssertTrue(presentation.showsBlockingOverlay)
         XCTAssertEqual(presentation.blockingOverlayTitle, "Recording finaliseren...")
+        XCTAssertTrue(presentation.backButtonDisabled)
+    }
+
+    func testFinalizingWorkspaceStillShowsBlockingOverlayWhenFocusModeEnabled() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: meeting.id,
+            isRecording: false,
+            isPreparing: false,
+            isFinalizing: true,
+            prefersRecordingFocusMode: true
+        )
+
+        XCTAssertTrue(presentation.showsBlockingOverlay)
+        XCTAssertFalse(presentation.showsExpandedRecordingChrome)
+        XCTAssertTrue(presentation.showsCompactRecordingControls)
         XCTAssertTrue(presentation.backButtonDisabled)
     }
 

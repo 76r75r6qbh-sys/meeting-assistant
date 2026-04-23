@@ -8,6 +8,7 @@ struct MeetingWorkspacePresentation {
     let isRecording: Bool
     let isPreparing: Bool
     let isFinalizing: Bool
+    let prefersRecordingFocusMode: Bool
 
     var isActiveMeeting: Bool {
         activeMeetingID == meeting.id
@@ -15,6 +16,18 @@ struct MeetingWorkspacePresentation {
 
     var showsRecordingChrome: Bool {
         meeting.status == .recording
+    }
+
+    var showsFocusedRecordingControls: Bool {
+        showsRecordingChrome && prefersRecordingFocusMode
+    }
+
+    var showsExpandedRecordingChrome: Bool {
+        showsRecordingChrome && !showsFocusedRecordingControls
+    }
+
+    var showsCompactRecordingControls: Bool {
+        showsFocusedRecordingControls
     }
 
     var showsTimestampedTools: Bool {
@@ -72,8 +85,14 @@ struct FreeformWorkspacePresentation: Equatable {
     }
 }
 
+enum MeetingNotesMode {
+    case timestamped
+    case freeform
+
+    static let defaultForWorkspaceEntry: Self = .freeform
+}
+
 struct NotesEditorView: View {
-    private enum NotesMode { case timestamped, freeform }
     private enum RecordingActionPhase { case start, stop }
 
     @Bindable var meeting: Meeting
@@ -83,10 +102,11 @@ struct NotesEditorView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var noteText = ""
-    @State private var notesMode: NotesMode = .freeform
+    @State private var notesMode: MeetingNotesMode = .defaultForWorkspaceEntry
     @State private var newTodoText = ""
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
@@ -98,11 +118,8 @@ struct NotesEditorView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if presentation.showsRecordingChrome {
+                if presentation.showsExpandedRecordingChrome {
                     header
-                    Divider()
-                } else if !meeting.timestampedNotes.isEmpty {
-                    previousNotesBar
                     Divider()
                 }
 
@@ -132,7 +149,7 @@ struct NotesEditorView: View {
         }
         .task(id: autoStartRecording) {
             guard autoStartRecording else { return }
-            notesMode = .timestamped
+            notesMode = .defaultForWorkspaceEntry
             recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startRecordingIfNeeded()
         }
@@ -171,7 +188,8 @@ struct NotesEditorView: View {
             activeMeetingID: recordingService.activeMeetingID,
             isRecording: recordingService.isRecording,
             isPreparing: recordingService.isPreparing,
-            isFinalizing: isFinalizingRecording
+            isFinalizing: isFinalizingRecording,
+            prefersRecordingFocusMode: recordingWorkspaceFocusMode
         )
     }
 
@@ -226,6 +244,11 @@ struct NotesEditorView: View {
                     .monospacedDigit()
                     .foregroundStyle(Color.textSecondary)
                     .accessibilityLabel("Elapsed time: \(formattedElapsed)")
+
+                Button("Focus on Notes") {
+                    recordingWorkspaceFocusMode = true
+                }
+                .buttonStyle(.plain)
             }
 
             HStack {
@@ -233,12 +256,14 @@ struct NotesEditorView: View {
 
                 Spacer()
 
-                Picker("Notes Mode", selection: $notesMode) {
-                    Text("Timestamped").tag(NotesMode.timestamped)
-                    Text("Freeform").tag(NotesMode.freeform)
+                if presentation.showsTimestampedTools {
+                    Picker("Notes Mode", selection: $notesMode) {
+                        Text("Timestamped").tag(MeetingNotesMode.timestamped)
+                        Text("Freeform").tag(MeetingNotesMode.freeform)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
             }
 
             DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
@@ -275,22 +300,6 @@ struct NotesEditorView: View {
         .padding(.horizontal, CasaSpace.xl)
         .padding(.top, CasaSpace.xl)
         .padding(.bottom, CasaSpace.xxl)
-    }
-
-    private var previousNotesBar: some View {
-        HStack(spacing: CasaSpace.sm) {
-            Image(systemName: "clock")
-                .foregroundStyle(Color.textSecondary)
-
-            Text("\(meeting.timestampedNotes.count) timestamped notes from recording")
-                .font(.caption)
-                .foregroundStyle(Color.textSecondary)
-
-            Spacer()
-        }
-        .padding(.horizontal, CasaSpace.lg)
-        .padding(.vertical, CasaSpace.sm)
-        .background(Color.accentColor.opacity(0.05))
     }
 
     private var timestampedNotesArea: some View {
@@ -424,6 +433,13 @@ struct NotesEditorView: View {
             }
 
             freeformNotesEditor
+
+            if showsTimestampedHistorySection {
+                Divider()
+
+                TimestampedNotesHistorySection(notes: meeting.timestampedNotes)
+                    .padding(CasaSpace.lg)
+            }
         }
     }
 
@@ -550,14 +566,20 @@ struct NotesEditorView: View {
 
     private var footer: some View {
         HStack {
-            if recordingService.isPreparing && presentation.showsRecordingChrome {
+            if recordingService.isPreparing && presentation.showsExpandedRecordingChrome {
                 ProgressView()
                     .controlSize(.small)
             }
 
-            Text("\(meeting.timestampedNotes.count) notes")
-                .font(.caption)
-                .foregroundStyle(Color.textTertiary)
+            if presentation.showsCompactRecordingControls {
+                compactRecordingControls
+            }
+
+            if !meeting.timestampedNotes.isEmpty {
+                Text("\(meeting.timestampedNotes.count) timestamped notes")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
 
             Spacer()
 
@@ -589,6 +611,29 @@ struct NotesEditorView: View {
         }
         .padding(CasaSpace.lg)
         .background(.bar)
+    }
+
+    private var compactRecordingControls: some View {
+        HStack(spacing: CasaSpace.md) {
+            HStack(spacing: CasaSpace.xs) {
+                Circle()
+                    .fill(recordingService.isRecording ? Color.stateRecording : Color.stateIdle)
+                    .frame(width: 8, height: 8)
+
+                Text(presentation.stateLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+            }
+
+            Text(formattedElapsed)
+                .font(.caption.monospaced())
+                .foregroundStyle(Color.textSecondary)
+
+            Button("Show Recording Controls") {
+                recordingWorkspaceFocusMode = false
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var finalizingOverlay: some View {
@@ -647,6 +692,7 @@ struct NotesEditorView: View {
 
     private func requestRecordingStart() {
         guard meeting.status != .recording else { return }
+        notesMode = .defaultForWorkspaceEntry
         meeting.status = .recording
         save()
         recordingService.refreshInputDevices(forcePreferredSelection: true)
@@ -800,5 +846,9 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
+    }
+
+    private var showsTimestampedHistorySection: Bool {
+        !presentation.showsTimestampedTools && !meeting.timestampedNotes.isEmpty
     }
 }
