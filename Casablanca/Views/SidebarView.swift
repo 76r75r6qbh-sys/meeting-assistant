@@ -200,6 +200,11 @@ struct SidebarMeetingRow: View {
                 .symbolRenderingMode(.hierarchical)
                 .imageScale(.medium)
                 .foregroundStyle(Color.stateRecording)
+        case .pausedRecording:
+            Image(systemName: "pause.circle")
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.medium)
+                .foregroundStyle(Color.stateIdle)
         case .processing:
             Image(systemName: "sparkles")
                 .symbolRenderingMode(.hierarchical)
@@ -226,6 +231,7 @@ struct SidebarMeetingRow: View {
     private var statusAccessibilityLabel: String {
         switch meeting.status {
         case .recording: return "Recording"
+        case .pausedRecording: return "Paused recording"
         case .processing: return "Processing"
         case .notesOnly: return "Notes only"
         case .completed: return "Completed"

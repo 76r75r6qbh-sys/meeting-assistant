@@ -23,6 +23,7 @@ enum MeetingStatus: String, Codable {
     case upcoming
     case notesOnly
     case recording
+    case pausedRecording
     case processing
     case completed
 }
@@ -36,7 +37,7 @@ enum MeetingDetailPresentation: Equatable {
 extension MeetingStatus {
     var detailPresentation: MeetingDetailPresentation {
         switch self {
-        case .upcoming, .notesOnly, .recording:
+        case .upcoming, .notesOnly, .recording, .pausedRecording:
             return .workspace
         case .processing:
             return .processing

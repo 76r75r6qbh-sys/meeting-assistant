@@ -11,6 +11,10 @@ final class MeetingStartFlowTests: XCTestCase {
         XCTAssertEqual(MeetingStatus.completed.detailPresentation, .completed)
     }
 
+    func testPausedRecordingStatusUsesWorkspacePresentation() {
+        XCTAssertEqual(MeetingStatus.pausedRecording.detailPresentation, .workspace)
+    }
+
     func testUpcomingMeetingsShowRecordingAndNotesButtons() {
         let layout = MeetingEntryActionLayout(isPast: false)
 
@@ -160,6 +164,44 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(presentation.showsExpandedRecordingChrome)
         XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
+    }
+
+    func testPausedWorkspaceShowsResumeAndStopActions() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: nil,
+            isRecording: false,
+            isPreparing: false,
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
+        )
+
+        XCTAssertTrue(presentation.showsRecordingChrome)
+        XCTAssertFalse(presentation.showsTimestampedTools)
+        XCTAssertFalse(presentation.showsStartRecordingButton)
+        XCTAssertFalse(presentation.showsPauseRecordingButton)
+        XCTAssertTrue(presentation.showsResumeRecordingButton)
+        XCTAssertTrue(presentation.showsStopRecordingButton)
+        XCTAssertFalse(presentation.backButtonDisabled)
+        XCTAssertEqual(presentation.stateLabel, "Paused")
+    }
+
+    func testRecordingWorkspaceStillPrefersPauseDuringLiveCapture() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: meeting.id,
+            isRecording: true,
+            isPreparing: false,
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
+        )
+
+        XCTAssertTrue(presentation.showsPauseRecordingButton)
+        XCTAssertFalse(presentation.showsResumeRecordingButton)
+        XCTAssertTrue(presentation.showsStopRecordingButton)
+        XCTAssertEqual(presentation.stateLabel, "Recording")
     }
 
     func testNotesOnlyWorkspaceIgnoresFocusedRecordingPreference() {

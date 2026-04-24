@@ -14,8 +14,12 @@ struct MeetingWorkspacePresentation {
         activeMeetingID == meeting.id
     }
 
+    var isPausedRecording: Bool {
+        meeting.status == .pausedRecording
+    }
+
     var showsRecordingChrome: Bool {
-        meeting.status == .recording
+        meeting.status == .recording || meeting.status == .pausedRecording
     }
 
     var showsFocusedRecordingControls: Bool {
@@ -31,15 +35,27 @@ struct MeetingWorkspacePresentation {
     }
 
     var showsTimestampedTools: Bool {
-        isActiveMeeting && isRecording
+        meeting.status == .recording && isActiveMeeting && isRecording
     }
 
     var showsStartRecordingButton: Bool {
-        !showsRecordingChrome
+        meeting.status == .notesOnly
+    }
+
+    var showsPauseRecordingButton: Bool {
+        meeting.status == .recording && isActiveMeeting && isRecording && !isFinalizing
+    }
+
+    var showsResumeRecordingButton: Bool {
+        meeting.status == .pausedRecording && !isFinalizing
+    }
+
+    var showsStopRecordingButton: Bool {
+        showsRecordingChrome && !isFinalizing
     }
 
     var backButtonDisabled: Bool {
-        isFinalizing || (isActiveMeeting && isRecording)
+        isFinalizing || (meeting.status == .recording && isActiveMeeting && isRecording)
     }
 
     var showsBlockingOverlay: Bool {
@@ -52,7 +68,10 @@ struct MeetingWorkspacePresentation {
     }
 
     var stateLabel: String {
-        isRecording ? "Recording" : "Preparing"
+        if isFinalizing { return "Finalizing" }
+        if isPreparing { return "Preparing" }
+        if meeting.status == .pausedRecording { return "Paused" }
+        return "Recording"
     }
 }
 
