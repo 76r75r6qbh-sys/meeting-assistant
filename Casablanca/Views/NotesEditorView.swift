@@ -14,10 +14,6 @@ struct MeetingWorkspacePresentation {
         activeMeetingID == meeting.id
     }
 
-    var isPausedRecording: Bool {
-        meeting.status == .pausedRecording
-    }
-
     var showsRecordingChrome: Bool {
         meeting.status == .recording || meeting.status == .pausedRecording
     }
@@ -39,7 +35,7 @@ struct MeetingWorkspacePresentation {
     }
 
     var showsStartRecordingButton: Bool {
-        meeting.status == .notesOnly
+        meeting.status == .notesOnly || meeting.status == .upcoming
     }
 
     var showsPauseRecordingButton: Bool {

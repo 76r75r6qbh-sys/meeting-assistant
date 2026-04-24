@@ -114,6 +114,24 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         XCTAssertFalse(presentation.backButtonDisabled)
     }
 
+    func testUpcomingWorkspaceShowsStartRecordingButton() {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .upcoming)
+        let presentation = MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: nil,
+            isRecording: false,
+            isPreparing: false,
+            isFinalizing: false,
+            prefersRecordingFocusMode: false
+        )
+
+        XCTAssertFalse(presentation.showsRecordingChrome)
+        XCTAssertTrue(presentation.showsStartRecordingButton)
+        XCTAssertFalse(presentation.showsPauseRecordingButton)
+        XCTAssertFalse(presentation.showsResumeRecordingButton)
+        XCTAssertFalse(presentation.showsStopRecordingButton)
+    }
+
     func testActiveRecordingWorkspaceShowsRecordingChrome() {
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
         let presentation = MeetingWorkspacePresentation(
