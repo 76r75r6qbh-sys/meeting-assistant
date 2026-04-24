@@ -64,6 +64,16 @@ final class TemporaryRecordingPCMStorageTests: XCTestCase {
 }
 
 final class RecordingResumeSessionStoreTests: XCTestCase {
+    func testLoadSessionWithoutManifestDoesNotCreateMeetingFolder() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meetingID = UUID()
+        let sessionDirectory = rootURL.appendingPathComponent(meetingID.uuidString, isDirectory: true)
+
+        XCTAssertNil(try store.loadSession(for: meetingID))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDirectory.path))
+    }
+
     func testSessionStoreRoundTripsManifestAndSegments() throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
@@ -87,6 +97,25 @@ final class RecordingResumeSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.nextSegmentNumber, 2)
         XCTAssertEqual(reloaded.segments.count, 1)
         XCTAssertEqual(reloaded.segments[0].filePath, segmentURL.path)
+    }
+
+    func testAppendSegmentWithoutExistingManifestFailsExplicitly() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meetingID = UUID()
+        let segmentURL = rootURL
+            .appendingPathComponent(meetingID.uuidString, isDirectory: true)
+            .appendingPathComponent("segment-001.wav")
+
+        XCTAssertThrowsError(
+            try store.appendSegment(
+                for: meetingID,
+                segmentURL: segmentURL,
+                duration: 12.5
+            )
+        ) { error in
+            XCTAssertEqual(error as? RecordingResumeSessionStoreError, .sessionNotFound(meetingID))
+        }
     }
 
     func testDeleteSessionRemovesMeetingFolder() throws {

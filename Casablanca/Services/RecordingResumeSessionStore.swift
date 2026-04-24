@@ -1,5 +1,9 @@
 import Foundation
 
+enum RecordingResumeSessionStoreError: Error, Equatable {
+    case sessionNotFound(UUID)
+}
+
 struct PersistedRecordingSegment: Codable, Equatable {
     let index: Int
     let filePath: String
@@ -80,11 +84,9 @@ struct RecordingResumeSessionStore {
         segmentURL: URL,
         duration: TimeInterval
     ) throws -> PersistedRecordingSession {
-        var session = try loadSession(for: meetingID) ?? createSession(
-            for: meetingID,
-            systemAudioEnabled: true,
-            selectedInputDeviceID: nil
-        )
+        guard var session = try loadSession(for: meetingID) else {
+            throw RecordingResumeSessionStoreError.sessionNotFound(meetingID)
+        }
         let segment = PersistedRecordingSegment(
             index: session.nextSegmentNumber,
             filePath: segmentURL.path,
@@ -108,9 +110,7 @@ struct RecordingResumeSessionStore {
     }
 
     func sessionDirectory(for meetingID: UUID) throws -> URL {
-        let directory = try baseDirectoryProvider().appendingPathComponent(meetingID.uuidString, isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+        try baseDirectoryProvider().appendingPathComponent(meetingID.uuidString, isDirectory: true)
     }
 
     private func manifestURL(for meetingID: UUID) throws -> URL {
@@ -118,9 +118,11 @@ struct RecordingResumeSessionStore {
     }
 
     private func persist(_ session: PersistedRecordingSession) throws {
+        let directory = try sessionDirectory(for: session.meetingID)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(session)
-        try data.write(to: manifestURL(for: session.meetingID), options: .atomic)
+        try data.write(to: directory.appendingPathComponent("session.json"), options: .atomic)
     }
 }
