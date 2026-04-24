@@ -62,3 +62,44 @@ final class TemporaryRecordingPCMStorageTests: XCTestCase {
         XCTAssertEqual(samples[3], 1.0, accuracy: 0.0001)
     }
 }
+
+final class RecordingResumeSessionStoreTests: XCTestCase {
+    func testSessionStoreRoundTripsManifestAndSegments() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meetingID = UUID()
+        let segmentURL = try store.nextSegmentURL(for: meetingID, segmentNumber: 1)
+
+        _ = try store.createSession(
+            for: meetingID,
+            systemAudioEnabled: true,
+            selectedInputDeviceID: "BuiltInMic"
+        )
+
+        let updated = try store.appendSegment(
+            for: meetingID,
+            segmentURL: segmentURL,
+            duration: 12.5
+        )
+
+        let reloaded = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(updated, reloaded)
+        XCTAssertEqual(reloaded.nextSegmentNumber, 2)
+        XCTAssertEqual(reloaded.segments.count, 1)
+        XCTAssertEqual(reloaded.segments[0].filePath, segmentURL.path)
+    }
+
+    func testDeleteSessionRemovesMeetingFolder() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meetingID = UUID()
+
+        _ = try store.createSession(for: meetingID, systemAudioEnabled: false, selectedInputDeviceID: nil)
+        let sessionDirectory = try store.sessionDirectory(for: meetingID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDirectory.path))
+
+        try store.deleteSession(for: meetingID)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDirectory.path))
+    }
+}
