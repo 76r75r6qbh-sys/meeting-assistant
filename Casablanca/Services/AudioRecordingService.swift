@@ -289,8 +289,8 @@ final class AudioRecordingService {
 
     func stopRecording(for meeting: Meeting) async throws -> RecordingResult {
         if let liveSession = session, activeMeetingID == meeting.id {
+            defer { clearActiveSessionState() }
             _ = try await finalizeActiveSegment(session: liveSession, meetingID: meeting.id, dropIfEmpty: true)
-            clearActiveSessionState()
         }
 
         guard let persisted = try sessionStore.loadSession(for: meeting.id) else {

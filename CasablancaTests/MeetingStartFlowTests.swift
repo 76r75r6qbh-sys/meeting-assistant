@@ -667,6 +667,35 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertTrue(service.hasResumableSession(for: meeting.id))
         XCTAssertFalse(service.hasResumableSession(for: UUID()))
     }
+
+    func testStopRecordingClearsActiveStateEvenWhenFinalizeThrows() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let segmentURL = rootURL.appendingPathComponent("segment-001.wav")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data("live".utf8).write(to: segmentURL)
+
+        let fakeSession = ThrowingFakeRecordingSession(outputURL: segmentURL)
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession }
+        )
+
+        try await service.startRecording(for: meeting)
+        XCTAssertTrue(service.isRecording)
+
+        do {
+            _ = try await service.stopRecording(for: meeting)
+            XCTFail("Expected stopRecording to throw")
+        } catch {
+            // Expected
+        }
+
+        XCTAssertFalse(service.isRecording, "Service must not be stuck recording after a failed stop")
+        XCTAssertNil(service.activeMeetingID, "Active meeting must be cleared")
+    }
 }
 
 private final class FakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
@@ -686,6 +715,21 @@ private final class FakeRecordingSession: RecordingSessionControlling, @unchecke
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
     func setSystemAudioEnabled(_ enabled: Bool) {}
     var hasCapturedFrames: Bool { capturedFrames > 0 }
+}
+
+private final class ThrowingFakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
+    let outputURL: URL
+    let startedAt = Date()
+    let hasCapturedFrames = true
+
+    init(outputURL: URL) { self.outputURL = outputURL }
+
+    func start() async throws {}
+    func stop() async throws -> RecordingResult {
+        throw NSError(domain: "test.disk-write", code: 42)
+    }
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
+    func setSystemAudioEnabled(_ enabled: Bool) {}
 }
 
 private func makeContainer() throws -> ModelContainer {
