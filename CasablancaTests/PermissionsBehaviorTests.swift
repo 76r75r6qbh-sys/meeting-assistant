@@ -132,3 +132,42 @@ final class RecordingResumeSessionStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDirectory.path))
     }
 }
+
+final class RecordingSegmentMergerTests: XCTestCase {
+    func testMergeConcatenatesExistingWavFilesInOrder() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let first = directory.appendingPathComponent("segment-001.wav")
+        let second = directory.appendingPathComponent("segment-002.wav")
+        let output = directory.appendingPathComponent("final.wav")
+
+        try writeMonoWAV(samples: [0, 1000], to: first)
+        try writeMonoWAV(samples: [2000, 3000], to: second)
+
+        let duration = try RecordingSegmentMerger.merge(segmentURLs: [first, second], into: output)
+
+        XCTAssertEqual(duration, 4.0 / 16_000.0, accuracy: 0.0001)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testMergeWithSingleSegmentProducesEquivalentOutput() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let only = directory.appendingPathComponent("segment-001.wav")
+        let output = directory.appendingPathComponent("final.wav")
+
+        try writeMonoWAV(samples: [100, 200, 300], to: only)
+
+        let duration = try RecordingSegmentMerger.merge(segmentURLs: [only], into: output)
+
+        XCTAssertEqual(duration, 3.0 / 16_000.0, accuracy: 0.0001)
+        let outputData = try Data(contentsOf: output)
+        XCTAssertEqual(outputData.count, 44 + 3 * MemoryLayout<Int16>.size)
+    }
+
+    private func writeMonoWAV(samples: [Int16], to url: URL) throws {
+        let payload = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        let header = RecordingSegmentMerger.header(dataByteCount: payload.count)
+        try (header + payload).write(to: url, options: .atomic)
+    }
+}

@@ -57,6 +57,40 @@ enum RecordingError: LocalizedError {
     }
 }
 
+protocol RecordingSessionControlling: AnyObject {
+    var outputURL: URL { get }
+    var startedAt: Date { get }
+    var hasCapturedFrames: Bool { get }
+    func start() async throws
+    func stop() async throws -> RecordingResult
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws
+    func setSystemAudioEnabled(_ enabled: Bool)
+}
+
+typealias RecordingSessionFactory = (
+    _ outputURL: URL,
+    _ meeting: Meeting,
+    _ inputDeviceID: AudioDeviceID?,
+    _ systemAudioEnabled: Bool,
+    _ onLevelUpdate: @escaping (Double) -> Void,
+    _ onFailure: @escaping (Error) -> Void,
+    _ onStreamFatal: @escaping (Error) -> Void
+) throws -> RecordingSessionControlling
+
+enum RecordingInterruptionReason: Hashable, Sendable {
+    case screenLock
+    case systemSleep
+    case audioDeviceLost(deviceID: String)
+    case streamFailure(underlyingDescription: String)
+
+    var allowsAutoResume: Bool {
+        switch self {
+        case .screenLock, .systemSleep: return true
+        case .audioDeviceLost, .streamFailure: return false
+        }
+    }
+}
+
 enum RecordingTrackKind {
     case microphone
     case systemAudio
@@ -128,12 +162,30 @@ final class AudioRecordingService {
     private(set) var selectedInputDeviceID = ""
     private(set) var isSystemAudioEnabled = true
 
-    private var session: RecordingSession?
+    private var session: RecordingSessionControlling?
     private var timerTask: Task<Void, Never>?
 
-    init() {
+    private let sessionStore: RecordingResumeSessionStore
+    private let makeRecordingSession: RecordingSessionFactory
+    private let makeFinalOutputURL: (Meeting) throws -> URL
+    private let mergeSegments: ([URL], URL) throws -> TimeInterval
+
+    weak var interruptionMonitor: RecordingInterruptionMonitor?
+
+    init(
+        sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
+        makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
+        makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
+        mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge
+    ) {
+        self.sessionStore = sessionStore
+        self.makeRecordingSession = makeRecordingSession
+        self.makeFinalOutputURL = makeFinalOutputURL
+        self.mergeSegments = mergeSegments
         refreshInputDevices(forcePreferredSelection: true)
     }
+
+    // MARK: - Lifecycle
 
     func startRecording(for meeting: Meeting) async throws {
         guard session == nil else {
@@ -147,20 +199,20 @@ final class AudioRecordingService {
 
         do {
             refreshInputDevices()
-            let session = try RecordingSession(
-                meeting: meeting,
-                inputDeviceID: currentInputDevice?.deviceID,
+            _ = try sessionStore.loadSession(for: meeting.id) ?? sessionStore.createSession(
+                for: meeting.id,
                 systemAudioEnabled: isSystemAudioEnabled,
-                onLevelUpdate: { [weak self] level in
-                    Task { @MainActor [weak self] in
-                        self?.audioLevel = level
-                    }
-                },
-                onFailure: { [weak self] error in
-                    Task { @MainActor [weak self] in
-                        self?.errorMessage = error.localizedDescription
-                    }
-                }
+                selectedInputDeviceID: selectedInputDeviceID
+            )
+
+            let segmentURL = try sessionStore.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+            try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            let session = try buildSession(
+                outputURL: segmentURL,
+                meeting: meeting,
+                selectedInputDeviceID: selectedInputDeviceID,
+                systemAudioEnabled: isSystemAudioEnabled
             )
             try await session.start()
 
@@ -170,6 +222,7 @@ final class AudioRecordingService {
             isRecording = true
             isPreparing = false
             startTimer(from: session.startedAt)
+            interruptionMonitor?.setActiveInputDevice(selectedInputDeviceID)
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -180,10 +233,102 @@ final class AudioRecordingService {
         }
     }
 
-    func stopRecording() async throws -> RecordingResult {
-        guard let session else {
+    func pauseRecording() async throws -> RecordingResult {
+        guard let session, let activeMeetingID else {
             throw RecordingError.noActiveRecording
         }
+
+        let result = try await finalizeActiveSegment(session: session, meetingID: activeMeetingID, dropIfEmpty: false)
+        clearActiveSessionState()
+        elapsedTime = result.duration
+        return result
+    }
+
+    func resumeRecording(for meeting: Meeting) async throws {
+        guard session == nil else {
+            throw RecordingError.activeRecordingExists
+        }
+        guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
+            throw RecordingError.noActiveRecording
+        }
+
+        isPreparing = true
+        errorMessage = nil
+
+        do {
+            let segmentURL = try sessionStore.nextSegmentURL(
+                for: meeting.id,
+                segmentNumber: persisted.nextSegmentNumber
+            )
+            try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            let session = try buildSession(
+                outputURL: segmentURL,
+                meeting: meeting,
+                selectedInputDeviceID: persisted.selectedInputDeviceID,
+                systemAudioEnabled: persisted.systemAudioEnabled
+            )
+            try await session.start()
+
+            self.session = session
+            activeMeetingID = meeting.id
+            outputURL = segmentURL
+            isRecording = true
+            isPreparing = false
+            startTimer(from: session.startedAt)
+            interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
+        } catch {
+            errorMessage = error.localizedDescription
+            isPreparing = false
+            session = nil
+            activeMeetingID = nil
+            outputURL = nil
+            throw error
+        }
+    }
+
+    func stopRecording(for meeting: Meeting) async throws -> RecordingResult {
+        if let liveSession = session, activeMeetingID == meeting.id {
+            _ = try await finalizeActiveSegment(session: liveSession, meetingID: meeting.id, dropIfEmpty: true)
+            clearActiveSessionState()
+        }
+
+        guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
+            throw RecordingError.noActiveRecording
+        }
+
+        let segmentURLs = persisted.segments.map { URL(fileURLWithPath: $0.filePath) }
+        guard !segmentURLs.isEmpty else {
+            try? sessionStore.deleteSession(for: meeting.id)
+            throw RecordingError.noCapturedAudio
+        }
+
+        let finalURL = try makeFinalOutputURL(meeting)
+        let duration = try mergeSegments(segmentURLs, finalURL)
+        try sessionStore.deleteSession(for: meeting.id)
+
+        outputURL = finalURL
+        elapsedTime = duration
+        interruptionMonitor?.setActiveInputDevice(nil)
+        return RecordingResult(outputURL: finalURL, duration: duration)
+    }
+
+    func handleSystemInterrupt(reason: RecordingInterruptionReason) async {
+        guard let session, let activeMeetingID else { return }
+
+        do {
+            _ = try await finalizeActiveSegment(session: session, meetingID: activeMeetingID, dropIfEmpty: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        clearActiveSessionState()
+    }
+
+    // Transitional. Existing call site in `NotesEditorView` is migrated to `stopRecording(for:)`
+    // in Task 2 Step 4; this method is deleted in Task 2 Step 4 immediately after migration.
+    @discardableResult
+    func stopRecording() async throws -> RecordingResult {
+        guard let session else { throw RecordingError.noActiveRecording }
 
         defer {
             self.session = nil
@@ -206,9 +351,19 @@ final class AudioRecordingService {
         }
     }
 
-    func clearError() {
-        errorMessage = nil
+    func clearError() { errorMessage = nil }
+
+    func setErrorMessage(_ message: String) { errorMessage = message }
+
+    func hasResumableSession(for meetingID: UUID) -> Bool {
+        (try? sessionStore.loadSession(for: meetingID)) != nil
     }
+
+    func forwardStreamFailure(_ error: Error) {
+        interruptionMonitor?.reportStreamFailure(error)
+    }
+
+    // MARK: - Existing input-device APIs (unchanged behavior)
 
     func refreshInputDevices(forcePreferredSelection: Bool = false) {
         let devices = Self.fetchInputDevices()
@@ -228,13 +383,11 @@ final class AudioRecordingService {
     }
 
     func selectInputDevice(_ deviceID: String) async {
-        guard let device = availableInputDevices.first(where: { $0.id == deviceID }) else {
-            return
-        }
-
+        guard let device = availableInputDevices.first(where: { $0.id == deviceID }) else { return }
         do {
             try session?.setMicrophoneDevice(device.deviceID)
             selectedInputDeviceID = device.id
+            interruptionMonitor?.setActiveInputDevice(device.id)
         } catch {
             errorMessage = error.localizedDescription
             refreshInputDevices()
@@ -251,10 +404,110 @@ final class AudioRecordingService {
     }
 
     static func systemDefaultInputDeviceName() -> String? {
-        guard let deviceID = defaultInputDeviceID() else {
-            return nil
-        }
+        guard let deviceID = defaultInputDeviceID() else { return nil }
         return deviceName(deviceID)
+    }
+
+    // MARK: - Defaults & helpers
+
+    static func defaultSessionFactory(
+        outputURL: URL,
+        meeting: Meeting,
+        inputDeviceID: AudioDeviceID?,
+        systemAudioEnabled: Bool,
+        onLevelUpdate: @escaping (Double) -> Void,
+        onFailure: @escaping (Error) -> Void,
+        onStreamFatal: @escaping (Error) -> Void
+    ) throws -> RecordingSessionControlling {
+        try RecordingSession(
+            outputURL: outputURL,
+            meeting: meeting,
+            inputDeviceID: inputDeviceID,
+            systemAudioEnabled: systemAudioEnabled,
+            onLevelUpdate: onLevelUpdate,
+            onFailure: onFailure,
+            onStreamFatal: onStreamFatal
+        )
+    }
+
+    static func defaultFinalOutputURL(for meeting: Meeting) throws -> URL {
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let directory = appSupport
+            .appendingPathComponent("Casablanca", isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        let timestamp = formatter.string(from: Date())
+        return directory.appendingPathComponent("\(meeting.sanitizedTitle) \(timestamp).wav")
+    }
+
+    private func buildSession(
+        outputURL: URL,
+        meeting: Meeting,
+        selectedInputDeviceID: String?,
+        systemAudioEnabled: Bool
+    ) throws -> RecordingSessionControlling {
+        let effectiveInputDeviceID = selectedInputDeviceID ?? self.selectedInputDeviceID
+        let audioDeviceID = availableInputDevices.first(where: { $0.id == effectiveInputDeviceID })?.deviceID
+        return try makeRecordingSession(
+            outputURL,
+            meeting,
+            audioDeviceID,
+            systemAudioEnabled,
+            { [weak self] level in
+                Task { @MainActor [weak self] in
+                    self?.audioLevel = level
+                }
+            },
+            { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                }
+            },
+            { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.forwardStreamFailure(error)
+                }
+            }
+        )
+    }
+
+    private func finalizeActiveSegment(
+        session: RecordingSessionControlling,
+        meetingID: UUID,
+        dropIfEmpty: Bool
+    ) async throws -> RecordingResult {
+        let result = try await session.stop()
+
+        if dropIfEmpty && !session.hasCapturedFrames {
+            try? FileManager.default.removeItem(at: result.outputURL)
+            return RecordingResult(outputURL: result.outputURL, duration: 0)
+        }
+
+        _ = try sessionStore.appendSegment(
+            for: meetingID,
+            segmentURL: result.outputURL,
+            duration: result.duration
+        )
+        return result
+    }
+
+    private func clearActiveSessionState() {
+        self.session = nil
+        isRecording = false
+        isPreparing = false
+        activeMeetingID = nil
+        timerTask?.cancel()
+        timerTask = nil
+        audioLevel = 0
     }
 
     private func startTimer(from startDate: Date) {
@@ -422,7 +675,7 @@ private extension AudioRecordingService {
     }
 }
 
-private final class RecordingSession: NSObject, @unchecked Sendable {
+private final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked Sendable {
     let outputURL: URL
     let startedAt = Date()
     private let microphoneTempURL: URL
@@ -433,6 +686,7 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
 
     private let onLevelUpdate: (Double) -> Void
     private let onFailure: (Error) -> Void
+    private let onStreamFatal: (Error) -> Void
 
     private let engine = AVAudioEngine()
     private let microphoneSinkNode = AVAudioSinkNode { _, _, _ in noErr }
@@ -463,23 +717,30 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
     private let levelPublishInterval = 1.0 / 15.0
 
     init(
+        outputURL: URL,
         meeting: Meeting,
         inputDeviceID: AudioDeviceID?,
         systemAudioEnabled: Bool,
         onLevelUpdate: @escaping (Double) -> Void,
-        onFailure: @escaping (Error) -> Void
+        onFailure: @escaping (Error) -> Void,
+        onStreamFatal: @escaping (Error) -> Void
     ) throws {
-        self.onLevelUpdate = onLevelUpdate
-        self.onFailure = onFailure
-        self.outputURL = try Self.makeOutputURL(for: meeting)
-        self.microphoneTempURL = Self.makeTemporaryURL(for: self.outputURL, suffix: "mic")
-        self.systemAudioTempURL = Self.makeTemporaryURL(for: self.outputURL, suffix: "system")
+        self.outputURL = outputURL
+        self.microphoneTempURL = Self.makeTemporaryURL(for: outputURL, suffix: "mic")
+        self.systemAudioTempURL = Self.makeTemporaryURL(for: outputURL, suffix: "system")
         self.selectedInputDeviceID = inputDeviceID
         self.systemAudioEnabled = systemAudioEnabled
+        self.onLevelUpdate = onLevelUpdate
+        self.onFailure = onFailure
+        self.onStreamFatal = onStreamFatal
         super.init()
         streamDelegate.onStop = { [weak self] error in
-            self?.onFailure(error)
+            self?.onStreamFatal(error)
         }
+    }
+
+    var hasCapturedFrames: Bool {
+        capturedMicrophoneFrames > 0 || capturedSystemAudioFrames > 0
     }
 
     func start() async throws {
@@ -1024,30 +1285,6 @@ private final class RecordingSession: NSObject, @unchecked Sendable {
         )
     }
 
-    private static func makeOutputURL(for meeting: Meeting) throws -> URL {
-        let appSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-
-        let directory = appSupport
-            .appendingPathComponent("Casablanca", isDirectory: true)
-            .appendingPathComponent("Recordings", isDirectory: true)
-
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        } catch {
-            throw RecordingError.unableToCreateOutputDirectory
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HHmmss"
-        let timestamp = formatter.string(from: Date())
-        return directory.appendingPathComponent("\(meeting.sanitizedTitle) \(timestamp).wav")
-    }
-
     private static func makeTemporaryURL(for outputURL: URL, suffix: String) -> URL {
         outputURL
             .deletingPathExtension()
@@ -1308,5 +1545,51 @@ private extension SCStream {
                 }
             }
         }
+    }
+}
+
+enum RecordingSegmentMerger {
+    static func merge(segmentURLs: [URL], into outputURL: URL) throws -> TimeInterval {
+        let sampleRate = 16_000.0
+        var renderedSamples = [Int16]()
+
+        for url in segmentURLs {
+            let data = try Data(contentsOf: url)
+            let body = data.dropFirst(44)
+            renderedSamples += body.withUnsafeBytes { rawBuffer in
+                Array(rawBuffer.bindMemory(to: Int16.self))
+            }
+        }
+
+        let payload = renderedSamples.withUnsafeBufferPointer { Data(buffer: $0) }
+        try (header(dataByteCount: payload.count) + payload).write(to: outputURL, options: .atomic)
+
+        return Double(renderedSamples.count) / sampleRate
+    }
+
+    static func header(dataByteCount: Int) -> Data {
+        let sampleRate: UInt32 = 16_000
+        let channelCount: UInt16 = 1
+        let bitsPerSample: UInt16 = 16
+        let blockAlign = channelCount * bitsPerSample / 8
+        let byteRate = sampleRate * UInt32(blockAlign)
+        let chunkSize = UInt32(36 + dataByteCount)
+        let subchunk2Size = UInt32(dataByteCount)
+
+        var data = Data()
+        data.append("RIFF".data(using: .ascii)!)
+        data.append(contentsOf: withUnsafeBytes(of: chunkSize.littleEndian, Array.init))
+        data.append("WAVE".data(using: .ascii)!)
+        data.append("fmt ".data(using: .ascii)!)
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: channelCount.littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian, Array.init))
+        data.append("data".data(using: .ascii)!)
+        data.append(contentsOf: withUnsafeBytes(of: subchunk2Size.littleEndian, Array.init))
+        return data
     }
 }

@@ -1,3 +1,4 @@
+import CoreAudio
 import SwiftData
 import XCTest
 @testable import Casablanca
@@ -485,6 +486,206 @@ final class TodoRowPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.canNavigateToMeeting)
         XCTAssertNotNil(presentation.meetingSubtitle)
     }
+}
+
+@MainActor
+final class AudioRecordingServicePauseResumeTests: XCTestCase {
+    func testPauseRecordingPersistsSegmentAndLeavesMeetingResumable() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let segmentURL = rootURL.appendingPathComponent("segment-001.wav")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data("segment".utf8).write(to: segmentURL)
+
+        let fakeSession = FakeRecordingSession(
+            outputURL: segmentURL,
+            stopResult: RecordingResult(outputURL: segmentURL, duration: 8),
+            capturedFrames: 1
+        )
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession },
+            makeFinalOutputURL: { _ in rootURL.appendingPathComponent("final.wav") },
+            mergeSegments: { _, outputURL in
+                try Data("merged".utf8).write(to: outputURL)
+                return 8
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        let pauseResult = try await service.pauseRecording()
+
+        XCTAssertEqual(pauseResult.duration, 8)
+        XCTAssertFalse(service.isRecording)
+        XCTAssertNil(service.activeMeetingID)
+
+        let session = try XCTUnwrap(store.loadSession(for: meeting.id))
+        XCTAssertEqual(session.segments.count, 1)
+        XCTAssertEqual(session.segments[0].filePath, segmentURL.path)
+        XCTAssertEqual(session.nextSegmentNumber, 2)
+    }
+
+    func testHandleSystemInterruptWithZeroFramesDoesNotAppendSegment() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let segmentURL = rootURL.appendingPathComponent("segment-001.wav")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data().write(to: segmentURL)
+
+        let fakeSession = FakeRecordingSession(
+            outputURL: segmentURL,
+            stopResult: RecordingResult(outputURL: segmentURL, duration: 0),
+            capturedFrames: 0
+        )
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession }
+        )
+
+        try await service.startRecording(for: meeting)
+        await service.handleSystemInterrupt(reason: .screenLock)
+
+        XCTAssertFalse(service.isRecording)
+        let session = try XCTUnwrap(store.loadSession(for: meeting.id))
+        XCTAssertTrue(session.segments.isEmpty, "Empty segment must not be persisted")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: segmentURL.path), "Empty segment file must be deleted")
+    }
+
+    func testResumeRecordingOpensNewSegmentForExistingSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+
+        try await service.resumeRecording(for: meeting)
+
+        XCTAssertEqual(capturedURLs.count, 1)
+        XCTAssertEqual(capturedURLs.first?.lastPathComponent, "segment-002.wav")
+        XCTAssertTrue(service.isRecording)
+        XCTAssertEqual(service.activeMeetingID, meeting.id)
+    }
+
+    func testStopRecordingFromPausedMeetingMergesSegmentsAndDeletesSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        let segmentURL = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("segment".utf8).write(to: segmentURL)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: segmentURL, duration: 12)
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in
+                XCTFail("Paused stop should not create a live session")
+                throw RecordingError.noActiveRecording
+            },
+            makeFinalOutputURL: { _ in outputURL },
+            mergeSegments: { urls, destination in
+                XCTAssertEqual(urls, [segmentURL])
+                try Data("merged".utf8).write(to: destination)
+                return 12
+            }
+        )
+
+        let result = try await service.stopRecording(for: meeting)
+
+        XCTAssertEqual(result.outputURL.path, outputURL.path)
+        XCTAssertEqual(result.duration, 12)
+        XCTAssertNil(try store.loadSession(for: meeting.id))
+    }
+
+    func testStopRecordingFromLiveMeetingFinalizesSegmentBeforeMerge() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let liveSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: liveSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("live".utf8).write(to: liveSegment)
+
+        let fakeSession = FakeRecordingSession(
+            outputURL: liveSegment,
+            stopResult: RecordingResult(outputURL: liveSegment, duration: 7),
+            capturedFrames: 1
+        )
+
+        let outputURL = rootURL.appendingPathComponent("final.wav")
+        var mergedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession },
+            makeFinalOutputURL: { _ in outputURL },
+            mergeSegments: { urls, destination in
+                mergedURLs = urls
+                try Data("merged".utf8).write(to: destination)
+                return 7
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        let result = try await service.stopRecording(for: meeting)
+
+        XCTAssertEqual(result.duration, 7)
+        XCTAssertEqual(mergedURLs, [liveSegment])
+        XCTAssertNil(try store.loadSession(for: meeting.id))
+    }
+
+    func testHasResumableSessionReturnsTrueForPersistedSession() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+
+        let service = AudioRecordingService(sessionStore: store)
+
+        XCTAssertTrue(service.hasResumableSession(for: meeting.id))
+        XCTAssertFalse(service.hasResumableSession(for: UUID()))
+    }
+}
+
+private final class FakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
+    let outputURL: URL
+    let startedAt = Date()
+    let capturedFrames: Int
+    private let stopResult: RecordingResult
+
+    init(outputURL: URL, stopResult: RecordingResult, capturedFrames: Int) {
+        self.outputURL = outputURL
+        self.stopResult = stopResult
+        self.capturedFrames = capturedFrames
+    }
+
+    func start() async throws {}
+    func stop() async throws -> RecordingResult { stopResult }
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
+    func setSystemAudioEnabled(_ enabled: Bool) {}
+    var hasCapturedFrames: Bool { capturedFrames > 0 }
 }
 
 private func makeContainer() throws -> ModelContainer {

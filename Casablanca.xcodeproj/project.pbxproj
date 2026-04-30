@@ -51,6 +51,7 @@
 		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
 		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
 		A10047 /* RecordingResumeSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* RecordingResumeSessionStore.swift */; };
+		A10048 /* RecordingInterruptionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* RecordingInterruptionMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -109,6 +110,7 @@
 		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
 		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
 		B10047 /* RecordingResumeSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStore.swift; sourceTree = "<group>"; };
+		B10048 /* RecordingInterruptionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitor.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -175,6 +177,7 @@
 				B10042 /* ObsidianTodoSyncService.swift */,
 				B10027 /* SummaryResponseParser.swift */,
 				B10047 /* RecordingResumeSessionStore.swift */,
+				B10048 /* RecordingInterruptionMonitor.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -397,6 +400,7 @@
 				A10040 /* ObsidianTodoMarkdown.swift in Sources */,
 				A10042 /* ObsidianTodoSyncService.swift in Sources */,
 				A10047 /* RecordingResumeSessionStore.swift in Sources */,
+				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
