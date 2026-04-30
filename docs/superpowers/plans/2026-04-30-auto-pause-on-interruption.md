@@ -106,7 +106,7 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
 
         let service = AudioRecordingService(
             sessionStore: store,
-            makeRecordingSession: { _, _, _, _, _, _ in fakeSession }
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession }
         )
 
         try await service.startRecording(for: meeting)
@@ -350,7 +350,9 @@ enum RecordingInterruptionReason: Hashable, Sendable {
 
 The existing `RecordingSession` has a single `onFailure` callback shared by transient buffer errors and the stream delegate's fatal `didStopWithError`. The new design splits them: per-buffer/conversion errors stay in `onFailure` (visibility only), while the stream delegate calls a new `onStreamFatal` callback that the service uses to forward to the interruption monitor. This preserves the spec's "a single dropped buffer is not an interruption" rule.
 
-In `Casablanca/Services/AudioRecordingService.swift`, change the existing `private final class RecordingSession` declaration to:
+In `Casablanca/Services/AudioRecordingService.swift`, **replace the entire existing `RecordingSession` class declaration through its `init` body** (currently `private final class RecordingSession: NSObject, @unchecked Sendable {` at ~line 425 through the closing `}` of `init` at ~line 483). The replacement also removes `Self.makeOutputURL(for:)` (deleted) and `outputURL` is now passed in by the service.
+
+The new declaration:
 
 ```swift
 private final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked Sendable {
@@ -598,13 +600,31 @@ final class AudioRecordingService {
         clearActiveSessionState()
     }
 
+    // Transitional. Existing call site in `NotesEditorView` is migrated to `stopRecording(for:)`
+    // in Task 2 Step 4; this method is deleted in Task 2 Step 4 immediately after migration.
     @discardableResult
     func stopRecording() async throws -> RecordingResult {
-        guard let activeMeetingID else {
-            throw RecordingError.noActiveRecording
+        guard let session else { throw RecordingError.noActiveRecording }
+
+        defer {
+            self.session = nil
+            isRecording = false
+            isPreparing = false
+            activeMeetingID = nil
+            timerTask?.cancel()
+            timerTask = nil
+            audioLevel = 0
         }
-        // Lookup model is not available here; callers in NotesEditorView migrated to stopRecording(for:).
-        throw RecordingError.noActiveRecording
+
+        do {
+            let result = try await session.stop()
+            outputURL = result.outputURL
+            elapsedTime = result.duration
+            return result
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
     }
 
     func clearError() { errorMessage = nil }
@@ -717,13 +737,21 @@ final class AudioRecordingService {
             meeting,
             audioDeviceID,
             systemAudioEnabled,
-            { [weak self] level in self?.audioLevel = level },
-            { [weak self] error in
-                self?.errorMessage = error.localizedDescription
+            { [weak self] level in
+                Task { @MainActor [weak self] in
+                    self?.audioLevel = level
+                }
             },
             { [weak self] error in
-                self?.errorMessage = error.localizedDescription
-                self?.forwardStreamFailure(error)
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                }
+            },
+            { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.forwardStreamFailure(error)
+                }
             }
         )
     }
@@ -1070,7 +1098,7 @@ private func resumeRecording() async {
 }
 ```
 
-Replace the existing `stopRecording()` body with the segment-aware variant:
+Replace the existing `stopRecording()` body in `NotesEditorView` with the segment-aware variant:
 
 ```swift
 private func stopRecording() async {
@@ -1092,6 +1120,8 @@ private func stopRecording() async {
     }
 }
 ```
+
+After this migration, **delete the transitional zero-arg `func stopRecording() async throws -> RecordingResult` from `AudioRecordingService.swift`** (the method added in Task 1 Step 6 with the comment "Transitional. Existing call site in `NotesEditorView` is migrated..."). It now has no callers.
 
 In the existing `task(id: meeting.id)` block, append a paused-state recovery check. Replace:
 
@@ -1472,12 +1502,16 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
         env.fireStart(.screenLock, atOffset: 0)
         await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
         env.advance(by: 10)
         env.fireEnd(.screenLock, atOffset: 10)
         await env.flush()
 
         XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock), .resume])
         XCTAssertEqual(env.notifier.posted.count, 2)
+        XCTAssertEqual(env.meeting.status, .recording)
+        XCTAssertGreaterThanOrEqual(env.saveCount, 2)
     }
 
     func testLongLockSkipsAutoResumeAndStaysPaused() async {
@@ -1492,6 +1526,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock)])
         XCTAssertEqual(env.notifier.posted.count, 1)
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
     func testAudioDeviceLostNeverAutoResumes() async {
@@ -1567,6 +1602,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock), .resume])
         XCTAssertEqual(env.notifier.posted.last?.title, "Could not resume recording")
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
     private func makeEnv() -> CoordinatorEnv {
@@ -1579,6 +1615,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         let monitor = FakeMonitor()
         var clock: TimeInterval = 0
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        var saveCount = 0
         let coordinator: RecordingInterruptionCoordinator
 
         init() {
@@ -1588,7 +1625,8 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
                 monitor: monitor,
                 notifier: notifier,
                 autoResumeWindow: 30,
-                now: { Date(timeIntervalSince1970: env.clock) }
+                now: { Date(timeIntervalSince1970: env.clock) },
+                save: { env.saveCount += 1 }
             )
         }
 
@@ -1698,6 +1736,7 @@ final class RecordingInterruptionCoordinator {
     private weak var notifier: RecordingInterruptionNotifying?
     private let autoResumeWindow: TimeInterval
     private let now: () -> Date
+    private let save: () -> Void
 
     private var meeting: Meeting?
     private var activeReasons: Set<RecordingInterruptionReason> = []
@@ -1710,13 +1749,15 @@ final class RecordingInterruptionCoordinator {
         monitor: RecordingInterruptionEmitting,
         notifier: RecordingInterruptionNotifying,
         autoResumeWindow: TimeInterval = 30,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        save: @escaping () -> Void = {}
     ) {
         self.service = service
         self.monitor = monitor
         self.notifier = notifier
         self.autoResumeWindow = autoResumeWindow
         self.now = now
+        self.save = save
         monitor.onEvent = { [weak self] event in
             self?.handle(event: event)
         }
@@ -1751,16 +1792,18 @@ final class RecordingInterruptionCoordinator {
         }
 
         guard isFirst else {
-            recentEvents.append(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
+            appendRecentEvent(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
             return
         }
 
         resumeAllowedForActiveWindow = event.reason.allowsAutoResume
         startedAt = event.at
-        recentEvents.append(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
+        appendRecentEvent(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
         Task { @MainActor [service] in
             await service?.handleSystemInterrupt(reason: event.reason)
         }
+        meeting?.status = .pausedRecording
+        save()
         notifier?.post(title: "Recording paused", body: bodyForPause(event.reason))
         scheduleDeadline()
     }
@@ -1785,8 +1828,12 @@ final class RecordingInterruptionCoordinator {
         Task { @MainActor [weak self, service, notifier] in
             do {
                 try await service?.resumeRecording(for: meeting)
-                if let self, let lastIdx = self.recentEvents.indices.last {
-                    self.recentEvents[lastIdx].resumedAutomatically = true
+                if let self {
+                    if let lastIdx = self.recentEvents.indices.last {
+                        self.recentEvents[lastIdx].resumedAutomatically = true
+                    }
+                    self.meeting?.status = .recording
+                    self.save()
                     notifier?.post(
                         title: "Recording resumed",
                         body: "Continued after \(self.bodyForResume(reasonForBody))"
@@ -1797,6 +1844,13 @@ final class RecordingInterruptionCoordinator {
             } catch {
                 notifier?.post(title: "Could not resume recording", body: error.localizedDescription)
             }
+        }
+    }
+
+    private func appendRecentEvent(_ record: InterruptionRecord) {
+        recentEvents.append(record)
+        if recentEvents.count > 5 {
+            recentEvents.removeFirst(recentEvents.count - 5)
         }
     }
 
@@ -2108,10 +2162,12 @@ Replace the existing `recordingService` initialization wiring by adding a `.task
 .task {
     if interruptionCoordinator == nil {
         recordingService.interruptionMonitor = interruptionMonitor
+        let context = modelContext
         interruptionCoordinator = RecordingInterruptionCoordinator(
             service: recordingService,
             monitor: interruptionMonitor,
-            notifier: interruptionNotifier
+            notifier: interruptionNotifier,
+            save: { try? context.save() }
         )
     }
 }
@@ -2220,8 +2276,8 @@ Build and run the app locally. Verify each scenario:
    - Reopen the app. Open the same meeting.
    - Resume Recording button is visible. Tap Resume → record more → Stop.
    - Final WAV contains both segments.
-5. Start a recording, then deny microphone permission via System Settings while recording is live.
-   - The pre-existing "Recording Error" alert flow still appears for permission failures (NOT the new pause path).
+5. Start a fresh recording on a meeting where mic permission has already been denied (revoke in System Settings before opening the workspace, then tap Start Recording).
+   - The pre-existing "Recording Error" alert flow appears with Retry / Open Privacy Settings / Back to Notes (NOT the new pause path). Mid-recording mic revocation by contrast will surface as a stream-failure auto-pause and is acceptable; the manual-resume button will then prompt for permission again.
 ```
 
 Expected: every step matches. Any deviation goes back to the failing-test phase of the relevant task.
