@@ -62,7 +62,7 @@ NSWorkspace / Core Audio / SCStream delegate
 Single source of truth for "is the system interrupting recording right now?".
 
 Responsibilities:
-- Subscribe to `NSWorkspace.shared.notificationCenter`: `screensDidLockNotification`, `screensDidUnlockNotification`, `willSleepNotification`, `didWakeNotification`.
+- Subscribe to `NSWorkspace.shared.notificationCenter`: `screensDidSleepNotification`, `screensDidWakeNotification`, `willSleepNotification`, `didWakeNotification`. (Display-sleep is what fires on macOS when the user locks the screen, closes the lid, or hits a hot corner — `NSWorkspace` does not expose a true screen-lock notification on its main center; the system posts `com.apple.screenIsLocked` only on the distributed center.)
 - Register a Core Audio property listener on `kAudioHardwarePropertyDevices`. On change, compare against the active input device ID currently in use by the recording; if it disappeared, fire a device-lost event. The active device ID is supplied via `func setActiveInputDevice(_ id: String?)`, which `AudioRecordingService` calls when starting and resuming a recording (and clears on stop/finalize).
 - Expose `func reportStreamFailure(_ error: Error)` so `AudioRecordingService` can forward SCStream `didStopWithError` and AVAudioEngine engine-died notifications. The monitor is the only place that decides whether such a failure counts as an interruption.
 - Emit two event streams (callbacks or `AsyncStream`):
@@ -116,7 +116,7 @@ Injection seams (per the existing plan): `RecordingResumeSessionStore`, `Recordi
 
 ### Interruption start
 
-1. User locks the screen. `RecordingInterruptionMonitor` receives `screensDidLockNotification`, emits `interruptionStarted(.screenLock, at: now)`.
+1. User locks the screen (display sleeps). `RecordingInterruptionMonitor` receives `screensDidSleepNotification`, emits `interruptionStarted(.screenLock, at: now)`.
 2. Coordinator inspects state. Service is recording → calls `service.handleSystemInterrupt(reason: .screenLock)`.
 3. Service stops the live session (`session.stop()`), gets back a `RecordingResult { url, duration }`.
    - If `duration > 0`: append to manifest via `RecordingResumeSessionStore.appendSegment(...)`.
@@ -190,7 +190,7 @@ Inject fake monitor, fake service test double, fake clock, fake notifier. Cover:
 
 ### `RecordingInterruptionMonitorTests` (new)
 Narrow integration with fake `NotificationCenter` and fake device-list provider. Cover:
-- `screensDidLockNotification` produces `interruptionStarted(.screenLock)`.
+- `screensDidSleepNotification` produces `interruptionStarted(.screenLock)`.
 - `willSleepNotification` produces `interruptionStarted(.systemSleep)`.
 - Device list change that removes the active device produces `interruptionStarted(.audioDeviceLost)`.
 - Device list change that does not affect the active device produces no event.

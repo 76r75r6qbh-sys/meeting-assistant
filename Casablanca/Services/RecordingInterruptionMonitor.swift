@@ -2,16 +2,6 @@ import AppKit
 import CoreAudio
 import Foundation
 
-extension NSWorkspace {
-    // macOS does not expose screen lock notifications publicly on `NSWorkspace`.
-    // The platform posts well-known names on the distributed notification center
-    // (`com.apple.screenIsLocked` / `com.apple.screenIsUnlocked`); we declare matching
-    // `Notification.Name` constants here so production code subscribes via the same
-    // identifier the system uses, and tests can post the same name on a fake center.
-    static let screensDidLockNotification = Notification.Name("com.apple.screenIsLocked")
-    static let screensDidUnlockNotification = Notification.Name("com.apple.screenIsUnlocked")
-}
-
 struct RecordingInterruptionEvent: Equatable {
     enum Kind: Equatable { case started, ended }
 
@@ -73,8 +63,8 @@ final class RecordingInterruptionMonitor {
 
     private func installWorkspaceObservers() {
         let pairs: [(Notification.Name, RecordingInterruptionEvent.Kind, RecordingInterruptionReason)] = [
-            (NSWorkspace.screensDidLockNotification, .started, .screenLock),
-            (NSWorkspace.screensDidUnlockNotification, .ended, .screenLock),
+            (NSWorkspace.screensDidSleepNotification, .started, .screenLock),
+            (NSWorkspace.screensDidWakeNotification, .ended, .screenLock),
             (NSWorkspace.willSleepNotification, .started, .systemSleep),
             (NSWorkspace.didWakeNotification, .ended, .systemSleep)
         ]

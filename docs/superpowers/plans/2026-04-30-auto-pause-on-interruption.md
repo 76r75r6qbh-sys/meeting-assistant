@@ -1185,7 +1185,7 @@ import XCTest
 
 @MainActor
 final class RecordingInterruptionMonitorTests: XCTestCase {
-    func testScreenLockProducesInterruptionStartedScreenLock() async {
+    func testScreenSleepProducesInterruptionStartedScreenLock() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
@@ -1196,14 +1196,14 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
 
-        center.post(name: NSWorkspace.screensDidLockNotification, object: nil)
+        center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
 
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events.first?.kind, .started)
         XCTAssertEqual(events.first?.reason, .screenLock)
     }
 
-    func testScreenUnlockProducesInterruptionEndedScreenLock() async {
+    func testScreenWakeProducesInterruptionEndedScreenLock() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
@@ -1214,8 +1214,8 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
 
-        center.post(name: NSWorkspace.screensDidLockNotification, object: nil)
-        center.post(name: NSWorkspace.screensDidUnlockNotification, object: nil)
+        center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
 
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events.last?.kind, .ended)
@@ -1401,8 +1401,8 @@ final class RecordingInterruptionMonitor {
 
     private func installWorkspaceObservers() {
         let pairs: [(Notification.Name, RecordingInterruptionEvent.Kind, RecordingInterruptionReason)] = [
-            (NSWorkspace.screensDidLockNotification, .started, .screenLock),
-            (NSWorkspace.screensDidUnlockNotification, .ended, .screenLock),
+            (NSWorkspace.screensDidSleepNotification, .started, .screenLock),
+            (NSWorkspace.screensDidWakeNotification, .ended, .screenLock),
             (NSWorkspace.willSleepNotification, .started, .systemSleep),
             (NSWorkspace.didWakeNotification, .ended, .systemSleep)
         ]
