@@ -52,6 +52,7 @@
 		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
 		A10047 /* RecordingResumeSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* RecordingResumeSessionStore.swift */; };
 		A10048 /* RecordingInterruptionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* RecordingInterruptionMonitor.swift */; };
+		A10049 /* RecordingInterruptionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* RecordingInterruptionMonitorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -111,6 +112,7 @@
 		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
 		B10047 /* RecordingResumeSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStore.swift; sourceTree = "<group>"; };
 		B10048 /* RecordingInterruptionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitor.swift; sourceTree = "<group>"; };
+		B10049 /* RecordingInterruptionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitorTests.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -265,6 +267,7 @@
 				B10038 /* ObsidianTodoMarkdownTests.swift */,
 				B10041 /* ObsidianTodoSyncServiceTests.swift */,
 				B10043 /* PermissionsBehaviorTests.swift */,
+				B10049 /* RecordingInterruptionMonitorTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -415,6 +418,7 @@
 				A10038 /* ObsidianTodoMarkdownTests.swift in Sources */,
 				A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */,
 				A10043 /* PermissionsBehaviorTests.swift in Sources */,
+				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
