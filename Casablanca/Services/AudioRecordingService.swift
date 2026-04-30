@@ -324,33 +324,6 @@ final class AudioRecordingService {
         clearActiveSessionState()
     }
 
-    // Transitional. Existing call site in `NotesEditorView` is migrated to `stopRecording(for:)`
-    // in Task 2 Step 4; this method is deleted in Task 2 Step 4 immediately after migration.
-    @discardableResult
-    func stopRecording() async throws -> RecordingResult {
-        guard let session else { throw RecordingError.noActiveRecording }
-
-        defer {
-            self.session = nil
-            isRecording = false
-            isPreparing = false
-            activeMeetingID = nil
-            timerTask?.cancel()
-            timerTask = nil
-            audioLevel = 0
-        }
-
-        do {
-            let result = try await session.stop()
-            outputURL = result.outputURL
-            elapsedTime = result.duration
-            return result
-        } catch {
-            errorMessage = error.localizedDescription
-            throw error
-        }
-    }
-
     func clearError() { errorMessage = nil }
 
     func setErrorMessage(_ message: String) { errorMessage = message }

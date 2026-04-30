@@ -7,6 +7,7 @@ final class MeetingListViewModel {
     private let calendarService: CalendarService
     private let removeItemAtURL: (URL) throws -> Void
     private let meetingHasPrep: (Meeting) -> Bool
+    private let removeResumableRecordingSession: (UUID) throws -> Void
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -35,11 +36,15 @@ final class MeetingListViewModel {
         },
         removeItemAtURL: @escaping (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
+        },
+        removeResumableRecordingSession: @escaping (UUID) throws -> Void = { meetingID in
+            try RecordingResumeSessionStore().deleteSession(for: meetingID)
         }
     ) {
         self.calendarService = calendarService
         self.meetingHasPrep = meetingHasPrep
         self.removeItemAtURL = removeItemAtURL
+        self.removeResumableRecordingSession = removeResumableRecordingSession
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -181,6 +186,7 @@ final class MeetingListViewModel {
         }
 
         let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
+        try? removeResumableRecordingSession(meeting.id)
         modelContext.delete(meeting)
 
         if isSelectedMeeting {

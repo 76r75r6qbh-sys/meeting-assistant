@@ -422,6 +422,28 @@ final class MeetingDeletionTests: XCTestCase {
         XCTAssertEqual(meetings.count, 1)
         XCTAssertEqual(meetings.first?.id, meeting.id)
     }
+
+    @MainActor
+    func testDeleteMeetingAlsoRemovesResumableRecordingSession() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        context.insert(meeting)
+        try context.save()
+
+        var removedSessionMeetingID: UUID?
+        let viewModel = MeetingListViewModel(
+            calendarService: CalendarService(),
+            removeResumableRecordingSession: { meetingID in
+                removedSessionMeetingID = meetingID
+            }
+        )
+        viewModel.setModelContext(context)
+
+        try viewModel.deleteMeeting(meeting)
+
+        XCTAssertEqual(removedSessionMeetingID, meeting.id)
+    }
 }
 
 final class SidebarMeetingRowActionTests: XCTestCase {

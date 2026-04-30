@@ -108,7 +108,7 @@ enum MeetingNotesMode {
 }
 
 struct NotesEditorView: View {
-    private enum RecordingActionPhase { case start, stop }
+    private enum RecordingActionPhase { case start, pause, resume, stop }
 
     @Bindable var meeting: Meeting
     @Bindable var recordingService: AudioRecordingService
@@ -161,6 +161,13 @@ struct NotesEditorView: View {
         .task(id: meeting.id) {
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
             loadPrepMarkdown()
+
+            if meeting.status == .pausedRecording && !recordingService.hasResumableSession(for: meeting.id) {
+                recordingActionPhase = .resume
+                recordingService.setErrorMessage("This paused recording can no longer be resumed.")
+                meeting.status = .notesOnly
+                save()
+            }
         }
         .task(id: autoStartRecording) {
             guard autoStartRecording else { return }
@@ -604,15 +611,35 @@ struct NotesEditorView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
             } else {
-                Button {
-                    Task {
-                        await stopRecording()
+                if presentation.showsPauseRecordingButton {
+                    Button {
+                        Task { await pauseRecording() }
+                    } label: {
+                        Label("Pause Recording", systemImage: "pause.circle")
                     }
-                } label: {
-                    Label("Stop Recording", systemImage: "stop.circle")
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(recordingService.isPreparing)
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(!recordingService.isRecording || recordingService.activeMeetingID != meeting.id)
+
+                if presentation.showsResumeRecordingButton {
+                    Button {
+                        Task { await resumeRecording() }
+                    } label: {
+                        Label("Resume Recording", systemImage: "record.circle")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(recordingService.isPreparing)
+                }
+
+                if presentation.showsStopRecordingButton {
+                    Button {
+                        Task { await stopRecording() }
+                    } label: {
+                        Label("Stop Recording", systemImage: "stop.circle")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(recordingService.isPreparing && presentation.showsResumeRecordingButton)
+                }
             }
 
             Button {
@@ -716,6 +743,30 @@ struct NotesEditorView: View {
         }
     }
 
+    private func pauseRecording() async {
+        recordingActionPhase = .pause
+        do {
+            let result = try await recordingService.pauseRecording()
+            meeting.recordingDuration = (meeting.recordingDuration ?? 0) + result.duration
+            meeting.status = .pausedRecording
+            save()
+        } catch {
+            save()
+        }
+    }
+
+    private func resumeRecording() async {
+        recordingActionPhase = .resume
+        do {
+            try await recordingService.resumeRecording(for: meeting)
+            meeting.status = .recording
+            save()
+        } catch {
+            meeting.status = .pausedRecording
+            save()
+        }
+    }
+
     private var selectedMicrophoneBinding: Binding<String> {
         Binding(
             get: { recordingService.selectedInputDeviceID },
@@ -778,14 +829,14 @@ struct NotesEditorView: View {
         isFinalizingRecording = true
 
         do {
-            let result = try await recordingService.stopRecording()
+            let result = try await recordingService.stopRecording(for: meeting)
             meeting.recordingFileURL = result.outputURL.path
             meeting.recordingDuration = result.duration
             meeting.status = .processing
             save()
         } catch {
             isFinalizingRecording = false
-            meeting.status = .notesOnly
+            meeting.status = recordingService.hasResumableSession(for: meeting.id) ? .pausedRecording : .notesOnly
             save()
         }
     }
