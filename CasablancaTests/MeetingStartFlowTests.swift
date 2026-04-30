@@ -720,6 +720,38 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
     }
 }
 
+@MainActor
+final class StopRecordingErrorPathTests: XCTestCase {
+    func testStopRecordingFailureDoesNotSilentlyClobberMeetingStatus() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        let segmentURL = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("segment".utf8).write(to: segmentURL)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: segmentURL, duration: 5)
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            mergeSegments: { _, _ in
+                throw NSError(domain: "test.merge", code: 1)
+            }
+        )
+
+        do {
+            _ = try await service.stopRecording(for: meeting)
+            XCTFail("Expected stopRecording to throw on merge failure")
+        } catch {
+            // Expected
+        }
+
+        // Service should still report the resumable session exists so the View can recover.
+        XCTAssertTrue(service.hasResumableSession(for: meeting.id),
+                      "Resumable session must NOT be deleted when merge fails — user needs to retry stop later")
+    }
+}
+
 private final class FakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
     let outputURL: URL
     let startedAt = Date()

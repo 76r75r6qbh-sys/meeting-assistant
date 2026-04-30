@@ -195,8 +195,10 @@ struct NotesEditorView: View {
                 }
             } else {
                 Button("OK", role: .cancel) {
-                    meeting.status = .notesOnly
-                    save()
+                    if !recordingService.hasResumableSession(for: meeting.id) && meeting.status != .pausedRecording {
+                        meeting.status = .notesOnly
+                        save()
+                    }
                 }
             }
         } message: {
@@ -638,7 +640,7 @@ struct NotesEditorView: View {
                         Label("Stop Recording", systemImage: "stop.circle")
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(recordingService.isPreparing && presentation.showsResumeRecordingButton)
+                    .disabled(recordingService.isPreparing || isFinalizingRecording)
                 }
             }
 
@@ -751,6 +753,7 @@ struct NotesEditorView: View {
             meeting.status = .pausedRecording
             save()
         } catch {
+            recordingService.setErrorMessage(error.localizedDescription)
             save()
         }
     }
@@ -836,6 +839,7 @@ struct NotesEditorView: View {
             save()
         } catch {
             isFinalizingRecording = false
+            recordingService.setErrorMessage(error.localizedDescription)
             meeting.status = recordingService.hasResumableSession(for: meeting.id) ? .pausedRecording : .notesOnly
             save()
         }
