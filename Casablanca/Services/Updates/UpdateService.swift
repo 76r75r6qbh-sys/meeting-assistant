@@ -30,6 +30,7 @@ final class UpdateService {
     private let currentBundleURL: URL
     private let now: () -> Date
     private let terminate: () -> Void
+    private var lastAvailableRelease: ReleaseInfo?
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init(
@@ -57,6 +58,7 @@ final class UpdateService {
     }
 
     func checkNow(trigger: CheckTrigger) async {
+        lastAvailableRelease = nil
         state = .checking(trigger: trigger)
         do {
             let release = try await client.fetchLatestRelease(includePrereleases: preferences.includePrereleases)
@@ -69,6 +71,7 @@ final class UpdateService {
                 state = .idle
                 return
             }
+            lastAvailableRelease = release
             state = .available(release)
         } catch {
             let mapped = (error as? UpdateError) ?? .checkFailed(URLError(.unknown))
@@ -76,24 +79,72 @@ final class UpdateService {
             if trigger == .manual {
                 state = .error(mapped, visibility: .alert)
             } else {
+                // silent → straight to idle
                 state = .idle
             }
         }
     }
 
+    func installUpdate(_ release: ReleaseInfo) async {
+        guard currentBundleURL.path == "/Applications/Casablanca.app" else {
+            state = .error(.notInApplicationsFolder, visibility: .alert)
+            return
+        }
+        if let reason = probe.reasonInstallShouldWait() {
+            state = .error(.notSafeToQuit(reason: reason), visibility: .alert)
+            return
+        }
+
+        let stagingDir = paths.stagingDirectory(for: release.version)
+        let zipPath = stagingDir.appendingPathComponent("Casablanca.zip")
+        do {
+            try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        } catch {
+            state = .error(.swapFailed(error.localizedDescription), visibility: .alert)
+            return
+        }
+
+        state = .downloading(release, progress: 0)
+        do {
+            _ = try await downloader.download(
+                from: release.assetURL,
+                expectedByteCount: release.assetByteCount,
+                to: zipPath,
+                progress: { [weak self] value in
+                    Task { @MainActor in self?.state = .downloading(release, progress: value) }
+                }
+            )
+            let bundle = try await downloader.extract(zipAt: zipPath, to: stagingDir)
+            _ = try await downloader.verify(bundleAt: bundle, currentVersion: currentVersion)
+
+            state = .staged(stagedBundle: bundle, release)
+            try installer.install(stagedBundle: bundle, currentBundle: currentBundleURL, paths: paths, now: now())
+            terminate()
+        } catch {
+            let mapped = (error as? UpdateError) ?? .downloadFailed(URLError(.unknown))
+            logger.error("install failed: \(String(describing: mapped))")
+            state = .error(mapped, visibility: .alert)
+        }
+    }
+
     func skipVersion(_ release: ReleaseInfo) {
         preferences.skippedVersion = release.version
+        lastAvailableRelease = nil
         state = .idle
     }
 
     func remindLater() {
+        lastAvailableRelease = nil
         state = .idle
     }
 
     func dismissError() {
+        if case .error(_, _) = state, let release = lastAvailableRelease {
+            state = .available(release)
+            return
+        }
         state = .idle
     }
 
-    // installUpdate(_:) - implemented in Task 14
-    // startScheduling()/stopScheduling() - implemented in Task 15
+    // startScheduling()/stopScheduling() are added in Task 15.
 }

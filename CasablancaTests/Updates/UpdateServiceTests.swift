@@ -121,6 +121,77 @@ final class UpdateServiceTests: XCTestCase {
     }
 }
 
+// MARK: - Install flow tests
+
+extension UpdateServiceTests {
+    func test_installUpdate_walksThroughDownloadingExtractVerifyToStagedAndTerminates() async {
+        let release = makeRelease("0.4.0")
+        let service = makeService()
+        fakeClient.result = .success(release)
+        await service.checkNow(trigger: .manual)
+
+        await service.installUpdate(release)
+        XCTAssertEqual(fakeInstaller.installCallCount, 1)
+        XCTAssertEqual(terminateInvocationCount, 1)
+    }
+
+    func test_installUpdate_refusedWhenSafeToQuitReturnsReason() async {
+        let release = makeRelease("0.4.0")
+        let service = makeService()
+        fakeClient.result = .success(release)
+        await service.checkNow(trigger: .manual)
+        fakeProbe.reason = "an active recording"
+
+        await service.installUpdate(release)
+        guard case .error(.notSafeToQuit(let reason), let visibility) = service.state else {
+            return XCTFail("state=\(service.state)")
+        }
+        XCTAssertEqual(reason, "an active recording")
+        XCTAssertEqual(visibility, .alert)
+        XCTAssertEqual(fakeInstaller.installCallCount, 0)
+        XCTAssertEqual(terminateInvocationCount, 0)
+
+        // After dismiss, return to .available so user can retry without re-checking.
+        service.dismissError()
+        guard case .available = service.state else { return XCTFail("expected .available") }
+    }
+
+    func test_installUpdate_alertOnDownloadFailure() async {
+        let release = makeRelease("0.4.0")
+        let service = makeService()
+        fakeClient.result = .success(release)
+        await service.checkNow(trigger: .manual)
+        fakeDownloader.downloadResult = .failure(UpdateError.downloadFailed(URLError(.networkConnectionLost)))
+
+        await service.installUpdate(release)
+        guard case .error(.downloadFailed, .alert) = service.state else { return XCTFail("state=\(service.state)") }
+    }
+
+    func test_installUpdate_alertOnSwapFailure_originalAppUntouched() async {
+        let release = makeRelease("0.4.0")
+        let service = makeService()
+        fakeClient.result = .success(release)
+        await service.checkNow(trigger: .manual)
+        fakeInstaller.installError = UpdateError.swapFailed("permission denied")
+
+        await service.installUpdate(release)
+        guard case .error(.swapFailed, .alert) = service.state else { return XCTFail("state=\(service.state)") }
+        XCTAssertEqual(terminateInvocationCount, 0, "must not terminate when swap failed")
+    }
+
+    func test_installUpdate_refusesWhenAppIsNotInApplications() async {
+        let release = makeRelease("0.4.0")
+        let bundleURL = URL(fileURLWithPath: "/tmp/Casablanca.app")
+        let service = makeService(bundleURL: bundleURL)
+        fakeClient.result = .success(release)
+        await service.checkNow(trigger: .manual)
+
+        await service.installUpdate(release)
+        guard case .error(.notInApplicationsFolder, .alert) = service.state else { return XCTFail("state=\(service.state)") }
+        XCTAssertEqual(fakeInstaller.installCallCount, 0)
+    }
+}
+
 // MARK: - Fakes
 
 @MainActor
