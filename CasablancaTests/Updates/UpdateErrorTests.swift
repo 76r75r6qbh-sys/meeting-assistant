@@ -27,9 +27,26 @@ final class UpdateErrorTests: XCTestCase {
 
     func test_equatable_distinguishesAssociatedValues() {
         XCTAssertNotEqual(
+            UpdateError.checkFailed(URLError(.notConnectedToInternet)),
+            UpdateError.checkFailed(URLError(.timedOut))
+        )
+        XCTAssertNotEqual(
+            UpdateError.downloadFailed(URLError(.networkConnectionLost)),
+            UpdateError.downloadFailed(URLError(.timedOut))
+        )
+        XCTAssertNotEqual(
+            UpdateError.rateLimited(retryAfter: Date(timeIntervalSince1970: 0)),
+            UpdateError.rateLimited(retryAfter: Date(timeIntervalSince1970: 1))
+        )
+        XCTAssertNotEqual(
+            UpdateError.notSafeToQuit(reason: "a recording"),
+            UpdateError.notSafeToQuit(reason: "a transcription")
+        )
+        XCTAssertNotEqual(
             UpdateError.swapFailed("disk full"),
             UpdateError.swapFailed("permission denied")
         )
         XCTAssertEqual(UpdateError.unzipFailed, UpdateError.unzipFailed)
+        XCTAssertNotEqual(UpdateError.unzipFailed, UpdateError.codesignFailed)
     }
 }
