@@ -43,7 +43,9 @@ final class UpdateServiceTests: XCTestCase {
             currentVersion: try! SemanticVersion(parsing: currentVersion),
             currentBundleURL: bundleURL,
             now: { [unowned self] in self.clock.now },
-            terminate: { [unowned self] in self.terminateInvocationCount += 1 }
+            terminate: { [unowned self] in self.terminateInvocationCount += 1 },
+            initialCheckDelay: 0.05,
+            autoCheckInterval: 60
         )
     }
 
@@ -189,6 +191,41 @@ extension UpdateServiceTests {
         await service.installUpdate(release)
         guard case .error(.notInApplicationsFolder, .alert) = service.state else { return XCTFail("state=\(service.state)") }
         XCTAssertEqual(fakeInstaller.installCallCount, 0)
+    }
+}
+
+// MARK: - Scheduling tests
+
+extension UpdateServiceTests {
+    func test_startScheduling_skipsCheck_whenLastCheckWithin24h() async {
+        preferences.lastCheckAt = clock.now.addingTimeInterval(-30) // 30s ago, within 60s autoCheckInterval
+        fakeClient.result = .success(makeRelease("0.4.0"))
+        let service = makeService()
+        service.startScheduling()
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(service.state, .idle)
+    }
+
+    func test_startScheduling_runsImmediately_whenLastCheckOlderThan24h() async {
+        preferences.lastCheckAt = clock.now.addingTimeInterval(-25 * 3600)
+        fakeClient.result = .success(makeRelease("0.4.0"))
+        let service = makeService()
+        service.startScheduling()
+        for _ in 0..<50 {
+            if case .available = service.state { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("expected .available within 5s, got \(service.state)")
+    }
+
+    func test_startScheduling_doesNothing_whenAutoChecksDisabled() async {
+        preferences.automaticChecksEnabled = false
+        preferences.lastCheckAt = nil
+        fakeClient.result = .success(makeRelease("0.4.0"))
+        let service = makeService()
+        service.startScheduling()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(service.state, .idle)
     }
 }
 

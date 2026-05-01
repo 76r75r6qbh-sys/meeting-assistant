@@ -32,6 +32,9 @@ final class UpdateService {
     private let terminate: () -> Void
     private var lastAvailableRelease: ReleaseInfo?
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
+    private let initialCheckDelay: TimeInterval
+    private let autoCheckInterval: TimeInterval
+    private var schedulerTask: Task<Void, Never>?
 
     init(
         client: GitHubReleaseClient,
@@ -43,7 +46,9 @@ final class UpdateService {
         currentVersion: SemanticVersion,
         currentBundleURL: URL,
         now: @escaping () -> Date,
-        terminate: @escaping () -> Void
+        terminate: @escaping () -> Void,
+        initialCheckDelay: TimeInterval = 5,
+        autoCheckInterval: TimeInterval = 24 * 3600
     ) {
         self.client = client
         self.downloader = downloader
@@ -55,6 +60,8 @@ final class UpdateService {
         self.currentBundleURL = currentBundleURL
         self.now = now
         self.terminate = terminate
+        self.initialCheckDelay = initialCheckDelay
+        self.autoCheckInterval = autoCheckInterval
     }
 
     func checkNow(trigger: CheckTrigger) async {
@@ -146,5 +153,36 @@ final class UpdateService {
         state = .idle
     }
 
-    // startScheduling()/stopScheduling() are added in Task 15.
+    func startScheduling() {
+        schedulerTask?.cancel()
+        guard preferences.automaticChecksEnabled else { return }
+        schedulerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runScheduleLoop()
+        }
+    }
+
+    func stopScheduling() {
+        schedulerTask?.cancel()
+        schedulerTask = nil
+    }
+
+    private func runScheduleLoop() async {
+        try? await Task.sleep(nanoseconds: UInt64(initialCheckDelay * 1_000_000_000))
+        while !Task.isCancelled {
+            if shouldRunAutomaticCheckNow() {
+                await self.checkNow(trigger: .automatic)
+            }
+            try? await Task.sleep(nanoseconds: UInt64(autoCheckInterval * 1_000_000_000))
+        }
+    }
+
+    private func shouldRunAutomaticCheckNow() -> Bool {
+        guard preferences.automaticChecksEnabled else { return false }
+        guard case .idle = state else { return false }
+        if let last = preferences.lastCheckAt {
+            return now().timeIntervalSince(last) >= autoCheckInterval
+        }
+        return true
+    }
 }
