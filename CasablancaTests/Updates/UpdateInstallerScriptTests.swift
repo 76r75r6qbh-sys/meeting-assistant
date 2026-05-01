@@ -85,3 +85,50 @@ extension UpdateInstallerScriptTests {
         } catch UpdateError.swapFailed {}
     }
 }
+
+extension UpdateInstallerScriptTests {
+    func test_spawnDetached_runsScriptToCompletion() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let marker = tempDir.appendingPathComponent("marker.txt")
+        let pidfile = tempDir.appendingPathComponent("helper.pid")
+        let script = tempDir.appendingPathComponent("helper.sh")
+        try """
+        #!/bin/sh
+        echo $$ > '\(pidfile.path)'
+        sleep 0.5
+        printf 'alive' > '\(marker.path)'
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let installer = DefaultUpdateInstaller()
+        try installer.spawnDetached(scriptPath: script)
+
+        // Wait for the helper to write its PID, then assert it is its own session leader.
+        for _ in 0..<20 {
+            if FileManager.default.fileExists(atPath: pidfile.path) { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let pid = Int(try String(contentsOf: pidfile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        XCTAssertGreaterThan(pid, 0)
+
+        // SETSID makes the helper its own process group leader: pgid equals pid.
+        // (On macOS, ps -o sess= always prints 0; pgid= is the reliable indicator.)
+        let inspect = Process()
+        inspect.launchPath = "/bin/ps"
+        inspect.arguments = ["-o", "pgid=", "-p", String(pid)]
+        let pipe = Pipe()
+        inspect.standardOutput = pipe
+        try inspect.run()
+        inspect.waitUntilExit()
+        let pgid = Int(String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        XCTAssertEqual(pgid, pid, "helper should be its own process group leader (POSIX_SPAWN_SETSID)")
+
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let value = try? String(contentsOf: marker, encoding: .utf8)
+        XCTAssertEqual(value, "alive", "helper script should have completed and written the marker")
+    }
+}
