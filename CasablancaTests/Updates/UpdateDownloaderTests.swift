@@ -100,3 +100,38 @@ extension UpdateDownloaderTests {
         } catch UpdateError.unzipFailed {}
     }
 }
+
+extension UpdateDownloaderTests {
+    private func extractedBundle(_ fixtureName: String) async throws -> URL {
+        let zip = try copyFixture(fixtureName)
+        let outDir = tempDir.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        return try await DefaultUpdateDownloader().extract(zipAt: zip, to: outDir)
+    }
+
+    func test_verify_returnsBundleVersion_whenNewer() async throws {
+        let bundle = try await extractedBundle("Casablanca-99.0.0-macOS")
+        let v = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+        XCTAssertEqual(v, try SemanticVersion(parsing: "99.0.0"))
+    }
+
+    func test_verify_throwsVersionRegression_whenOlder() async throws {
+        let bundle = try await extractedBundle("Casablanca-0.0.1-macOS")
+        do {
+            _ = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+            XCTFail("expected versionRegression")
+        } catch UpdateError.versionRegression {}
+    }
+
+    func test_verify_throwsCodesignFailed_whenSealBroken() async throws {
+        let bundle = try await extractedBundle("Casablanca-99.0.0-macOS")
+        // Tamper with the bundle to break the seal
+        let resourcesDir = bundle.appendingPathComponent("Contents/Resources")
+        try FileManager.default.createDirectory(at: resourcesDir, withIntermediateDirectories: true)
+        try "tampered".data(using: .utf8)!.write(to: resourcesDir.appendingPathComponent("extra.txt"))
+        do {
+            _ = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+            XCTFail("expected codesignFailed")
+        } catch UpdateError.codesignFailed {}
+    }
+}

@@ -132,6 +132,21 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
     }
 
     func verify(bundleAt url: URL, currentVersion: SemanticVersion) async throws -> SemanticVersion {
-        fatalError("implement in Task 9")
+        try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", url.path], errorOnFailure: .codesignFailed)
+
+        let infoPlist = url.appendingPathComponent("Contents/Info.plist")
+        guard
+            let data = try? Data(contentsOf: infoPlist),
+            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+            let raw = plist["CFBundleShortVersionString"] as? String
+        else {
+            throw UpdateError.unzipFailed
+        }
+        let bundleVersion: SemanticVersion
+        do { bundleVersion = try SemanticVersion(parsing: raw) }
+        catch { throw UpdateError.unzipFailed }
+
+        guard bundleVersion > currentVersion else { throw UpdateError.versionRegression }
+        return bundleVersion
     }
 }
