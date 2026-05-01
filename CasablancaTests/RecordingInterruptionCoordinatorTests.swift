@@ -112,6 +112,54 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    func testBindClearsRecentEventsFromPriorMeeting() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+
+        XCTAssertEqual(env.coordinator.recentEvents.count, 1)
+
+        let secondMeeting = Meeting(title: "Different Meeting", date: .now, status: .recording)
+        env.coordinator.bind(meeting: secondMeeting)
+
+        XCTAssertTrue(env.coordinator.recentEvents.isEmpty,
+                      "Switching meetings must clear stale interruption events")
+    }
+
+    func testResumeMarksCorrectRecordEvenIfNewInterruptionAppended() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        // First interruption — short, should auto-resume
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.coordinator.recentEvents.count, 1)
+
+        let firstStartedAt = env.coordinator.recentEvents[0].startedAt
+
+        // The end event triggers the auto-resume Task. Before that Task runs, simulate a
+        // brand-new interruption (lock again) which appends to recentEvents.
+        env.advance(by: 5)
+        env.fireEnd(.screenLock, atOffset: 5)
+        env.fireStart(.screenLock, atOffset: 6)
+
+        await env.flush()
+
+        // The first record (startedAt == 0) must be marked auto-resumed; the new one (startedAt == 6) must NOT be.
+        let firstRecord = env.coordinator.recentEvents.first { $0.startedAt == firstStartedAt }
+        XCTAssertNotNil(firstRecord)
+        XCTAssertTrue(firstRecord?.resumedAutomatically == true,
+                      "First interruption should be marked resumed")
+
+        let secondRecord = env.coordinator.recentEvents.first {
+            $0.startedAt == Date(timeIntervalSince1970: 6)
+        }
+        XCTAssertNotNil(secondRecord)
+        XCTAssertFalse(secondRecord?.resumedAutomatically == true,
+                       "Newly-appended interruption must not inherit resumed=true from the prior one")
+    }
+
     private func makeEnv() -> CoordinatorEnv {
         CoordinatorEnv()
     }

@@ -64,6 +64,7 @@ final class RecordingInterruptionCoordinator {
         cancelPendingDeadline()
         activeReasons.removeAll()
         startedAt = nil
+        recentEvents.removeAll()
     }
 
     func notifyMeetingTransitioned(to status: MeetingStatus) {
@@ -121,11 +122,12 @@ final class RecordingInterruptionCoordinator {
         guard now().timeIntervalSince(startedAt) < autoResumeWindow else { return }
 
         let reasonForBody = event.reason
+        let recordIndexAtDispatch = recentEvents.indices.last
         Task { @MainActor [weak self, service, notifier] in
             do {
                 try await service?.resumeRecording(for: meeting)
                 if let self {
-                    if let lastIdx = self.recentEvents.indices.last {
+                    if let lastIdx = recordIndexAtDispatch, lastIdx < self.recentEvents.count {
                         self.recentEvents[lastIdx].resumedAutomatically = true
                     }
                     self.meeting?.status = .recording
