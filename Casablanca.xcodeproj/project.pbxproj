@@ -7,9 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03AF1A0166ED6F1B10C3EC38 /* UpdatePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B8B5B1EC960D341635643A /* UpdatePaths.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
+		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
 		9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A49CA3494756C27CD173CA /* SemanticVersion.swift */; };
 		A10001 /* CasablancaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* CasablancaApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
@@ -131,9 +133,11 @@
 		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
 		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
 		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
+		BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePathsTests.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateError.swift; sourceTree = "<group>"; };
+		D8B8B5B1EC960D341635643A /* UpdatePaths.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePaths.swift; sourceTree = "<group>"; };
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -154,6 +158,7 @@
 			children = (
 				C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */,
 				94A49CA3494756C27CD173CA /* SemanticVersion.swift */,
+				D8B8B5B1EC960D341635643A /* UpdatePaths.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -164,6 +169,7 @@
 			children = (
 				DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */,
 				830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */,
+				BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -457,6 +463,7 @@
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
 				43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */,
 				9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */,
+				03AF1A0166ED6F1B10C3EC38 /* UpdatePaths.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -477,6 +484,7 @@
 				A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */,
 				3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */,
 				5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */,
+				7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
