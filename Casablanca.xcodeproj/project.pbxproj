@@ -75,10 +75,12 @@
 		A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */; };
 		A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */; };
 		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
+		AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */; };
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
 		C1E6FC1E581E4E7C1DCF1C16 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D480611A08BDB4705DD52C /* UpdateService.swift */; };
 		C40DAA304D9C44955F64244C /* Casablanca-99.0.0-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
+		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
 		F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -101,6 +103,7 @@
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
+		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloaderTests.swift; sourceTree = "<group>"; };
@@ -169,6 +172,7 @@
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
 		E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-0.0.1-macOS.zip"; sourceTree = "<group>"; };
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
+		E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheckTests.swift; sourceTree = "<group>"; };
 		FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -214,6 +218,7 @@
 				A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */,
 				1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */,
 				FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */,
+				E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -338,6 +343,7 @@
 			children = (
 				B10010 /* Permissions.swift */,
 				B10032 /* MarkdownConverter.swift */,
+				6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -546,6 +552,7 @@
 				A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */,
 				B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */,
 				C1E6FC1E581E4E7C1DCF1C16 /* UpdateService.swift in Sources */,
+				EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -573,6 +580,7 @@
 				CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */,
 				A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */,
 				A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */,
+				AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
