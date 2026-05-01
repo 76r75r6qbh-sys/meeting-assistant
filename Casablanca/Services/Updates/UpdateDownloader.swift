@@ -95,11 +95,42 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
         resultContinuation = nil
     }
 
-    // MARK: extract / verify (fail with fatalError until implemented in Tasks 8 & 9)
+    // MARK: extract / verify (verify still has fatalError until implemented in Task 9)
 
     func extract(zipAt source: URL, to destinationDir: URL) async throws -> URL {
-        fatalError("implement in Task 8")
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        try Self.run("/usr/bin/ditto", ["-x", "-k", source.path, destinationDir.path], errorOnFailure: .unzipFailed)
+        let appURL = destinationDir.appendingPathComponent("Casablanca.app", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: appURL.path) else { throw UpdateError.unzipFailed }
+        do {
+            try Self.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", appURL.path], errorOnFailure: nil)
+        } catch let error as UpdateError {
+            throw error
+        } catch {
+            throw UpdateError.quarantineStripFailed(error.localizedDescription)
+        }
+        return appURL
     }
+
+    @discardableResult
+    private static func run(_ launchPath: String, _ arguments: [String], errorOnFailure: UpdateError?) throws -> String {
+        let process = Process()
+        process.launchPath = launchPath
+        process.arguments = arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if process.terminationStatus != 0 {
+            if let error = errorOnFailure { throw error }
+            throw UpdateError.quarantineStripFailed("\(launchPath) exited \(process.terminationStatus): \(stderrText)")
+        }
+        return String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
     func verify(bundleAt url: URL, currentVersion: SemanticVersion) async throws -> SemanticVersion {
         fatalError("implement in Task 9")
     }

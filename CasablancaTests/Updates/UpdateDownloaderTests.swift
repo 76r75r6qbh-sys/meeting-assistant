@@ -35,3 +35,68 @@ final class UpdateDownloaderTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(progressValues.last ?? 0, 0.99)
     }
 }
+
+extension UpdateDownloaderTests {
+    private func copyFixture(_ name: String) throws -> URL {
+        let src = fixtureURL(name)
+        let dst = tempDir.appendingPathComponent(src.lastPathComponent)
+        try FileManager.default.copyItem(at: src, to: dst)
+        return dst
+    }
+
+    private func setQuarantineXattr(at url: URL) throws {
+        let process = Process()
+        process.launchPath = "/usr/bin/xattr"
+        process.arguments = ["-w", "com.apple.quarantine", "0181;00000000;Casablanca;|nl.medicore.casablanca.fixture", url.path]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, "xattr write failed")
+    }
+
+    private func hasQuarantine(at url: URL) -> Bool {
+        let process = Process()
+        process.launchPath = "/usr/bin/xattr"
+        process.arguments = [url.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try? process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (String(data: data, encoding: .utf8) ?? "").contains("com.apple.quarantine")
+    }
+
+    func test_extract_unzipsBundle() async throws {
+        let zip = try copyFixture("Casablanca-99.0.0-macOS")
+        let downloader = DefaultUpdateDownloader()
+        let outDir = tempDir.appendingPathComponent("staged")
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let bundle = try await downloader.extract(zipAt: zip, to: outDir)
+        XCTAssertEqual(bundle.lastPathComponent, "Casablanca.app")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/Info.plist").path))
+    }
+
+    func test_extract_stripsQuarantineXattrRecursively() async throws {
+        let zip = try copyFixture("Casablanca-99.0.0-macOS")
+        try setQuarantineXattr(at: zip)
+        let downloader = DefaultUpdateDownloader()
+        let outDir = tempDir.appendingPathComponent("staged")
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let bundle = try await downloader.extract(zipAt: zip, to: outDir)
+        XCTAssertFalse(hasQuarantine(at: bundle))
+        let executable = bundle.appendingPathComponent("Contents/MacOS/Casablanca")
+        XCTAssertFalse(hasQuarantine(at: executable))
+    }
+
+    func test_extract_throwsUnzipFailed_onCorruptZip() async throws {
+        let bad = tempDir.appendingPathComponent("bad.zip")
+        try Data("not a zip".utf8).write(to: bad)
+        let downloader = DefaultUpdateDownloader()
+        let outDir = tempDir.appendingPathComponent("staged")
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        do {
+            _ = try await downloader.extract(zipAt: bad, to: outDir)
+            XCTFail("expected throw")
+        } catch UpdateError.unzipFailed {}
+    }
+}
