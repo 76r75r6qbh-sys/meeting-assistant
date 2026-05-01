@@ -6,6 +6,9 @@ struct ContentView: View {
     @Bindable var viewModel: MeetingListViewModel
     @State private var recordingService = AudioRecordingService()
     @State private var transcriptionService = TranscriptionService()
+    @State private var interruptionMonitor = RecordingInterruptionMonitor()
+    @State private var interruptionNotifier = RecordingNotificationCenter()
+    @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var detailRoute: SidebarDestination? = .dashboard
 
@@ -22,6 +25,18 @@ struct ContentView: View {
         .task {
             viewModel.setModelContext(modelContext)
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+        }
+        .task {
+            if interruptionCoordinator == nil {
+                recordingService.interruptionMonitor = interruptionMonitor
+                let context = modelContext
+                interruptionCoordinator = RecordingInterruptionCoordinator(
+                    service: recordingService,
+                    monitor: interruptionMonitor,
+                    notifier: interruptionNotifier,
+                    save: { try? context.save() }
+                )
+            }
         }
         .onAppear {
             viewModel.setModelContext(modelContext)
@@ -43,6 +58,7 @@ struct ContentView: View {
                     NotesEditorView(
                         meeting: meeting,
                         recordingService: recordingService,
+                        interruptionCoordinator: interruptionCoordinator,
                         autoStartRecording: meeting.status == .recording,
                         onBack: {
                             viewModel.selectedMeeting = nil

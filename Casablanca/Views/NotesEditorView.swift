@@ -193,6 +193,7 @@ struct NotesEditorView: View {
         }
         .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
         .task(id: meeting.id) {
+            interruptionCoordinator?.bind(meeting: meeting)
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
             loadPrepMarkdown()
 
@@ -202,6 +203,9 @@ struct NotesEditorView: View {
                 meeting.status = .notesOnly
                 save()
             }
+        }
+        .onDisappear {
+            interruptionCoordinator?.bind(meeting: nil)
         }
         .task(id: autoStartRecording) {
             guard autoStartRecording else { return }
@@ -800,6 +804,7 @@ struct NotesEditorView: View {
             let result = try await recordingService.pauseRecording()
             meeting.recordingDuration = (meeting.recordingDuration ?? 0) + result.duration
             meeting.status = .pausedRecording
+            interruptionCoordinator?.notifyMeetingTransitioned(to: .pausedRecording)
             save()
         } catch {
             recordingService.setErrorMessage(error.localizedDescription)
@@ -812,6 +817,7 @@ struct NotesEditorView: View {
         do {
             try await recordingService.resumeRecording(for: meeting)
             meeting.status = .recording
+            interruptionCoordinator?.notifyMeetingTransitioned(to: .recording)
             save()
         } catch {
             meeting.status = .pausedRecording
@@ -885,6 +891,7 @@ struct NotesEditorView: View {
             meeting.recordingFileURL = result.outputURL.path
             meeting.recordingDuration = result.duration
             meeting.status = .processing
+            interruptionCoordinator?.notifyMeetingTransitioned(to: .processing)
             save()
         } catch {
             isFinalizingRecording = false
