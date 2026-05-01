@@ -65,7 +65,7 @@ final class ApplicationsLocationCheck {
             } else {
                 try fm.copyItem(at: bundleURL, to: target)
             }
-            try? await NSWorkspace.shared.openApplication(at: target, configuration: NSWorkspace.OpenConfiguration())
+            _ = try? await NSWorkspace.shared.openApplication(at: target, configuration: NSWorkspace.OpenConfiguration())
             NSApp.terminate(nil)
         } catch {
             logger.error("move-to-applications failed: \(error.localizedDescription)")
