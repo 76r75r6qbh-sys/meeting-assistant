@@ -127,6 +127,33 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
                       "Switching meetings must clear stale interruption events")
     }
 
+    func testAutoResumeAfterMeetingSwitchDoesNotMutateNewMeeting() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+
+        let originalStatus = env.meeting.status
+        XCTAssertEqual(originalStatus, .pausedRecording)
+
+        // User switches to a different meeting BEFORE the auto-resume window resolves.
+        // Use a non-recording initial status so we can detect a buggy mutation to .recording.
+        let secondMeeting = Meeting(title: "Different Meeting", date: .now, status: .upcoming)
+        env.coordinator.bind(meeting: secondMeeting)
+
+        // Original meeting's auto-resume end fires AFTER the bind. With the bug, this would
+        // (a) call resumeRecording for the ORIGINAL meeting (we accept that in v1 since the
+        //     resume task was already in-flight at bind time — but here it hasn't been
+        //     dispatched yet, so it never even fires) and (b) mutate `secondMeeting.status`.
+        env.advance(by: 5)
+        env.fireEnd(.screenLock, atOffset: 5)
+        await env.flush()
+
+        XCTAssertNotEqual(secondMeeting.status, .recording,
+                          "Auto-resume must not mutate a different meeting's status")
+    }
+
     func testResumeMarksCorrectRecordEvenIfNewInterruptionAppended() async {
         let env = makeEnv()
         env.coordinator.bind(meeting: env.meeting)

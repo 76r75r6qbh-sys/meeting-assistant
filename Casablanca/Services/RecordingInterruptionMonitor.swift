@@ -22,6 +22,8 @@ final class RecordingInterruptionMonitor {
     private var activeInputDeviceID: String?
     private var observers: [NSObjectProtocol] = []
     private var coreAudioListenerInstalled = false
+    private var coreAudioListenerBlock: AudioObjectPropertyListenerBlock?
+    private var coreAudioListenerAddress: AudioObjectPropertyAddress?
 
     init(
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
@@ -37,6 +39,14 @@ final class RecordingInterruptionMonitor {
     deinit {
         for observer in observers {
             workspaceNotificationCenter.removeObserver(observer)
+        }
+        if let block = coreAudioListenerBlock, var address = coreAudioListenerAddress {
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                DispatchQueue.main,
+                block
+            )
         }
     }
 
@@ -95,6 +105,8 @@ final class RecordingInterruptionMonitor {
                 self?.deviceListChanged()
             }
         }
+        coreAudioListenerBlock = block
+        coreAudioListenerAddress = address
         AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject),
             &address,

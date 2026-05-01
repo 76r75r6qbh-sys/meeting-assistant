@@ -39,6 +39,7 @@ final class RecordingInterruptionCoordinator {
     private var startedAt: Date?
     private var resumeAllowedForActiveWindow = true
     private var deadlineTask: Task<Void, Never>?
+    private var resumeTask: Task<Void, Never>?
 
     init(
         service: RecordingInterruptionServicing,
@@ -62,6 +63,8 @@ final class RecordingInterruptionCoordinator {
     func bind(meeting: Meeting?) {
         self.meeting = meeting
         cancelPendingDeadline()
+        resumeTask?.cancel()
+        resumeTask = nil
         activeReasons.removeAll()
         startedAt = nil
         recentEvents.removeAll()
@@ -70,6 +73,8 @@ final class RecordingInterruptionCoordinator {
     func notifyMeetingTransitioned(to status: MeetingStatus) {
         guard status != .pausedRecording else { return }
         cancelPendingDeadline()
+        resumeTask?.cancel()
+        resumeTask = nil
         activeReasons.removeAll()
         startedAt = nil
     }
@@ -123,15 +128,19 @@ final class RecordingInterruptionCoordinator {
 
         let reasonForBody = event.reason
         let recordIndexAtDispatch = recentEvents.indices.last
-        Task { @MainActor [weak self, service, notifier] in
+        let capturedMeeting = meeting
+        resumeTask = Task { @MainActor [weak self, service, notifier] in
             do {
-                try await service?.resumeRecording(for: meeting)
+                try await service?.resumeRecording(for: capturedMeeting)
                 if let self {
                     if let lastIdx = recordIndexAtDispatch, lastIdx < self.recentEvents.count {
                         self.recentEvents[lastIdx].resumedAutomatically = true
                     }
-                    self.meeting?.status = .recording
-                    self.save()
+                    // Only mutate the bound meeting if it's still the one we resumed.
+                    if self.meeting?.id == capturedMeeting.id {
+                        self.meeting?.status = .recording
+                        self.save()
+                    }
                     notifier?.post(
                         title: "Recording resumed",
                         body: "Continued after \(self.bodyForResume(reasonForBody))"
