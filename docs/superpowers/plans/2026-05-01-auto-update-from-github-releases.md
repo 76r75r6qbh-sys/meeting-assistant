@@ -63,7 +63,14 @@ For a full regression after the plan completes, drop the `-only-testing` filter.
 
 ## Adding Files To The Xcode Project
 
-The project uses a hand-curated `Casablanca.xcodeproj/project.pbxproj`. After creating any new `.swift` file on disk, add it to the project: open `Casablanca.xcodeproj` in Xcode → right-click the appropriate group in the Project navigator → **Add Files to "Casablanca"** → select the file → ensure target membership is **Casablanca** for production code or **CasablancaTests** for test code → Add. New folders (`Casablanca/Services/Updates/`, `CasablancaTests/Updates/`) become groups in the navigator. Each task that creates files calls this out explicitly.
+The project uses a hand-curated `Casablanca.xcodeproj/project.pbxproj` (objectVersion 56, no synchronized groups), so files on disk are not auto-discovered. Use the helper script `scripts/add-to-xcode.rb` to add new files to the project:
+
+```bash
+scripts/add-to-xcode.rb Casablanca       Casablanca/Services/Updates/UpdateError.swift
+scripts/add-to-xcode.rb CasablancaTests  CasablancaTests/Updates/UpdateErrorTests.swift
+```
+
+The script is idempotent (re-adding an existing file is a no-op), creates intermediate groups as needed, and dispatches `.swift` files into the target's Sources phase and `.zip`/`.json`/`.plist` files into Resources. Each task that creates files lists the exact commands to run.
 
 ---
 
