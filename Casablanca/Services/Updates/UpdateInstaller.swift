@@ -35,7 +35,20 @@ final class DefaultUpdateInstaller: UpdateInstaller {
 
     @MainActor
     func atomicSwap(stagedBundle: URL, currentBundle: URL) throws {
-        fatalError("implemented in Task 11")
+        let fm = FileManager.default
+        do {
+            if fm.fileExists(atPath: currentBundle.path) {
+                _ = try fm.replaceItemAt(currentBundle, withItemAt: stagedBundle)
+            } else {
+                try fm.createDirectory(
+                    at: currentBundle.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try fm.moveItem(at: stagedBundle, to: currentBundle)
+            }
+        } catch {
+            throw UpdateError.swapFailed(error.localizedDescription)
+        }
     }
 
     func spawnDetached(scriptPath: URL) throws {

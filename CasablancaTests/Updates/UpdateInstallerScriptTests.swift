@@ -24,3 +24,64 @@ final class UpdateInstallerScriptTests: XCTestCase {
         XCTAssertTrue(script.contains(#"'/Applications/has '\''quote'\''/Casablanca.app'"#))
     }
 }
+
+extension UpdateInstallerScriptTests {
+    private func makeTempBundle(version: String, in dir: URL) throws -> URL {
+        let bundle = dir.appendingPathComponent("Casablanca-\(version).app", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try Data(version.utf8).write(to: bundle.appendingPathComponent("Contents/version.txt"))
+        return bundle
+    }
+
+    func test_atomicSwap_replacesDestinationAtomically() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let current = try makeTempBundle(version: "old", in: tempDir)
+        let staged = try makeTempBundle(version: "new", in: tempDir)
+        let target = tempDir.appendingPathComponent("Casablanca.app", isDirectory: true)
+        try FileManager.default.moveItem(at: current, to: target)
+
+        let installer = DefaultUpdateInstaller()
+        try await MainActor.run { try installer.atomicSwap(stagedBundle: staged, currentBundle: target) }
+
+        let postSwapVersion = String(data: try Data(contentsOf: target.appendingPathComponent("Contents/version.txt")), encoding: .utf8)
+        XCTAssertEqual(postSwapVersion, "new")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "staged path should have been consumed")
+    }
+
+    func test_atomicSwap_whenDestinationMissing_movesStagedIntoPlace() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let staged = try makeTempBundle(version: "fresh", in: tempDir)
+        let target = tempDir.appendingPathComponent("Casablanca.app", isDirectory: true)
+
+        let installer = DefaultUpdateInstaller()
+        try await MainActor.run { try installer.atomicSwap(stagedBundle: staged, currentBundle: target) }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    func test_atomicSwap_throwsSwapFailed_onUnwritableDestination() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let staged = try makeTempBundle(version: "new", in: tempDir)
+        let target = tempDir.appendingPathComponent("Casablanca.app", isDirectory: true)
+        try FileManager.default.moveItem(at: try makeTempBundle(version: "old", in: tempDir), to: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: tempDir.path)
+
+        let installer = DefaultUpdateInstaller()
+        do {
+            try await MainActor.run { try installer.atomicSwap(stagedBundle: staged, currentBundle: target) }
+            XCTFail("expected swapFailed")
+        } catch UpdateError.swapFailed {}
+    }
+}
