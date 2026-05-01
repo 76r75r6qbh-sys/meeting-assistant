@@ -19,7 +19,7 @@ Goal: when the user is running an older version, the app detects the newer relea
 - A failed swap leaves the existing installation untouched — no half-replaced state on disk.
 - The relaunched app launches cleanly without Gatekeeper "damaged" dialogs even though the bundle is only ad-hoc signed.
 - Auto-checks fail silently; manual checks and any error after the user clicks Install surface alerts with a useful message.
-- Install refuses to start when a recording is in progress; the user is asked to stop the recording first.
+- Install refuses to start when a recording, transcription, or summarization is in progress; the user is asked to finish or stop the operation first.
 - The component layout matches the existing `Casablanca/Services/` pattern: small, focused, independently testable units.
 
 ## Non-Goals
@@ -280,16 +280,23 @@ checking(trigger)
 
 available(release)
   ├── user clicks Install + safe-to-quit  → downloading(release, 0)
-  ├── user clicks Install + unsafe        → error(.recordingActive, .alert), dismiss → available(release)
+  ├── user clicks Install + unsafe        → error(.notSafeToQuit, .alert), dismiss → available(release)
   ├── user clicks Later                   → idle (re-prompts on next check)
   └── user clicks Skip                    → idle, persist skippedVersion=release.version
 
 downloading(release, progress)
   ├── (progress ticks)                    → downloading(release, newProgress)
-  ├── (download completes)                → staged(stagedBundle, release)
+  ├── (download → extract → verify all complete) → staged(stagedBundle, release)
   ├── (cancel)                            → idle
-  └── (failure)                           → error(_, .alert)
-                                            (always alert: user clicked Install)
+  └── (any of the three sub-phases fails) → error(.downloadFailed | .unzipFailed |
+                                                   .quarantineStripFailed |
+                                                   .codesignFailed | .versionRegression,
+                                                   .alert)
+
+  // Within downloading, the three UpdateDownloader methods always run in this order
+  // (download → extract → verify) and must all succeed before transitioning to staged.
+  // A failure in any sub-phase leaves the staging directory dirty; it is wiped on next
+  // app launch.
 
 staged(stagedBundle, release)
   ├── (swap succeeds, helper spawned)     → NSApp.terminate(nil) — process exits, no further state
@@ -312,13 +319,13 @@ error(_, .silent)
 | `.rateLimited(retryAfter: Date)` | 403/429 from GitHub | Silent for auto-checks (suspend schedule until `retryAfter`); alert for manual checks: "GitHub rate limit hit, try again in N minutes" |
 | `.malformedResponse` | API returns non-JSON or unexpected structure | Silent for auto; alert for manual: "Unexpected response from GitHub" |
 | `.assetNotFound` | Latest release has no asset matching the regex | Silent for auto; alert for manual: "No macOS asset found in latest release" |
-| `.recordingActive(reason)` | `SafeToQuitProbe` returns a non-nil reason when user clicks Install | Always alert: "Casablanca is currently recording. Stop the recording, then click Install again." (`reason` is the localized string from the probe.) |
+| `.notSafeToQuit(reason)` | `SafeToQuitProbe` returns a non-nil reason when user clicks Install (active recording, in-flight transcription, or in-flight summarization) | Always alert: "Casablanca is busy with `<reason>`. Finish or stop it, then click Install again." (`reason` is the localized string from the probe.) |
 | `.downloadFailed(URLError)` | Network drop mid-download | Always alert (user clicked Install): Retry / Cancel |
 | `.unzipFailed` | ditto returns non-zero, or no `.app` bundle inside the zip | Always alert: "Update download was corrupt." |
 | `.quarantineStripFailed` | `xattr -dr com.apple.quarantine` returns non-zero | Always alert: "Could not prepare the update for installation." Logs the xattr command output. |
 | `.versionRegression` | Unzipped bundle version ≤ running version | Always alert: "Update package was older than current version. Cancelling." (Defensive — should never happen if the API check was correct.) |
 | `.codesignFailed` | `codesign --verify --deep --strict` fails on staged bundle | Always alert: "Update package was corrupt. Update was not installed." |
-| `.swapFailed(reason)` | `FileManager.replaceItem` throws (disk full, `/Applications` not writable, permission denied) | Always alert: "Could not install the update. Your existing app is unchanged." (APFS guarantee: original bundle untouched.) |
+| `.swapFailed(reason)` | `FileManager.replaceItem` throws (disk full, `/Applications` not writable, permission denied — common on managed/MDM Macs) | Always alert: "Could not install the update. Your existing app is unchanged. (Reason: `<reason>`)". On managed devices, this is usually a permissions issue with `/Applications`; the reason text helps support diagnose. (APFS guarantee: original bundle untouched.) |
 | `.helperSpawnFailed` | `posix_spawn` of relaunch script fails | Always alert: "Update was installed but Casablanca could not relaunch automatically. Please reopen Casablanca." (Bundle is already replaced; user just needs to launch it again.) |
 
 All errors log through `OSLog` with subsystem `nl.medicore.casablanca`, category `update`, including correlation info (release tag, asset URL, staging path).
@@ -421,8 +428,8 @@ Manual verification (run before merging the PR):
 2. Mark a test release `v999.0.0` on the repo → in-app prompt appears within ~5 seconds of launch → click Install → progress sheet → app quits, replaces, **relaunches as v999.0.0 without a "damaged" Gatekeeper dialog** (this is the quarantine-strip + atomic-swap end-to-end test). Tear down the test release after.
 3. Click Skip on the test release → restart app → prompt does not reappear. Publish `v999.0.1` → prompt reappears. Test the prerelease boundary: skip a prerelease `v999.1.0-beta.1`, publish stable `v999.1.0` → re-prompts. Skip stable `v999.2.0`, publish prerelease `v999.2.1-beta.1` → re-prompts (with prereleases enabled).
 4. Disconnect network, click "Check for Updates…" → error alert with retry. Reconnect → retry succeeds.
-5. Start a recording, then publish a test release → click Install → see the `.recordingActive` alert. Stop the recording, click Install again → install proceeds.
-6. Mid-install resilience: kill the relaunch script (`pkill -f relaunch-`) just before it runs `open -n` (or block its execution by chmod) → the bundle on disk is already the new version (atomic swap succeeded). Manually open `/Applications/Casablanca.app` → new version launches. No `.old` directory needed.
+5. Start a recording, then publish a test release → click Install → see the `.notSafeToQuit` alert. Stop the recording, click Install again → install proceeds. Repeat with an in-flight transcription and an in-flight summarization to confirm both probe paths fire the alert.
+6. Helper failure recovery: kill the relaunch script (`pkill -f relaunch-`) just before it runs `open -n` (or block its execution by chmod) → the bundle on disk is already the new version (atomic swap succeeded; this step does *not* test atomicity, only the `.helperSpawnFailed` user-facing recovery). Manually open `/Applications/Casablanca.app` → new version launches. No `.old` directory needed.
 7. Toggle "Include prereleases" → mark the test release as prerelease → verify it's offered.
 8. With the app running, watch `Console.app` filtered by subsystem `nl.medicore.casablanca` and category `update` for the full audit trail of a check + install cycle, plus inspect `~/Library/Application Support/Casablanca/Updates/logs/install-<timestamp>.log` for the helper script's log.
 
@@ -438,7 +445,7 @@ Each step is independently mergeable; the service layer is fully testable before
 6. `UpdateDownloader` URLSession + ditto-based unzip + xattr quarantine strip + codesign check, split into the three protocol methods + tests including a quarantined fixture zip.
 7. `UpdateInstaller` `FileManager.replaceItem` swap + relaunch-script generator + `posix_spawn` with `POSIX_SPAWN_SETSID` (via a small `Darwin`-based wrapper) + tests for script content and a temp-dir atomic-swap test.
 8. `ApplicationsLocationCheck` helper (with translocation path detection and existing-bundle replace-confirmation) + tests + wiring into `CasablancaApp`.
-9. Sentinel file lifecycle in `CasablancaApp`: write at app launch, remove in `applicationWillTerminate`. Plus orphan-cleanup pass at startup.
+9. App-launch Updates housekeeping in `CasablancaApp.applicationDidFinishLaunching`, in this exact order: (a) wipe `~/Library/Application Support/Casablanca/Updates/staging/`, (b) delete any orphaned `relaunch-*.sh` files, (c) **unconditionally write** `relaunch.sentinel` (overwriting any leftover from a prior run that crashed without calling `applicationWillTerminate`). Sentinel removal happens in `applicationWillTerminate`. The crash-without-cleanup case is handled both by the unconditional rewrite at next launch and by the helper script's 30s timeout.
 10. `UpdatePromptView` SwiftUI sheet + release-notes markdown rendering.
 11. `UpdateProgressView` SwiftUI sheet.
 12. `UpdatesSettingsView` SwiftUI tab + Option-click reveal for prereleases / install-logs button.
