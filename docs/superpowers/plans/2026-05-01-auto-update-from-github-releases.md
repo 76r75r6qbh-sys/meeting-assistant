@@ -646,32 +646,48 @@ final class GitHubReleaseClientTests: XCTestCase {
         } catch UpdateError.malformedResponse {}
     }
 
-    func test_redirect_acrossOrigin_stripsAuthorizationHeader() async throws {
-        var observedHeaders: [String: String] = [:]
-        StubURLProtocol.handler = { request in
-            if request.url?.host == "api.github.com" {
-                let response = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 302,
-                    httpVersion: nil,
-                    headerFields: ["Location": "https://objects.githubusercontent.com/redirected"]
-                )!
-                return (response, Data())
-            } else {
-                observedHeaders = request.allHTTPHeaderFields ?? [:]
-                let body = """
-                {"tag_name":"v0.3.0","name":"x","body":"x","assets":[
-                   {"name":"Casablanca-0.3.0-macOS.zip","browser_download_url":"https://example.com/a.zip","size":1}]}
-                """.data(using: .utf8)!
-                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!, body)
-            }
+    func test_redirectDelegate_stripsAuthorizationHeader_acrossOrigin() async {
+        // URLSession does not drive a 302 from URLProtocol stubs through the redirect
+        // delegate, so we test the delegate method directly with a real URLSession task.
+        let session = URLSession(configuration: .ephemeral)
+        let originalRequest = URLRequest(url: URL(string: "https://api.github.com/repos/x/y/releases/latest")!)
+        let task = session.dataTask(with: originalRequest)
+
+        var newRequest = URLRequest(url: URL(string: "https://objects.githubusercontent.com/redirected")!)
+        newRequest.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+
+        let response = HTTPURLResponse(url: originalRequest.url!, statusCode: 302, httpVersion: nil, headerFields: ["Location": newRequest.url!.absoluteString])!
+
+        let client = URLSessionGitHubReleaseClient(owner: "x", repo: "y")
+        var rewritten: URLRequest?
+        let expect = expectation(description: "completion handler called")
+        client.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: newRequest) { rq in
+            rewritten = rq
+            expect.fulfill()
         }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubURLProtocol.self]
-        config.httpAdditionalHeaders = ["Authorization": "Bearer secret"]
-        let client = URLSessionGitHubReleaseClient(owner: "x", repo: "y", session: URLSession(configuration: config))
-        _ = try await client.fetchLatestRelease(includePrereleases: false)
-        XCTAssertNil(observedHeaders["Authorization"], "Authorization must be stripped on cross-origin redirect")
+        await fulfillment(of: [expect], timeout: 1)
+        XCTAssertNil(rewritten?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func test_redirectDelegate_keepsAuthorizationHeader_sameOrigin() async {
+        let session = URLSession(configuration: .ephemeral)
+        let originalRequest = URLRequest(url: URL(string: "https://api.github.com/repos/x/y/releases/latest")!)
+        let task = session.dataTask(with: originalRequest)
+
+        var newRequest = URLRequest(url: URL(string: "https://api.github.com/redirected")!)
+        newRequest.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+
+        let response = HTTPURLResponse(url: originalRequest.url!, statusCode: 302, httpVersion: nil, headerFields: ["Location": newRequest.url!.absoluteString])!
+
+        let client = URLSessionGitHubReleaseClient(owner: "x", repo: "y")
+        var rewritten: URLRequest?
+        let expect = expectation(description: "completion handler called")
+        client.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: newRequest) { rq in
+            rewritten = rq
+            expect.fulfill()
+        }
+        await fulfillment(of: [expect], timeout: 1)
+        XCTAssertEqual(rewritten?.value(forHTTPHeaderField: "Authorization"), "Bearer secret")
     }
 }
 
@@ -1764,21 +1780,23 @@ Spec Decision 16.
 - Modify: `Casablanca/Services/Updates/UpdateInstaller.swift`
 - Modify: `CasablancaTests/Updates/UpdateInstallerScriptTests.swift`
 
-- [ ] **Step 1: Append a spawn integration test that proves the helper survives parent termination signals**
+- [ ] **Step 1: Append a spawn test that verifies the helper actually runs**
 
-This test writes a tiny script, spawns it via the installer's helper, then sends `SIGTERM` to *the test process group* and verifies the helper child survives by writing a marker file.
+`POSIX_SPAWN_SETSID`'s "survives parent process group" property cannot be cleanly tested from inside an XCTestCase (it would require killing the test process). The spec already lists this as covered by manual verification only. The unit test here verifies the simpler property: the helper is spawned with the right flags + fds and runs to completion. The session-leader behavior is asserted by inspecting the running helper's process group via `ps` while it sleeps.
 
 ```swift
 extension UpdateInstallerScriptTests {
-    func test_spawnDetached_helperSurvivesProcessGroupSignal() async throws {
+    func test_spawnDetached_runsScriptToCompletion() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let marker = tempDir.appendingPathComponent("marker.txt")
-        let script = tempDir.appendingPathComponent("survive.sh")
+        let pidfile = tempDir.appendingPathComponent("helper.pid")
+        let script = tempDir.appendingPathComponent("helper.sh")
         try """
         #!/bin/sh
+        echo $$ > '\(pidfile.path)'
         sleep 0.5
         printf 'alive' > '\(marker.path)'
         """.write(to: script, atomically: true, encoding: .utf8)
@@ -1787,7 +1805,27 @@ extension UpdateInstallerScriptTests {
         let installer = DefaultUpdateInstaller()
         try installer.spawnDetached(scriptPath: script)
 
-        try await Task.sleep(nanoseconds: 1_500_000_000)
+        // Wait for the helper to write its PID, then assert it is its own session leader.
+        for _ in 0..<20 {
+            if FileManager.default.fileExists(atPath: pidfile.path) { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let pid = Int(try String(contentsOf: pidfile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        XCTAssertGreaterThan(pid, 0)
+
+        // SETSID makes the helper its own session leader: its sid equals its pid.
+        let inspect = Process()
+        inspect.launchPath = "/bin/ps"
+        inspect.arguments = ["-o", "sess=", "-p", String(pid)]
+        let pipe = Pipe()
+        inspect.standardOutput = pipe
+        try inspect.run()
+        inspect.waitUntilExit()
+        let sid = Int(String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        XCTAssertEqual(sid, pid, "helper should be its own session leader (POSIX_SPAWN_SETSID)")
+
+        try await Task.sleep(nanoseconds: 1_000_000_000)
         let value = try? String(contentsOf: marker, encoding: .utf8)
         XCTAssertEqual(value, "alive", "helper script should have completed and written the marker")
     }
@@ -2225,19 +2263,97 @@ extension UpdateServiceTests {
 }
 ```
 
-- [ ] **Step 2: Implement `installUpdate(_:)` and `dismissError()` upgrade**
+- [ ] **Step 2: Replace the existing `UpdateService` body with the install-flow version**
 
-Add to `UpdateService`:
+Replace `Casablanca/Services/Updates/UpdateService.swift` in full:
 
 ```swift
+import Foundation
+import OSLog
+import AppKit
+
+@MainActor
+@Observable
+final class UpdateService {
+    enum State: Equatable {
+        case idle
+        case checking(trigger: CheckTrigger)
+        case available(ReleaseInfo)
+        case downloading(ReleaseInfo, progress: Double)
+        case staged(stagedBundle: URL, ReleaseInfo)
+        case error(UpdateError, visibility: ErrorVisibility)
+    }
+
+    enum CheckTrigger: Equatable { case automatic, manual }
+    enum ErrorVisibility: Equatable { case silent, alert }
+
+    private(set) var state: State = .idle
+
+    private let client: GitHubReleaseClient
+    private let downloader: UpdateDownloader
+    private let installer: UpdateInstaller
+    private let probe: SafeToQuitProbe
+    private var preferences: UpdatePreferences
+    private let paths: UpdatePaths
+    private let currentVersion: SemanticVersion
+    private let currentBundleURL: URL
+    private let now: () -> Date
+    private let terminate: () -> Void
+    private var lastAvailableRelease: ReleaseInfo?
+    private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
+
+    init(
+        client: GitHubReleaseClient,
+        downloader: UpdateDownloader,
+        installer: UpdateInstaller,
+        probe: SafeToQuitProbe,
+        preferences: UpdatePreferences,
+        paths: UpdatePaths,
+        currentVersion: SemanticVersion,
+        currentBundleURL: URL,
+        now: @escaping () -> Date,
+        terminate: @escaping () -> Void
+    ) {
+        self.client = client
+        self.downloader = downloader
+        self.installer = installer
+        self.probe = probe
+        self.preferences = preferences
+        self.paths = paths
+        self.currentVersion = currentVersion
+        self.currentBundleURL = currentBundleURL
+        self.now = now
+        self.terminate = terminate
+    }
+
+    func checkNow(trigger: CheckTrigger) async {
+        lastAvailableRelease = nil
+        state = .checking(trigger: trigger)
+        do {
+            let release = try await client.fetchLatestRelease(includePrereleases: preferences.includePrereleases)
+            preferences.lastCheckAt = now()
+            if release.version <= currentVersion {
+                state = .idle
+                return
+            }
+            if let skipped = preferences.skippedVersion, release.version <= skipped {
+                state = .idle
+                return
+            }
+            lastAvailableRelease = release
+            state = .available(release)
+        } catch {
+            let mapped = (error as? UpdateError) ?? .checkFailed(URLError(.unknown))
+            logger.error("checkNow failed: \(String(describing: mapped))")
+            state = .error(mapped, visibility: trigger == .manual ? .alert : .silent)
+        }
+    }
+
     func installUpdate(_ release: ReleaseInfo) async {
-        // Location guard.
         guard currentBundleURL.path == "/Applications/Casablanca.app" else {
             state = .error(.notInApplicationsFolder, visibility: .alert)
             return
         }
-
-        // SafeToQuit guard.
         if let reason = probe.reasonInstallShouldWait() {
             state = .error(.notSafeToQuit(reason: reason), visibility: .alert)
             return
@@ -2274,63 +2390,31 @@ Add to `UpdateService`:
             state = .error(mapped, visibility: .alert)
         }
     }
-```
 
-Update `dismissError()` to bounce back to `.available` when the prior state was an `.available` interrupted by a guard error (recording or location), so the user can retry without re-fetching:
+    func skipVersion(_ release: ReleaseInfo) {
+        preferences.skippedVersion = release.version
+        lastAvailableRelease = nil
+        state = .idle
+    }
 
-```swift
+    func remindLater() {
+        lastAvailableRelease = nil
+        state = .idle
+    }
+
     func dismissError() {
-        if case .error(let error, _) = state {
-            switch error {
-            case .notSafeToQuit, .notInApplicationsFolder:
-                // Return to the prior available state if we have one.
-                // We don't keep the previous state around, so re-check.
-                Task { await self.checkNow(trigger: .manual) }
-                return
-            default:
-                break
-            }
+        if case .error(_, _) = state, let release = lastAvailableRelease {
+            state = .available(release)
+            return
         }
         state = .idle
     }
+
+    // startScheduling()/stopScheduling() are added in Task 15.
+}
 ```
 
-Wait — the test asserts `dismissError` returns to `.available` synchronously without a re-check. We need to keep the last known release. Refactor to remember it in a private property:
-
-Replace the implementation:
-
-```swift
-    private var lastAvailableRelease: ReleaseInfo?
-
-    // ...
-
-    // Inside checkNow's success path, after `state = .available(release)`:
-    //   lastAvailableRelease = release
-
-    // Inside skipVersion / remindLater:
-    //   lastAvailableRelease = nil
-```
-
-And update `dismissError`:
-
-```swift
-    func dismissError() {
-        if case .error(let error, _) = state, let release = lastAvailableRelease {
-            switch error {
-            case .notSafeToQuit, .notInApplicationsFolder, .downloadFailed, .unzipFailed,
-                 .quarantineStripFailed, .versionRegression, .codesignFailed,
-                 .swapFailed, .helperSpawnFailed:
-                state = .available(release)
-                return
-            default:
-                break
-            }
-        }
-        state = .idle
-    }
-```
-
-Set `lastAvailableRelease = release` inside `checkNow` when state becomes `.available`, and `lastAvailableRelease = nil` inside `skipVersion`, `remindLater`, and at the start of `checkNow`.
+Note `lastAvailableRelease` is reset at the start of `checkNow` and on `skipVersion`/`remindLater`, and set after `state = .available(release)`. After any error the user can dismiss and bounce back to the prompt without re-fetching the release info.
 
 - [ ] **Step 3: Run install-flow tests, expect pass, commit**
 
@@ -2975,14 +3059,58 @@ git commit -m "feat(updater): Updates tab in Settings with Option-click reveal"
 
 ---
 
-### Task 21: Wire Everything Into `CasablancaApp` + AppModel + App Menu
+### Task 21: Wire Everything Into `CasablancaApp` + AppModel + App Menu (Including Real `SafeToQuitProbe`)
 
-Spec sections "Architecture", "First-Launch Location Check", and Phase 9.
+Spec sections "Architecture", "First-Launch Location Check", Decision 12, and Phase 9.
+
+This task hoists `AudioRecordingService`, `TranscriptionService`, and `SummarizationService` (currently `@State` on `ContentView` and `RecordedMeetingView`) into `AppModel` so the `SafeToQuitProbe` reads their real state. Without this hoist, the install gate would be a no-op and a recording could be cut off mid-flight — a regression vs. spec Decision 12.
+
+This task is larger than the others; treat each numbered step as its own commit so the diff is reviewable.
 
 **Files:**
 - Modify: `Casablanca/CasablancaApp.swift`
+- Modify: `Casablanca/Views/ContentView.swift`
+- Modify: `Casablanca/Views/RecordedMeetingView.swift`
 
-- [ ] **Step 1: Replace the existing `AppModel` + body with the wired version**
+- [ ] **Step 1: Hoist services into `AppModel`**
+
+Replace the existing `AppModel` definition in `Casablanca/CasablancaApp.swift` with the wired version below. `AudioRecordingService`, `TranscriptionService`, and `SummarizationService` move from view-local `@State` into `AppModel` so the probe can read them.
+
+- [ ] **Step 2: Update `ContentView` to consume the hoisted services**
+
+In `Casablanca/Views/ContentView.swift`, replace:
+
+```swift
+    @State private var recordingService = AudioRecordingService()
+    @State private var transcriptionService = TranscriptionService()
+```
+
+with:
+
+```swift
+    @Environment(AppModel.self) private var appModel
+    private var recordingService: AudioRecordingService { appModel.recordingService }
+    private var transcriptionService: TranscriptionService { appModel.transcriptionService }
+```
+
+The `interruptionMonitor`, `interruptionNotifier`, and `interruptionCoordinator` `@State` properties stay in `ContentView` for now — they're already wired against the hoisted `recordingService` via property accessors above.
+
+- [ ] **Step 3: Update `RecordedMeetingView` to consume the hoisted summarization service**
+
+In `Casablanca/Views/RecordedMeetingView.swift`, replace:
+
+```swift
+    @State private var summarizationService = SummarizationService()
+```
+
+with:
+
+```swift
+    @Environment(AppModel.self) private var appModel
+    private var summarizationService: SummarizationService { appModel.summarizationService }
+```
+
+- [ ] **Step 4: Replace `CasablancaApp.swift` with the wired version**
 
 ```swift
 import SwiftUI
@@ -3082,6 +3210,9 @@ struct CasablancaApp: App {
 final class AppModel {
     let calendarService = CalendarService()
     let permissionsManager = PermissionsManager()
+    let recordingService = AudioRecordingService()
+    let transcriptionService = TranscriptionService()
+    let summarizationService = SummarizationService()
     let meetingListViewModel: MeetingListViewModel
     let updateService: UpdateService
     let applicationsLocationCheck: ApplicationsLocationCheck
@@ -3094,10 +3225,15 @@ final class AppModel {
         let paths = UpdatePaths.default
         housekeeping = UpdateLaunchHousekeeping(paths: paths)
 
+        // Real probe reading the hoisted @Observable services. Closures defer
+        // property reads to call time so they always see current state.
+        let recording = recordingService
+        let transcription = transcriptionService
+        let summarization = summarizationService
         let probe = ClosureSafeToQuitProbe(
-            isRecordingActive: { false },           // wired below after meetingListViewModel exposes services
-            isTranscriptionActive: { false },
-            isSummarizationActive: { false }
+            isRecordingActive: { recording.isRecording },
+            isTranscriptionActive: { transcription.isTranscribing },
+            isSummarizationActive: { summarization.isSummarizing }
         )
         let currentVersion: SemanticVersion
         if let raw = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
@@ -3235,9 +3371,7 @@ final class NSApplicationsLocationAlertPresenter: ApplicationsLocationAlertPrese
 }
 ```
 
-The `ClosureSafeToQuitProbe` is wired with placeholder closures that always return `false` because the real `AudioRecordingService` lives further down the view tree. Replacing those closures with the real services is a one-line follow-up once the AppModel exposes them; for the v1 ship, the install gate is ineffective in practice but the code path is in place. Note this in the README "Known limitations" so the user knows to wire up the real probe in their next pass when refactoring AppModel to host the recording service directly.
-
-- [ ] **Step 2: Build and run**
+- [ ] **Step 5: Build and run**
 
 ```bash
 xcodebuild -project Casablanca.xcodeproj -scheme Casablanca -destination 'platform=macOS' -derivedDataPath .build/xcode-update-app build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
@@ -3245,7 +3379,7 @@ xcodebuild -project Casablanca.xcodeproj -scheme Casablanca -destination 'platfo
 
 Expected: build succeeds with no errors.
 
-- [ ] **Step 3: Run the full test regression**
+- [ ] **Step 6: Run the full test regression**
 
 ```bash
 xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca -destination 'platform=macOS' -derivedDataPath .build/xcode-update-full CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
@@ -3253,11 +3387,11 @@ xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca -destination 'p
 
 Expected: all existing tests + every new `Updates/*Tests` suite pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add Casablanca/CasablancaApp.swift
-git commit -m "feat(updater): wire UpdateService into AppModel, sheets, alerts, and Check-for-Updates menu"
+git add Casablanca/CasablancaApp.swift Casablanca/Views/ContentView.swift Casablanca/Views/RecordedMeetingView.swift
+git commit -m "feat(updater): hoist services to AppModel, wire UpdateService + real SafeToQuitProbe"
 ```
 
 ---
@@ -3327,6 +3461,5 @@ After completing all 22 tasks, verify:
 
 ## Known Follow-Ups
 
-- **Real `SafeToQuitProbe` closures.** Task 21 wires placeholder closures that return `false`. Replace with closures that read the real `AudioRecordingService.isRecording`, `TranscriptionService.isTranscribing`, and `SummarizationService.isSummarizing` once the AppModel hosts those services directly. Until that lands, the probe is non-functional in production.
 - **Cancel mid-download.** The `UpdateProgressView` shows a Cancel button but Task 21 wires it to a no-op. Implement download cancellation (`URLSessionDownloadTask.cancel`) as a small follow-up.
 - **GitHub-flavored Markdown.** `MarkdownConverter` targets CommonMark. `@user` mentions, `#1234` issue refs, and tables in release notes render as plain text. Live with it for v1 (release notes are informational).
