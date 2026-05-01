@@ -15,7 +15,6 @@
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
-		535900AF97C847C50C1387F1 /* build-fixtures.sh in Sources */ = {isa = PBXBuildFile; fileRef = 108FBBE803A2166EC0F75BB4 /* build-fixtures.sh */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
@@ -557,7 +556,6 @@
 				31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */,
 				7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */,
 				F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */,
-				535900AF97C847C50C1387F1 /* build-fixtures.sh in Sources */,
 				CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
