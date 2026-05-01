@@ -55,6 +55,7 @@
 		A10049 /* RecordingInterruptionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* RecordingInterruptionMonitorTests.swift */; };
 		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
 		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
+		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -117,6 +118,7 @@
 		B10049 /* RecordingInterruptionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitorTests.swift; sourceTree = "<group>"; };
 		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
 		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
+		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
 		C10001 /* Casablanca.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Casablanca.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10002 /* CasablancaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CasablancaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -185,6 +187,7 @@
 				B10047 /* RecordingResumeSessionStore.swift */,
 				B10048 /* RecordingInterruptionMonitor.swift */,
 				B10050 /* RecordingInterruptionCoordinator.swift */,
+				B10052 /* RecordingNotificationCenter.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -411,6 +414,7 @@
 				A10047 /* RecordingResumeSessionStore.swift in Sources */,
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
+				A10052 /* RecordingNotificationCenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
