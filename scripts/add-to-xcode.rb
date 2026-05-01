@@ -44,7 +44,7 @@ end
 
 file_ref = group.new_reference(File.basename(FILE_PATH))
 
-# Decide whether to add to Sources, Resources, or Headers based on extension.
+# Decide whether to add to Sources, Resources, or no build phase based on extension.
 case File.extname(FILE_PATH)
 when '.swift', '.m', '.mm', '.c', '.cpp'
   target.source_build_phase.add_file_reference(file_ref, true)
@@ -52,9 +52,10 @@ when '.zip', '.json', '.plist', '.xcassets', '.storyboard', '.xib', '.png', '.jp
   target.resources_build_phase.add_file_reference(file_ref, true)
 when '.h'
   # public headers handled elsewhere; no-op here
+when '.sh', '.md', '.txt', '.yml', '.yaml', '.rb', '.py'
+  # group-only reference, no build phase membership
 else
-  # default to sources
-  target.source_build_phase.add_file_reference(file_ref, true)
+  # group-only reference; explicitly do NOT default to Sources for unknown extensions
 end
 
 project.save
