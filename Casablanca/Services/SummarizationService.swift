@@ -55,11 +55,11 @@ final class SummarizationService {
     Transcript:
     {{transcript}}
 
-    Timestamped notes:
-    {{timestamped_notes}}
-
     Freeform notes:
     {{freeform_notes}}
+
+    Timestamped notes (optional history):
+    {{timestamped_notes}}
     """
 
     private struct OllamaGenerateRequest: Encodable {
@@ -219,7 +219,7 @@ final class SummarizationService {
         return URL(string: "\(trimmedEndpoint)/api/\(path)")
     }
 
-    private static func renderPrompt(
+    static func renderPrompt(
         template: String,
         meeting: Meeting,
         transcript: String,

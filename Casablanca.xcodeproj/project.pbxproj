@@ -50,6 +50,9 @@
 		A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* ObsidianTodoSyncServiceTests.swift */; };
 		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
 		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
+		A10044 /* ExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044 /* ExportServiceTests.swift */; };
+		A10045 /* SummarizationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045 /* SummarizationServiceTests.swift */; };
+		A10046 /* TimestampedNotesHistorySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046 /* TimestampedNotesHistorySection.swift */; };
 		A10047 /* RecordingResumeSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* RecordingResumeSessionStore.swift */; };
 		A10048 /* RecordingInterruptionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* RecordingInterruptionMonitor.swift */; };
 		A10049 /* RecordingInterruptionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* RecordingInterruptionMonitorTests.swift */; };
@@ -113,6 +116,9 @@
 		B10041 /* ObsidianTodoSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncServiceTests.swift; sourceTree = "<group>"; };
 		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
 		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
+		B10044 /* ExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportServiceTests.swift; sourceTree = "<group>"; };
+		B10045 /* SummarizationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationServiceTests.swift; sourceTree = "<group>"; };
+		B10046 /* TimestampedNotesHistorySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimestampedNotesHistorySection.swift; sourceTree = "<group>"; };
 		B10047 /* RecordingResumeSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStore.swift; sourceTree = "<group>"; };
 		B10048 /* RecordingInterruptionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitor.swift; sourceTree = "<group>"; };
 		B10049 /* RecordingInterruptionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitorTests.swift; sourceTree = "<group>"; };
@@ -261,6 +267,7 @@
 				B10007 /* MeetingCardView.swift */,
 				B10018 /* AudioLevelMeterView.swift */,
 				B10022 /* MarkdownTextEditor.swift */,
+				B10046 /* TimestampedNotesHistorySection.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -275,6 +282,8 @@
 				B10038 /* ObsidianTodoMarkdownTests.swift */,
 				B10041 /* ObsidianTodoSyncServiceTests.swift */,
 				B10043 /* PermissionsBehaviorTests.swift */,
+				B10044 /* ExportServiceTests.swift */,
+				B10045 /* SummarizationServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10051 /* RecordingInterruptionCoordinatorTests.swift */,
 			);
@@ -411,6 +420,7 @@
 				A10039 /* ObsidianMeetingFiles.swift in Sources */,
 				A10040 /* ObsidianTodoMarkdown.swift in Sources */,
 				A10042 /* ObsidianTodoSyncService.swift in Sources */,
+				A10046 /* TimestampedNotesHistorySection.swift in Sources */,
 				A10047 /* RecordingResumeSessionStore.swift in Sources */,
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
@@ -429,6 +439,8 @@
 				A10038 /* ObsidianTodoMarkdownTests.swift in Sources */,
 				A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */,
 				A10043 /* PermissionsBehaviorTests.swift in Sources */,
+				A10044 /* ExportServiceTests.swift in Sources */,
+				A10045 /* SummarizationServiceTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
 				A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */,
 			);

@@ -11,12 +11,10 @@ struct RecordedMeetingView: View {
     @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @State private var summarizationService = SummarizationService()
     @State private var isEditingNotes = false
-    @State private var newNoteText = ""
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
     @State private var pendingReview: PendingTodoReview?
     @State private var pendingTodoTexts: [String] = []
-    @FocusState private var isNewNoteFieldFocused: Bool
 
     var body: some View {
         GeometryReader { proxy in
@@ -97,7 +95,6 @@ struct RecordedMeetingView: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
 
                     VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                        timestampedNotesCard
                         freeformNotesCard
                     }
                     .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
@@ -106,7 +103,6 @@ struct RecordedMeetingView: View {
             } else {
                 summaryCard
                 transcriptCard
-                timestampedNotesCard
                 freeformNotesCard
                 actionItemsCard
             }
@@ -277,100 +273,6 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private var timestampedNotesCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Meeting Notes", systemImage: "clock")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
-
-                    if !meeting.timestampedNotes.isEmpty {
-                        Text("\(meeting.timestampedNotes.count)")
-                            .font(.caption)
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.horizontal, CasaSpace.xs)
-                            .padding(.vertical, CasaSpace.xxs)
-                            .background(Color.backgroundHover)
-                            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
-                    }
-
-                    Spacer()
-
-                    if !meeting.timestampedNotes.isEmpty {
-                        Button {
-                            copyTimestampedNotes()
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                    }
-                }
-
-                if meeting.timestampedNotes.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Timestamped Notes Yet", systemImage: "clock.badge.questionmark")
-                    } description: {
-                        Text("Add a quick note to capture a point from the recording.")
-                    } actions: {
-                        Button("Add Note") {
-                            isNewNoteFieldFocused = true
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: CasaSpace.xs) {
-                        ForEach(meeting.timestampedNotes) { note in
-                            HStack(alignment: .top, spacing: CasaSpace.sm) {
-                                Text(note.formattedTimestamp)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(Color.textSecondary)
-                                    .padding(.horizontal, CasaSpace.xs)
-                                    .padding(.vertical, CasaSpace.xxs)
-                                    .background(Color.backgroundHover)
-                                    .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
-                                    .frame(minWidth: 52, alignment: .center)
-
-                                Text(note.text)
-                                    .font(.body)
-                                    .foregroundStyle(Color.textPrimary)
-                                    .textSelection(.enabled)
-
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.vertical, CasaSpace.xxs)
-                        }
-                    }
-                }
-
-                HStack(spacing: CasaSpace.sm) {
-                    TextField("Add a note...", text: $newNoteText)
-                        .textFieldStyle(.plain)
-                        .font(.body)
-                        .focused($isNewNoteFieldFocused)
-                        .onSubmit {
-                            addNote()
-                        }
-
-                    Button {
-                        addNote()
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty
-                                ? Color.textTertiary : Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(newNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                .padding(CasaSpace.sm)
-                .background(Color.backgroundHover)
-                .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     private var freeformNotesCard: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: CasaSpace.md) {
@@ -424,6 +326,12 @@ struct RecordedMeetingView: View {
                         .buttonStyle(SecondaryButtonStyle())
                     }
                 }
+
+                if !meeting.timestampedNotes.isEmpty {
+                    Divider()
+
+                    TimestampedNotesHistorySection(notes: meeting.timestampedNotes)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -453,26 +361,6 @@ struct RecordedMeetingView: View {
             }
             .disabled(!canExport)
         }
-    }
-
-    private func addNote() {
-        let trimmed = newNoteText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-
-        let timestamp = meeting.recordingDuration ?? 0
-        let note = TimestampedNote(timestamp: timestamp, text: trimmed)
-        meeting.timestampedNotes.append(note)
-        newNoteText = ""
-        save()
-        isNewNoteFieldFocused = true
-    }
-
-    private func copyTimestampedNotes() {
-        let text = meeting.timestampedNotes
-            .map { "[\($0.formattedTimestamp)] \($0.text)" }
-            .joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var hasNotes: Bool {
