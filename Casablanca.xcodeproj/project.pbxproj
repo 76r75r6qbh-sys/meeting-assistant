@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03AF1A0166ED6F1B10C3EC38 /* UpdatePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B8B5B1EC960D341635643A /* UpdatePaths.swift */; };
+		18B51C18488B1C2AA71B6049 /* SafeToQuitProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */; };
 		2405FA5D7C76BF630A133C64 /* UpdatePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */; };
 		24EB0A08CE05CBF3AEA097E5 /* ReleaseInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */; };
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
@@ -70,6 +71,7 @@
 		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
 		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
+		F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,8 +86,10 @@
 
 /* Begin PBXFileReference section */
 		045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferencesTests.swift; sourceTree = "<group>"; };
+		0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbe.swift; sourceTree = "<group>"; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
+		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
@@ -172,6 +176,7 @@
 				E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */,
 				DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */,
 				2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */,
+				0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -185,6 +190,7 @@
 				BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */,
 				4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */,
 				045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */,
+				4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -482,6 +488,7 @@
 				24EB0A08CE05CBF3AEA097E5 /* ReleaseInfo.swift in Sources */,
 				54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */,
 				2405FA5D7C76BF630A133C64 /* UpdatePreferences.swift in Sources */,
+				18B51C18488B1C2AA71B6049 /* SafeToQuitProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -505,6 +512,7 @@
 				7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */,
 				31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */,
 				7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */,
+				F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
