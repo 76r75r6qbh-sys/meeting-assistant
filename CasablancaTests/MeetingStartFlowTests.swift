@@ -791,3 +791,51 @@ private func makeContainer() throws -> ModelContainer {
     let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     return try ModelContainer(for: schema, configurations: [configuration])
 }
+
+@MainActor
+final class AutoPauseIndicatorPresentationTests: XCTestCase {
+    func testIndicatorShowsLatestRecordWithEndedAt() {
+        let started = Date(timeIntervalSince1970: 1_000)
+        let ended = Date(timeIntervalSince1970: 1_012)
+        let record = RecordingInterruptionCoordinator.InterruptionRecord(
+            reason: .screenLock,
+            startedAt: started,
+            endedAt: ended,
+            resumedAutomatically: true
+        )
+        let presentation = AutoPauseIndicatorPresentation(records: [record], referenceDate: ended.addingTimeInterval(60))
+
+        XCTAssertTrue(presentation.shouldShow)
+        XCTAssertEqual(presentation.summary, "Auto-paused at \(presentation.formattedTime(started)) for 12s — recording resumed.")
+    }
+
+    func testIndicatorHidesAfterFiveMinutes() {
+        let started = Date(timeIntervalSince1970: 1_000)
+        let ended = Date(timeIntervalSince1970: 1_012)
+        let record = RecordingInterruptionCoordinator.InterruptionRecord(
+            reason: .screenLock,
+            startedAt: started,
+            endedAt: ended,
+            resumedAutomatically: true
+        )
+        let presentation = AutoPauseIndicatorPresentation(records: [record], referenceDate: ended.addingTimeInterval(301))
+
+        XCTAssertFalse(presentation.shouldShow)
+    }
+
+    func testIndicatorMessageForLongPauseStillVisible() {
+        let started = Date(timeIntervalSince1970: 1_000)
+        let ended = Date(timeIntervalSince1970: 1_120)
+        let record = RecordingInterruptionCoordinator.InterruptionRecord(
+            reason: .audioDeviceLost(deviceID: "USBMic"),
+            startedAt: started,
+            endedAt: ended,
+            resumedAutomatically: false
+        )
+        let presentation = AutoPauseIndicatorPresentation(records: [record], referenceDate: ended.addingTimeInterval(30))
+
+        XCTAssertTrue(presentation.shouldShow)
+        XCTAssertTrue(presentation.summary.contains("microphone"))
+        XCTAssertTrue(presentation.summary.contains("Resume"))
+    }
+}

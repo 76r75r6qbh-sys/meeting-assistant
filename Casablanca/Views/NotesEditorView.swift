@@ -107,11 +107,45 @@ enum MeetingNotesMode {
     static let defaultForWorkspaceEntry: Self = .freeform
 }
 
+struct AutoPauseIndicatorPresentation {
+    let records: [RecordingInterruptionCoordinator.InterruptionRecord]
+    let referenceDate: Date
+
+    private static let visibilityWindow: TimeInterval = 300
+
+    var shouldShow: Bool {
+        guard let latest = records.last, let endedAt = latest.endedAt else { return false }
+        return referenceDate.timeIntervalSince(endedAt) < Self.visibilityWindow
+    }
+
+    var summary: String {
+        guard let latest = records.last, let endedAt = latest.endedAt else { return "" }
+        let duration = Int(endedAt.timeIntervalSince(latest.startedAt).rounded())
+        let timeOfDay = formattedTime(latest.startedAt)
+        let suffix = latest.resumedAutomatically ? "recording resumed." : "tap Resume to continue."
+        let cause: String
+        switch latest.reason {
+        case .screenLock: cause = "Auto-paused at \(timeOfDay) for \(duration)s"
+        case .systemSleep: cause = "Auto-paused at \(timeOfDay) (sleep, \(duration)s)"
+        case .audioDeviceLost: cause = "Auto-paused at \(timeOfDay) — microphone disconnected"
+        case .streamFailure: cause = "Auto-paused at \(timeOfDay) — recording stream stopped"
+        }
+        return "\(cause) — \(suffix)"
+    }
+
+    func formattedTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 struct NotesEditorView: View {
     private enum RecordingActionPhase { case start, pause, resume, stop }
 
     @Bindable var meeting: Meeting
     @Bindable var recordingService: AudioRecordingService
+    var interruptionCoordinator: RecordingInterruptionCoordinator? = nil
     let autoStartRecording: Bool
     let onBack: () -> Void
 
@@ -217,6 +251,14 @@ struct NotesEditorView: View {
         )
     }
 
+    private var autoPauseIndicatorPresentation: AutoPauseIndicatorPresentation? {
+        guard let interruptionCoordinator else { return nil }
+        return AutoPauseIndicatorPresentation(
+            records: interruptionCoordinator.recentEvents.suffix(5).map { $0 },
+            referenceDate: Date()
+        )
+    }
+
     private var prepPresentation: MeetingPrepPresentation {
         MeetingPrepPresentation(
             markdown: prepMarkdown,
@@ -242,6 +284,13 @@ struct NotesEditorView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            if let presentation = autoPauseIndicatorPresentation, presentation.shouldShow {
+                Text(presentation.summary)
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.bottom, CasaSpace.xs)
+            }
+
             HStack(alignment: .center) {
                 HStack(spacing: CasaSpace.sm) {
                     Circle()
