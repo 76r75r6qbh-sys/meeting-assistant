@@ -74,7 +74,9 @@
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
 		A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */; };
 		A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */; };
+		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
+		C1E6FC1E581E4E7C1DCF1C16 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D480611A08BDB4705DD52C /* UpdateService.swift */; };
 		C40DAA304D9C44955F64244C /* Casablanca-99.0.0-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
 		F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */; };
@@ -102,6 +104,7 @@
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloaderTests.swift; sourceTree = "<group>"; };
+		A3D480611A08BDB4705DD52C /* UpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
 		B10001 /* CasablancaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -166,6 +169,7 @@
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
 		E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-0.0.1-macOS.zip"; sourceTree = "<group>"; };
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
+		FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -192,6 +196,7 @@
 				0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */,
 				B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */,
 				B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */,
+				A3D480611A08BDB4705DD52C /* UpdateService.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -208,6 +213,7 @@
 				4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */,
 				A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */,
 				1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */,
+				FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */,
 			);
 			name = Updates;
 			path = Updates;
@@ -539,6 +545,7 @@
 				18B51C18488B1C2AA71B6049 /* SafeToQuitProbe.swift in Sources */,
 				A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */,
 				B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */,
+				C1E6FC1E581E4E7C1DCF1C16 /* UpdateService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -565,6 +572,7 @@
 				F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */,
 				CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */,
 				A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */,
+				A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
