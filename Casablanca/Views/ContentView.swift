@@ -4,8 +4,9 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: MeetingListViewModel
-    @State private var recordingService = AudioRecordingService()
-    @State private var transcriptionService = TranscriptionService()
+    @Environment(AppModel.self) private var appModel
+    private var recordingService: AudioRecordingService { appModel.recordingService }
+    private var transcriptionService: TranscriptionService { appModel.transcriptionService }
     @State private var interruptionMonitor = RecordingInterruptionMonitor()
     @State private var interruptionNotifier = RecordingNotificationCenter()
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?

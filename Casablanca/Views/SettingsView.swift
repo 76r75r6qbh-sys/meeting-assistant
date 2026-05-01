@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(AppModel.self) private var appModel
     @AppStorage(AppPreferenceKey.obsidianVaultPath) private var obsidianVaultPath = ""
     @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
@@ -27,6 +28,11 @@ struct SettingsView: View {
             aiSettings
                 .tabItem {
                     Label("AI", systemImage: "sparkles")
+                }
+
+            UpdatesSettingsView(updateService: appModel.updateService)
+                .tabItem {
+                    Label("Updates", systemImage: "arrow.triangle.2.circlepath")
                 }
         }
         .frame(minWidth: 520, idealWidth: 560)

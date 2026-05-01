@@ -9,7 +9,8 @@ struct RecordedMeetingView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
-    @State private var summarizationService = SummarizationService()
+    @Environment(AppModel.self) private var appModel
+    private var summarizationService: SummarizationService { appModel.summarizationService }
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
