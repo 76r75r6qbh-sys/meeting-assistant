@@ -1,10 +1,19 @@
 import SwiftUI
+import AppKit
 
 struct UpdatePromptView: View {
     let release: ReleaseInfo
     let onInstall: () -> Void
     let onLater: () -> Void
     let onSkip: () -> Void
+
+    private var renderedReleaseNotes: AttributedString {
+        let rendered = MarkdownConverter.markdownToAttributedString(
+            release.bodyMarkdown,
+            baseFont: .systemFont(ofSize: NSFont.systemFontSize)
+        )
+        return AttributedString(rendered)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -15,8 +24,7 @@ struct UpdatePromptView: View {
                 .foregroundStyle(.secondary)
 
             ScrollView {
-                Text(release.bodyMarkdown)
-                    .font(.system(.body, design: .default))
+                Text(renderedReleaseNotes)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
