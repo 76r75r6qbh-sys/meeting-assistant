@@ -369,6 +369,15 @@ struct NotesEditorView: View {
                         Label("Capture system audio", systemImage: "speaker.wave.2.fill")
                     }
                     .disabled(recordingService.isPreparing)
+
+                    Picker("Language", selection: $meeting.transcriptionLanguage) {
+                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                            Text(language.name).tag(language.id)
+                        }
+                    }
+                    .onChange(of: meeting.transcriptionLanguage) {
+                        save()
+                    }
                 }
                 .padding(.top, CasaSpace.sm)
             }
