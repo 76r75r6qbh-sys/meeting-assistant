@@ -98,6 +98,7 @@ final class AppModel {
     let recordingService = AudioRecordingService()
     let transcriptionService = TranscriptionService()
     let summarizationService = SummarizationService()
+    let terminologyService = TerminologyService()
     let meetingListViewModel: MeetingListViewModel
     let updateService: UpdateService
     let applicationsLocationCheck: ApplicationsLocationCheck
