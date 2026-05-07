@@ -11,12 +11,15 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
+    @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
+    @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
     @State private var availableOllamaModels: [String] = []
     @State private var isLoadingOllamaModels = false
     @State private var ollamaModelsError = ""
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
     @State private var isEditingSummaryPrompt = false
+    @State private var isEditingTerminologyList = false
 
     var body: some View {
         TabView {
@@ -199,10 +202,31 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
+
+            Section("Terminology") {
+                Toggle("Correct terminology after transcription", isOn: $terminologyCorrectionEnabled)
+
+                Text("Domain-specific terms that are often misspelled by the transcriber. One term per line. Use a colon to list common misspellings, e.g.:\n    Medicore: Mediscore, Medi-Core")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Customize Terminology List...") {
+                    isEditingTerminologyList = true
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature Ollama pass on each new transcript before summarization.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
         }
         .formStyle(.grouped)
         .sheet(isPresented: $isEditingSummaryPrompt) {
             summaryPromptSheet
+        }
+        .sheet(isPresented: $isEditingTerminologyList) {
+            terminologyListSheet
         }
     }
 
@@ -309,6 +333,48 @@ struct SettingsView: View {
                     summaryPromptTemplate = SummarizationService.defaultPromptTemplate
                 }
                 .buttonStyle(SecondaryButtonStyle())
+
+                Spacer()
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(minWidth: 640, minHeight: 440)
+    }
+
+    private var terminologyListSheet: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            HStack {
+                VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                    Text("Customize Terminology List")
+                        .font(.title3.weight(.semibold))
+                    Text("One term per line. Optional aliases follow a colon, comma-separated.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textSecondary)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    isEditingTerminologyList = false
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+
+            TextEditor(text: $terminologyList)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 320)
+
+            Text("Examples:\n    Medicore: Mediscore, Medi-Core\n    Wegiz BgZ: Wegis, BGZ\n    Orchestra\n\nLines starting with `#` are ignored.")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("Reset to Empty") {
+                    terminologyList = ""
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(terminologyList.isEmpty)
 
                 Spacer()
             }
