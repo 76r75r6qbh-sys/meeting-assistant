@@ -244,6 +244,17 @@ struct RecordedMeetingView: View {
                         }
                         .buttonStyle(GhostButtonStyle())
                     }
+
+                    if canReapplyTerminology {
+                        Button {
+                            Task { await reapplyTerminology() }
+                        } label: {
+                            Label("Re-apply terminology", systemImage: "wand.and.sparkles")
+                                .font(.caption)
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                        .disabled(terminologyService.isCorrecting)
+                    }
                 }
 
                 if let warning = terminologyService.warningMessage {
@@ -412,6 +423,13 @@ struct RecordedMeetingView: View {
                 && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
     }
 
+    private var canReapplyTerminology: Bool {
+        guard meeting.rawTranscript != nil else { return false }
+        guard UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled) else { return false }
+        let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+        return !TerminologyService.parse(raw).isEmpty
+    }
+
     private var pipelineStatusText: String {
         if terminologyService.isCorrecting {
             return "Correcting terminology..."
@@ -486,6 +504,19 @@ struct RecordedMeetingView: View {
         } catch {
             summarizationService.errorMessage = error.localizedDescription
         }
+    }
+
+    private func reapplyTerminology() async {
+        guard let raw = meeting.rawTranscript else { return }
+        let entries = TerminologyService.parse(
+            UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+        )
+        guard !entries.isEmpty else { return }
+
+        let corrected = await terminologyService.correct(raw, entries: entries)
+        guard meeting.modelContext != nil else { return }
+        meeting.transcript = corrected
+        save()
     }
 
     private func exportMeeting() {
