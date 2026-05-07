@@ -8,11 +8,124 @@ struct TerminologyEntry: Equatable {
 @MainActor
 @Observable
 final class TerminologyService {
+    private struct OllamaGenerateRequest: Encodable {
+        let model: String
+        let prompt: String
+        let stream: Bool
+        let options: Options
+        struct Options: Encodable { let temperature: Double }
+    }
+
+    private struct OllamaGenerateResponse: Decodable {
+        let response: String?
+        let error: String?
+    }
+
+    enum TerminologyError: Error {
+        case invalidEndpoint
+        case requestFailed(String)
+        case emptyResponse
+    }
+
     private(set) var isCorrecting = false
     var warningMessage: String?
 
     func clearWarning() {
         warningMessage = nil
+    }
+
+    /// Corrects `rawTranscript` against `entries`. Never throws — on any failure,
+    /// returns the dictionary-replaced text and surfaces a `warningMessage`.
+    /// `entries` is captured by value: edits to the underlying preference made
+    /// after this call begins do not affect this run.
+    func correct(_ rawTranscript: String, entries: [TerminologyEntry]) async -> String {
+        guard !entries.isEmpty else { return rawTranscript }
+
+        isCorrecting = true
+        defer { isCorrecting = false }
+
+        let dictionaryReplaced = Self.dictionaryReplace(rawTranscript, entries: entries)
+
+        if Task.isCancelled { return dictionaryReplaced }
+
+        do {
+            return try await runOllamaPass(transcript: dictionaryReplaced, entries: entries)
+        } catch {
+            warningMessage = "Terminology correction is unavailable; transcript reflects only deterministic replacements."
+            return dictionaryReplaced
+        }
+    }
+
+    private func runOllamaPass(transcript: String, entries: [TerminologyEntry]) async throws -> String {
+        guard let url = makeGenerateURL() else {
+            throw TerminologyError.invalidEndpoint
+        }
+
+        let prompt = """
+        You are correcting domain-specific terminology in a meeting transcript.
+
+        The following terms must appear with their exact spelling:
+        \(Self.formattedForPrompt(entries))
+
+        Rules:
+        - Fix only misspellings or phonetic mistranscriptions of the terms above.
+        - Do not rephrase, translate, summarize, add, or remove anything else.
+        - Preserve all timestamps, speaker labels, line breaks, and punctuation exactly.
+        - Output only the corrected transcript. No preamble, no commentary.
+
+        Transcript:
+        \(transcript)
+        """
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        request.httpBody = try JSONEncoder().encode(
+            OllamaGenerateRequest(
+                model: UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaModel) ?? "llama3.2",
+                prompt: prompt,
+                stream: false,
+                options: .init(temperature: 0)
+            )
+        )
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw TerminologyError.requestFailed(error.localizedDescription)
+        }
+
+        if Task.isCancelled { throw CancellationError() }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TerminologyError.requestFailed("Ollama returned an invalid response.")
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw TerminologyError.requestFailed("Ollama returned status \(httpResponse.statusCode).")
+        }
+
+        let payload = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
+        if let err = payload.error, !err.isEmpty {
+            throw TerminologyError.requestFailed(err)
+        }
+        let corrected = payload.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !corrected.isEmpty else {
+            throw TerminologyError.emptyResponse
+        }
+        return corrected
+    }
+
+    private func makeGenerateURL() -> URL? {
+        let endpoint = UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434"
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasSuffix("/api/generate") { return URL(string: trimmed) }
+        if trimmed.hasSuffix("/api") { return URL(string: "\(trimmed)/generate") }
+        if trimmed.hasSuffix("/") { return URL(string: "\(trimmed)api/generate") }
+        return URL(string: "\(trimmed)/api/generate")
     }
 
     static func parse(_ raw: String) -> [TerminologyEntry] {
