@@ -49,6 +49,8 @@ final class SummarizationService {
     Keep action items concrete and include owners when they are stated.
     Each action item MUST be a `- ` bullet under "## Action Items". If there are no action items, write "## Action Items" with nothing below it.
 
+    {{terminology_list}}
+
     Meeting title: {{title}}
     Scheduled time: {{scheduled_time}}
 
@@ -98,12 +100,18 @@ final class SummarizationService {
         statusMessage = "Sending transcript and notes to Ollama..."
         defer { isSummarizing = false }
 
+        let terminologyBlock = TerminologyService.renderTerminologyBlock(
+            enabled: UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
+            raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+        )
+
         let prompt = Self.renderPrompt(
             template: UserDefaults.standard.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             meeting: meeting,
             transcript: transcript,
             timestampedNotes: timestampedNotes,
-            freeformNotes: freeformNotes
+            freeformNotes: freeformNotes,
+            terminologyBlock: terminologyBlock
         )
 
         var request = URLRequest(url: url)
@@ -224,7 +232,8 @@ final class SummarizationService {
         meeting: Meeting,
         transcript: String,
         timestampedNotes: String,
-        freeformNotes: String
+        freeformNotes: String,
+        terminologyBlock: String
     ) -> String {
         let formattedDate = {
             let formatter = DateFormatter()
@@ -239,5 +248,6 @@ final class SummarizationService {
             .replacingOccurrences(of: "{{transcript}}", with: transcript.isEmpty ? "None" : transcript)
             .replacingOccurrences(of: "{{timestamped_notes}}", with: timestampedNotes.isEmpty ? "None" : timestampedNotes)
             .replacingOccurrences(of: "{{freeform_notes}}", with: freeformNotes.isEmpty ? "None" : freeformNotes)
+            .replacingOccurrences(of: "{{terminology_list}}", with: terminologyBlock)
     }
 }
