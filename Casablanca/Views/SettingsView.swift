@@ -18,8 +18,13 @@ struct SettingsView: View {
     @State private var ollamaModelsError = ""
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
-    @State private var isEditingSummaryPrompt = false
-    @State private var isEditingTerminologyList = false
+    @State private var presentedSheet: SettingsSheet?
+
+    private enum SettingsSheet: Identifiable {
+        case summaryPrompt
+        case terminologyList
+        var id: Self { self }
+    }
 
     var body: some View {
         TabView {
@@ -190,7 +195,7 @@ struct SettingsView: View {
 
             Section("Summary Prompt") {
                 Button("Customize Prompt...") {
-                    isEditingSummaryPrompt = true
+                    presentedSheet = .summaryPrompt
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
@@ -212,7 +217,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button("Customize Terminology List...") {
-                    isEditingTerminologyList = true
+                    presentedSheet = .terminologyList
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
@@ -222,11 +227,13 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $isEditingSummaryPrompt) {
-            summaryPromptSheet
-        }
-        .sheet(isPresented: $isEditingTerminologyList) {
-            terminologyListSheet
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .summaryPrompt:
+                summaryPromptSheet
+            case .terminologyList:
+                terminologyListSheet
+            }
         }
     }
 
@@ -315,7 +322,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Done") {
-                    isEditingSummaryPrompt = false
+                    presentedSheet = nil
                 }
                 .buttonStyle(PrimaryButtonStyle())
             }
@@ -355,7 +362,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Done") {
-                    isEditingTerminologyList = false
+                    presentedSheet = nil
                 }
                 .buttonStyle(PrimaryButtonStyle())
             }
