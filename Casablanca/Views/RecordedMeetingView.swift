@@ -52,6 +52,7 @@ struct RecordedMeetingView: View {
             }
         }
         .task(id: meeting.id) {
+            terminologyService.clearWarning()
             await triggerAutomaticSummaryIfNeeded()
         }
         .alert("Summary Error", isPresented: summaryErrorBinding) {
