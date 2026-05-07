@@ -309,14 +309,10 @@ struct SettingsView: View {
     }
 
     private var summaryPromptSheet: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
-            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                Text("Customize Summary Prompt")
-                    .font(.title3.weight(.semibold))
-                Text("This template is sent to Ollama whenever Casablanca generates a summary.")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.textSecondary)
-            }
+        sheetContainer(title: "Customize Summary Prompt") {
+            Text("This template is sent to Ollama whenever Casablanca generates a summary.")
+                .font(.subheadline)
+                .foregroundStyle(Color.textSecondary)
 
             TextEditor(text: $summaryPromptTemplate)
                 .font(.system(.body, design: .monospaced))
@@ -330,31 +326,18 @@ struct SettingsView: View {
                 Button("Reset to Default Prompt") {
                     summaryPromptTemplate = SummarizationService.defaultPromptTemplate
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(.bordered)
 
                 Spacer()
-
-                Button("Done") {
-                    presentedSheet = nil
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(CasaSpace.xl)
-        .frame(minWidth: 640, minHeight: 440)
-        .background(KeyboardDismissCatcher { presentedSheet = nil })
     }
 
     private var terminologyListSheet: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
-            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                Text("Customize Terminology List")
-                    .font(.title3.weight(.semibold))
-                Text("One term per line. Optional aliases follow a colon, comma-separated.")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.textSecondary)
-            }
+        sheetContainer(title: "Customize Terminology List") {
+            Text("One term per line. Optional aliases follow a colon, comma-separated.")
+                .font(.subheadline)
+                .foregroundStyle(Color.textSecondary)
 
             TextEditor(text: $terminologyList)
                 .font(.system(.body, design: .monospaced))
@@ -369,20 +352,50 @@ struct SettingsView: View {
                 Button("Reset to Empty") {
                     terminologyList = ""
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(.bordered)
                 .disabled(terminologyList.isEmpty)
 
                 Spacer()
+            }
+        }
+    }
 
+    /// Standard macOS-native sheet container with a title at the top and a
+    /// system-rendered Done button anchored to the bottom-right. Escape and
+    /// Enter both dismiss. Avoids project-specific button styles that may
+    /// not render on the host's macOS version.
+    @ViewBuilder
+    private func sheetContainer<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, CasaSpace.xl)
+                .padding(.top, CasaSpace.xl)
+                .padding(.bottom, CasaSpace.md)
+
+            VStack(alignment: .leading, spacing: CasaSpace.lg) {
+                content()
+            }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.bottom, CasaSpace.lg)
+
+            Divider()
+
+            HStack {
+                Spacer()
                 Button("Done") {
                     presentedSheet = nil
                 }
-                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
+                .controlSize(.large)
             }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.vertical, CasaSpace.md)
         }
-        .padding(CasaSpace.xl)
-        .frame(minWidth: 640, minHeight: 440)
+        .frame(minWidth: 640, minHeight: 480)
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }
 }
