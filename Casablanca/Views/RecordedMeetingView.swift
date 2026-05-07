@@ -11,6 +11,7 @@ struct RecordedMeetingView: View {
     @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @Environment(AppModel.self) private var appModel
     private var summarizationService: SummarizationService { appModel.summarizationService }
+    private var terminologyService: TerminologyService { appModel.terminologyService }
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
@@ -153,7 +154,7 @@ struct RecordedMeetingView: View {
     private var pipelineBanner: some View {
         GroupBox {
             HStack(spacing: CasaSpace.sm) {
-                if summarizationService.isSummarizing {
+                if summarizationService.isSummarizing || terminologyService.isCorrecting {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -243,6 +244,26 @@ struct RecordedMeetingView: View {
                         }
                         .buttonStyle(GhostButtonStyle())
                     }
+                }
+
+                if let warning = terminologyService.warningMessage {
+                    HStack(alignment: .top, spacing: CasaSpace.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.accentWarning)
+                        Text(warning)
+                            .font(.caption)
+                            .foregroundStyle(Color.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            terminologyService.clearWarning()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(CasaSpace.sm)
+                    .background(Color.accentWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                 }
 
                 if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -384,13 +405,18 @@ struct RecordedMeetingView: View {
     }
 
     private var shouldShowPipelineBanner: Bool {
-        summarizationService.isSummarizing
+        terminologyService.isCorrecting
+            || summarizationService.isSummarizing
             || (autoSummarizeAfterTranscription
                 && meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
     }
 
     private var pipelineStatusText: String {
+        if terminologyService.isCorrecting {
+            return "Correcting terminology..."
+        }
+
         if summarizationService.isSummarizing {
             return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
         }
