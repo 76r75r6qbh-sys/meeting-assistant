@@ -8,6 +8,8 @@ struct TranscriptionView: View {
     let onCancel: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
+    private var terminologyService: TerminologyService { appModel.terminologyService }
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
     @State private var didStart = false
@@ -148,7 +150,24 @@ struct TranscriptionView: View {
 
             let result = try await transcriptionService.transcribe(fileURL: fileURL, localeIdentifier: meeting.transcriptionLanguage)
 
-            meeting.transcript = result.formattedTranscript
+            let correctionEnabled = UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+            let terminologyRaw = UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+            let entries = correctionEnabled ? TerminologyService.parse(terminologyRaw) : []
+
+            let finalTranscript: String
+            if !entries.isEmpty {
+                meeting.rawTranscript = result.formattedTranscript
+                save()
+                let corrected = await terminologyService.correct(result.formattedTranscript, entries: entries)
+                // Guard against the meeting being deleted mid-correction.
+                guard meeting.modelContext != nil else { return }
+                finalTranscript = corrected
+            } else {
+                meeting.rawTranscript = nil
+                finalTranscript = result.formattedTranscript
+            }
+
+            meeting.transcript = finalTranscript
             meeting.status = .completed
             save()
 
