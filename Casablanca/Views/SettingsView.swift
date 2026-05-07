@@ -310,21 +310,12 @@ struct SettingsView: View {
 
     private var summaryPromptSheet: some View {
         VStack(alignment: .leading, spacing: CasaSpace.lg) {
-            HStack {
-                VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                    Text("Customize Summary Prompt")
-                        .font(.title3.weight(.semibold))
-                    Text("This template is sent to Ollama whenever Casablanca generates a summary.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Spacer()
-
-                Button("Done") {
-                    presentedSheet = nil
-                }
-                .buttonStyle(PrimaryButtonStyle())
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text("Customize Summary Prompt")
+                    .font(.title3.weight(.semibold))
+                Text("This template is sent to Ollama whenever Casablanca generates a summary.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             TextEditor(text: $summaryPromptTemplate)
@@ -342,29 +333,27 @@ struct SettingsView: View {
                 .buttonStyle(SecondaryButtonStyle())
 
                 Spacer()
-            }
-        }
-        .padding(CasaSpace.xl)
-        .frame(minWidth: 640, minHeight: 440)
-    }
-
-    private var terminologyListSheet: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
-            HStack {
-                VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                    Text("Customize Terminology List")
-                        .font(.title3.weight(.semibold))
-                    Text("One term per line. Optional aliases follow a colon, comma-separated.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Spacer()
 
                 Button("Done") {
                     presentedSheet = nil
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(minWidth: 640, minHeight: 440)
+        .background(KeyboardDismissCatcher { presentedSheet = nil })
+    }
+
+    private var terminologyListSheet: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text("Customize Terminology List")
+                    .font(.title3.weight(.semibold))
+                Text("One term per line. Optional aliases follow a colon, comma-separated.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             TextEditor(text: $terminologyList)
@@ -384,9 +373,34 @@ struct SettingsView: View {
                 .disabled(terminologyList.isEmpty)
 
                 Spacer()
+
+                Button("Done") {
+                    presentedSheet = nil
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(CasaSpace.xl)
         .frame(minWidth: 640, minHeight: 440)
+        .background(KeyboardDismissCatcher { presentedSheet = nil })
+    }
+}
+
+/// Invisible helper view that listens for the Escape key to dismiss the
+/// surrounding sheet. SwiftUI's `.keyboardShortcut(.cancelAction)` only
+/// works when the focused button is reachable via Tab; placing the
+/// shortcut on a hidden Button as a `.background` makes Escape work
+/// regardless of focus.
+private struct KeyboardDismissCatcher: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { EmptyView() }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
     }
 }
