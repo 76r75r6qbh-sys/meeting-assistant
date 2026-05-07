@@ -12,6 +12,8 @@ enum AppPreferenceKey {
     static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
     static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
     static let recordingWorkspaceFocusMode = "recordingWorkspaceFocusMode"
+    static let terminologyCorrectionEnabled = "terminologyCorrectionEnabled"
+    static let terminologyList = "terminologyList"
 }
 
 enum AppPreferenceValue {
@@ -84,6 +86,7 @@ final class Meeting {
     var userNotes: String
     var timestampedNotes: [TimestampedNote] = []
     var transcript: String?
+    var rawTranscript: String?
     var summary: String?
     var recordingFileURL: String?
     var recordingDuration: Double?
