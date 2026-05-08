@@ -49,11 +49,31 @@ final class TerminologyService {
         if Task.isCancelled { return dictionaryReplaced }
 
         do {
-            return try await runOllamaPass(transcript: dictionaryReplaced, entries: entries)
+            let corrected = try await runOllamaPass(transcript: dictionaryReplaced, entries: entries)
+            if Self.looksLikeMangledOutput(input: dictionaryReplaced, output: corrected) {
+                warningMessage = "Terminology correction produced unexpected output and was discarded; transcript reflects only deterministic replacements."
+                return dictionaryReplaced
+            }
+            return corrected
         } catch {
             warningMessage = "Terminology correction is unavailable; transcript reflects only deterministic replacements."
             return dictionaryReplaced
         }
+    }
+
+    /// Heuristic to detect when the Ollama model has mangled the transcript
+    /// (e.g. replaced content with `***` redactions, truncated drastically,
+    /// or output an apology / explanation instead of a corrected transcript).
+    /// Triggers when the alphanumeric character count drops by more than half,
+    /// which catches the common failure modes without flagging legitimate
+    /// minor edits.
+    static func looksLikeMangledOutput(input: String, output: String) -> Bool {
+        let inputContent = input.unicodeScalars.lazy.filter { CharacterSet.alphanumerics.contains($0) }.count
+        // Skip the check for very short transcripts (less than ~20 words of
+        // alphanumeric content) where small differences are noise.
+        guard inputContent > 100 else { return false }
+        let outputContent = output.unicodeScalars.lazy.filter { CharacterSet.alphanumerics.contains($0) }.count
+        return outputContent * 2 < inputContent
     }
 
     private func runOllamaPass(transcript: String, entries: [TerminologyEntry]) async throws -> String {

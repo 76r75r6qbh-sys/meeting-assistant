@@ -256,6 +256,18 @@ struct RecordedMeetingView: View {
                         .buttonStyle(GhostButtonStyle())
                         .disabled(terminologyService.isCorrecting)
                     }
+
+                    if meeting.rawTranscript != nil {
+                        Button {
+                            restoreOriginalTranscript()
+                        } label: {
+                            Label("Restore original", systemImage: "arrow.uturn.backward")
+                                .font(.caption)
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                        .disabled(terminologyService.isCorrecting)
+                        .help("Replace the displayed transcript with the unmodified text from the recording, discarding any terminology corrections.")
+                    }
                 }
 
                 if let warning = terminologyService.warningMessage {
@@ -517,6 +529,13 @@ struct RecordedMeetingView: View {
         let corrected = await terminologyService.correct(raw, entries: entries)
         guard meeting.modelContext != nil else { return }
         meeting.transcript = corrected
+        save()
+    }
+
+    private func restoreOriginalTranscript() {
+        guard let raw = meeting.rawTranscript else { return }
+        meeting.transcript = raw
+        terminologyService.clearWarning()
         save()
     }
 
