@@ -316,7 +316,7 @@ struct SettingsView: View {
 
             TextEditor(text: $summaryPromptTemplate)
                 .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 240, maxHeight: .infinity)
+                .frame(height: 240)
 
             Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
                 .font(.caption)
@@ -341,7 +341,7 @@ struct SettingsView: View {
 
             TextEditor(text: $terminologyList)
                 .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 240, maxHeight: .infinity)
+                .frame(height: 200)
 
             Text("Examples:\n    Medicore: Mediscore, Medi-Core\n    Wegiz BgZ: Wegis, BGZ\n    Orchestra\n\nLines starting with `#` are ignored.")
                 .font(.caption)
@@ -360,26 +360,25 @@ struct SettingsView: View {
         }
     }
 
-    /// Sheet container with title at the top, scrollable content body, and
-    /// a bottom-anchored Done bar. Implemented as a plain VStack with three
-    /// children so the layout is predictable and nothing overlays anything.
-    /// Escape and Enter both dismiss.
+    /// Sheet container with title at the top, content body, and a
+    /// bottom-anchored Done bar. Sized to its intrinsic content so macOS
+    /// doesn't clip it to the parent Settings window. Escape and Enter
+    /// both dismiss.
     @ViewBuilder
     private func sheetContainer<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
                 Text(title)
                     .font(.title3.weight(.semibold))
 
                 content()
             }
             .padding(.horizontal, CasaSpace.xl)
-            .padding(.top, CasaSpace.xxl)
-            .padding(.bottom, CasaSpace.lg)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.top, CasaSpace.lg)
+            .padding(.bottom, CasaSpace.md)
 
             Divider()
 
@@ -392,9 +391,10 @@ struct SettingsView: View {
                 .controlSize(.large)
             }
             .padding(.horizontal, CasaSpace.xl)
-            .padding(.vertical, CasaSpace.md)
+            .padding(.vertical, CasaSpace.sm)
         }
-        .frame(minWidth: 560, idealWidth: 640, minHeight: 400, idealHeight: 520)
+        .frame(width: 560)
+        .fixedSize(horizontal: false, vertical: true)
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }
 }
