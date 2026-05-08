@@ -360,43 +360,41 @@ struct SettingsView: View {
         }
     }
 
-    /// Sheet container with title at the top and the Done button pinned to
-    /// the bottom via `safeAreaInset` so it's always visible. The supplied
-    /// content arranges itself in a non-scrolling VStack — the only thing
-    /// that should scroll is the TextEditor each sheet contains, via its
-    /// own internal scrolling. Escape and Enter both dismiss.
+    /// Sheet container with title at the top, scrollable content body, and
+    /// a bottom-anchored Done bar. Implemented as a plain VStack with three
+    /// children so the layout is predictable and nothing overlays anything.
+    /// Escape and Enter both dismiss.
     @ViewBuilder
     private func sheetContainer<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
-            Text(title)
-                .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: CasaSpace.lg) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
 
-            content()
-        }
-        .padding(.horizontal, CasaSpace.xl)
-        .padding(.top, CasaSpace.xxl)
-        .padding(.bottom, CasaSpace.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .frame(minWidth: 560, idealWidth: 640, minHeight: 360, idealHeight: 480)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Spacer()
-                    Button("Done") {
-                        presentedSheet = nil
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.large)
-                }
-                .padding(.horizontal, CasaSpace.xl)
-                .padding(.vertical, CasaSpace.md)
-                .background(.regularMaterial)
+                content()
             }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.top, CasaSpace.xxl)
+            .padding(.bottom, CasaSpace.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Done") {
+                    presentedSheet = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                .controlSize(.large)
+            }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.vertical, CasaSpace.md)
         }
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 400, idealHeight: 520)
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }
 }
