@@ -360,42 +360,42 @@ struct SettingsView: View {
         }
     }
 
-    /// Standard macOS-native sheet container with a title at the top and a
-    /// system-rendered Done button anchored to the bottom-right. Escape and
-    /// Enter both dismiss. Avoids project-specific button styles that may
-    /// not render on the host's macOS version.
+    /// Sheet container with the Done button pinned to the bottom via
+    /// `safeAreaInset` so it's always visible even when the parent window is
+    /// small enough to clip the sheet's content. The main content scrolls
+    /// inside the available area. Escape and Enter both dismiss.
     @ViewBuilder
     private func sheetContainer<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal, CasaSpace.xl)
-                .padding(.top, CasaSpace.xl)
-                .padding(.bottom, CasaSpace.md)
-
+        ScrollView {
             VStack(alignment: .leading, spacing: CasaSpace.lg) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+
                 content()
             }
-            .padding(.horizontal, CasaSpace.xl)
-            .padding(.bottom, CasaSpace.lg)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Done") {
-                    presentedSheet = nil
-                }
-                .keyboardShortcut(.defaultAction)
-                .controlSize(.large)
-            }
-            .padding(.horizontal, CasaSpace.xl)
-            .padding(.vertical, CasaSpace.md)
+            .padding(CasaSpace.xl)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 360, idealHeight: 480)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Done") {
+                        presentedSheet = nil
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.large)
+                }
+                .padding(.horizontal, CasaSpace.xl)
+                .padding(.vertical, CasaSpace.md)
+                .background(.regularMaterial)
+            }
+        }
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }
 }
