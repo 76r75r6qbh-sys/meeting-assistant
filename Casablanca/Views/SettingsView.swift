@@ -316,7 +316,7 @@ struct SettingsView: View {
 
             TextEditor(text: $summaryPromptTemplate)
                 .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 320)
+                .frame(minHeight: 240, maxHeight: .infinity)
 
             Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
                 .font(.caption)
@@ -341,7 +341,7 @@ struct SettingsView: View {
 
             TextEditor(text: $terminologyList)
                 .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 320)
+                .frame(minHeight: 240, maxHeight: .infinity)
 
             Text("Examples:\n    Medicore: Mediscore, Medi-Core\n    Wegiz BgZ: Wegis, BGZ\n    Orchestra\n\nLines starting with `#` are ignored.")
                 .font(.caption)
@@ -360,25 +360,24 @@ struct SettingsView: View {
         }
     }
 
-    /// Sheet container with the Done button pinned to the bottom via
-    /// `safeAreaInset` so it's always visible even when the parent window is
-    /// small enough to clip the sheet's content. The main content scrolls
-    /// inside the available area. Escape and Enter both dismiss.
+    /// Sheet container with title at the top and the Done button pinned to
+    /// the bottom via `safeAreaInset` so it's always visible. The supplied
+    /// content arranges itself in a non-scrolling VStack — the only thing
+    /// that should scroll is the TextEditor each sheet contains, via its
+    /// own internal scrolling. Escape and Enter both dismiss.
     @ViewBuilder
     private func sheetContainer<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: CasaSpace.lg) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+            Text(title)
+                .font(.title3.weight(.semibold))
 
-                content()
-            }
-            .padding(CasaSpace.xl)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            content()
         }
+        .padding(CasaSpace.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(minWidth: 560, idealWidth: 640, minHeight: 360, idealHeight: 480)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
