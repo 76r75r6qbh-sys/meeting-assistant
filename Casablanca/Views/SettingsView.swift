@@ -376,7 +376,9 @@ struct SettingsView: View {
 
             content()
         }
-        .padding(CasaSpace.xl)
+        .padding(.horizontal, CasaSpace.xl)
+        .padding(.top, CasaSpace.xxl)
+        .padding(.bottom, CasaSpace.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(minWidth: 560, idealWidth: 640, minHeight: 360, idealHeight: 480)
         .safeAreaInset(edge: .bottom, spacing: 0) {
