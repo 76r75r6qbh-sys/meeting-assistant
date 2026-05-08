@@ -43,7 +43,7 @@ struct SettingsView: View {
                     Label("Updates", systemImage: "arrow.triangle.2.circlepath")
                 }
         }
-        .frame(minWidth: 520, idealWidth: 560)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 560, idealHeight: 640)
         .task {
             refreshRecordingInputDevices()
             await refreshOllamaModels()
