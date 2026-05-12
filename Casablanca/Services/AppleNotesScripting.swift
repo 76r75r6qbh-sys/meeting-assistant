@@ -1,16 +1,16 @@
 import Foundation
 
-struct AppleNotesFolderRef: Equatable {
+struct AppleNotesFolderRef: Equatable, Sendable {
     let id: String
     let name: String
 }
 
-struct AppleNotesNoteRef: Equatable {
+struct AppleNotesNoteRef: Equatable, Sendable {
     let id: String
     let title: String
 }
 
-protocol AppleNotesScripting {
+protocol AppleNotesScripting: Sendable {
     func ensureFolder(named name: String) async throws -> AppleNotesFolderRef
     func findNote(markerContaining marker: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef?
     func noteBody(id: String) async throws -> String?

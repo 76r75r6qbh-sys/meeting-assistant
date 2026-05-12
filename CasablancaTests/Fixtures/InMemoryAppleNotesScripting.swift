@@ -6,7 +6,7 @@ final actor InMemoryAppleNotesScripting: AppleNotesScripting {
         var id: String
         var title: String
         var body: String
-        var folderId: String
+        var folderID: String
     }
 
     private(set) var folders: [AppleNotesFolderRef] = []
@@ -28,7 +28,7 @@ final actor InMemoryAppleNotesScripting: AppleNotesScripting {
     func removeFolder(named name: String) {
         if let folder = folders.first(where: { $0.name == name }) {
             folders.removeAll { $0.id == folder.id }
-            notes.removeAll { $0.folderId == folder.id }
+            notes.removeAll { $0.folderID == folder.id }
         }
     }
 
@@ -44,7 +44,7 @@ final actor InMemoryAppleNotesScripting: AppleNotesScripting {
     func findNote(markerContaining marker: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef? {
         calls.append("findNote:\(marker):\(folder.id)")
         if let error = findNoteError { throw error }
-        if let note = notes.first(where: { $0.folderId == folder.id && $0.body.contains(marker) }) {
+        if let note = notes.first(where: { $0.folderID == folder.id && $0.body.contains(marker) }) {
             return AppleNotesNoteRef(id: note.id, title: note.title)
         }
         return nil
@@ -59,7 +59,7 @@ final actor InMemoryAppleNotesScripting: AppleNotesScripting {
     func createNote(title: String, body: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef {
         calls.append("createNote:\(title):\(folder.id)")
         if let error = createNoteError { throw error }
-        let note = StoredNote(id: "note-\(notes.count + 1)", title: title, body: body, folderId: folder.id)
+        let note = StoredNote(id: "note-\(notes.count + 1)", title: title, body: body, folderID: folder.id)
         notes.append(note)
         return AppleNotesNoteRef(id: note.id, title: note.title)
     }
