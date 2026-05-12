@@ -8,12 +8,18 @@ enum AppPreferenceKey {
     static let whisperModel = "whisperModel"
     static let defaultTranscriptionLanguage = "defaultTranscriptionLanguage"
     static let summaryPromptTemplate = "summaryPromptTemplate"
+    static let autoExportEnabled = "autoExportEnabled"
+    static let legacyAutoExportNotesToObsidian = "autoExportNotesToObsidian"
+    // Transitional: keep the old name resolving to the same legacy storage key until Task 9
+    // rewrites the only remaining caller (ExportService.exportAutomaticallyIfEnabled).
     static let autoExportNotesToObsidian = "autoExportNotesToObsidian"
     static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
     static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
     static let recordingWorkspaceFocusMode = "recordingWorkspaceFocusMode"
     static let terminologyCorrectionEnabled = "terminologyCorrectionEnabled"
     static let terminologyList = "terminologyList"
+    static let exportDestination = "exportDestination"
+    static let prepTodoStorage = "prepTodoStorage"
 }
 
 enum AppPreferenceValue {

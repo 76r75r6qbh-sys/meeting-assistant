@@ -73,6 +73,8 @@
 		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
 		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
+		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
+		A10054 /* AppPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* AppPreferencesTests.swift */; };
 		A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */; };
 		A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */; };
 		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
@@ -168,6 +170,8 @@
 		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
 		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
 		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
+		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
+		B10054 /* AppPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesTests.swift; sourceTree = "<group>"; };
 		B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloader.swift; sourceTree = "<group>"; };
 		B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePathsTests.swift; sourceTree = "<group>"; };
@@ -287,6 +291,7 @@
 				B10003 /* Meeting.swift */,
 				B10026 /* TodoItem.swift */,
 				B10029 /* PendingTodoReview.swift */,
+				B10053 /* AppPreferences.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -406,6 +411,7 @@
 				B10045 /* SummarizationServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10051 /* RecordingInterruptionCoordinatorTests.swift */,
+				B10054 /* AppPreferencesTests.swift */,
 				8ED14EFC82B2D84BDBD94EF8 /* Updates */,
 				DD1D869FE75C9137CBB92593 /* Fixtures */,
 			);
@@ -557,6 +563,7 @@
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
+				A10053 /* AppPreferences.swift in Sources */,
 				43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */,
 				9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */,
 				03AF1A0166ED6F1B10C3EC38 /* UpdatePaths.swift in Sources */,
@@ -591,6 +598,7 @@
 				A10045 /* SummarizationServiceTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
 				A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */,
+				A10054 /* AppPreferencesTests.swift in Sources */,
 				3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */,
 				5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */,
 				7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */,

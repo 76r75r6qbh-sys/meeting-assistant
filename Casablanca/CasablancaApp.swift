@@ -11,6 +11,7 @@ struct CasablancaApp: App {
     private let sharedModelContainer: ModelContainer
 
     init() {
+        AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
         do {
             sharedModelContainer = try ModelContainer(for: Meeting.self, TodoItem.self)
         } catch {
