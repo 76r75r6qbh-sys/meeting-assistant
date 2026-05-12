@@ -96,6 +96,8 @@ final class Meeting {
     var recordingFileURL: String?
     var recordingDuration: Double?
     var transcriptionLanguage: String = "en-US"
+    var appleNotesSummaryNoteId: String?
+    var appleNotesRawNotesNoteId: String?
     var createdAt: Date
     @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
 
