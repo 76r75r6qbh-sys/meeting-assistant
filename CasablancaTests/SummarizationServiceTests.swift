@@ -27,7 +27,8 @@ final class SummarizationServiceTests: XCTestCase {
             meeting: meeting,
             transcript: "Transcript body",
             timestampedNotes: "00:42 Captured timestamped note",
-            freeformNotes: "Freeform notes body"
+            freeformNotes: "Freeform notes body",
+            terminologyBlock: ""
         )
 
         let freeformRange = try? XCTUnwrap(rendered.range(of: "Freeform notes:\nFreeform notes body"))
