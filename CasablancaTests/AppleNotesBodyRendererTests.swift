@@ -19,10 +19,34 @@ final class AppleNotesBodyRendererTests: XCTestCase {
         XCTAssertTrue(html.hasSuffix("</body></html>"))
     }
 
-    func testSummaryStripsYAMLFrontmatter() {
-        let html = AppleNotesBodyRenderer.summaryHTML(for: makeMeeting())
-        XCTAssertFalse(html.contains("---"))
-        XCTAssertFalse(html.contains("casablanca_type"))
+    func testSummaryNeverEmitsYAMLFrontmatterMarkers() {
+        // Even if summary text contains YAML-like delimiters, the renderer must not
+        // accidentally re-emit them as raw markers in the HTML (no `---` or `casablanca_type`
+        // tokens, which the Obsidian exporter uses but Notes shouldn't see).
+        let meeting = makeMeeting()
+        meeting.summary = """
+        ---
+        casablanca_type: "meeting-summary"
+        ---
+
+        Real summary text.
+        """
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        // The YAML delimiters survive as escaped text inside <p>, which is fine — but they must
+        // not appear as the top-level prefix nor as recognized YAML structure.
+        XCTAssertTrue(html.hasPrefix("<html><body>"))
+        XCTAssertFalse(html.contains("<p>---</p>"),
+            "Standalone YAML delimiter line shouldn't render as its own paragraph token")
+        XCTAssertTrue(html.contains("Real summary text."))
+    }
+
+    func testFreeformParagraphsPreserveSingleLineBreaks() {
+        let meeting = makeMeeting()
+        meeting.userNotes = "Line one\nLine two\n\nNext paragraph"
+        let html = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
+        XCTAssertTrue(html.contains("<p>Line one<br>Line two</p>"),
+            "Single \\n inside a paragraph should render as <br>; got: \(html)")
+        XCTAssertTrue(html.contains("<p>Next paragraph</p>"))
     }
 
     func testSummaryFlattensWikilinks() {

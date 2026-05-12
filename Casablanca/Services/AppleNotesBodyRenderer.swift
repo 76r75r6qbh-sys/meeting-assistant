@@ -37,7 +37,7 @@ enum AppleNotesBodyRenderer {
         if !meeting.timestampedNotes.isEmpty {
             sections.append("<h2>Timestamped Notes</h2>")
             let items = meeting.timestampedNotes.map { note in
-                "<li>[\(escape(note.formattedTimestamp))] \(escape(note.text))</li>"
+                "<li>[\(escape(note.formattedTimestamp))] \(escape(stripWikilinks(note.text)))</li>"
             }.joined()
             sections.append("<ul>\(items)</ul>")
         }
@@ -81,14 +81,18 @@ enum AppleNotesBodyRenderer {
     private static func todoList(_ todos: [TodoItem]) -> String {
         let items = todos.map { todo in
             let glyph = todo.isCompleted ? "☑" : "☐"
-            return "<li>\(glyph) \(escape(todo.text))</li>"
+            return "<li>\(glyph) \(escape(stripWikilinks(todo.text)))</li>"
         }.joined()
         return "<ul>\(items)</ul>"
     }
 
     private static func paragraphs(from text: String) -> String {
-        text.split(separator: "\n\n", omittingEmptySubsequences: false)
-            .map { "<p>\(escape(stripWikilinks(String($0))))</p>" }
+        text.components(separatedBy: "\n\n")
+            .map { chunk -> String in
+                let escaped = escape(stripWikilinks(chunk))
+                let withBreaks = escaped.replacingOccurrences(of: "\n", with: "<br>")
+                return "<p>\(withBreaks)</p>"
+            }
             .joined()
     }
 
