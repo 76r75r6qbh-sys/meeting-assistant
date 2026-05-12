@@ -243,8 +243,8 @@ This is a pure additive SwiftData schema change. SwiftData lightweight migration
 In `Casablanca/Models/Meeting.swift`, inside `final class Meeting`, add the two properties after `var transcriptionLanguage`:
 
 ```swift
-    var appleNotesSummaryNoteId: String?
-    var appleNotesRawNotesNoteId: String?
+    var appleNotesSummaryNoteID: String?
+    var appleNotesRawNotesNoteID: String?
 ```
 
 Do not modify the `init`; the default `nil` values are fine for existing rows.
@@ -853,8 +853,8 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         XCTAssertEqual(notes.count, 2)
         XCTAssertNotNil(result.summaryNoteId)
         XCTAssertNotNil(result.rawNotesNoteId)
-        XCTAssertEqual(meeting.appleNotesSummaryNoteId, result.summaryNoteId)
-        XCTAssertEqual(meeting.appleNotesRawNotesNoteId, result.rawNotesNoteId)
+        XCTAssertEqual(meeting.appleNotesSummaryNoteID, result.summaryNoteId)
+        XCTAssertEqual(meeting.appleNotesRawNotesNoteID, result.rawNotesNoteId)
     }
 
     func testReExportUpdatesExistingNotesAndDoesNotDuplicate() async throws {
@@ -878,15 +878,15 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
 
         _ = try await exporter.export(meeting)
         let originalNoteCount = await fake.notes.count
-        meeting.appleNotesSummaryNoteId = nil
-        meeting.appleNotesRawNotesNoteId = nil
+        meeting.appleNotesSummaryNoteID = nil
+        meeting.appleNotesRawNotesNoteID = nil
 
         _ = try await exporter.export(meeting)
 
         let finalCount = await fake.notes.count
         XCTAssertEqual(originalNoteCount, 2)
         XCTAssertEqual(finalCount, 2, "Marker scan should reuse existing notes")
-        XCTAssertNotNil(meeting.appleNotesSummaryNoteId, "Resolved id should be written back")
+        XCTAssertNotNil(meeting.appleNotesSummaryNoteID, "Resolved id should be written back")
     }
 
     func testStaleCachedIdPointingToUnrelatedNoteForcesScan() async throws {
@@ -896,7 +896,7 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         _ = try await exporter.export(meeting)
 
         // Simulate id drift: cached id now points at a body without the meeting's marker.
-        let cachedId = meeting.appleNotesSummaryNoteId!
+        let cachedId = meeting.appleNotesSummaryNoteID!
         try await fake.updateNote(id: cachedId, title: "Stranger", body: "<p>unrelated</p>")
 
         _ = try await exporter.export(meeting)
@@ -910,11 +910,11 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         // returns nil because the marker-bearing summary was overwritten by the test setup).
         XCTAssertEqual(notes.count, 3, "Expected: original raw notes + stranger + new summary")
         // The cached id was updated to the new note.
-        XCTAssertNotEqual(meeting.appleNotesSummaryNoteId, cachedId)
-        XCTAssertNotNil(meeting.appleNotesSummaryNoteId)
+        XCTAssertNotEqual(meeting.appleNotesSummaryNoteID, cachedId)
+        XCTAssertNotNil(meeting.appleNotesSummaryNoteID)
         // And the new note carries the meeting's marker.
         let summaryMarker = "Casablanca id: \(meeting.id.uuidString) / summary"
-        XCTAssertTrue(notes.contains { $0.id == meeting.appleNotesSummaryNoteId && $0.body.contains(summaryMarker) })
+        XCTAssertTrue(notes.contains { $0.id == meeting.appleNotesSummaryNoteID && $0.body.contains(summaryMarker) })
     }
 
     func testFolderDeletedOutOfBandIsRecreated() async throws {
@@ -1001,25 +1001,25 @@ final class AppleNotesMeetingExporter {
         var summaryId: String? = nil
         if shouldExportSummary {
             summaryId = try await upsert(
-                cachedId: meeting.appleNotesSummaryNoteId,
+                cachedId: meeting.appleNotesSummaryNoteID,
                 marker: summaryMarker,
                 title: meeting.obsidianFileName,
                 body: summaryHTML,
                 folder: folder
             )
-            meeting.appleNotesSummaryNoteId = summaryId
+            meeting.appleNotesSummaryNoteID = summaryId
         } else {
-            meeting.appleNotesSummaryNoteId = nil
+            meeting.appleNotesSummaryNoteID = nil
         }
 
         let rawNotesId = try await upsert(
-            cachedId: meeting.appleNotesRawNotesNoteId,
+            cachedId: meeting.appleNotesRawNotesNoteID,
             marker: notesMarker,
             title: "\(meeting.obsidianFileName) - Notes",
             body: rawNotesHTML,
             folder: folder
         )
-        meeting.appleNotesRawNotesNoteId = rawNotesId
+        meeting.appleNotesRawNotesNoteID = rawNotesId
 
         return AppleNotesExportResult(summaryNoteId: summaryId, rawNotesNoteId: rawNotesId)
     }
@@ -1031,13 +1031,13 @@ final class AppleNotesMeetingExporter {
         let notesMarker = "Casablanca id: \(meeting.id.uuidString) / notes"
 
         let rawNotesId = try await upsert(
-            cachedId: meeting.appleNotesRawNotesNoteId,
+            cachedId: meeting.appleNotesRawNotesNoteID,
             marker: notesMarker,
             title: "\(meeting.obsidianFileName) - Notes",
             body: rawNotesHTML,
             folder: folder
         )
-        meeting.appleNotesRawNotesNoteId = rawNotesId
+        meeting.appleNotesRawNotesNoteID = rawNotesId
 
         return AppleNotesExportResult(summaryNoteId: nil, rawNotesNoteId: rawNotesId)
     }

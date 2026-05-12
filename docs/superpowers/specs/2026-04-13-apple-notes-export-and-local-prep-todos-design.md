@@ -205,7 +205,7 @@ This avoids forcing Apple Notes into workflows that fundamentally depend on edit
 
 A user can change either preference at any time. The spec defines exactly one behavior per transition:
 
-- **Export destination Obsidian → Apple Notes:** old markdown files in the vault are **left in place**, unchanged. They become orphaned but are not deleted (the user's vault is theirs). Future exports go to Apple Notes only. `Meeting.appleNotesSummaryNoteId` / `.appleNotesRawNotesNoteId` start `nil` so the first Apple Notes export performs a marker scan or creates new notes.
+- **Export destination Obsidian → Apple Notes:** old markdown files in the vault are **left in place**, unchanged. They become orphaned but are not deleted (the user's vault is theirs). Future exports go to Apple Notes only. `Meeting.appleNotesSummaryNoteID` / `.appleNotesRawNotesNoteID` start `nil` so the first Apple Notes export performs a marker scan or creates new notes.
 - **Export destination Apple Notes → Obsidian:** old Apple Notes entries are left in place. Future exports write markdown files as today.
 - **Prep/todo storage Obsidian → Local:** existing `TodoItem` rows that have a non-nil `sourceFilePath` are **left as-is** but `sourceFilePath` is **ignored** by all sync calls — writes never touch the filesystem. `ObsidianTodoSyncService` operations are skipped entirely; the service is not invoked from any call site while in Local mode.
 - **Prep/todo storage Local → Obsidian:** on switch, run the existing Obsidian sync refresh once so that the vault becomes the source of truth again. Todos created while in Local mode have `sourceFilePath = nil` and remain SwiftData-only until the user edits them in the vault and a future sync picks them up; the spec accepts that those Local-era todos will not be exported automatically to the vault. (Re-syncing Local-era todos *into* the vault is out of scope for v1.)
@@ -340,8 +340,8 @@ In both directions, `MeetingPrepService.prepURL` returns `nil` in Local mode so 
 ## Data Model Changes
 
 - Add two optional Apple Notes id properties to `Meeting` so upsert can skip the marker scan on the happy path:
-  - `appleNotesSummaryNoteId: String?`
-  - `appleNotesRawNotesNoteId: String?`
+  - `appleNotesSummaryNoteID: String?`
+  - `appleNotesRawNotesNoteID: String?`
 - These are populated after a successful create/update and cleared if a lookup fails.
 - Existing meetings default to `nil`, which simply forces a marker scan on first Apple Notes export.
 
@@ -352,7 +352,7 @@ In both directions, `MeetingPrepService.prepURL` returns `nil` in Local mode so 
 - Xcode project (`INFOPLIST_KEY_NSAppleEventsUsageDescription` build setting, or `Info.plist` if one is later introduced)
   - add `NSAppleEventsUsageDescription` describing Apple Notes write access
 - `Casablanca/Models/Meeting.swift`
-  - add new preference keys, `ExportDestination` and `PrepTodoStorage` enums, and `appleNotesSummaryNoteId` / `appleNotesRawNotesNoteId` properties
+  - add new preference keys, `ExportDestination` and `PrepTodoStorage` enums, and `appleNotesSummaryNoteID` / `appleNotesRawNotesNoteID` properties
 - `Casablanca/Views/SettingsView.swift`
   - add destination/storage pickers and update helper text
 - `Casablanca/Services/ExportService.swift`
