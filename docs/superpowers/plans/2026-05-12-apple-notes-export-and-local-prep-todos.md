@@ -25,11 +25,12 @@ Use `-only-testing:CasablancaTests/<TestClass>` (no method) to run a whole class
 
 ---
 
-## Task 1: Add `ExportDestination` and `PrepTodoStorage` preferences with migration
+## Task 1: Add `ExportDestination` and `PrepTodoStorage` preferences with migration, wired at app launch
 
 **Files:**
 - Modify: `Casablanca/Models/Meeting.swift` (`AppPreferenceKey` enum, top of file)
 - Create: `Casablanca/Models/AppPreferences.swift`
+- Modify: `Casablanca/CasablancaApp.swift` (call migration in `init()`)
 - Create: `CasablancaTests/AppPreferencesTests.swift`
 
 - [ ] **Step 1: Write failing tests for the preference enums and the legacy migration**
@@ -194,15 +195,38 @@ enum AppPreferences {
 
 Add the file to the `Casablanca` target in the Xcode project (it must be in the `Sources` build phase).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Wire the migration at app launch**
+
+Open `Casablanca/CasablancaApp.swift`. Inside the `App` struct, add an `init()` (or extend the existing one) so it begins with:
+
+```swift
+    init() {
+        AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
+        // ...existing init body if any
+    }
+```
+
+This ensures `autoExportEnabled` is seeded before `ExportService` is consulted in subsequent tasks.
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run the same command as Step 2. Expected: all `AppPreferencesTests` pass.
 
-- [ ] **Step 5: Commit**
+Then build the full app to confirm the `init()` change compiles:
 
 ```bash
-git add Casablanca/Models/Meeting.swift Casablanca/Models/AppPreferences.swift CasablancaTests/AppPreferencesTests.swift Casablanca.xcodeproj/project.pbxproj
-git commit -m "feat(prefs): add ExportDestination and PrepTodoStorage preferences with legacy migration"
+xcodebuild build -project Casablanca.xcodeproj -scheme Casablanca \
+  -derivedDataPath .build/test -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
+```
+
+Expected: BUILD SUCCEEDED.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add Casablanca/Models/Meeting.swift Casablanca/Models/AppPreferences.swift Casablanca/CasablancaApp.swift CasablancaTests/AppPreferencesTests.swift Casablanca.xcodeproj/project.pbxproj
+git commit -m "feat(prefs): add ExportDestination and PrepTodoStorage with legacy migration"
 ```
 
 ---
@@ -265,7 +289,8 @@ final class AppleNotesScriptingFakeTests: XCTestCase {
         let first = try await fake.ensureFolder(named: "Casablanca")
         let second = try await fake.ensureFolder(named: "Casablanca")
         XCTAssertEqual(first.id, second.id)
-        XCTAssertEqual(fake.folders.count, 1)
+        let folderCount = await fake.folders.count
+        XCTAssertEqual(folderCount, 1)
     }
 
     func testCreateNotePersistsAndReturnsRef() async throws {
@@ -877,10 +902,19 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         _ = try await exporter.export(meeting)
 
         let notes = await fake.notes
-        // The unrelated note should still exist (we did NOT overwrite it), and the meeting should
-        // have a fresh note created or the marker-matching note resolved.
+        // The unrelated note must still exist with its body intact: the exporter must NOT
+        // overwrite it just because the cache pointed at it.
         XCTAssertTrue(notes.contains { $0.id == cachedId && $0.body == "<p>unrelated</p>" },
             "Stale cache must not overwrite the unrelated note")
+        // After the stale-cache fallback, the exporter creates a fresh summary note (marker scan
+        // returns nil because the marker-bearing summary was overwritten by the test setup).
+        XCTAssertEqual(notes.count, 3, "Expected: original raw notes + stranger + new summary")
+        // The cached id was updated to the new note.
+        XCTAssertNotEqual(meeting.appleNotesSummaryNoteId, cachedId)
+        XCTAssertNotNil(meeting.appleNotesSummaryNoteId)
+        // And the new note carries the meeting's marker.
+        let summaryMarker = "Casablanca id: \(meeting.id.uuidString) / summary"
+        XCTAssertTrue(notes.contains { $0.id == meeting.appleNotesSummaryNoteId && $0.body.contains(summaryMarker) })
     }
 
     func testFolderDeletedOutOfBandIsRecreated() async throws {
@@ -890,12 +924,15 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         _ = try await exporter.export(meeting)
 
         await fake.removeFolder(named: "Casablanca")
-        XCTAssertEqual(await fake.folders.count, 0)
+        let emptyFolderCount = await fake.folders.count
+        XCTAssertEqual(emptyFolderCount, 0)
 
         _ = try await exporter.export(meeting)
 
-        XCTAssertEqual(await fake.folders.count, 1)
-        XCTAssertEqual(await fake.notes.count, 2)
+        let folderCount = await fake.folders.count
+        let noteCount = await fake.notes.count
+        XCTAssertEqual(folderCount, 1)
+        XCTAssertEqual(noteCount, 2)
     }
 
     func testPermissionDeniedErrorPropagatesAsExportError() async throws {
@@ -1117,7 +1154,21 @@ INFOPLIST_KEY_NSCalendarsUsageDescription = "Casablanca needs access to your cal
 INFOPLIST_KEY_NSAppleEventsUsageDescription = "Casablanca uses AppleScript automation to save meeting notes to Apple Notes when you select Apple Notes as the export destination.";
 ```
 
-- [ ] **Step 3: Build to verify the entitlement and Info.plist key compile and are recognized**
+- [ ] **Step 3: Verify the pbxproj edit landed in both configurations**
+
+```bash
+grep -n "INFOPLIST_KEY_NSAppleEventsUsageDescription" Casablanca.xcodeproj/project.pbxproj
+```
+
+Expected: exactly **two** matching lines (Debug and Release configs). If you see only one, the second insertion was missed — re-edit before continuing. Also run:
+
+```bash
+git diff Casablanca.xcodeproj/project.pbxproj
+```
+
+and confirm the diff shows two insertions and no unrelated reordering.
+
+- [ ] **Step 4: Build to verify the entitlement and Info.plist key compile and are recognized**
 
 ```bash
 xcodebuild build -project Casablanca.xcodeproj -scheme Casablanca \
@@ -1127,12 +1178,64 @@ xcodebuild build -project Casablanca.xcodeproj -scheme Casablanca \
 
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add Casablanca/Casablanca.entitlements Casablanca.xcodeproj/project.pbxproj
 git commit -m "feat(entitlements): allow AppleEvents automation for Apple Notes export"
 ```
+
+---
+
+## Task 7.5: Marker-survival smoke test (manual, ~5 min)
+
+**Files:** none. Output: a verified assumption (or a fix-up task).
+
+The renderer (Task 4) places the identity marker as a trailing `<p>` inside `<html><body>…<p>Casablanca id: …</p></body></html>`. Spec acknowledges Apple Notes may strip or move HTML on save. We validate this once, before building the production scripting backend, so the rest of the plan can rely on the chosen marker placement.
+
+- [ ] **Step 1: Run a one-shot AppleScript probe in Terminal**
+
+Open Terminal (not the sandboxed app — we test marker survival in Notes itself, independently of Casablanca's sandbox):
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Notes"
+    try
+        set targetAccount to default account
+    on error
+        set targetAccount to first account
+    end try
+    if not (exists folder "Casablanca-Probe" of targetAccount) then
+        make new folder at targetAccount with properties {name:"Casablanca-Probe"}
+    end if
+    set theFolder to folder "Casablanca-Probe" of targetAccount
+    set probeBody to "<html><body><h1>Probe</h1><p>Hello.</p><p>Casablanca id: PROBE-MARKER / summary</p></body></html>"
+    make new note at theFolder with properties {name:"Probe", body:probeBody}
+    delay 1
+    set readBack to body of (first note of theFolder whose name is "Probe")
+    return readBack
+end tell
+APPLESCRIPT
+```
+
+The first run will prompt for Terminal → Notes automation access; accept it.
+
+- [ ] **Step 2: Verify the marker survived**
+
+Inspect the output. If the printed body contains `Casablanca id: PROBE-MARKER / summary`, the trailing-paragraph marker placement is valid — proceed with the plan as written.
+
+If the marker is **missing or moved**, you must adjust the renderer in Task 4 before continuing:
+- Try moving the marker to a leading paragraph (first `<p>` after `<body>`).
+- Re-run the probe with the new placement.
+- Update `AppleNotesBodyRenderer.summaryHTML` / `rawNotesHTML` and their tests in `AppleNotesBodyRendererTests` accordingly, then re-run Task 4 and Task 6 tests.
+
+Document the outcome in this checklist (e.g. write "Marker survives in trailing `<p>`" or "Switched to leading marker — see commit `abc1234`").
+
+- [ ] **Step 3: Clean up the probe**
+
+In Apple Notes, delete the `Casablanca-Probe` folder.
+
+No commit for this task — it produces only a verified assumption (or an inline fix to Task 4 already committed).
 
 ---
 
@@ -1193,9 +1296,14 @@ Create `Casablanca/Services/NSAppleScriptAppleNotesScripting.swift`:
 import Foundation
 import AppKit
 
-final class NSAppleScriptAppleNotesScripting: AppleNotesScripting {
+/// Production `NSAppleScript`-backed implementation. Modeled as an `actor` so its methods are
+/// implicitly serialized — Notes scripting is not reentrant-safe.
+///
+/// Note: `NSAppleScript.executeAndReturnError` is fully synchronous and not cancellable. The
+/// 30-second timeout resolves the awaiting `Task` but the underlying worker thread continues
+/// until the script returns. The leaked thread is accepted as a v1 trade-off.
+actor NSAppleScriptAppleNotesScripting: AppleNotesScripting {
     private let timeout: TimeInterval
-    private let queue = DispatchQueue(label: "com.casablanca.AppleNotesScripting", qos: .userInitiated)
 
     init(timeout: TimeInterval = 30) {
         self.timeout = timeout
@@ -1204,36 +1312,28 @@ final class NSAppleScriptAppleNotesScripting: AppleNotesScripting {
     func ensureFolder(named name: String) async throws -> AppleNotesFolderRef {
         let source = """
         tell application "Notes"
-            set targetAccount to my __resolveAccount()
-            set folderName to "\(escapeAppleScriptString(name))"
+            try
+                set targetAccount to default account
+            on error
+                set targetAccount to first account
+            end try
+            set folderName to "\(escape(name))"
             if not (exists folder folderName of targetAccount) then
                 make new folder at targetAccount with properties {name:folderName}
             end if
             set f to folder folderName of targetAccount
             return (id of f) & "||" & (name of f)
         end tell
-        on __resolveAccount()
-            tell application "Notes"
-                try
-                    return default account
-                end try
-                set acc to first account whose id is (id of first account)
-                return acc
-            end tell
-        end __resolveAccount
         """
         let raw = try await run(source)
-        let parts = raw.components(separatedBy: "||")
-        guard parts.count == 2 else { throw AppleNotesExportError.unexpectedResponse(raw) }
-        return AppleNotesFolderRef(id: parts[0], name: parts[1])
+        return try parseFolderRef(raw)
     }
 
     func findNote(markerContaining marker: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef? {
         let source = """
         tell application "Notes"
-            set folderId to "\(escapeAppleScriptString(folder.id))"
-            set markerText to "\(escapeAppleScriptString(marker))"
-            set matches to {}
+            set folderId to "\(escape(folder.id))"
+            set markerText to "\(escape(marker))"
             try
                 set theFolder to (first folder whose id is folderId)
             on error
@@ -1249,16 +1349,14 @@ final class NSAppleScriptAppleNotesScripting: AppleNotesScripting {
         """
         let raw = try await run(source)
         if raw.isEmpty { return nil }
-        let parts = raw.components(separatedBy: "||")
-        guard parts.count == 2 else { throw AppleNotesExportError.unexpectedResponse(raw) }
-        return AppleNotesNoteRef(id: parts[0], title: parts[1])
+        return try parseNoteRef(raw)
     }
 
     func noteBody(id: String) async throws -> String? {
         let source = """
         tell application "Notes"
             try
-                return body of (first note whose id is "\(escapeAppleScriptString(id))")
+                return body of (first note whose id is "\(escape(id))")
             on error
                 return "__CASABLANCA_NOT_FOUND__"
             end try
@@ -1271,24 +1369,22 @@ final class NSAppleScriptAppleNotesScripting: AppleNotesScripting {
     func createNote(title: String, body: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef {
         let source = """
         tell application "Notes"
-            set folderId to "\(escapeAppleScriptString(folder.id))"
+            set folderId to "\(escape(folder.id))"
             set theFolder to (first folder whose id is folderId)
-            set newNote to make new note at theFolder with properties {name:"\(escapeAppleScriptString(title))", body:"\(escapeAppleScriptString(body))"}
+            set newNote to make new note at theFolder with properties {name:"\(escape(title))", body:"\(escape(body))"}
             return (id of newNote) & "||" & (name of newNote)
         end tell
         """
         let raw = try await run(source)
-        let parts = raw.components(separatedBy: "||")
-        guard parts.count == 2 else { throw AppleNotesExportError.unexpectedResponse(raw) }
-        return AppleNotesNoteRef(id: parts[0], title: parts[1])
+        return try parseNoteRef(raw)
     }
 
     func updateNote(id: String, title: String, body: String) async throws {
         let source = """
         tell application "Notes"
-            set theNote to (first note whose id is "\(escapeAppleScriptString(id))")
-            set name of theNote to "\(escapeAppleScriptString(title))"
-            set body of theNote to "\(escapeAppleScriptString(body))"
+            set theNote to (first note whose id is "\(escape(id))")
+            set name of theNote to "\(escape(title))"
+            set body of theNote to "\(escape(body))"
         end tell
         """
         _ = try await run(source)
@@ -1296,49 +1392,79 @@ final class NSAppleScriptAppleNotesScripting: AppleNotesScripting {
 
     // MARK: - Private
 
+    private func parseFolderRef(_ raw: String) throws -> AppleNotesFolderRef {
+        let parts = raw.components(separatedBy: "||")
+        guard parts.count == 2 else { throw AppleNotesExportError.unexpectedResponse(raw) }
+        return AppleNotesFolderRef(id: parts[0], name: parts[1])
+    }
+
+    private func parseNoteRef(_ raw: String) throws -> AppleNotesNoteRef {
+        let parts = raw.components(separatedBy: "||")
+        guard parts.count == 2 else { throw AppleNotesExportError.unexpectedResponse(raw) }
+        return AppleNotesNoteRef(id: parts[0], title: parts[1])
+    }
+
     private func run(_ source: String) async throws -> String {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-            queue.async { [timeout] in
-                let group = DispatchGroup()
-                var resultString: String?
-                var error: Error?
+        let timeoutSeconds = timeout
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let state = ResumeState()
 
-                group.enter()
-                let worker = Thread {
-                    defer { group.leave() }
-                    var errorInfo: NSDictionary?
-                    guard let script = NSAppleScript(source: source) else {
-                        error = AppleNotesExportError.unexpectedResponse("could not compile script")
-                        return
+            // Run NSAppleScript on a detached thread; it's synchronous and uncancellable.
+            Thread.detachNewThread {
+                var errorInfo: NSDictionary?
+                guard let script = NSAppleScript(source: source) else {
+                    state.resumeOnce {
+                        continuation.resume(throwing: AppleNotesExportError.unexpectedResponse("could not compile script"))
                     }
-                    let descriptor = script.executeAndReturnError(&errorInfo)
-                    if let errorInfo = errorInfo {
-                        let code = errorInfo[NSAppleScript.errorNumber] as? Int ?? 0
-                        let message = errorInfo[NSAppleScript.errorMessage] as? String ?? ""
-                        error = AppleNotesExportError.from(appleScriptErrorCode: code, message: message)
-                        return
-                    }
-                    resultString = descriptor.stringValue ?? ""
-                }
-                worker.start()
-
-                if group.wait(timeout: .now() + timeout) == .timedOut {
-                    continuation.resume(throwing: AppleNotesExportError.timedOut)
                     return
                 }
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: resultString ?? "")
+                let descriptor = script.executeAndReturnError(&errorInfo)
+                if let errorInfo = errorInfo {
+                    let code = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
+                    let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? ""
+                    state.resumeOnce {
+                        continuation.resume(throwing: AppleNotesExportError.from(appleScriptErrorCode: code, message: message))
+                    }
+                    return
+                }
+                let result = descriptor.stringValue ?? ""
+                state.resumeOnce {
+                    continuation.resume(returning: result)
+                }
+            }
+
+            // Timeout watchdog on a separate dispatch queue so the script thread can't starve it.
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeoutSeconds) {
+                state.resumeOnce {
+                    continuation.resume(throwing: AppleNotesExportError.timedOut)
                 }
             }
         }
     }
 
-    private func escapeAppleScriptString(_ value: String) -> String {
+    private func escape(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
+    }
+}
+
+/// Single-resume guard for the timeout race between the script thread and the watchdog.
+/// Resolves `CheckedContinuation`'s "must resume exactly once" requirement when two callbacks
+/// can race to resume.
+private final class ResumeState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+
+    func resumeOnce(_ work: () -> Void) {
+        lock.lock()
+        let shouldResume = !resumed
+        resumed = true
+        lock.unlock()
+        if shouldResume { work() }
     }
 }
 ```
@@ -1580,7 +1706,7 @@ struct ExportResult {
 
 enum ExportService {
     static func exportAutomaticallyIfEnabled(_ meeting: Meeting) {
-        guard UserDefaults.standard.bool(forKey: AppPreferenceKey.autoExportEnabled),
+        guard isAutoExportOn(),
               hasExportableContent(meeting)
         else { return }
 
@@ -1605,12 +1731,21 @@ enum ExportService {
             || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !meeting.timestampedNotes.isEmpty
     }
+
+    // Read the unified auto-export switch. Until Task 15 migrates SettingsView to write the new
+    // key, the SettingsView UI keeps writing `legacyAutoExportNotesToObsidian` — so we OR-read
+    // both keys here to keep the toggle responsive during the migration window. Task 15 removes
+    // the legacy OR fallback.
+    static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
+            || defaults.bool(forKey: AppPreferenceKey.legacyAutoExportNotesToObsidian)
+    }
 }
 ```
 
 Note: `hasExportableContent` is now internal (no `private`) so call sites in destination-aware routing can use it in Task 10.
 
-Note: this step also flips the auto-export pref key from `autoExportNotesToObsidian` to `autoExportEnabled`. Once Task 11 (Settings UI) writes the new key, no behavior change is observable. Existing users will be migrated by `AppPreferences.migrateLegacyAutoExportKeyIfNeeded` at app startup (wired in Task 14).
+Note: `isAutoExportOn` reads both keys with OR semantics. This is the transitional behavior — Task 15 will collapse it to just `autoExportEnabled` once `SettingsView` writes the new key.
 
 - [ ] **Step 4: Run existing ExportService tests to verify they still pass**
 
@@ -1625,13 +1760,17 @@ git commit -m "refactor(export): extract ObsidianMeetingExporter from ExportServ
 
 ---
 
-## Task 10: Route `ExportService` through the selected destination
+## Task 10: Route `ExportService` through the selected destination (and migrate view call sites)
 
 **Files:**
 - Modify: `Casablanca/Services/ExportService.swift`
+- Modify: `Casablanca/Views/NotesEditorView.swift`
+- Modify: `Casablanca/Views/RecordedMeetingView.swift`
+- Modify: `Casablanca/Views/TranscriptionView.swift`
+- Modify: `Casablanca/Views/TodosView.swift` (if any export call sites exist there)
 - Create: `CasablancaTests/ExportServiceRoutingTests.swift`
 
-The async surface needed for Apple Notes export means `ExportService` gains async overloads. Existing sync entry points keep behaving exactly as today (Obsidian only), so callers that haven't been updated still compile.
+The async surface needed for Apple Notes export means `ExportService`'s `exportCompletedMeeting`, `exportRawNotes`, and `exportAutomaticallyIfEnabled` all become `async`. Keeping sync overloads alongside async ones causes Swift overload ambiguity at the call sites — so this task **replaces** the sync versions and migrates all view call sites to `await` in the same commit.
 
 - [ ] **Step 1: Write failing routing tests**
 
@@ -1711,11 +1850,12 @@ xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
 
 Expected: Compile failure ("No exact matches in call to static method 'exportCompletedMeeting'").
 
-- [ ] **Step 3: Extend `ExportService` with destination-aware async entry points**
+- [ ] **Step 3: Replace `ExportService`'s sync methods with destination-aware async methods**
 
-In `Casablanca/Services/ExportService.swift`, add at the bottom of the `ExportService` enum (keeping all existing methods):
+In `Casablanca/Services/ExportService.swift`, replace the entire `enum ExportService { ... }` block from Task 9 with:
 
 ```swift
+enum ExportService {
     enum DestinationResult {
         case obsidian(ExportResult)
         case appleNotes(summaryNoteId: String?, rawNotesNoteId: String)
@@ -1765,7 +1905,7 @@ In `Casablanca/Services/ExportService.swift`, add at the bottom of the `ExportSe
         defaults: UserDefaults = .standard,
         appleNotesScripting: AppleNotesScripting? = nil
     ) async {
-        guard defaults.bool(forKey: AppPreferenceKey.autoExportEnabled),
+        guard isAutoExportOn(defaults: defaults),
               hasExportableContent(meeting)
         else { return }
         do {
@@ -1774,11 +1914,79 @@ In `Casablanca/Services/ExportService.swift`, add at the bottom of the `ExportSe
             print("Automatic export skipped:", error.localizedDescription)
         }
     }
+
+    static func hasExportableContent(_ meeting: Meeting) -> Bool {
+        meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !meeting.timestampedNotes.isEmpty
+    }
+
+    static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
+            || defaults.bool(forKey: AppPreferenceKey.legacyAutoExportNotesToObsidian)
+    }
+}
 ```
 
-The legacy sync `exportCompletedMeeting(_:)`, `exportRawNotes(_:)`, and `exportAutomaticallyIfEnabled(_:)` from Task 9 must remain so existing call sites still build. They unconditionally use the Obsidian path. Task 12+ will migrate call sites onto the async destination-aware overloads.
+- [ ] **Step 4: Migrate all view call sites to the async API**
 
-- [ ] **Step 4: Run all export tests**
+Run:
+
+```bash
+grep -rn "ExportService\." Casablanca/Views/
+```
+
+For every match, wrap the call in `Task { @MainActor in ... }` and `await` it. Switch on `DestinationResult` to render the right success copy:
+
+```swift
+Task { @MainActor in
+    do {
+        let result = try await ExportService.exportCompletedMeeting(meeting)
+        switch result {
+        case .obsidian(let export):
+            statusMessage = "Saved to Obsidian: \(export.notesURL.lastPathComponent)"
+        case .appleNotes:
+            statusMessage = "Saved to Apple Notes folder \"Casablanca\"."
+        }
+    } catch {
+        statusMessage = error.localizedDescription
+    }
+}
+```
+
+`exportAutomaticallyIfEnabled(_:)` is now `async` — wrap callers similarly. In `TranscriptionView`, replace any hard-coded "Obsidian" copy in the automation indicator with a destination-aware label:
+
+```swift
+let destinationName: String = {
+    switch AppPreferences.exportDestination() {
+    case .obsidian: return "Obsidian"
+    case .appleNotes: return "Apple Notes"
+    }
+}()
+```
+
+In any view that exposes an "Open in Obsidian" affordance for prep or todos, hide it when `AppPreferences.prepTodoStorage() == .local` (note that `MeetingPrepService.prepURL` already returns nil in Local mode after Task 11, so most call sites become safe automatically — verify visually).
+
+- [ ] **Step 5: Adjust existing `ExportServiceTests` for the async surface**
+
+The existing tests in `CasablancaTests/ExportServiceTests.swift` call `try ExportService.exportRawNotes(meeting)`. With the new async signature, that call must become `try await ExportService.exportRawNotes(meeting)` inside an `async throws` test method, and the result must be unwrapped via `case .obsidian(let result) = ...`.
+
+Apply this transformation to every test in that file. For example:
+
+```swift
+func testExportRawNotesRendersFreeformBeforeTimestampedNotes() async throws {
+    // ...setup unchanged...
+    let result = try await ExportService.exportRawNotes(meeting)
+    guard case .obsidian(let export) = result else {
+        return XCTFail("Expected obsidian destination by default")
+    }
+    let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
+    // ...assertions unchanged...
+}
+```
+
+- [ ] **Step 6: Run all export tests**
 
 ```bash
 xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
@@ -1788,13 +1996,27 @@ xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
 ```
 
-Expected: existing `ExportServiceTests` still pass, both routing tests pass.
+Expected: existing `ExportServiceTests` pass after the async transformation, both routing tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Build full app to verify views compile**
 
 ```bash
-git add Casablanca/Services/ExportService.swift CasablancaTests/ExportServiceRoutingTests.swift Casablanca.xcodeproj/project.pbxproj
-git commit -m "feat(export): route ExportService through selected destination"
+xcodebuild build -project Casablanca.xcodeproj -scheme Casablanca \
+  -derivedDataPath .build/test -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
+```
+
+Expected: BUILD SUCCEEDED.
+
+- [ ] **Step 8: Manual smoke — Obsidian mode unchanged**
+
+Launch the built app. Leave both prefs at defaults (Obsidian / Obsidian). Record/select a meeting with content. Manually export. Verify the markdown files still appear in the vault under `meeting notes/`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add Casablanca/Services/ExportService.swift CasablancaTests/ExportServiceRoutingTests.swift CasablancaTests/ExportServiceTests.swift Casablanca/Views/NotesEditorView.swift Casablanca/Views/RecordedMeetingView.swift Casablanca/Views/TranscriptionView.swift Casablanca/Views/TodosView.swift Casablanca.xcodeproj/project.pbxproj
+git commit -m "feat(export): route through destination, migrate view call sites to async"
 ```
 
 ---
@@ -2148,145 +2370,37 @@ git commit -m "feat(todos): gate ObsidianTodoSyncService on PrepTodoStorage and 
 
 ---
 
-## Task 13: Wire the legacy-pref migration into app launch
-
-**Files:**
-- Modify: `Casablanca/CasablancaApp.swift`
-
-- [ ] **Step 1: Read the current entry point**
-
-Open `Casablanca/CasablancaApp.swift` in your editor (or run `cat Casablanca/CasablancaApp.swift`) and find the `App` struct definition. Determine whether an `init()` already exists.
-
-- [ ] **Step 2: Add the migration call**
-
-Inside `CasablancaApp.swift`, at the top of the `App` struct's `init()`, add:
-
-```swift
-        AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
-```
-
-If no `init()` exists, add one:
-
-```swift
-    init() {
-        AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
-    }
-```
-
-- [ ] **Step 3: Build**
-
-```bash
-xcodebuild build -project Casablanca.xcodeproj -scheme Casablanca \
-  -derivedDataPath .build/test -destination 'platform=macOS' \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
-```
-
-Expected: BUILD SUCCEEDED.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add Casablanca/CasablancaApp.swift
-git commit -m "feat(prefs): seed autoExportEnabled from legacy key at app launch"
-```
-
----
-
-## Task 14: Update view call sites to use destination-aware export and storage-aware todos
-
-**Files:**
-- Modify: `Casablanca/Views/NotesEditorView.swift`
-- Modify: `Casablanca/Views/RecordedMeetingView.swift`
-- Modify: `Casablanca/Views/TranscriptionView.swift`
-- Modify: `Casablanca/Views/TodosView.swift`
-
-Each view that currently calls `ExportService.exportCompletedMeeting(_)`, `ExportService.exportRawNotes(_)`, or `ExportService.exportAutomaticallyIfEnabled(_)` must move to the async destination-aware overloads and present destination-appropriate success/failure copy. View call sites that call `ObsidianTodoSyncService` already pick up Local-mode behavior automatically (Task 12 handles gating internally).
-
-- [ ] **Step 1: Find every call site**
-
-Run:
-
-```bash
-grep -rn "ExportService\." Casablanca/Views/
-```
-
-Enumerate each call to `exportCompletedMeeting`, `exportRawNotes`, and `exportAutomaticallyIfEnabled`.
-
-For each match:
-
-1. Convert the call into `try await ExportService.exportCompletedMeeting(meeting)` (or the raw-notes variant) inside a `Task { @MainActor in ... }`.
-2. Switch on the `DestinationResult` returned to produce the success message:
-   - `.obsidian(let result)` — use existing wording referencing the saved file URLs in `result.exportedURLs`.
-   - `.appleNotes` — show "Saved to Apple Notes folder Casablanca."
-3. Map thrown errors to user-facing copy via `error.localizedDescription` (this already works for `AppleNotesExportError` and `ExportError`).
-
-In `TranscriptionView.swift`, change any "Will export to Obsidian" / "Auto-exported to Obsidian" copy to be destination-aware:
-
-```swift
-let destinationName: String = {
-    switch AppPreferences.exportDestination() {
-    case .obsidian: return "Obsidian"
-    case .appleNotes: return "Apple Notes"
-    }
-}()
-```
-
-Use `destinationName` in user-visible strings instead of the hard-coded "Obsidian".
-
-In `TodosView.swift`, hide any "Open in Obsidian" affordance when `AppPreferences.prepTodoStorage() == .local` (similarly in other views — typically `MeetingPrepService.prepURL(...)` already returns nil, so the affordance disappears, but verify in each call site).
-
-- [ ] **Step 2: Build and run the existing UI/workflow test suite**
-
-```bash
-xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
-  -derivedDataPath .build/test -destination 'platform=macOS' \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=''
-```
-
-Expected: full test suite passes (no UI tests should regress; the existing `MeetingStartFlowTests` and similar should still pass since Local mode defaults are unchanged).
-
-- [ ] **Step 3: Manually verify end-to-end Obsidian flow has not regressed**
-
-Open Casablanca, leave both prefs at defaults, record/import a meeting, manually export. Verify:
-- Markdown files appear in the configured vault under `meeting notes/`.
-- Auto-export still triggers when `autoExportEnabled` is on.
-- Open-in-Obsidian affordances still work.
-
-This is a manual smoke; record findings in the commit message if anything regressed and fix before committing.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add Casablanca/Views/NotesEditorView.swift Casablanca/Views/RecordedMeetingView.swift Casablanca/Views/TranscriptionView.swift Casablanca/Views/TodosView.swift
-git commit -m "feat(views): switch export call sites to destination-aware async API"
-```
-
----
-
-## Task 15: Settings UI — destination & storage pickers, helper text, mode-transition refresh
+## Task 13: Settings UI — destination & storage pickers, helper text, mode-transition refresh
 
 **Files:**
 - Modify: `Casablanca/Views/SettingsView.swift`
+- Modify: `Casablanca/Services/ExportService.swift` (remove the transitional OR fallback)
 
-- [ ] **Step 1: Add the two pickers**
+- [ ] **Step 1: Add the two pickers and migrate the auto-export toggle to the new key**
 
-Inside `SettingsView`, add a new section (or extend the existing export section) with:
+In `SettingsView`, find the existing `@AppStorage(AppPreferenceKey.autoExportNotesToObsidian)` (note: now `legacyAutoExportNotesToObsidian` after Task 1's rename, so the SettingsView still references the legacy key string). Update its key to `AppPreferenceKey.autoExportEnabled`:
+
+```swift
+@AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
+```
+
+Then add the two new pickers as additional `@AppStorage` properties:
 
 ```swift
 @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
 @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
 
 private var exportDestination: ExportDestination {
-    get { ExportDestination(rawValue: exportDestinationRaw) ?? .obsidian }
-    set { exportDestinationRaw = newValue.rawValue }
+    ExportDestination(rawValue: exportDestinationRaw) ?? .obsidian
 }
 private var prepTodoStorage: PrepTodoStorage {
-    get { PrepTodoStorage(rawValue: prepTodoStorageRaw) ?? .obsidian }
-    set { prepTodoStorageRaw = newValue.rawValue }
+    PrepTodoStorage(rawValue: prepTodoStorageRaw) ?? .obsidian
 }
 ```
 
-And in the section body:
+(No computed setter — `Picker(selection: $exportDestinationRaw)` binds directly to the string `@AppStorage`. The computed `exportDestination` getter is used only for read-side branches like helper text.)
+
+In the section body:
 
 ```swift
 Picker("Export destination", selection: $exportDestinationRaw) {
@@ -2316,7 +2430,17 @@ Update existing helper copy under the vault path field to read:
 
 > "Your Obsidian vault path is required when Obsidian is selected for export or for prep & todo storage."
 
-- [ ] **Step 2: Trigger an Obsidian refresh when storage flips Local → Obsidian**
+- [ ] **Step 2: Remove the transitional OR fallback in `ExportService.isAutoExportOn`**
+
+Now that `SettingsView` writes the new key, the OR-with-legacy is no longer needed. Replace the body of `isAutoExportOn` with:
+
+```swift
+    static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
+    }
+```
+
+- [ ] **Step 3: Trigger an Obsidian refresh when storage flips Local → Obsidian**
 
 Use `onChange` on `prepTodoStorageRaw`:
 
@@ -2337,7 +2461,7 @@ Use `onChange` on `prepTodoStorageRaw`:
 
 `modelContext` must be available via `@Environment(\.modelContext)`. If it's not yet injected into `SettingsView`, add `@Environment(\.modelContext) private var modelContext` at the top of the view.
 
-- [ ] **Step 3: Build the app and run the full suite**
+- [ ] **Step 4: Build and run the full suite**
 
 ```bash
 xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
@@ -2347,24 +2471,25 @@ xcodebuild test -project Casablanca.xcodeproj -scheme Casablanca \
 
 Expected: full suite passes.
 
-- [ ] **Step 4: Manual UI verification**
+- [ ] **Step 5: Manual UI verification**
 
 Open the app, go to Settings. Verify:
 - Both pickers render and persist their selections across relaunches.
 - Helper copy updates immediately when the selection changes.
+- The auto-export toggle still reflects its previous state for existing users (verified by the migration in Task 1).
 - Selecting Apple Notes does not break the rest of the Settings sheet.
 - Switching `Prep & todo storage` from Local back to Obsidian triggers a refresh (todos from the vault re-appear).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Casablanca/Views/SettingsView.swift
-git commit -m "feat(settings): add export destination and prep/todo storage pickers"
+git add Casablanca/Views/SettingsView.swift Casablanca/Services/ExportService.swift
+git commit -m "feat(settings): add destination/storage pickers and migrate auto-export key"
 ```
 
 ---
 
-## Task 16: End-to-end smoke and final verification
+## Task 14: End-to-end smoke and final verification
 
 **Files:** none modified.
 
@@ -2438,8 +2563,11 @@ EOF
 
 ## Plan Notes
 
-- Subagent execution should treat each task as a single PR-worthy commit.
-- Tasks 1–10 are pure backend and have no UI surface; failure isolates well.
-- Tasks 11–12 are storage gating; failures may cascade into Tasks 14 and 15.
-- Task 8 (production AppleScript) cannot be fully unit-tested; rely on the manual smoke in Task 16 and the fake-driven exporter tests in Task 6 for confidence.
-- If Task 4 reveals that Notes drops trailing `<p>` markers in practice (smoke-test surprise), move the marker to a leading `<p>` and re-run Task 6 tests with the updated `AppleNotesBodyRenderer` and `findNote` marker string.
+- Subagent execution should treat each task as a single PR-worthy commit (Task 7.5 is the lone exception: it produces a verified assumption, no commit).
+- Tasks 1–9 are pure backend with isolated failure modes.
+- Task 7.5 is a manual marker-survival smoke run in Terminal — it gates the validity of the renderer chosen in Task 4. If the marker doesn't survive, Task 4 (and its tests) must be updated before continuing.
+- Task 10 (`ExportService` routing + view migration) is the riskiest task: it removes the sync `ExportService` API and migrates every call site in the same commit. If a view is missed, the build fails. Use `grep -rn "ExportService\." Casablanca/Views/` to enumerate exhaustively.
+- Task 11 and Task 12 gate prep/todo storage; failures may cascade into Task 13 (Settings).
+- Task 8 (production AppleScript) cannot be fully unit-tested; rely on Task 7.5's marker probe, the fake-driven exporter tests in Task 6, and the end-to-end smoke in Task 14 for confidence.
+- `NSAppleScript` execution is not cancellable; the 30-second timeout resolves the awaiting `Task` but leaks the worker thread until the script completes. Accepted v1 trade-off.
+- The legacy `autoExportNotesToObsidian` key is preserved indefinitely (Task 1 migration is non-destructive). It can be deleted in a future cleanup once we're confident no user is on a pre-migration build.
