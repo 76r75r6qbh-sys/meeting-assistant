@@ -5,6 +5,7 @@ struct AppleNotesExportResult {
     let rawNotesNoteId: String
 }
 
+@MainActor
 final class AppleNotesMeetingExporter {
     static let folderName = "Casablanca"
 
@@ -22,8 +23,8 @@ final class AppleNotesMeetingExporter {
         let rawNotesHTML = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
         let shouldExportSummary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
-        let summaryMarker = "Casablanca id: \(meeting.id.uuidString) / summary"
-        let notesMarker = "Casablanca id: \(meeting.id.uuidString) / notes"
+        let summaryMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .summary)
+        let notesMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .notes)
 
         var summaryId: String? = nil
         if shouldExportSummary {
@@ -55,7 +56,7 @@ final class AppleNotesMeetingExporter {
     func exportRawNotesOnly(_ meeting: Meeting) async throws -> AppleNotesExportResult {
         let folder = try await ensureFolderMappingErrors()
         let rawNotesHTML = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
-        let notesMarker = "Casablanca id: \(meeting.id.uuidString) / notes"
+        let notesMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .notes)
 
         let rawNotesId = try await upsert(
             cachedId: meeting.appleNotesRawNotesNoteID,
@@ -112,9 +113,6 @@ final class AppleNotesMeetingExporter {
     private func mapped(_ error: Error) -> Error {
         let nsError = error as NSError
         if let code = nsError.userInfo["NSAppleScriptErrorNumber"] as? Int {
-            return AppleNotesExportError.from(appleScriptErrorCode: code, message: nsError.localizedDescription)
-        }
-        if nsError.domain == "NSAppleScriptErrorDomain", let code = nsError.userInfo["NSAppleScriptErrorNumber"] as? Int {
             return AppleNotesExportError.from(appleScriptErrorCode: code, message: nsError.localizedDescription)
         }
         return error

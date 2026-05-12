@@ -1,6 +1,18 @@
 import Foundation
 
 enum AppleNotesBodyRenderer {
+    enum MarkerKind: String {
+        case summary
+        case notes
+    }
+
+    /// Single source of truth for the identity marker embedded in note bodies and scanned during
+    /// upsert. Format: `Casablanca id: <UUID> / <summary|notes>`. The renderer wraps it in `<p>`
+    /// for the body; the exporter passes the bare string to `findNote(markerContaining:in:)`.
+    static func marker(for meetingID: UUID, kind: MarkerKind) -> String {
+        "Casablanca id: \(meetingID.uuidString) / \(kind.rawValue)"
+    }
+
     static func summaryHTML(for meeting: Meeting) -> String {
         var sections: [String] = []
         sections.append("<h1>\(escape(meeting.title))</h1>")
@@ -17,7 +29,7 @@ enum AppleNotesBodyRenderer {
             sections.append(todoList(meeting.todos))
         }
 
-        sections.append(markerParagraph(meetingId: meeting.id, kind: "summary"))
+        sections.append(markerParagraph(meetingId: meeting.id, kind: .summary))
         return wrap(sections.joined())
     }
 
@@ -42,7 +54,7 @@ enum AppleNotesBodyRenderer {
             sections.append("<ul>\(items)</ul>")
         }
 
-        sections.append(markerParagraph(meetingId: meeting.id, kind: "notes"))
+        sections.append(markerParagraph(meetingId: meeting.id, kind: .notes))
         return wrap(sections.joined())
     }
 
@@ -52,10 +64,10 @@ enum AppleNotesBodyRenderer {
         "<html><body>\(body)</body></html>"
     }
 
-    private static func markerParagraph(meetingId: UUID, kind: String) -> String {
+    private static func markerParagraph(meetingId: UUID, kind: MarkerKind) -> String {
         // Visible footer marker — Notes is known to strip HTML comments on save, so the marker
         // is rendered as plain text inside a trailing <p>.
-        "<p>Casablanca id: \(meetingId.uuidString) / \(kind)</p>"
+        "<p>\(marker(for: meetingId, kind: kind))</p>"
     }
 
     private static func meetingFactsParagraphs(for meeting: Meeting) -> String {
