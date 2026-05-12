@@ -8,7 +8,7 @@ struct RecordedMeetingView: View {
 
     @Environment(\.modelContext) private var modelContext
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
-    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
+    @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled = false
     @Environment(AppModel.self) private var appModel
     private var summarizationService: SummarizationService { appModel.summarizationService }
     private var terminologyService: TerminologyService { appModel.terminologyService }
@@ -452,7 +452,7 @@ struct RecordedMeetingView: View {
             return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
         }
 
-        if autoSummarizeAfterTranscription && autoExportNotesToObsidian {
+        if autoSummarizeAfterTranscription && autoExportEnabled {
             return "Casablanca is moving this meeting through summary and export automatically."
         }
 

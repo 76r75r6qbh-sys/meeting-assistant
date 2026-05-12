@@ -1,9 +1,13 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.modelContext) private var modelContext
     @AppStorage(AppPreferenceKey.obsidianVaultPath) private var obsidianVaultPath = ""
-    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
+    @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
+    @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
@@ -24,6 +28,14 @@ struct SettingsView: View {
         case summaryPrompt
         case terminologyList
         var id: Self { self }
+    }
+
+    private var exportDestination: ExportDestination {
+        ExportDestination(rawValue: exportDestinationRaw) ?? .obsidian
+    }
+
+    private var prepTodoStorage: PrepTodoStorage {
+        PrepTodoStorage(rawValue: prepTodoStorageRaw) ?? .obsidian
     }
 
     var body: some View {
@@ -70,7 +82,7 @@ struct SettingsView: View {
                 }
 
                 if obsidianVaultPath.isEmpty {
-                    Text("Select your Obsidian vault to enable notes export and todo sync.")
+                    Text("Your Obsidian vault path is required when Obsidian is selected for export or for prep & todo storage.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 } else {
@@ -78,6 +90,32 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
+            }
+
+            Section("Export & Storage") {
+                Picker("Export destination", selection: $exportDestinationRaw) {
+                    Text("Obsidian").tag(ExportDestination.obsidian.rawValue)
+                    Text("Apple Notes").tag(ExportDestination.appleNotes.rawValue)
+                }
+
+                Text(exportDestination == .obsidian
+                    ? "Meeting notes are saved as Markdown to your Obsidian vault."
+                    : "Meeting notes are saved to the Casablanca folder in Apple Notes. The first export will ask for permission to control Notes.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Prep & todo storage", selection: $prepTodoStorageRaw) {
+                    Text("Obsidian").tag(PrepTodoStorage.obsidian.rawValue)
+                    Text("Local (Casablanca only)").tag(PrepTodoStorage.local.rawValue)
+                }
+
+                Text(prepTodoStorage == .obsidian
+                    ? "Prep notes are read from your Obsidian vault and todos sync to and from your vault."
+                    : "Prep notes are hidden. Todos are stored only inside Casablanca.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Recording") {
@@ -102,14 +140,26 @@ struct SettingsView: View {
             Section("Automation") {
                 Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
 
-                Toggle("Automatically export notes to Obsidian", isOn: $autoExportNotesToObsidian)
+                Toggle("Automatically export notes after recording", isOn: $autoExportEnabled)
 
-                Text("Automations run in sequence after recording: transcription, summary generation, then Obsidian export when enabled.")
+                Text("Automations run in sequence after recording: transcription, summary generation, then export to the selected destination when enabled.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
         }
         .formStyle(.grouped)
+        .onChange(of: prepTodoStorageRaw) { _, newValue in
+            if newValue == PrepTodoStorage.obsidian.rawValue {
+                Task { @MainActor in
+                    do {
+                        try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+                    } catch {
+                        // Best-effort refresh — surface non-blocking error in console only.
+                        print("Storage transition refresh failed:", error.localizedDescription)
+                    }
+                }
+            }
+        }
     }
 
     private var aiSettings: some View {

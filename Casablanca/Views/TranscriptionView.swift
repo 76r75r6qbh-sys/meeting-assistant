@@ -11,7 +11,7 @@ struct TranscriptionView: View {
     @Environment(AppModel.self) private var appModel
     private var terminologyService: TerminologyService { appModel.terminologyService }
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
-    @AppStorage(AppPreferenceKey.autoExportNotesToObsidian) private var autoExportNotesToObsidian = false
+    @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled = false
     @State private var didStart = false
     @State private var error: TranscriptionError?
 
@@ -191,7 +191,7 @@ struct TranscriptionView: View {
     }
 
     private var pipelineMessage: String {
-        if autoExportNotesToObsidian {
+        if autoExportEnabled {
             let destinationName: String = {
                 switch AppPreferences.exportDestination() {
                 case .obsidian: return "Obsidian"

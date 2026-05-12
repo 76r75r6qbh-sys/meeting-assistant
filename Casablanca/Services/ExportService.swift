@@ -92,6 +92,5 @@ enum ExportService {
 
     static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
-            || defaults.bool(forKey: AppPreferenceKey.legacyAutoExportNotesToObsidian)
     }
 }
