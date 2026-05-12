@@ -10,8 +10,7 @@ enum AppPreferenceKey {
     static let summaryPromptTemplate = "summaryPromptTemplate"
     static let autoExportEnabled = "autoExportEnabled"
     static let legacyAutoExportNotesToObsidian = "autoExportNotesToObsidian"
-    // Transitional: keep the old name resolving to the same legacy storage key until Task 9
-    // rewrites the only remaining caller (ExportService.exportAutomaticallyIfEnabled).
+    @available(*, deprecated, message: "Use autoExportEnabled. This alias exists only until Task 9 of the apple-notes-export plan migrates the remaining call sites.")
     static let autoExportNotesToObsidian = "autoExportNotesToObsidian"
     static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
     static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
