@@ -50,6 +50,15 @@ final actor InMemoryAppleNotesScripting: AppleNotesScripting {
         return nil
     }
 
+    func findNote(named name: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef? {
+        calls.append("findNoteByName:\(name):\(folder.id)")
+        if let error = findNoteError { throw error }
+        if let note = notes.first(where: { $0.folderID == folder.id && $0.title == name }) {
+            return AppleNotesNoteRef(id: note.id, title: note.title)
+        }
+        return nil
+    }
+
     func noteBody(id: String) async throws -> String? {
         calls.append("noteBody:\(id)")
         if let error = noteBodyError { throw error }

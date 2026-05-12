@@ -87,6 +87,39 @@ final class AppleNotesMeetingExporterTests: XCTestCase {
         XCTAssertTrue(notes.contains { $0.id == meeting.appleNotesSummaryNoteID && $0.body.contains(summaryMarker) })
     }
 
+    func testNameLookupRecoversWhenMarkerIsStrippedFromBody() async throws {
+        // Real-world scenario: after the first export, Apple Notes stores the body in its own
+        // canonical HTML form, sometimes mangling or stripping the embedded marker. On the next
+        // export the cached id may also have drifted (Apple Notes re-issues note ids on sync).
+        // Without a name-based fallback the exporter would treat this as "not found" and create
+        // a duplicate. We verify the name lookup recovers the existing note instead.
+        let fake = InMemoryAppleNotesScripting()
+        let exporter = AppleNotesMeetingExporter(scripting: fake)
+        let meeting = makeMeeting()
+        _ = try await exporter.export(meeting)
+
+        // Simulate Notes' body mangling: keep the note title and id but wipe the marker.
+        let summaryId = meeting.appleNotesSummaryNoteID!
+        let rawId = meeting.appleNotesRawNotesNoteID!
+        try await fake.updateNote(id: summaryId, title: meeting.obsidianFileName, body: "<p>marker mysteriously gone</p>")
+        try await fake.updateNote(id: rawId, title: "\(meeting.obsidianFileName) - Notes", body: "<p>marker mysteriously gone</p>")
+
+        // Clear the cached ids to simulate post-sync drift.
+        meeting.appleNotesSummaryNoteID = nil
+        meeting.appleNotesRawNotesNoteID = nil
+
+        _ = try await exporter.export(meeting)
+
+        let notes = await fake.notes
+        XCTAssertEqual(notes.count, 2,
+            "Name lookup should reuse the existing two notes, not create duplicates; got count=\(notes.count) with bodies=\(notes.map(\.body))")
+        // The cached ids should now point back at the same notes.
+        XCTAssertEqual(meeting.appleNotesSummaryNoteID, summaryId)
+        XCTAssertEqual(meeting.appleNotesRawNotesNoteID, rawId)
+        // And the bodies should be fresh (no longer the stripped placeholder).
+        XCTAssertTrue(notes.allSatisfy { $0.body.contains("Casablanca id:") })
+    }
+
     func testFolderDeletedOutOfBandIsRecreated() async throws {
         let fake = InMemoryAppleNotesScripting()
         let exporter = AppleNotesMeetingExporter(scripting: fake)

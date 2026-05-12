@@ -94,13 +94,22 @@ final class AppleNotesMeetingExporter {
                 return cachedId
             }
 
-            // 2. Marker scan.
+            // 2. Name lookup. Apple Notes preserves note names verbatim; the marker scan is
+            // unreliable in practice because Notes can mangle body text in its canonical
+            // storage form. Names are derived from `Meeting.obsidianFileName`, which is
+            // stable per meeting, so this is the most reliable recovery path.
+            if let match = try await scripting.findNote(named: title, in: folder) {
+                try await scripting.updateNote(id: match.id, title: title, body: body)
+                return match.id
+            }
+
+            // 3. Marker scan (defensive — recovers a note the user renamed in Apple Notes).
             if let match = try await scripting.findNote(markerContaining: marker, in: folder) {
                 try await scripting.updateNote(id: match.id, title: title, body: body)
                 return match.id
             }
 
-            // 3. Create.
+            // 4. Create.
             let ref = try await scripting.createNote(title: title, body: body, in: folder)
             return ref.id
         } catch let error as AppleNotesExportError {

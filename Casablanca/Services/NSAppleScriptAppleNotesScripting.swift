@@ -57,6 +57,29 @@ actor NSAppleScriptAppleNotesScripting: AppleNotesScripting {
         return try parseNoteRef(raw)
     }
 
+    func findNote(named name: String, in folder: AppleNotesFolderRef) async throws -> AppleNotesNoteRef? {
+        let source = """
+        tell application "Notes"
+            set folderId to "\(escape(folder.id))"
+            set targetName to "\(escape(name))"
+            try
+                set theFolder to (first folder whose id is folderId)
+            on error
+                return ""
+            end try
+            try
+                set matched to first note of theFolder whose name is targetName
+                return (id of matched) & "||" & (name of matched)
+            on error
+                return ""
+            end try
+        end tell
+        """
+        let raw = try await run(source)
+        if raw.isEmpty { return nil }
+        return try parseNoteRef(raw)
+    }
+
     func noteBody(id: String) async throws -> String? {
         let source = """
         tell application "Notes"
