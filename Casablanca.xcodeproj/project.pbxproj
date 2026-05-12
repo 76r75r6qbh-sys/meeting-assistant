@@ -723,6 +723,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Casablanca;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Casablanca uses AppleScript automation to save meeting notes to Apple Notes when you select Apple Notes as the export destination.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Casablanca needs access to your calendar to show upcoming meetings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Casablanca needs microphone access to record meeting audio.";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Casablanca needs screen and system audio recording access to capture meeting audio.";
@@ -755,6 +756,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Casablanca;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Casablanca uses AppleScript automation to save meeting notes to Apple Notes when you select Apple Notes as the export destination.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Casablanca needs access to your calendar to show upcoming meetings.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Casablanca needs microphone access to record meeting audio.";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Casablanca needs screen and system audio recording access to capture meeting audio.";
