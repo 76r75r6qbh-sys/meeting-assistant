@@ -5,28 +5,24 @@ enum MeetingPrepService {
         for meeting: Meeting,
         userDefaults: UserDefaults = .standard
     ) -> URL? {
-        ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults)?.prepURL
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return nil }
+        return ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults)?.prepURL
     }
 
     static func loadPrepMarkdown(
         for meeting: Meeting,
         userDefaults: UserDefaults = .standard
     ) -> String? {
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return nil }
         guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults) else {
             return nil
         }
 
         for prepURL in files.prepCandidates {
-            guard let markdown = try? String(contentsOf: prepURL, encoding: .utf8) else {
-                continue
-            }
-
+            guard let markdown = try? String(contentsOf: prepURL, encoding: .utf8) else { continue }
             let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return markdown
-            }
+            if !trimmed.isEmpty { return markdown }
         }
-
         return nil
     }
 
@@ -35,10 +31,10 @@ enum MeetingPrepService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) -> Bool {
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return false }
         guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults) else {
             return false
         }
-
         return files.prepCandidates.contains { fileManager.fileExists(atPath: $0.path) }
     }
 }

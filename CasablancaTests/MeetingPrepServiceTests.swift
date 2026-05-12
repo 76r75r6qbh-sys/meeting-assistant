@@ -83,6 +83,30 @@ final class MeetingPrepServiceTests: XCTestCase {
         XCTAssertEqual(files.canonicalTodoWriteURL.path, prepURL.path)
     }
 
+    func testPrepURLReturnsNilInLocalMode() {
+        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        let meeting = Meeting(title: "Sync", date: .now)
+        XCTAssertNil(MeetingPrepService.prepURL(for: meeting, userDefaults: defaults))
+    }
+
+    func testLoadPrepMarkdownReturnsNilInLocalMode() {
+        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        let meeting = Meeting(title: "Sync", date: .now)
+        XCTAssertNil(MeetingPrepService.loadPrepMarkdown(for: meeting, userDefaults: defaults))
+    }
+
+    func testHasPrepReturnsFalseInLocalMode() {
+        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        let meeting = Meeting(title: "Sync", date: .now)
+        XCTAssertFalse(MeetingPrepService.hasPrep(for: meeting, userDefaults: defaults))
+    }
+
     private func makeDate() -> Date {
         var components = DateComponents()
         components.calendar = Calendar(identifier: .gregorian)
