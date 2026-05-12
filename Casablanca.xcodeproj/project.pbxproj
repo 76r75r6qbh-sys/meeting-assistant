@@ -86,6 +86,7 @@
 		A10063 /* AppleNotesMeetingExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10063 /* AppleNotesMeetingExporterTests.swift */; };
 		A10064 /* NSAppleScriptAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064 /* NSAppleScriptAppleNotesScripting.swift */; };
 		A10065 /* NSAppleScriptAppleNotesScriptingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */; };
+		A10066 /* ObsidianMeetingExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ObsidianMeetingExporter.swift */; };
 		A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */; };
 		A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */; };
 		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
@@ -194,6 +195,7 @@
 		B10063 /* AppleNotesMeetingExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesMeetingExporterTests.swift; sourceTree = "<group>"; };
 		B10064 /* NSAppleScriptAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScripting.swift; sourceTree = "<group>"; };
 		B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScriptingTests.swift; sourceTree = "<group>"; };
+		B10066 /* ObsidianMeetingExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingExporter.swift; sourceTree = "<group>"; };
 		B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloader.swift; sourceTree = "<group>"; };
 		B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePathsTests.swift; sourceTree = "<group>"; };
@@ -327,6 +329,7 @@
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				B10024 /* ExportService.swift */,
+				B10066 /* ObsidianMeetingExporter.swift */,
 				B10036 /* MeetingPrepService.swift */,
 				B10039 /* ObsidianMeetingFiles.swift */,
 				B10040 /* ObsidianTodoMarkdown.swift */,
@@ -580,6 +583,7 @@
 				A10021 /* MarkdownTextEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
 				A10023 /* ExportService.swift in Sources */,
+				A10066 /* ObsidianMeetingExporter.swift in Sources */,
 				A10025 /* MenuBarMeetingView.swift in Sources */,
 				A10026 /* TodoItem.swift in Sources */,
 				A10027 /* SummaryResponseParser.swift in Sources */,
