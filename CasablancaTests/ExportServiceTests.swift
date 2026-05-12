@@ -12,12 +12,19 @@ final class ExportServiceTests: XCTestCase {
         ]
 
         let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
+        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
         UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
         defer {
             if let previousVaultPath {
                 UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
             } else {
                 UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
+            }
+            if let previousDestination {
+                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
             }
         }
 
@@ -41,12 +48,19 @@ final class ExportServiceTests: XCTestCase {
         meeting.userNotes = "Only freeform notes"
 
         let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
+        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
         UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
         defer {
             if let previousVaultPath {
                 UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
             } else {
                 UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
+            }
+            if let previousDestination {
+                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
             }
         }
 
@@ -70,12 +84,19 @@ final class ExportServiceTests: XCTestCase {
         ]
 
         let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
+        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
         UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
         defer {
             if let previousVaultPath {
                 UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
             } else {
                 UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
+            }
+            if let previousDestination {
+                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
             }
         }
 

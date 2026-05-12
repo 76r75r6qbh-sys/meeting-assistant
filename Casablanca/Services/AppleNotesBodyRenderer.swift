@@ -15,13 +15,13 @@ enum AppleNotesBodyRenderer {
 
     static func summaryHTML(for meeting: Meeting) -> String {
         var sections: [String] = []
-        sections.append("<h1>\(escape(meeting.title))</h1>")
+        sections.append("<h1>\(escape(meeting.obsidianFileName))</h1>")
         sections.append(meetingFactsParagraphs(for: meeting))
 
         let summary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !summary.isEmpty {
             sections.append("<h2>Summary</h2>")
-            sections.append(paragraphs(from: summary))
+            sections.append(markdownToHTML(summary))
         }
 
         if !meeting.todos.isEmpty {
@@ -35,7 +35,7 @@ enum AppleNotesBodyRenderer {
 
     static func rawNotesHTML(for meeting: Meeting) -> String {
         var sections: [String] = []
-        sections.append("<h1>\(escape(meeting.title)) - Raw Notes</h1>")
+        sections.append("<h1>\(escape(meeting.obsidianFileName)) - Notes</h1>")
         sections.append(meetingFactsParagraphs(for: meeting))
 
         sections.append("<h2>Freeform Notes</h2>")
@@ -43,7 +43,7 @@ enum AppleNotesBodyRenderer {
         if userNotes.isEmpty {
             sections.append("<p><i>No freeform notes captured.</i></p>")
         } else {
-            sections.append(paragraphs(from: userNotes))
+            sections.append(markdownToHTML(userNotes))
         }
 
         if !meeting.timestampedNotes.isEmpty {
@@ -98,14 +98,148 @@ enum AppleNotesBodyRenderer {
         return "<ul>\(items)</ul>"
     }
 
-    private static func paragraphs(from text: String) -> String {
-        text.components(separatedBy: "\n\n")
-            .map { chunk -> String in
-                let escaped = escape(stripWikilinks(chunk))
-                let withBreaks = escaped.replacingOccurrences(of: "\n", with: "<br>")
-                return "<p>\(withBreaks)</p>"
+    /// Convert lightweight markdown (the dialect Ollama and humans commonly produce in summary
+    /// text) into the limited HTML tag subset Apple Notes preserves on save.
+    ///
+    /// Block constructs supported:
+    /// - `# H` / `## H` / `### H` → `<h1>` / `<h1>` / `<h2>` (Notes treats `<h1>` as the visual
+    ///   "Title" style; we map both `#` and `##` to `<h1>` to match user expectations).
+    /// - `- ` / `* ` bullet runs → `<ul><li>…</li></ul>`.
+    /// - `1. ` / `2. ` numbered runs → `<ol><li>…</li></ol>`.
+    /// - Blank line → paragraph break.
+    /// - Everything else → `<p>` paragraphs, with single newlines preserved as `<br>`.
+    ///
+    /// Inline constructs supported (applied after block parsing on each piece of text):
+    /// - `**bold**` → `<b>…</b>`
+    /// - `*italic*` → `<i>…</i>`
+    /// - Obsidian wikilinks `[[name]]` flattened to plain text.
+    /// - All other characters HTML-escaped.
+    private static func markdownToHTML(_ markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        var blocks: [String] = []
+        var paragraphBuffer: [String] = []
+
+        func flushParagraph() {
+            guard !paragraphBuffer.isEmpty else { return }
+            blocks.append("<p>\(paragraphBuffer.joined(separator: "<br>"))</p>")
+            paragraphBuffer.removeAll()
+        }
+
+        var index = 0
+        while index < lines.count {
+            let rawLine = lines[index]
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.isEmpty {
+                flushParagraph()
+                index += 1
+                continue
             }
-            .joined()
+
+            if let headingHTML = headingHTML(for: trimmed) {
+                flushParagraph()
+                blocks.append(headingHTML)
+                index += 1
+                continue
+            }
+
+            if isUnorderedItem(trimmed) {
+                flushParagraph()
+                var items: [String] = []
+                while index < lines.count {
+                    let t = lines[index].trimmingCharacters(in: .whitespaces)
+                    guard isUnorderedItem(t) else { break }
+                    let content = String(t.dropFirst(2))
+                    items.append("<li>\(inlineMarkdown(content))</li>")
+                    index += 1
+                }
+                blocks.append("<ul>\(items.joined())</ul>")
+                continue
+            }
+
+            if let firstItem = orderedItemContent(trimmed) {
+                flushParagraph()
+                var items: [String] = ["<li>\(inlineMarkdown(firstItem))</li>"]
+                index += 1
+                while index < lines.count {
+                    let t = lines[index].trimmingCharacters(in: .whitespaces)
+                    guard let content = orderedItemContent(t) else { break }
+                    items.append("<li>\(inlineMarkdown(content))</li>")
+                    index += 1
+                }
+                blocks.append("<ol>\(items.joined())</ol>")
+                continue
+            }
+
+            paragraphBuffer.append(inlineMarkdown(rawLine))
+            index += 1
+        }
+
+        flushParagraph()
+        return blocks.joined()
+    }
+
+    private static func headingHTML(for trimmed: String) -> String? {
+        if trimmed.hasPrefix("### ") {
+            return "<h2>\(inlineMarkdown(String(trimmed.dropFirst(4))))</h2>"
+        }
+        if trimmed.hasPrefix("## ") {
+            return "<h1>\(inlineMarkdown(String(trimmed.dropFirst(3))))</h1>"
+        }
+        if trimmed.hasPrefix("# ") {
+            return "<h1>\(inlineMarkdown(String(trimmed.dropFirst(2))))</h1>"
+        }
+        return nil
+    }
+
+    private static func isUnorderedItem(_ trimmed: String) -> Bool {
+        trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ")
+    }
+
+    /// Returns the content after the `N. ` prefix when the trimmed line starts with one or more
+    /// digits followed by a period and a space; otherwise nil.
+    private static func orderedItemContent(_ trimmed: String) -> String? {
+        guard let dotIndex = trimmed.firstIndex(of: ".") else { return nil }
+        let prefix = trimmed[trimmed.startIndex..<dotIndex]
+        guard !prefix.isEmpty, prefix.allSatisfy(\.isNumber) else { return nil }
+        let afterDot = trimmed.index(after: dotIndex)
+        guard afterDot < trimmed.endIndex, trimmed[afterDot] == " " else { return nil }
+        return String(trimmed[trimmed.index(after: afterDot)...])
+    }
+
+    /// Apply inline conversions and escape the result so it's safe to drop into HTML.
+    /// Wikilinks are stripped first (their brackets are not HTML-significant). Bold/italic are
+    /// converted into `<b>`/`<i>` tags AFTER escaping the rest of the text, so the user's
+    /// `<` / `>` / `&` end up as entities.
+    private static func inlineMarkdown(_ text: String) -> String {
+        let withoutWikilinks = stripWikilinks(text)
+        var escaped = escape(withoutWikilinks)
+        escaped = applyPaired(escaped, delimiter: "**", tag: "b")
+        escaped = applyPaired(escaped, delimiter: "*", tag: "i")
+        return escaped
+    }
+
+    /// Replace pairs of `delimiter` in `text` with `<tag>…</tag>`. Unmatched delimiters are left
+    /// in place verbatim. Non-greedy and left-to-right; nested same-delimiter pairs collapse to
+    /// the outer pair.
+    private static func applyPaired(_ text: String, delimiter: String, tag: String) -> String {
+        var output = ""
+        var cursor = text.startIndex
+        while cursor < text.endIndex {
+            guard let openRange = text.range(of: delimiter, range: cursor..<text.endIndex) else {
+                output.append(contentsOf: text[cursor..<text.endIndex])
+                break
+            }
+            output.append(contentsOf: text[cursor..<openRange.lowerBound])
+            guard let closeRange = text.range(of: delimiter, range: openRange.upperBound..<text.endIndex) else {
+                output.append(contentsOf: text[openRange.lowerBound..<text.endIndex])
+                break
+            }
+            let inner = text[openRange.upperBound..<closeRange.lowerBound]
+            output.append("<\(tag)>\(inner)</\(tag)>")
+            cursor = closeRange.upperBound
+        }
+        return output
     }
 
     private static func stripWikilinks(_ text: String) -> String {

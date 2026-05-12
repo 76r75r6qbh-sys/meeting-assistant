@@ -19,6 +19,23 @@ final class AppleNotesBodyRendererTests: XCTestCase {
         XCTAssertTrue(html.hasSuffix("</body></html>"))
     }
 
+    func testSummaryTitleIncludesDatePrefix() {
+        // Apple Notes derives its visible note title from the first <h1>, not the AppleScript
+        // `name` property. The H1 must therefore mirror the dated file-name convention
+        // (`YYYY-MM-DD <title>`) so the note shows up correctly in the Notes sidebar.
+        let meeting = makeMeeting()
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<h1>\(meeting.obsidianFileName)</h1>"),
+            "Summary H1 should be the dated file-name; got: \(html)")
+    }
+
+    func testRawNotesTitleIncludesDatePrefix() {
+        let meeting = makeMeeting()
+        let html = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
+        XCTAssertTrue(html.contains("<h1>\(meeting.obsidianFileName) - Notes</h1>"),
+            "Raw-notes H1 should be the dated file-name + ' - Notes'; got: \(html)")
+    }
+
     func testSummaryNeverEmitsYAMLFrontmatterMarkers() {
         // Even if summary text contains YAML-like delimiters, the renderer must not
         // accidentally re-emit them as raw markers in the HTML (no `---` or `casablanca_type`
@@ -99,5 +116,71 @@ final class AppleNotesBodyRendererTests: XCTestCase {
         meeting.summary = "  "
         let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
         XCTAssertTrue(html.contains("Casablanca id:"))
+    }
+
+    // MARK: - Markdown → HTML conversion (the summary block ships as raw markdown today;
+    // these tests force the renderer to interpret common markdown structures so Notes shows
+    // formatted output instead of literal `##`, `-`, and `**` glyphs.)
+
+    func testSummaryConvertsMarkdownHeadings() {
+        let meeting = makeMeeting()
+        meeting.summary = "## Decisions\n\nFirst decision\n\n### Sub heading\n\nMore text"
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<h1>Decisions</h1>"), "## should become <h1>; got: \(html)")
+        XCTAssertTrue(html.contains("<h2>Sub heading</h2>"), "### should become <h2>; got: \(html)")
+        XCTAssertFalse(html.contains("## Decisions"))
+        XCTAssertFalse(html.contains("### Sub heading"))
+    }
+
+    func testSummaryConvertsUnorderedLists() {
+        let meeting = makeMeeting()
+        meeting.summary = "- Apple\n- Banana\n- Cherry"
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<ul><li>Apple</li><li>Banana</li><li>Cherry</li></ul>"),
+            "Unordered bullets should become <ul><li>; got: \(html)")
+        XCTAssertFalse(html.contains("- Apple"))
+    }
+
+    func testSummaryConvertsOrderedLists() {
+        let meeting = makeMeeting()
+        meeting.summary = "1. First\n2. Second\n3. Third"
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<ol><li>First</li><li>Second</li><li>Third</li></ol>"),
+            "Numbered items should become <ol><li>; got: \(html)")
+    }
+
+    func testSummaryConvertsBoldAndItalic() {
+        let meeting = makeMeeting()
+        meeting.summary = "Status: **Important** decision. Note: *please review*."
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<b>Important</b>"), "** should become <b>; got: \(html)")
+        XCTAssertTrue(html.contains("<i>please review</i>"), "* should become <i>; got: \(html)")
+        XCTAssertFalse(html.contains("**"))
+    }
+
+    func testSummaryMixesBlockTypes() {
+        let meeting = makeMeeting()
+        meeting.summary = """
+        ## Key Points
+
+        - Discussed rollout
+        - Action: ship Friday
+
+        **Important:** approved by all.
+        """
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<h1>Key Points</h1>"))
+        XCTAssertTrue(html.contains("<ul><li>Discussed rollout</li><li>Action: ship Friday</li></ul>"))
+        XCTAssertTrue(html.contains("<b>Important:</b>"))
+    }
+
+    func testSummaryEscapesHTMLInsideMarkdown() {
+        let meeting = makeMeeting()
+        meeting.summary = "## A <script>\n\n**Beware:** 5 < 6"
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("<h1>A &lt;script&gt;</h1>"))
+        XCTAssertTrue(html.contains("<b>Beware:</b>"))
+        XCTAssertTrue(html.contains("5 &lt; 6"))
+        XCTAssertFalse(html.contains("<script>"))
     }
 }
