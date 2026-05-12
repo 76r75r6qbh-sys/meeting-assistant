@@ -205,4 +205,91 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
     }
+
+    private func makeInMemoryModelContext() throws -> ModelContext {
+        let schema = Schema([Meeting.self, TodoItem.self])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: config)
+        return ModelContext(container)
+    }
+
+    @MainActor
+    func testCreateGenericTodoInLocalModePersistsSwiftDataOnly() throws {
+        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        let context = try makeInMemoryModelContext()
+
+        try ObsidianTodoSyncService.createGenericTodo(
+            text: "Buy milk",
+            in: context,
+            userDefaults: defaults
+        )
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(todos.count, 1)
+        XCTAssertNil(todos[0].sourceFilePath)
+        XCTAssertNil(todos[0].meeting)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/no-such-vault"))
+    }
+
+    @MainActor
+    func testCreateMeetingTodoInLocalModePersistsSwiftDataOnly() throws {
+        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Sync", date: .now)
+        context.insert(meeting)
+
+        try ObsidianTodoSyncService.createMeetingTodo(
+            text: "Send recap",
+            meeting: meeting,
+            in: context,
+            userDefaults: defaults
+        )
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(todos.count, 1)
+        XCTAssertNil(todos[0].sourceFilePath)
+        XCTAssertEqual(todos[0].meeting?.id, meeting.id)
+    }
+
+    @MainActor
+    func testSetCompletedInLocalModeSkipsFilesystem() throws {
+        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        let context = try makeInMemoryModelContext()
+        // Pre-existing row with a stale source path that no longer corresponds to anything on disk.
+        let todo = TodoItem(text: "Old", isCompleted: false, sourceFilePath: "/tmp/no-such-vault/tasks/Casablanca Todos.md")
+        context.insert(todo)
+
+        try ObsidianTodoSyncService.setCompleted(true, for: todo, in: context, userDefaults: defaults)
+
+        XCTAssertTrue(todo.isCompleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "/tmp/no-such-vault/tasks/Casablanca Todos.md"))
+    }
+
+    @MainActor
+    func testDeleteTodoInLocalModeSkipsFilesystem() throws {
+        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        let context = try makeInMemoryModelContext()
+        let todo = TodoItem(text: "Old", sourceFilePath: "/tmp/no-such-vault/Old.md")
+        context.insert(todo)
+
+        try ObsidianTodoSyncService.deleteTodo(todo, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<TodoItem>()).count, 0)
+    }
+
+    @MainActor
+    func testRefreshAllTodosInLocalModeIsNoop() throws {
+        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+        defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        let context = try makeInMemoryModelContext()
+
+        XCTAssertNoThrow(try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults))
+    }
 }

@@ -8,6 +8,7 @@ enum ObsidianTodoSyncService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return }
         try bootstrapLegacyGenericTodos(in: modelContext, userDefaults: userDefaults, fileManager: fileManager)
         try syncGenericTodos(in: modelContext, userDefaults: userDefaults, fileManager: fileManager)
 
@@ -23,6 +24,7 @@ enum ObsidianTodoSyncService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return }
         guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults, fileManager: fileManager) else {
             return
         }
@@ -58,6 +60,14 @@ enum ObsidianTodoSyncService {
     ) throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .local {
+            let todo = TodoItem(text: trimmed, isCompleted: false, sourceFilePath: nil, meeting: nil)
+            modelContext.insert(todo)
+            try modelContext.save()
+            return
+        }
+
         let genericURL = try genericTodosURL(userDefaults: userDefaults)
         try ensureParentDirectory(for: genericURL, fileManager: fileManager)
 
@@ -84,6 +94,14 @@ enum ObsidianTodoSyncService {
     ) throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .local {
+            let todo = TodoItem(text: trimmed, isCompleted: false, sourceFilePath: nil, meeting: meeting)
+            modelContext.insert(todo)
+            try modelContext.save()
+            return
+        }
+
         guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults, fileManager: fileManager) else {
             return
         }
@@ -115,6 +133,11 @@ enum ObsidianTodoSyncService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .local {
+            todo.isCompleted = isCompleted
+            try modelContext.save()
+            return
+        }
         guard let sourceFilePath = todo.sourceFilePath else { return }
         let sourceURL = URL(fileURLWithPath: sourceFilePath)
 
@@ -151,6 +174,11 @@ enum ObsidianTodoSyncService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .local {
+            modelContext.delete(todo)
+            try modelContext.save()
+            return
+        }
         guard let sourceFilePath = todo.sourceFilePath else {
             modelContext.delete(todo)
             try modelContext.save()
