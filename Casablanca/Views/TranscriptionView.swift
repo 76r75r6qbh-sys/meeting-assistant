@@ -172,7 +172,7 @@ struct TranscriptionView: View {
             save()
 
             _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
-            ExportService.exportAutomaticallyIfEnabled(meeting)
+            await ExportService.exportAutomaticallyIfEnabled(meeting)
 
             onComplete()
         } catch is CancellationError {
@@ -192,7 +192,13 @@ struct TranscriptionView: View {
 
     private var pipelineMessage: String {
         if autoExportNotesToObsidian {
-            return "After transcription, Casablanca will continue through summary and export automatically."
+            let destinationName: String = {
+                switch AppPreferences.exportDestination() {
+                case .obsidian: return "Obsidian"
+                case .appleNotes: return "Apple Notes"
+                }
+            }()
+            return "After transcription, Casablanca will continue through summary and export to \(destinationName) automatically."
         }
         return "After transcription, Casablanca will continue to summary automatically."
     }

@@ -542,26 +542,36 @@ struct RecordedMeetingView: View {
     private func exportMeeting() {
         save()
 
-        do {
-            let result = try ExportService.exportCompletedMeeting(meeting)
-            let message: String
-            if result.summaryURL != nil {
-                message = "Saved the summary note and raw notes to your Obsidian meeting notes folder."
-            } else {
-                message = "Saved raw notes to Obsidian. Generate a summary and export again to add the summary note."
+        Task { @MainActor in
+            do {
+                let result = try await ExportService.exportCompletedMeeting(meeting)
+                switch result {
+                case .obsidian(let export):
+                    let message: String
+                    if export.summaryURL != nil {
+                        message = "Saved the summary note and raw notes to your Obsidian meeting notes folder."
+                    } else {
+                        message = "Saved raw notes to Obsidian. Generate a summary and export again to add the summary note."
+                    }
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: message,
+                        exportedURLs: export.exportedURLs
+                    )
+                case .appleNotes:
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: "Saved to Apple Notes folder \"Casablanca\".",
+                        exportedURLs: []
+                    )
+                }
+            } catch {
+                presentExportAlert(
+                    title: "Export Failed",
+                    message: error.localizedDescription,
+                    exportedURLs: []
+                )
             }
-
-            presentExportAlert(
-                title: "Export Complete",
-                message: message,
-                exportedURLs: result.exportedURLs
-            )
-        } catch {
-            presentExportAlert(
-                title: "Export Failed",
-                message: error.localizedDescription,
-                exportedURLs: []
-            )
         }
     }
 
@@ -611,7 +621,9 @@ struct RecordedMeetingView: View {
 
     private func save() {
         try? modelContext.save()
-        ExportService.exportAutomaticallyIfEnabled(meeting)
+        Task { @MainActor in
+            await ExportService.exportAutomaticallyIfEnabled(meeting)
+        }
     }
 
     private func debouncedSave() {

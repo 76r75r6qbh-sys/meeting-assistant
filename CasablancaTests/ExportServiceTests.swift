@@ -3,7 +3,7 @@ import XCTest
 @testable import Casablanca
 
 final class ExportServiceTests: XCTestCase {
-    func testExportRawNotesRendersFreeformBeforeTimestampedNotes() throws {
+    func testExportRawNotesRendersFreeformBeforeTimestampedNotes() async throws {
         let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
         meeting.userNotes = "Freeform notes go here."
@@ -21,8 +21,11 @@ final class ExportServiceTests: XCTestCase {
             }
         }
 
-        let result = try ExportService.exportRawNotes(meeting)
-        let markdown = try String(contentsOf: result.notesURL, encoding: .utf8)
+        let result = try await ExportService.exportRawNotes(meeting)
+        guard case .obsidian(let export) = result else {
+            return XCTFail("Expected obsidian destination by default")
+        }
+        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
 
         let freeformRange = try XCTUnwrap(markdown.range(of: "## Freeform Notes"))
         let timestampedRange = try XCTUnwrap(markdown.range(of: "## Timestamped Notes"))
@@ -32,7 +35,7 @@ final class ExportServiceTests: XCTestCase {
         XCTAssertTrue(markdown.contains("- [01:05] Discussed rollout plan"))
     }
 
-    func testExportRawNotesOmitsTimestampedSectionWhenNoTimestampedNotesExist() throws {
+    func testExportRawNotesOmitsTimestampedSectionWhenNoTimestampedNotesExist() async throws {
         let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Planning", date: .now)
         meeting.userNotes = "Only freeform notes"
@@ -47,15 +50,18 @@ final class ExportServiceTests: XCTestCase {
             }
         }
 
-        let result = try ExportService.exportRawNotes(meeting)
-        let markdown = try String(contentsOf: result.notesURL, encoding: .utf8)
+        let result = try await ExportService.exportRawNotes(meeting)
+        guard case .obsidian(let export) = result else {
+            return XCTFail("Expected obsidian destination by default")
+        }
+        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
 
         XCTAssertTrue(markdown.contains("## Freeform Notes"))
         XCTAssertFalse(markdown.contains("## Timestamped Notes"))
         XCTAssertFalse(markdown.contains("_No timestamped notes captured._"))
     }
 
-    func testExportRawNotesKeepsTimestampedSectionWhenTimestampedNotesExist() throws {
+    func testExportRawNotesKeepsTimestampedSectionWhenTimestampedNotesExist() async throws {
         let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Retrospective", date: .now)
         meeting.timestampedNotes = [
@@ -73,8 +79,11 @@ final class ExportServiceTests: XCTestCase {
             }
         }
 
-        let result = try ExportService.exportRawNotes(meeting)
-        let markdown = try String(contentsOf: result.notesURL, encoding: .utf8)
+        let result = try await ExportService.exportRawNotes(meeting)
+        guard case .obsidian(let export) = result else {
+            return XCTFail("Expected obsidian destination by default")
+        }
+        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
 
         XCTAssertTrue(markdown.contains("## Timestamped Notes"))
         XCTAssertTrue(markdown.contains("- [00:05] Opened retro"))

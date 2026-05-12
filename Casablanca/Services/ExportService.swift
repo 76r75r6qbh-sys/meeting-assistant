@@ -21,24 +21,66 @@ struct ExportResult {
 }
 
 enum ExportService {
-    static func exportAutomaticallyIfEnabled(_ meeting: Meeting) {
-        guard isAutoExportOn(),
-              hasExportableContent(meeting)
-        else { return }
+    enum DestinationResult {
+        case obsidian(ExportResult)
+        case appleNotes(summaryNoteId: String?, rawNotesNoteId: String)
 
-        do {
-            _ = try exportCompletedMeeting(meeting)
-        } catch {
-            print("Automatic export skipped:", error.localizedDescription)
+        var destinationDisplayName: String {
+            switch self {
+            case .obsidian: return "Obsidian"
+            case .appleNotes: return "Apple Notes"
+            }
         }
     }
 
-    static func exportCompletedMeeting(_ meeting: Meeting) throws -> ExportResult {
-        try ObsidianMeetingExporter.exportCompletedMeeting(meeting)
+    @MainActor
+    static func exportCompletedMeeting(
+        _ meeting: Meeting,
+        defaults: UserDefaults = .standard,
+        appleNotesScripting: AppleNotesScripting? = nil
+    ) async throws -> DestinationResult {
+        switch AppPreferences.exportDestination(in: defaults) {
+        case .obsidian:
+            return .obsidian(try ObsidianMeetingExporter.exportCompletedMeeting(meeting))
+        case .appleNotes:
+            let scripting = appleNotesScripting ?? NSAppleScriptAppleNotesScripting()
+            let exporter = AppleNotesMeetingExporter(scripting: scripting)
+            let result = try await exporter.export(meeting)
+            return .appleNotes(summaryNoteId: result.summaryNoteId, rawNotesNoteId: result.rawNotesNoteId)
+        }
     }
 
-    static func exportRawNotes(_ meeting: Meeting) throws -> ExportResult {
-        try ObsidianMeetingExporter.exportRawNotes(meeting)
+    @MainActor
+    static func exportRawNotes(
+        _ meeting: Meeting,
+        defaults: UserDefaults = .standard,
+        appleNotesScripting: AppleNotesScripting? = nil
+    ) async throws -> DestinationResult {
+        switch AppPreferences.exportDestination(in: defaults) {
+        case .obsidian:
+            return .obsidian(try ObsidianMeetingExporter.exportRawNotes(meeting))
+        case .appleNotes:
+            let scripting = appleNotesScripting ?? NSAppleScriptAppleNotesScripting()
+            let exporter = AppleNotesMeetingExporter(scripting: scripting)
+            let result = try await exporter.exportRawNotesOnly(meeting)
+            return .appleNotes(summaryNoteId: nil, rawNotesNoteId: result.rawNotesNoteId)
+        }
+    }
+
+    @MainActor
+    static func exportAutomaticallyIfEnabled(
+        _ meeting: Meeting,
+        defaults: UserDefaults = .standard,
+        appleNotesScripting: AppleNotesScripting? = nil
+    ) async {
+        guard isAutoExportOn(defaults: defaults),
+              hasExportableContent(meeting)
+        else { return }
+        do {
+            _ = try await exportCompletedMeeting(meeting, defaults: defaults, appleNotesScripting: appleNotesScripting)
+        } catch {
+            print("Automatic export skipped:", error.localizedDescription)
+        }
     }
 
     static func hasExportableContent(_ meeting: Meeting) -> Bool {
@@ -48,10 +90,6 @@ enum ExportService {
             || !meeting.timestampedNotes.isEmpty
     }
 
-    // Read the unified auto-export switch. Until Task 15 migrates SettingsView to write the new
-    // key, the SettingsView UI keeps writing `legacyAutoExportNotesToObsidian` — so we OR-read
-    // both keys here to keep the toggle responsive during the migration window. Task 15 removes
-    // the legacy OR fallback.
     static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
             || defaults.bool(forKey: AppPreferenceKey.legacyAutoExportNotesToObsidian)

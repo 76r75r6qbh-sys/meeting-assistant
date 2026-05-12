@@ -927,25 +927,38 @@ struct NotesEditorView: View {
 
     private func save() {
         try? modelContext.save()
-        ExportService.exportAutomaticallyIfEnabled(meeting)
+        Task { @MainActor in
+            await ExportService.exportAutomaticallyIfEnabled(meeting)
+        }
     }
 
     private func exportNotes() {
         save()
 
-        do {
-            let result = try ExportService.exportRawNotes(meeting)
-            presentExportAlert(
-                title: "Export Complete",
-                message: "Saved raw notes to your Obsidian meeting notes folder.",
-                exportedURLs: result.exportedURLs
-            )
-        } catch {
-            presentExportAlert(
-                title: "Export Failed",
-                message: error.localizedDescription,
-                exportedURLs: []
-            )
+        Task { @MainActor in
+            do {
+                let result = try await ExportService.exportRawNotes(meeting)
+                switch result {
+                case .obsidian(let export):
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: "Saved raw notes to your Obsidian meeting notes folder.",
+                        exportedURLs: export.exportedURLs
+                    )
+                case .appleNotes:
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: "Saved to Apple Notes folder \"Casablanca\".",
+                        exportedURLs: []
+                    )
+                }
+            } catch {
+                presentExportAlert(
+                    title: "Export Failed",
+                    message: error.localizedDescription,
+                    exportedURLs: []
+                )
+            }
         }
     }
 
