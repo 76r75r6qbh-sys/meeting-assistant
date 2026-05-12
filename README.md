@@ -1,6 +1,6 @@
 # Casablanca
 
-Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with Ollama, and exporting meeting notes to Obsidian.
+Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with Ollama, and exporting meeting notes to Obsidian or Apple Notes.
 
 ## What `v0.1.0` includes
 
@@ -9,7 +9,8 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Local meeting recording with microphone and optional system audio capture
 - Local transcription through WhisperKit
 - Local summary generation through Ollama
-- Obsidian export for raw notes, summaries, and synced action items
+- Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
+- Optional Local-only mode for prep notes and todos (no Obsidian vault required)
 
 ## Requirements
 
