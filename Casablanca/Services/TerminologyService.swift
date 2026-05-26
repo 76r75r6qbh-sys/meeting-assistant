@@ -8,25 +8,6 @@ struct TerminologyEntry: Equatable {
 @MainActor
 @Observable
 final class TerminologyService {
-    private struct OllamaGenerateRequest: Encodable {
-        let model: String
-        let prompt: String
-        let stream: Bool
-        let options: Options
-        struct Options: Encodable { let temperature: Double }
-    }
-
-    private struct OllamaGenerateResponse: Decodable {
-        let response: String?
-        let error: String?
-    }
-
-    enum TerminologyError: Error {
-        case invalidEndpoint
-        case requestFailed(String)
-        case emptyResponse
-    }
-
     private(set) var isCorrecting = false
     var warningMessage: String?
 
@@ -49,7 +30,7 @@ final class TerminologyService {
         if Task.isCancelled { return dictionaryReplaced }
 
         do {
-            let corrected = try await runOllamaPass(transcript: dictionaryReplaced, entries: entries)
+            let corrected = try await runProviderPass(transcript: dictionaryReplaced, entries: entries)
             if Self.looksLikeMangledOutput(input: dictionaryReplaced, output: corrected) {
                 warningMessage = "Terminology correction produced unexpected output and was discarded; transcript reflects only deterministic replacements."
                 return dictionaryReplaced
@@ -61,7 +42,7 @@ final class TerminologyService {
         }
     }
 
-    /// Heuristic to detect when the Ollama model has mangled the transcript
+    /// Heuristic to detect when the model has mangled the transcript
     /// (e.g. replaced content with `***` redactions, truncated drastically,
     /// or output an apology / explanation instead of a corrected transcript).
     /// Triggers when the alphanumeric character count drops by more than half,
@@ -69,18 +50,12 @@ final class TerminologyService {
     /// minor edits.
     static func looksLikeMangledOutput(input: String, output: String) -> Bool {
         let inputContent = input.unicodeScalars.lazy.filter { CharacterSet.alphanumerics.contains($0) }.count
-        // Skip the check for very short transcripts (less than ~20 words of
-        // alphanumeric content) where small differences are noise.
         guard inputContent > 100 else { return false }
         let outputContent = output.unicodeScalars.lazy.filter { CharacterSet.alphanumerics.contains($0) }.count
         return outputContent * 2 < inputContent
     }
 
-    private func runOllamaPass(transcript: String, entries: [TerminologyEntry]) async throws -> String {
-        guard let url = makeGenerateURL() else {
-            throw TerminologyError.invalidEndpoint
-        }
-
+    private func runProviderPass(transcript: String, entries: [TerminologyEntry]) async throws -> String {
         let prompt = """
         You are correcting domain-specific terminology in a meeting transcript.
 
@@ -97,55 +72,12 @@ final class TerminologyService {
         \(transcript)
         """
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
-        request.httpBody = try JSONEncoder().encode(
-            OllamaGenerateRequest(
-                model: UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaModel) ?? "llama3.2",
-                prompt: prompt,
-                stream: false,
-                options: .init(temperature: 0)
-            )
+        return try await LLMProviderFactory.current().generate(
+            prompt: prompt,
+            temperature: 0,
+            timeout: 60,
+            truncated: nil
         )
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw TerminologyError.requestFailed(error.localizedDescription)
-        }
-
-        if Task.isCancelled { throw CancellationError() }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw TerminologyError.requestFailed("Ollama returned an invalid response.")
-        }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw TerminologyError.requestFailed("Ollama returned status \(httpResponse.statusCode).")
-        }
-
-        let payload = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
-        if let err = payload.error, !err.isEmpty {
-            throw TerminologyError.requestFailed(err)
-        }
-        let corrected = payload.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !corrected.isEmpty else {
-            throw TerminologyError.emptyResponse
-        }
-        return corrected
-    }
-
-    private func makeGenerateURL() -> URL? {
-        let endpoint = UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434"
-        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.hasSuffix("/api/generate") { return URL(string: trimmed) }
-        if trimmed.hasSuffix("/api") { return URL(string: "\(trimmed)/generate") }
-        if trimmed.hasSuffix("/") { return URL(string: "\(trimmed)api/generate") }
-        return URL(string: "\(trimmed)/api/generate")
     }
 
     static func parse(_ raw: String) -> [TerminologyEntry] {
@@ -171,8 +103,6 @@ final class TerminologyService {
     }
 
     static func dictionaryReplace(_ text: String, entries: [TerminologyEntry]) -> String {
-        // Build (alias, canonical) pairs, sorted by alias length descending,
-        // ties broken by entry order in `entries`.
         var pairs: [(alias: String, canonical: String, order: Int)] = []
         for (index, entry) in entries.enumerated() {
             for alias in entry.aliases {
@@ -194,7 +124,6 @@ final class TerminologyService {
                 continue
             }
             let range = NSRange(result.startIndex..., in: result)
-            // escapedTemplate ensures `$`/`\` in the canonical aren't interpreted as backreferences.
             let template = NSRegularExpression.escapedTemplate(for: pair.canonical)
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: template)
         }
