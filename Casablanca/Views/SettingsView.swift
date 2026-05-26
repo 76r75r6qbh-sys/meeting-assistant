@@ -9,17 +9,20 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+    @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
+    @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
+    @AppStorage(AppPreferenceKey.omlxModel) private var omlxModel = ""
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
-    @State private var availableOllamaModels: [String] = []
-    @State private var isLoadingOllamaModels = false
-    @State private var ollamaModelsError = ""
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = false
+    @State private var modelsError = ""
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
     @State private var presentedSheet: SettingsSheet?
@@ -36,6 +39,31 @@ struct SettingsView: View {
 
     private var prepTodoStorage: PrepTodoStorage {
         PrepTodoStorage(rawValue: prepTodoStorageRaw) ?? .obsidian
+    }
+
+    private var llmProvider: LLMProviderKind {
+        LLMProviderKind(rawValue: llmProviderRaw) ?? .ollama
+    }
+
+    private var providerEndpointBinding: Binding<String> {
+        switch llmProvider {
+        case .ollama: return Binding(get: { ollamaEndpoint }, set: { ollamaEndpoint = $0 })
+        case .omlx: return Binding(get: { omlxEndpoint }, set: { omlxEndpoint = $0 })
+        }
+    }
+
+    private var providerModelBinding: Binding<String> {
+        switch llmProvider {
+        case .ollama: return Binding(get: { ollamaModel }, set: { ollamaModel = $0 })
+        case .omlx: return Binding(get: { omlxModel }, set: { omlxModel = $0 })
+        }
+    }
+
+    private var providerDisplayName: String {
+        switch llmProvider {
+        case .ollama: return "Ollama"
+        case .omlx: return "oMLX"
+        }
     }
 
     var body: some View {
@@ -58,7 +86,7 @@ struct SettingsView: View {
         .frame(minWidth: 520, idealWidth: 560, minHeight: 560, idealHeight: 640)
         .task {
             refreshRecordingInputDevices()
-            await refreshOllamaModels()
+            await refreshModels()
         }
     }
 
@@ -186,18 +214,25 @@ struct SettingsView: View {
                     .foregroundStyle(Color.textTertiary)
             }
 
-            Section("Ollama (Summarization)") {
-                TextField("Endpoint", text: $ollamaEndpoint)
+            Section("Local LLM (Summarization)") {
+                Picker("Provider", selection: $llmProviderRaw) {
+                    Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
+                    Text("oMLX").tag(LLMProviderKind.omlx.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: llmProviderRaw) { _, _ in
+                    Task { await refreshModels() }
+                }
+
+                TextField("Endpoint", text: providerEndpointBinding)
                     .onSubmit {
-                        Task {
-                            await refreshOllamaModels()
-                        }
+                        Task { await refreshModels() }
                     }
 
                 HStack(spacing: CasaSpace.md) {
-                    Picker("Model", selection: $ollamaModel) {
-                        ForEach(ollamaModelOptions, id: \.self) { model in
-                            if availableOllamaModels.contains(model) {
+                    Picker("Model", selection: providerModelBinding) {
+                        ForEach(modelOptions, id: \.self) { model in
+                            if availableModels.contains(model) {
                                 Text(model).tag(model)
                             } else {
                                 Text("\(model) (not installed)").tag(model)
@@ -205,40 +240,37 @@ struct SettingsView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .disabled(isLoadingOllamaModels || ollamaModelOptions.isEmpty)
+                    .disabled(isLoadingModels || modelOptions.isEmpty)
 
                     Button("Refresh Models") {
-                        Task {
-                            await refreshOllamaModels()
-                        }
+                        Task { await refreshModels() }
                     }
                     .buttonStyle(SecondaryButtonStyle())
-                    .disabled(isLoadingOllamaModels)
+                    .disabled(isLoadingModels)
                 }
 
-                if isLoadingOllamaModels {
+                if isLoadingModels {
                     HStack(spacing: CasaSpace.sm) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Loading installed Ollama models…")
+                        ProgressView().controlSize(.small)
+                        Text("Loading installed \(providerDisplayName) models…")
                     }
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
-                } else if !ollamaModelsError.isEmpty {
-                    Text(ollamaModelsError)
+                } else if !modelsError.isEmpty {
+                    Text(modelsError)
                         .font(.caption)
                         .foregroundStyle(Color.red)
-                } else if availableOllamaModels.isEmpty {
-                    Text("No Ollama models were found at this endpoint yet.")
+                } else if availableModels.isEmpty {
+                    Text("No \(providerDisplayName) models were found at this endpoint yet.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
-                } else if !availableOllamaModels.contains(ollamaModel) {
+                } else if !availableModels.contains(providerModelBinding.wrappedValue) {
                     Text("The current model is not installed at this endpoint. Pick one of the detected models above.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
 
-                Text("Casablanca loads the installed models from Ollama so summarization uses a valid local model.")
+                Text("Casablanca loads the installed models from \(providerDisplayName) so summarization uses a valid local model.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -271,7 +303,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
-                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature Ollama pass on each new transcript before summarization.")
+                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature local LLM pass on each new transcript before summarization.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -287,11 +319,12 @@ struct SettingsView: View {
         }
     }
 
-    private var ollamaModelOptions: [String] {
-        if availableOllamaModels.contains(ollamaModel) || ollamaModel.isEmpty {
-            return availableOllamaModels
+    private var modelOptions: [String] {
+        let current = providerModelBinding.wrappedValue
+        if availableModels.contains(current) || current.isEmpty {
+            return availableModels
         }
-        return [ollamaModel] + availableOllamaModels
+        return [current] + availableModels
     }
 
     private var recordingInputOptions: [(id: String, label: String)] {
@@ -328,24 +361,22 @@ struct SettingsView: View {
         return "macOS currently reports “\(systemDefaultInputDeviceName)” as the system default microphone."
     }
 
-    private func refreshOllamaModels() async {
-        isLoadingOllamaModels = true
-        ollamaModelsError = ""
+    private func refreshModels() async {
+        isLoadingModels = true
+        modelsError = ""
+        defer { isLoadingModels = false }
 
-        defer {
-            isLoadingOllamaModels = false
-        }
-
+        let endpoint = providerEndpointBinding.wrappedValue
         do {
-            let models = try await SummarizationService.fetchAvailableModels(endpoint: ollamaEndpoint)
-            availableOllamaModels = models
-
-            if ollamaModel.isEmpty, let firstModel = models.first {
-                ollamaModel = firstModel
+            let models = try await SummarizationService.fetchAvailableModels(endpoint: endpoint)
+            availableModels = models
+            let current = providerModelBinding.wrappedValue
+            if current.isEmpty, let firstModel = models.first {
+                providerModelBinding.wrappedValue = firstModel
             }
         } catch {
-            availableOllamaModels = []
-            ollamaModelsError = error.localizedDescription
+            availableModels = []
+            modelsError = error.localizedDescription
         }
     }
 
