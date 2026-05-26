@@ -331,7 +331,7 @@ enum LLMProviderFactory {
                 model: defaults.string(forKey: AppPreferenceKey.omlxModel) ?? "",
                 urlSession: urlSession
             )
-    }
+        }
     }
 }
 ```
@@ -1063,12 +1063,12 @@ Run: `scripts/add-to-xcode.rb Casablanca Casablanca/Services/LLM/OMLXProvider.sw
 
 - [ ] **Step 5: Build the test target**
 
-Run:
+Run without `-quiet` so that any compile errors from the deferred Task 4/5/6 chain are visible:
 ```bash
 xcodebuild build-for-testing -project Casablanca.xcodeproj -scheme Casablanca \
-  -derivedDataPath .build/test -destination 'platform=macOS' -quiet
+  -derivedDataPath .build/test -destination 'platform=macOS'
 ```
-Expected: BUILD SUCCEEDED.
+Expected: BUILD SUCCEEDED. If it fails, the most likely culprit is brace/parenthesis nesting in `LLMProvider.swift`'s factory — check the reported file and line.
 
 - [ ] **Step 6: Run the new provider tests**
 
@@ -1180,7 +1180,15 @@ git commit -m "test(llm): factory selection + endpoint/model wiring"
 **Files:**
 - Modify: `Casablanca/Services/SummarizationService.swift`
 
-This task swaps in the provider abstraction without changing public behavior. `SummarizationError` stays (its cases now interpolate a provider name). The internal `OllamaModel`, `OllamaTagsResponse`, `OllamaGenerateRequest`, `OllamaGenerateResponse` structs and the `makeGenerateURL` / `makeURL` helpers are deleted — they only existed inside this file.
+This task swaps in the provider abstraction without changing public behavior. `SummarizationError` stays but two cases gain associated values (`invalidEndpoint(provider:)`, `emptyResponse(provider:)`). The internal `OllamaModel`, `OllamaTagsResponse`, `OllamaGenerateRequest`, `OllamaGenerateResponse` structs and the `makeGenerateURL` / `makeURL` helpers are deleted — they only existed inside this file.
+
+- [ ] **Step 0: Audit for external pattern matches on `SummarizationError` cases**
+
+Run:
+```bash
+grep -rn 'SummarizationError\.' Casablanca CasablancaTests
+```
+Expected: only matches inside `Casablanca/Services/SummarizationService.swift` (which this task rewrites). If any other file pattern-matches `SummarizationError.invalidEndpoint` or `.emptyResponse` without an associated-value binding, update it as part of this task. (Confirmed clean as of 2026-05-26.)
 
 - [ ] **Step 1: Replace the file contents**
 
@@ -1397,6 +1405,16 @@ git commit -m "refactor(llm): SummarizationService delegates to LLMProvider"
 
 **Files:**
 - Modify: `Casablanca/Services/TerminologyService.swift`
+
+This task deletes the nested `TerminologyService.TerminologyError` enum entirely — the provider now throws `LLMProviderError` directly and `correct(...)` catches it and surfaces a generic warning message.
+
+- [ ] **Step 0: Audit for external references to `TerminologyError`**
+
+Run:
+```bash
+grep -rn 'TerminologyError' Casablanca CasablancaTests
+```
+Expected: only matches inside `Casablanca/Services/TerminologyService.swift` (which this task rewrites). If any other file references `TerminologyService.TerminologyError`, update it as part of this task. (Confirmed clean as of 2026-05-26.)
 
 - [ ] **Step 1: Replace the file contents**
 
@@ -1642,7 +1660,48 @@ Just after the `prepTodoStorage` computed property (around line 39), add:
     }
 ```
 
-- [ ] **Step 3: Replace the `Ollama (Summarization)` section**
+- [ ] **Step 3: Rename and update the helper functions first**
+
+Do this before touching the section block so the new identifiers exist when the block references them.
+
+Find the computed property `ollamaModelOptions` (currently around `SettingsView.swift:290`) and rename to `modelOptions`. Update its body to use `providerModelBinding.wrappedValue`:
+
+```swift
+    private var modelOptions: [String] {
+        let current = providerModelBinding.wrappedValue
+        if availableModels.contains(current) || current.isEmpty {
+            return availableModels
+        }
+        return [current] + availableModels
+    }
+```
+
+Find `refreshOllamaModels()` (around `SettingsView.swift:331`) and rename to `refreshModels()`. Update its body to use the provider-agnostic state and the active endpoint:
+
+```swift
+    private func refreshModels() async {
+        isLoadingModels = true
+        modelsError = ""
+        defer { isLoadingModels = false }
+
+        let endpoint = providerEndpointBinding.wrappedValue
+        do {
+            let models = try await SummarizationService.fetchAvailableModels(endpoint: endpoint)
+            availableModels = models
+            let current = providerModelBinding.wrappedValue
+            if current.isEmpty, let firstModel = models.first {
+                providerModelBinding.wrappedValue = firstModel
+            }
+        } catch {
+            availableModels = []
+            modelsError = error.localizedDescription
+        }
+    }
+```
+
+Also update the `.task` block at the top of `body` (around line 59-62): the call inside should become `await refreshModels()`.
+
+- [ ] **Step 4: Replace the `Ollama (Summarization)` section**
 
 Replace the entire `Section("Ollama (Summarization)") { … }` block (currently `SettingsView.swift:189-244`) with:
 
@@ -1708,45 +1767,6 @@ Replace the entire `Section("Ollama (Summarization)") { … }` block (currently 
                     .foregroundStyle(Color.textTertiary)
             }
 ```
-
-- [ ] **Step 4: Update the helpers at the bottom of the file**
-
-Find the computed property `ollamaModelOptions` (currently around `SettingsView.swift:290`) and rename to `modelOptions`. Update its body to use `providerModelBinding.wrappedValue`:
-
-```swift
-    private var modelOptions: [String] {
-        let current = providerModelBinding.wrappedValue
-        if availableModels.contains(current) || current.isEmpty {
-            return availableModels
-        }
-        return [current] + availableModels
-    }
-```
-
-Find `refreshOllamaModels()` (around `SettingsView.swift:331`) and rename to `refreshModels()`. Update its body to use the provider-agnostic state and the active endpoint:
-
-```swift
-    private func refreshModels() async {
-        isLoadingModels = true
-        modelsError = ""
-        defer { isLoadingModels = false }
-
-        let endpoint = providerEndpointBinding.wrappedValue
-        do {
-            let models = try await SummarizationService.fetchAvailableModels(endpoint: endpoint)
-            availableModels = models
-            let current = providerModelBinding.wrappedValue
-            if current.isEmpty, let firstModel = models.first {
-                providerModelBinding.wrappedValue = firstModel
-            }
-        } catch {
-            availableModels = []
-            modelsError = error.localizedDescription
-        }
-    }
-```
-
-Also update the `.task` block at the top of `body` (around line 59-62): the call inside should become `await refreshModels()`.
 
 - [ ] **Step 5: Update the Terminology helper text**
 
@@ -1822,9 +1842,15 @@ Expected: all tests pass.
 
 Run:
 ```bash
-grep -rn 'Ollama' Casablanca CasablancaTests | grep -v 'OllamaProvider\|displayName.*Ollama\|"Ollama"\.tag\|"Ollama".*tag\|README'
+grep -rn 'Ollama' Casablanca CasablancaTests
 ```
-Expected: only matches in `OllamaProvider.swift`, the SettingsView picker label, and the `AppleNotesBodyRenderer.swift:101` comment (left intentionally). If any stray user-facing "Ollama" string remains in `SettingsView.swift` or service files, fix it.
+Then visually scan the results. Expected matches (all benign):
+- `Casablanca/Services/LLM/OllamaProvider.swift` — the provider implementation, including `var displayName: String { "Ollama" }`.
+- `Casablanca/Views/SettingsView.swift` — the picker label `Text("Ollama").tag(...)` and nothing else.
+- `CasablancaTests/LLM/OllamaProviderTests.swift` — the provider's own tests.
+- `Casablanca/Services/AppleNotesBodyRenderer.swift:101` — a comment about markdown dialects, intentionally left.
+
+Anything else (especially in `SummarizationService.swift`, `TerminologyService.swift`, or other user-facing strings in `SettingsView.swift`) is a stray — fix it.
 
 - [ ] **Step 3: Grep audit for `OllamaGenerateRequest`/`OllamaGenerateResponse`/`OllamaTagsResponse`**
 
