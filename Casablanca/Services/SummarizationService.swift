@@ -123,19 +123,11 @@ final class SummarizationService {
 
     static func fetchAvailableModels(endpoint: String? = nil) async throws -> [String] {
         let provider = LLMProviderFactory.current()
-        let endpointToUse = endpoint ?? Self.currentEndpoint(for: provider)
         do {
-            return try await provider.fetchAvailableModels(endpoint: endpointToUse)
+            return try await provider.fetchAvailableModels(endpoint: endpoint ?? provider.endpoint)
         } catch let error as LLMProviderError {
             throw Self.mapProviderError(error)
         }
-    }
-
-    private static func currentEndpoint(for provider: LLMProvider) -> String {
-        if provider is OMLXProvider {
-            return UserDefaults.standard.string(forKey: AppPreferenceKey.omlxEndpoint) ?? "http://localhost:8000/v1"
-        }
-        return UserDefaults.standard.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434"
     }
 
     private static func mapProviderError(_ error: LLMProviderError) -> SummarizationError {

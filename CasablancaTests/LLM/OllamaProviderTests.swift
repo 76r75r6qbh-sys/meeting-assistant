@@ -113,6 +113,22 @@ final class OllamaProviderTests: XCTestCase {
         }
     }
 
+    func testGenerateThrowsRequestFailedOnMalformedJSON() async {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Data("not json".utf8)) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+        }
+    }
+
+    func testFetchAvailableModelsThrowsRequestFailedOnMalformedJSON() async {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(url: "http://x/api/tags"), Data("not json".utf8)) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.fetchAvailableModels(endpoint: "http://x")) { error in
+            guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+        }
+    }
+
     func testGenerateThrowsRequestFailedOnNon2xx() async {
         MockURLProtocol.requestHandler = { _ in
             (HTTPURLResponse(url: URL(string: "http://x/api/generate")!, statusCode: 500, httpVersion: nil, headerFields: nil)!,

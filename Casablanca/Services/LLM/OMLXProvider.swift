@@ -144,7 +144,15 @@ struct OMLXProvider: LLMProvider {
             )
         }
 
-        let payload = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        let payload: ModelsResponse
+        do {
+            payload = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        } catch {
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                message: "\(displayName) model lookup returned a malformed response: \(error.localizedDescription)"
+            )
+        }
         return payload.data.map(\.id).sorted()
     }
 

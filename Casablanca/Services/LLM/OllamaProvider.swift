@@ -78,7 +78,15 @@ struct OllamaProvider: LLMProvider {
             )
         }
 
-        let payload = try JSONDecoder().decode(GenerateResponse.self, from: data)
+        let payload: GenerateResponse
+        do {
+            payload = try JSONDecoder().decode(GenerateResponse.self, from: data)
+        } catch {
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                message: "\(displayName) returned a malformed response: \(error.localizedDescription)"
+            )
+        }
         if let err = payload.error, !err.isEmpty {
             throw LLMProviderError.requestFailed(provider: displayName, message: "\(displayName) returned an error: \(err)")
         }
@@ -114,7 +122,15 @@ struct OllamaProvider: LLMProvider {
             )
         }
 
-        let payload = try JSONDecoder().decode(TagsResponse.self, from: data)
+        let payload: TagsResponse
+        do {
+            payload = try JSONDecoder().decode(TagsResponse.self, from: data)
+        } catch {
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                message: "\(displayName) model lookup returned a malformed response: \(error.localizedDescription)"
+            )
+        }
         return payload.models.map(\.name).sorted()
     }
 

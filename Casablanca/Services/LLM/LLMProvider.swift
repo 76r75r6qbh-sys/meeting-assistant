@@ -24,6 +24,10 @@ protocol LLMProvider {
     /// Human-readable name used in user-facing error messages and the Settings UI.
     var displayName: String { get }
 
+    /// The endpoint URL the provider is currently configured to talk to.
+    /// Used by the Settings view to pre-fill the model lookup and by tests.
+    var endpoint: String { get }
+
     /// Generate a single response for the given prompt.
     /// - Parameters:
     ///   - prompt: The full prompt text.

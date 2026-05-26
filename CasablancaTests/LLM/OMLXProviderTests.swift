@@ -169,6 +169,16 @@ final class OMLXProviderTests: XCTestCase {
         XCTAssertEqual(result, ["alpha", "zeta"])
     }
 
+    func testFetchAvailableModelsThrowsRequestFailedOnMalformedJSON() async {
+        MockURLProtocol.requestHandler = { _ in
+            (Self.okResponse(url: "http://localhost:8000/v1/models"), Data("not json".utf8))
+        }
+        let provider = OMLXProvider(endpoint: "http://localhost:8000/v1", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.fetchAvailableModels(endpoint: "http://localhost:8000/v1")) { error in
+            guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+        }
+    }
+
     func testFetchAvailableModelsNormalizesEndpointWithChatSuffix() async throws {
         MockURLProtocol.requestHandler = { req in
             XCTAssertEqual(req.url?.absoluteString, "http://localhost:8000/v1/models")
