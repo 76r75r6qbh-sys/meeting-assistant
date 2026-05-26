@@ -8,6 +8,7 @@ enum AppPreferenceKey {
     static let llmProvider = "llmProvider"
     static let omlxEndpoint = "omlxEndpoint"
     static let omlxModel = "omlxModel"
+    static let omlxAPIKey = "omlxAPIKey"
     static let whisperModel = "whisperModel"
     static let defaultTranscriptionLanguage = "defaultTranscriptionLanguage"
     static let summaryPromptTemplate = "summaryPromptTemplate"

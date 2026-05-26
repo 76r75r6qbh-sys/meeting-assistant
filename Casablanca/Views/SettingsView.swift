@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
     @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
     @AppStorage(AppPreferenceKey.omlxModel) private var omlxModel = ""
+    @AppStorage(AppPreferenceKey.omlxAPIKey) private var omlxAPIKey = ""
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
@@ -228,6 +229,17 @@ struct SettingsView: View {
                     .onSubmit {
                         Task { await refreshModels() }
                     }
+
+                if llmProvider == .omlx {
+                    SecureField("API key", text: $omlxAPIKey)
+                        .onSubmit {
+                            Task { await refreshModels() }
+                        }
+
+                    Text("Optional. Required if oMLX was started with --api-key.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
 
                 HStack(spacing: CasaSpace.md) {
                     Picker("Model", selection: providerModelBinding) {

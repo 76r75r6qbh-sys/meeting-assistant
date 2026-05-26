@@ -66,7 +66,8 @@ enum LLMProviderFactory {
             return OMLXProvider(
                 endpoint: defaults.string(forKey: AppPreferenceKey.omlxEndpoint) ?? "http://localhost:8000/v1",
                 model: defaults.string(forKey: AppPreferenceKey.omlxModel) ?? "",
-                urlSession: urlSession
+                urlSession: urlSession,
+                apiKey: defaults.string(forKey: AppPreferenceKey.omlxAPIKey) ?? ""
             )
         }
     }

@@ -4,6 +4,14 @@ struct OMLXProvider: LLMProvider {
     let endpoint: String
     let model: String
     let urlSession: URLSession
+    let apiKey: String
+
+    init(endpoint: String, model: String, urlSession: URLSession, apiKey: String = "") {
+        self.endpoint = endpoint
+        self.model = model
+        self.urlSession = urlSession
+        self.apiKey = apiKey
+    }
 
     var displayName: String { "oMLX" }
 
@@ -64,6 +72,9 @@ struct OMLXProvider: LLMProvider {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = timeout
         request.httpBody = try JSONEncoder().encode(
             ChatRequest(
@@ -126,9 +137,14 @@ struct OMLXProvider: LLMProvider {
             throw LLMProviderError.invalidEndpoint(provider: displayName)
         }
 
+        var request = URLRequest(url: url)
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await urlSession.data(from: url)
+            (data, response) = try await urlSession.data(for: request)
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,

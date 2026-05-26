@@ -47,4 +47,19 @@ final class LLMProviderFactoryTests: XCTestCase {
         XCTAssertEqual(provider?.endpoint, "http://10.0.0.5:8000/v1")
         XCTAssertEqual(provider?.model, "qwen")
     }
+
+    func testOMLXProviderReadsAPIKey() {
+        let defaults = makeDefaults()
+        defaults.set("omlx", forKey: AppPreferenceKey.llmProvider)
+        defaults.set("my-key", forKey: AppPreferenceKey.omlxAPIKey)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? OMLXProvider
+        XCTAssertEqual(provider?.apiKey, "my-key")
+    }
+
+    func testOMLXProviderDefaultsAPIKeyToEmpty() {
+        let defaults = makeDefaults()
+        defaults.set("omlx", forKey: AppPreferenceKey.llmProvider)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? OMLXProvider
+        XCTAssertEqual(provider?.apiKey, "")
+    }
 }

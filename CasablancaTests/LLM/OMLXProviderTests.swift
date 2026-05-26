@@ -204,6 +204,42 @@ final class OMLXProviderTests: XCTestCase {
         XCTAssertEqual(provider.displayName, "oMLX")
     }
 
+    // MARK: - Authorization header
+
+    func testGenerateOmitsAuthorizationHeaderWhenKeyEmpty() async throws {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.completionsBody(content: "ok")) }
+        let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession(), apiKey: "")
+        _ = try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)
+        XCTAssertNil(MockURLProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testGenerateSendsBearerAuthorizationHeaderWhenKeySet() async throws {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.completionsBody(content: "ok")) }
+        let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession(), apiKey: "secret-key-123")
+        _ = try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer secret-key-123")
+    }
+
+    func testFetchAvailableModelsOmitsAuthorizationHeaderWhenKeyEmpty() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            (Self.okResponse(url: "http://localhost:8000/v1/models"),
+             try! JSONSerialization.data(withJSONObject: ["data": []]))
+        }
+        let provider = OMLXProvider(endpoint: "http://localhost:8000/v1", model: "m", urlSession: MockURLProtocol.makeSession(), apiKey: "")
+        _ = try await provider.fetchAvailableModels(endpoint: "http://localhost:8000/v1")
+        XCTAssertNil(MockURLProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testFetchAvailableModelsSendsBearerAuthorizationHeaderWhenKeySet() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            (Self.okResponse(url: "http://localhost:8000/v1/models"),
+             try! JSONSerialization.data(withJSONObject: ["data": []]))
+        }
+        let provider = OMLXProvider(endpoint: "http://localhost:8000/v1", model: "m", urlSession: MockURLProtocol.makeSession(), apiKey: "secret-key-123")
+        _ = try await provider.fetchAvailableModels(endpoint: "http://localhost:8000/v1")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer secret-key-123")
+    }
+
     // MARK: - Helpers
 
     private static func okResponse(url: String = "http://x/v1/chat/completions") -> HTTPURLResponse {
