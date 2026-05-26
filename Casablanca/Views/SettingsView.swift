@@ -391,7 +391,7 @@ struct SettingsView: View {
 
     private var summaryPromptSheet: some View {
         sheetContainer(title: "Customize Summary Prompt") {
-            Text("This template is sent to Ollama whenever Casablanca generates a summary.")
+            Text("This template is sent to \(providerDisplayName) whenever Casablanca generates a summary.")
                 .font(.subheadline)
                 .foregroundStyle(Color.textSecondary)
 
