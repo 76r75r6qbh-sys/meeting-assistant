@@ -13,6 +13,8 @@
 		2405FA5D7C76BF630A133C64 /* UpdatePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */; };
 		24EB0A08CE05CBF3AEA097E5 /* ReleaseInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */; };
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
+		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
+		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
@@ -21,6 +23,7 @@
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
 		7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */; };
 		9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A49CA3494756C27CD173CA /* SemanticVersion.swift */; };
+		9BEF92EEB18A36DC9F07B108 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */; };
 		9C64626C06AC9157AA4AD10A /* UpdatesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */; };
 		A10001 /* CasablancaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* CasablancaApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
@@ -95,8 +98,10 @@
 		A8FA62DBB7CD4046DD1FCC81 /* UpdateLaunchHousekeeping.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEDC99ABCEE1E1DF4190DB03 /* UpdateLaunchHousekeeping.swift */; };
 		AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */; };
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
+		BE6770583C1B1F8A8C67B418 /* OMLXProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE76844700FCF7A055497BB /* OMLXProvider.swift */; };
 		C1E6FC1E581E4E7C1DCF1C16 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D480611A08BDB4705DD52C /* UpdateService.swift */; };
 		C40DAA304D9C44955F64244C /* Casablanca-99.0.0-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */; };
+		C514F5A5E0BEA52EA0DC4B59 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */; };
 		CA604E75D903664CE5D5A80A /* UpdateProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
 		CEFB80B9E5C58D2FB05541A7 /* UpdatePromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */; };
@@ -122,17 +127,22 @@
 		1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstallerScriptTests.swift; sourceTree = "<group>"; };
 		20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
+		3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
+		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
+		48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePromptView.swift; sourceTree = "<group>"; };
 		7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateProgressView.swift; sourceTree = "<group>"; };
+		7EE76844700FCF7A055497BB /* OMLXProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProvider.swift; sourceTree = "<group>"; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloaderTests.swift; sourceTree = "<group>"; };
 		A3D480611A08BDB4705DD52C /* UpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
+		ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		B10001 /* CasablancaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -267,6 +277,17 @@
 			path = Updates;
 			sourceTree = "<group>";
 		};
+		B27D68C2A33237168146A7AD /* LLM */ = {
+			isa = PBXGroup;
+			children = (
+				48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */,
+				ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */,
+				7EE76844700FCF7A055497BB /* OMLXProvider.swift */,
+			);
+			name = LLM;
+			path = LLM;
+			sourceTree = "<group>";
+		};
 		C16AE52BC6C407C652EB053F /* Updates */ = {
 			isa = PBXGroup;
 			children = (
@@ -350,6 +371,7 @@
 				B10064 /* NSAppleScriptAppleNotesScripting.swift */,
 				8C0F8B08F8B0A6A4C4F35A42 /* Updates */,
 				D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */,
+				B27D68C2A33237168146A7AD /* LLM */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -464,6 +486,8 @@
 			isa = PBXGroup;
 			children = (
 				20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */,
+				3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */,
+				48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -637,6 +661,9 @@
 				CA604E75D903664CE5D5A80A /* UpdateProgressView.swift in Sources */,
 				9C64626C06AC9157AA4AD10A /* UpdatesSettingsView.swift in Sources */,
 				E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */,
+				9BEF92EEB18A36DC9F07B108 /* LLMProvider.swift in Sources */,
+				392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */,
+				BE6770583C1B1F8A8C67B418 /* OMLXProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -674,6 +701,8 @@
 				A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */,
 				AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */,
 				6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */,
+				C514F5A5E0BEA52EA0DC4B59 /* OllamaProviderTests.swift in Sources */,
+				3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
