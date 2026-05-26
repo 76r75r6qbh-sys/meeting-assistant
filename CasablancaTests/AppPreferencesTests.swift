@@ -57,4 +57,27 @@ final class AppPreferencesTests: XCTestCase {
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded(in: defaults)
         XCTAssertNil(defaults.object(forKey: AppPreferenceKey.autoExportEnabled))
     }
+
+    func testLLMProviderDefaultsToOllama() {
+        let defaults = makeDefaults()
+        XCTAssertEqual(AppPreferences.llmProvider(in: defaults), .ollama)
+    }
+
+    func testLLMProviderReadsStoredValue() {
+        let defaults = makeDefaults()
+        defaults.set("omlx", forKey: AppPreferenceKey.llmProvider)
+        XCTAssertEqual(AppPreferences.llmProvider(in: defaults), .omlx)
+    }
+
+    func testLLMProviderFallsBackOnUnknownValue() {
+        let defaults = makeDefaults()
+        defaults.set("garbage", forKey: AppPreferenceKey.llmProvider)
+        XCTAssertEqual(AppPreferences.llmProvider(in: defaults), .ollama)
+    }
+
+    func testSetLLMProviderWritesRawValue() {
+        let defaults = makeDefaults()
+        AppPreferences.setLLMProvider(.omlx, in: defaults)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.llmProvider), "omlx")
+    }
 }

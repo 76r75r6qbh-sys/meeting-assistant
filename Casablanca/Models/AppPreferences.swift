@@ -10,6 +10,11 @@ enum PrepTodoStorage: String {
     case local
 }
 
+enum LLMProviderKind: String {
+    case ollama
+    case omlx
+}
+
 enum AppPreferences {
     static func exportDestination(in defaults: UserDefaults = .standard) -> ExportDestination {
         let raw = defaults.string(forKey: AppPreferenceKey.exportDestination) ?? ""
@@ -27,6 +32,15 @@ enum AppPreferences {
 
     static func setPrepTodoStorage(_ value: PrepTodoStorage, in defaults: UserDefaults = .standard) {
         defaults.set(value.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
+    }
+
+    static func llmProvider(in defaults: UserDefaults = .standard) -> LLMProviderKind {
+        let raw = defaults.string(forKey: AppPreferenceKey.llmProvider) ?? ""
+        return LLMProviderKind(rawValue: raw) ?? .ollama
+    }
+
+    static func setLLMProvider(_ value: LLMProviderKind, in defaults: UserDefaults = .standard) {
+        defaults.set(value.rawValue, forKey: AppPreferenceKey.llmProvider)
     }
 
     static func autoExportEnabled(in defaults: UserDefaults = .standard) -> Bool {
