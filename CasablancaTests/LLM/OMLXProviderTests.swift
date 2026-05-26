@@ -179,6 +179,16 @@ final class OMLXProviderTests: XCTestCase {
         _ = try await provider.fetchAvailableModels(endpoint: "http://localhost:8000/v1/chat/completions")
     }
 
+    func testFetchAvailableModelsNormalizesEndpointWithBareModelsSuffix() async throws {
+        MockURLProtocol.requestHandler = { req in
+            XCTAssertEqual(req.url?.absoluteString, "http://localhost:8000/v1/models")
+            return (Self.okResponse(url: "http://localhost:8000/v1/models"),
+                    try! JSONSerialization.data(withJSONObject: ["data": []]))
+        }
+        let provider = OMLXProvider(endpoint: "http://localhost:8000/models", model: "m", urlSession: MockURLProtocol.makeSession())
+        _ = try await provider.fetchAvailableModels(endpoint: "http://localhost:8000/models")
+    }
+
     func testDisplayNameIsOMLX() {
         let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
         XCTAssertEqual(provider.displayName, "oMLX")

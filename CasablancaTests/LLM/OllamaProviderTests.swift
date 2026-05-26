@@ -69,6 +69,33 @@ final class OllamaProviderTests: XCTestCase {
         XCTAssertEqual(result, "hi")
     }
 
+    func testGenerateReportsTruncationWhenDoneReasonIsLength() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            (Self.okResponse(), Self.encode(["response": "partial", "done_reason": "length"]))
+        }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        var sawTruncated: Bool?
+        let result = try await provider.generate(
+            prompt: "p", temperature: nil, timeout: 10,
+            truncated: { sawTruncated = $0 }
+        )
+        XCTAssertEqual(result, "partial")
+        XCTAssertEqual(sawTruncated, true)
+    }
+
+    func testGenerateReportsNoTruncationWhenDoneReasonIsStop() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            (Self.okResponse(), Self.encode(["response": "complete", "done_reason": "stop"]))
+        }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        var sawTruncated: Bool?
+        _ = try await provider.generate(
+            prompt: "p", temperature: nil, timeout: 10,
+            truncated: { sawTruncated = $0 }
+        )
+        XCTAssertEqual(sawTruncated, false)
+    }
+
     func testGenerateThrowsEmptyResponseOnBlankBody() async {
         MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.encode(["response": "   "])) }
         let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
@@ -110,6 +137,17 @@ final class OllamaProviderTests: XCTestCase {
         let provider = OllamaProvider(endpoint: "http://localhost:11434", model: "m", urlSession: MockURLProtocol.makeSession())
         let result = try await provider.fetchAvailableModels(endpoint: "http://localhost:11434")
         XCTAssertEqual(result, ["alpha", "zeta"])
+    }
+
+    func testFetchAvailableModelsThrowsRequestFailedOnNon2xx() async {
+        MockURLProtocol.requestHandler = { _ in
+            (HTTPURLResponse(url: URL(string: "http://x/api/tags")!, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+             Data())
+        }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.fetchAvailableModels(endpoint: "http://x")) { error in
+            guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+        }
     }
 
     func testDisplayNameIsOllama() {

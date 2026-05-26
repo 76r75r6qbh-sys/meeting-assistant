@@ -18,6 +18,13 @@ struct OllamaProvider: LLMProvider {
     private struct GenerateResponse: Decodable {
         let response: String?
         let error: String?
+        let doneReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case response
+            case error
+            case doneReason = "done_reason"
+        }
     }
 
     private struct TagsResponse: Decodable {
@@ -80,7 +87,7 @@ struct OllamaProvider: LLMProvider {
         guard !text.isEmpty else {
             throw LLMProviderError.emptyResponse(provider: displayName)
         }
-        truncated?(false)
+        truncated?(payload.doneReason == "length")
         return text
     }
 

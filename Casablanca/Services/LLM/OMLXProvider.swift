@@ -22,8 +22,13 @@ struct OMLXProvider: LLMProvider {
         let error: ErrorBody?
         struct Choice: Decodable {
             let message: Message?
-            let finish_reason: String?
+            let finishReason: String?
             struct Message: Decodable { let role: String?; let content: String? }
+
+            enum CodingKeys: String, CodingKey {
+                case message
+                case finishReason = "finish_reason"
+            }
         }
         struct ErrorBody: Decodable {
             let message: String?
@@ -112,7 +117,7 @@ struct OMLXProvider: LLMProvider {
             throw LLMProviderError.emptyResponse(provider: displayName)
         }
 
-        truncated?(first.finish_reason == "length")
+        truncated?(first.finishReason == "length")
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -166,7 +171,7 @@ struct OMLXProvider: LLMProvider {
         if s.hasSuffix("/chat/completions") {
             s = String(s.dropLast("/chat/completions".count))
         }
-        if s.hasSuffix("/v1/models") {
+        if s.hasSuffix("/models") {
             s = String(s.dropLast("/models".count))
         }
         if s.hasSuffix("/") { s = String(s.dropLast()) }
