@@ -11,7 +11,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Local summary generation through a selectable LLM provider — Ollama (default) or oMLX — with per-provider endpoint and model settings and optional oMLX API-key authentication
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
-- **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](https://github.com/76r75r6qbh-sys/meeting-assistant/wiki/Action-Queue-(Approvals)) in the wiki.
+- **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
 
 ## Requirements
 
