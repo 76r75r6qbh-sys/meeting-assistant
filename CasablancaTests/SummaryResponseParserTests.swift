@@ -62,21 +62,33 @@ final class SummaryResponseParserTests: XCTestCase {
         ])
     }
 
-    func test_extraSectionsAfterActionItems_ignored() {
-        let raw = """
+    func test_splitsAllSections() {
+        let md = """
         # Summary
-
-        All good.
-
+        Aligned on the plan.
+        ## Decisions
+        - Team Link owns mapping
         ## Action Items
-
-        - Ship it
-
+        - Draft spec
+        ## Risks and Blockers
+        - Test env may slip
         ## Follow-ups
-
-        - Check metrics next week
+        - Ping Manon
         """
-        let result = SummaryResponseParser.parse(raw)
-        XCTAssertEqual(result.todoTexts, ["Ship it"])
+        let r = SummaryResponseParser.parse(md)
+        XCTAssertTrue(r.summary.contains("Aligned on the plan."))
+        XCTAssertEqual(r.todoTexts, ["Draft spec"])
+        XCTAssertEqual(r.decisions, ["Team Link owns mapping"])
+        XCTAssertEqual(r.risks, ["Test env may slip"])
+        XCTAssertEqual(r.followUps, ["Ping Manon"])
+        XCTAssertEqual(r.rawMarkdown, md)
+    }
+
+    func test_omitsEmptySections() {
+        let md = "# Summary\nDone.\n## Action Items\n## Risks and Blockers\n"
+        let r = SummaryResponseParser.parse(md)
+        XCTAssertEqual(r.todoTexts, [])
+        XCTAssertEqual(r.risks, [])
+        XCTAssertEqual(r.decisions, [])
     }
 }
