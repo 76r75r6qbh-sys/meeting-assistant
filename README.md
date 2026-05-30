@@ -1,14 +1,14 @@
 # Casablanca
 
-Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with Ollama, and exporting meeting notes to Obsidian or Apple Notes.
+Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with a local LLM (Ollama or oMLX), and exporting meeting notes to Obsidian or Apple Notes.
 
-## What `v0.1.0` includes
+## What `v0.6.0` includes
 
 - Calendar-driven meeting list plus manual meetings
 - Live meeting workspace with freeform notes by default and optional timestamped capture
 - Local meeting recording with microphone and optional system audio capture
 - Local transcription through WhisperKit
-- Local summary generation through Ollama
+- Local summary generation through a selectable LLM provider — Ollama (default) or oMLX — with per-provider endpoint and model settings and optional oMLX API-key authentication
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
 
@@ -18,7 +18,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Xcode 16 or later
 - Microphone permission
 - Screen Recording permission if you want system audio capture
-- Optional: a local Ollama instance for summaries
+- Optional: a local LLM server for summaries — [Ollama](https://ollama.com) (default) or [oMLX](https://github.com/jundot/omlx)
 
 ## Build
 
@@ -61,7 +61,7 @@ xcodebuild test -project Casablanca.xcodeproj \
 
 ## Notes
 
-- The GitHub release for `v0.1.0` ships a zipped `.app` bundle.
+- Each GitHub release ships a zipped `.app` bundle.
 - A raw `xcodebuild` output with signing disabled is not suitable for distribution by itself; re-sign the bundle before sharing it.
 - Ad-hoc signing avoids the broken “app is damaged” bundle state, but macOS still requires Developer ID signing and notarization for a frictionless public download experience.
 
