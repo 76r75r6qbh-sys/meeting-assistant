@@ -20,6 +20,7 @@ struct SidebarMeetingRowActions {
 
 struct SidebarView: View {
     @Bindable var viewModel: MeetingListViewModel
+    @Environment(AppModel.self) private var appModel
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
@@ -30,7 +31,10 @@ struct SidebarView: View {
     private var openTodoCount: Int { openTodos.count }
 
     var body: some View {
-        List(selection: $selection) {
+        // Read in this view's tracked context so the badge updates reactively
+        // when the watcher/bootstrap mutates the queue.
+        let pendingCount = appModel.actionQueueModel.pendingCount
+        return List(selection: $selection) {
             Section {
                 Label("Dashboard", systemImage: "calendar")
                     .tag(SidebarDestination.dashboard)
@@ -40,6 +44,12 @@ struct SidebarView: View {
                 Label("To-Dos", systemImage: "checklist")
                     .badge(openTodoCount)
                     .tag(SidebarDestination.todos)
+            }
+
+            Section {
+                Label("Approvals", systemImage: "tray.full")
+                    .badge(pendingCount)
+                    .tag(SidebarDestination.actionQueue)
             }
 
             if !upcomingMeetings.isEmpty {
@@ -251,5 +261,6 @@ struct SidebarMeetingRow: View {
 enum SidebarDestination: Hashable {
     case dashboard
     case todos
+    case actionQueue
     case meeting(UUID)
 }

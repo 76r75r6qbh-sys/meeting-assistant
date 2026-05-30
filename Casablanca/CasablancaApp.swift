@@ -101,6 +101,7 @@ final class AppModel {
     let summarizationService = SummarizationService()
     let terminologyService = TerminologyService()
     let meetingListViewModel: MeetingListViewModel
+    let actionQueueModel = ActionQueueModel()
     let updateService: UpdateService
     let applicationsLocationCheck: ApplicationsLocationCheck
     private let housekeeping: UpdateLaunchHousekeeping
@@ -152,6 +153,11 @@ final class AppModel {
     func bootstrap() async {
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
+
+        // Populate the approvals badge and start watching early — before the
+        // (potentially slow) calendar permission check.
+        actionQueueModel.reload()
+        actionQueueModel.startWatching()
 
         await permissionsManager.checkAll()
         if calendarService.authorizationStatus == .fullAccess {

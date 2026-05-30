@@ -23,6 +23,7 @@ enum AppPreferenceKey {
     static let terminologyList = "terminologyList"
     static let exportDestination = "exportDestination"
     static let prepTodoStorage = "prepTodoStorage"
+    static let actionQueuePath = "actionQueuePath"
 }
 
 enum AppPreferenceValue {
