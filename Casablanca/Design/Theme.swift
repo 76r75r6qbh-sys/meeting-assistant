@@ -38,15 +38,15 @@ extension Color {
     // Accent — honor the user's System Settings accent color (HIG)
     static let accentPrimary = Color.accentColor
     static let accentSecondary = Color(nsColor: .systemPurple)  // AI / processing tint
-    static let accentSuccess = Color(red: 0.204, green: 0.827, blue: 0.600)      // #34D399
-    static let accentWarning = Color(red: 0.984, green: 0.749, blue: 0.141)      // #FBBF24
-    static let accentDanger = Color(red: 0.937, green: 0.267, blue: 0.267)       // #EF4444
+    static let accentSuccess = Color(nsColor: .systemGreen)
+    static let accentWarning = Color(nsColor: .systemOrange)
+    static let accentDanger  = Color(nsColor: .systemRed)
 
-    // State
-    static let stateRecording = accentDanger
+    // State (semantic; adapt to appearance & Increased Contrast)
+    static let stateRecording  = accentDanger
     static let stateProcessing = accentSecondary
-    static let stateLive = accentSuccess
-    static let stateIdle = Color(nsColor: .tertiaryLabelColor)
+    static let stateLive       = accentSuccess
+    static let stateIdle       = Color(nsColor: .tertiaryLabelColor)
     static let stateAIGenerated = accentSecondary.opacity(0.15)
 }
 
