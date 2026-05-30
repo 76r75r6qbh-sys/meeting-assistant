@@ -58,8 +58,26 @@ struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(CasaSpace.md)
-            .background(Color.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
+            .background {
+                // Layered material: base fill + a gentle top-down highlight for depth.
+                // The base token keeps the fill appearance-correct in light & dark;
+                // the white-opacity gradient adds a soft raised-edge highlight that
+                // reads as depth in dark mode and stays subtle in light mode.
+                Color.backgroundTertiary
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.06), Color.white.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.xl))
+            // 1px hairline border, appearance-correct in both light and dark.
+            .overlay(
+                RoundedRectangle(cornerRadius: CasaRadius.xl)
+                    .strokeBorder(Color.borderSubtle, lineWidth: 1)
+            )
             .overlay(alignment: .leading) {
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: 2)
