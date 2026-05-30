@@ -56,6 +56,8 @@
 		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
 		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
 		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
+		A10100 /* MeetingTimeBucket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100 /* MeetingTimeBucket.swift */; };
+		A10101 /* MeetingTimeBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* MeetingTimeBucketTests.swift */; };
 		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
 		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
@@ -180,6 +182,8 @@
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
 		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
+		B10100 /* MeetingTimeBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucket.swift; sourceTree = "<group>"; };
+		B10101 /* MeetingTimeBucketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucketTests.swift; sourceTree = "<group>"; };
 		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
 		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
@@ -373,6 +377,7 @@
 				B10040 /* ObsidianTodoMarkdown.swift */,
 				B10042 /* ObsidianTodoSyncService.swift */,
 				B10027 /* SummaryResponseParser.swift */,
+				B10100 /* MeetingTimeBucket.swift */,
 				B10047 /* RecordingResumeSessionStore.swift */,
 				B10048 /* RecordingInterruptionMonitor.swift */,
 				B10050 /* RecordingInterruptionCoordinator.swift */,
@@ -474,6 +479,7 @@
 			isa = PBXGroup;
 			children = (
 				B10028 /* SummaryResponseParserTests.swift */,
+				B10101 /* MeetingTimeBucketTests.swift */,
 				B10033 /* MarkdownEditorBundleTests.swift */,
 				B10035 /* MeetingStartFlowTests.swift */,
 				B10037 /* MeetingPrepServiceTests.swift */,
@@ -644,6 +650,7 @@
 				A10025 /* MenuBarMeetingView.swift in Sources */,
 				A10026 /* TodoItem.swift in Sources */,
 				A10027 /* SummaryResponseParser.swift in Sources */,
+				A10100 /* MeetingTimeBucket.swift in Sources */,
 				A10029 /* PendingTodoReview.swift in Sources */,
 				A10030 /* TodoReviewSheet.swift in Sources */,
 				A10031 /* TodosView.swift in Sources */,
@@ -694,6 +701,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10028 /* SummaryResponseParserTests.swift in Sources */,
+				A10101 /* MeetingTimeBucketTests.swift in Sources */,
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
 				A10035 /* MeetingStartFlowTests.swift in Sources */,
 				A10037 /* MeetingPrepServiceTests.swift in Sources */,
