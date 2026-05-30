@@ -140,7 +140,14 @@ final class AppModel {
             currentVersion: currentVersion,
             currentBundleURL: bundleURL,
             now: { Date() },
-            terminate: { NSApp.terminate(nil) }
+            terminate: {
+                // Graceful quit first. If AppKit defers termination — which it does
+                // when this runs while the update progress sheet is presented — force
+                // the process to exit so the relaunch helper (waiting on this PID) can
+                // launch the new version. Only ever called on the updater install path.
+                NSApp.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            }
         )
 
         applicationsLocationCheck = ApplicationsLocationCheck(

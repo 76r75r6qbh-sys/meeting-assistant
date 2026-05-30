@@ -2,25 +2,27 @@ import XCTest
 @testable import Casablanca
 
 final class UpdateInstallerScriptTests: XCTestCase {
-    func test_script_containsSentinelWaitLoop_andTimeout_andOpen() {
+    func test_script_waitsOnParentPID_withTimeout_andOpen() {
         let script = DefaultUpdateInstaller.relaunchScript(
-            sentinelPath: URL(fileURLWithPath: "/tmp/relaunch.sentinel"),
+            parentPID: 4242,
             newAppPath: URL(fileURLWithPath: "/Applications/Casablanca.app"),
             logPath: URL(fileURLWithPath: "/tmp/install.log")
         )
-        XCTAssertTrue(script.contains("while [ -e"), "missing sentinel wait loop")
+        XCTAssertTrue(script.contains("PARENT=4242"), "missing parent pid")
+        XCTAssertTrue(script.contains(#"while kill -0 "$PARENT""#), "missing pid wait loop")
         XCTAssertTrue(script.contains("i=$((i+1))"), "missing iteration counter")
         XCTAssertTrue(script.contains("open -n"), "missing open -n")
         XCTAssertTrue(script.contains("set -u"), "missing set -u")
+        XCTAssertFalse(script.contains("SENTINEL"), "should no longer depend on a sentinel file")
     }
 
     func test_script_quotesPathsWithSpacesAndQuotes() {
         let script = DefaultUpdateInstaller.relaunchScript(
-            sentinelPath: URL(fileURLWithPath: "/tmp/has space/relaunch.sentinel"),
+            parentPID: 99,
             newAppPath: URL(fileURLWithPath: "/Applications/has 'quote'/Casablanca.app"),
-            logPath: URL(fileURLWithPath: "/tmp/log.log")
+            logPath: URL(fileURLWithPath: "/tmp/has space/log.log")
         )
-        XCTAssertTrue(script.contains("'/tmp/has space/relaunch.sentinel'"))
+        XCTAssertTrue(script.contains("'/tmp/has space/log.log'"))
         XCTAssertTrue(script.contains(#"'/Applications/has '\''quote'\''/Casablanca.app'"#))
     }
 }

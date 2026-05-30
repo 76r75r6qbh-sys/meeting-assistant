@@ -22,7 +22,7 @@ final class DefaultUpdateInstaller: UpdateInstaller {
         let logPath = paths.installLog(at: now)
         let scriptPath = paths.relaunchScript(at: now)
         let body = Self.relaunchScript(
-            sentinelPath: paths.sentinel,
+            parentPID: ProcessInfo.processInfo.processIdentifier,
             newAppPath: currentBundle,
             logPath: logPath
         )
@@ -97,26 +97,31 @@ final class DefaultUpdateInstaller: UpdateInstaller {
         }
     }
 
-    static func relaunchScript(sentinelPath: URL, newAppPath: URL, logPath: URL) -> String {
-        let sentinel = posixSingleQuote(sentinelPath.path)
+    static func relaunchScript(parentPID: Int32, newAppPath: URL, logPath: URL) -> String {
         let app = posixSingleQuote(newAppPath.path)
         let log = posixSingleQuote(logPath.path)
+        // Wait on the parent PID itself, not a sentinel file. The previous
+        // sentinel approach depended on `applicationWillTerminate` firing to
+        // remove the file — which does not happen reliably when the app is
+        // asked to quit while the update sheet is presented, so the helper would
+        // time out and the new version would never launch. `kill -0` polling is
+        // robust regardless of how the parent exits.
         return """
         #!/bin/sh
         set -u
-        SENTINEL=\(sentinel)
+        PARENT=\(parentPID)
         NEW_APP=\(app)
         LOG=\(log)
 
         log() { printf '%s %s\\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >> "$LOG"; }
 
-        log "waiting for parent to exit (sentinel: $SENTINEL)"
+        log "waiting for parent $PARENT to exit"
         i=0
-        while [ -e "$SENTINEL" ]; do
+        while kill -0 "$PARENT" 2>/dev/null; do
           sleep 0.2
           i=$((i+1))
           if [ "$i" -gt 150 ]; then
-            log "parent did not remove sentinel within 30s, launching anyway"
+            log "parent $PARENT still alive after 30s, launching anyway"
             break
           fi
         done
