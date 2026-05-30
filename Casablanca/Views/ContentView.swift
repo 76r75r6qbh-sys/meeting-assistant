@@ -52,6 +52,8 @@ struct ContentView: View {
         switch detailRoute {
         case .todos:
             TodosView(viewModel: viewModel)
+        case .actionQueue:
+            ActionQueueView()
         case .meeting(let id):
             if let meeting = viewModel.selectedMeeting ?? viewModel.fetchMeeting(byID: id) {
                 switch meeting.status.detailPresentation {

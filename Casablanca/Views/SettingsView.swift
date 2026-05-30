@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
     @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
@@ -147,6 +148,36 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Action Queue") {
+                HStack {
+                    TextField("action-queue.json path", text: $actionQueuePath)
+
+                    Button("Browse...") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = false
+                        panel.canChooseFiles = true
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Select your action-queue.json file"
+
+                        if panel.runModal() == .OK, let url = panel.url {
+                            actionQueuePath = url.path
+                        }
+                    }
+                }
+
+                if actionQueuePath.isEmpty {
+                    Text("Leave empty to use the default location (`~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json`). The Approvals inbox reads draft items from this file and writes back your decisions.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("The Approvals inbox reads draft items from this file and writes back your decisions.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("Recording") {
                 HStack(spacing: CasaSpace.md) {
                     Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
@@ -177,6 +208,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: actionQueuePath) { _, _ in
+            appModel.actionQueueModel.refreshWatch()
+        }
         .onChange(of: prepTodoStorageRaw) { _, newValue in
             if newValue == PrepTodoStorage.obsidian.rawValue {
                 Task { @MainActor in
