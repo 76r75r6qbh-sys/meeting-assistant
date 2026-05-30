@@ -2,7 +2,7 @@
 
 Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with a local LLM (Ollama or oMLX), and exporting meeting notes to Obsidian or Apple Notes.
 
-## What `v0.7.0` includes
+## What `v0.7.1` includes
 
 - Calendar-driven meeting list plus manual meetings
 - Live meeting workspace with freeform notes by default and optional timestamped capture
