@@ -81,6 +81,28 @@ final class MeetingListViewModel {
         return calendarService.events.first(where: { $0.startDate > now })
     }
 
+    /// The single most actionable meeting to surface in the dashboard hero:
+    /// a meeting that is live right now, otherwise the earliest meeting that
+    /// is still upcoming today. Returns `nil` when there is nothing actionable
+    /// (no live meeting and no upcoming meeting left today).
+    func actionableEventToday(referenceDate: Date = Date()) -> EKEvent? {
+        let calendar = Calendar.current
+
+        if let liveEvent = calendarService.events.first(where: { isHappeningNow($0, referenceDate: referenceDate) }) {
+            return liveEvent
+        }
+
+        return calendarService.events
+            .filter { $0.startDate > referenceDate && calendar.isDateInToday($0.startDate) }
+            .min { $0.startDate < $1.startDate }
+    }
+
+    /// Presentation metadata for the dashboard hero, derived from the actionable meeting.
+    func heroPresentation(referenceDate: Date = Date()) -> DashboardHeroPresentation? {
+        guard let event = actionableEventToday(referenceDate: referenceDate) else { return nil }
+        return DashboardHeroPresentation(event: event, referenceDate: referenceDate)
+    }
+
     func requestCalendarAccess() async {
         _ = await calendarService.requestAccess()
     }

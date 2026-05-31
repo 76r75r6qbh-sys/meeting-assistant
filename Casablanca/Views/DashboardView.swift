@@ -46,6 +46,11 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: CasaSpace.xxl) {
             dayNavigator
 
+            if let event = viewModel.actionableEventToday(),
+               let hero = viewModel.heroPresentation() {
+                heroCard(presentation: hero, event: event)
+            }
+
             if let activeDay = selectedDay,
                let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: activeDay) }) {
                 dayPage(date: group.date, events: group.events)
@@ -54,6 +59,63 @@ struct DashboardView: View {
             }
         }
         .padding(CasaSpace.xl)
+    }
+
+    @ViewBuilder
+    private func heroCard(presentation: DashboardHeroPresentation, event: EKEvent) -> some View {
+        HStack(alignment: .center, spacing: CasaSpace.lg) {
+            VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                HStack(spacing: CasaSpace.xs) {
+                    Circle()
+                        .fill(presentation.isLive ? Color.stateLive : Color.accentColor)
+                        .frame(width: 6, height: 6)
+
+                    Text(presentation.eyebrow)
+                        .font(.caption2.weight(.bold))
+                        .textCase(.uppercase)
+                        .kerning(0.6)
+                        .foregroundStyle(Color.accentColor)
+                }
+
+                Text(presentation.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Text(presentation.detailLine)
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Spacer(minLength: CasaSpace.sm)
+
+            HStack(spacing: CasaSpace.sm) {
+                Button {
+                    viewModel.beginNotes(for: event)
+                } label: {
+                    Label("Take Notes", systemImage: "pencil.line")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
+                    viewModel.beginRecording(for: event)
+                } label: {
+                    Label("Start Recording", systemImage: "record.circle")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .padding(CasaSpace.lg)
+        .background(
+            Color.accentColor.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: CasaRadius.xl)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: CasaRadius.xl)
+                .strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(presentation.eyebrow). \(presentation.title)")
     }
 
     private var groupedEvents: [(date: Date, events: [EKEvent])] {

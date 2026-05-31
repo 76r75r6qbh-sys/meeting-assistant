@@ -41,6 +41,52 @@ struct MeetingEntryActionLayout {
     }
 }
 
+/// Presentation model for the dashboard "Up next" hero. Pure value type so the
+/// label / timing logic can be unit-tested without a live calendar.
+struct DashboardHeroPresentation {
+    let title: String
+    let timeRange: String
+    let participantNames: [String]
+    /// True when the meeting is happening right now.
+    let isLive: Bool
+    /// Whole minutes until the meeting starts (nil when live or already started).
+    let minutesUntilStart: Int?
+
+    init(event: EKEvent, referenceDate: Date = Date()) {
+        self.title = event.title ?? "Untitled"
+        self.participantNames = event.attendees?.compactMap(\.name) ?? []
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        self.timeRange = "\(formatter.string(from: event.startDate)) – \(formatter.string(from: event.endDate))"
+
+        self.isLive = event.startDate <= referenceDate && event.endDate > referenceDate
+
+        if event.startDate > referenceDate {
+            let seconds = event.startDate.timeIntervalSince(referenceDate)
+            self.minutesUntilStart = max(0, Int(seconds / 60))
+        } else {
+            self.minutesUntilStart = nil
+        }
+    }
+
+    /// Uppercase accent eyebrow, e.g. "Live now", "Starting soon", "Up next · in 25 min".
+    var eyebrow: String {
+        if isLive { return "Live now" }
+        guard let minutes = minutesUntilStart else { return "Up next" }
+        if minutes <= 1 { return "Starting soon" }
+        return "Up next · in \(minutes) min"
+    }
+
+    var participantCount: Int { participantNames.count }
+
+    var detailLine: String {
+        guard participantCount > 0 else { return timeRange }
+        let countLabel = participantCount == 1 ? "1 participant" : "\(participantCount) participants"
+        return "\(timeRange) · \(countLabel)"
+    }
+}
+
 struct MeetingCardView: View {
     let event: EKEvent
     let isNextUpcoming: Bool
@@ -93,6 +139,8 @@ struct MeetingCardView: View {
                 }
 
                 Spacer()
+
+                ParticipantAvatars(names: attendeeNames)
             }
 
             actionButtons
@@ -157,9 +205,12 @@ struct MeetingCardView: View {
             .foregroundStyle(isPast ? Color.textTertiary : Color.textSecondary)
     }
 
+    private var attendeeNames: [String] {
+        event.attendees?.compactMap(\.name) ?? []
+    }
+
     private var attendeeSummary: String? {
-        guard let attendees = event.attendees else { return nil }
-        let names = attendees.compactMap(\.name).prefix(2)
+        let names = attendeeNames.prefix(2)
         guard !names.isEmpty else { return nil }
         return names.joined(separator: ", ")
     }
@@ -177,5 +228,56 @@ struct MeetingCardView: View {
         case .viewDetails:
             onViewDetails()
         }
+    }
+}
+
+/// Overlapping circular avatars with initials, capped at `maxVisible` plus a
+/// "+N" overflow chip. Renders nothing when there are no participants.
+struct ParticipantAvatars: View {
+    let names: [String]
+    var maxVisible: Int = 3
+
+    private var visible: [String] {
+        Array(names.prefix(maxVisible))
+    }
+
+    private var overflow: Int {
+        max(0, names.count - maxVisible)
+    }
+
+    var body: some View {
+        if !names.isEmpty {
+            HStack(spacing: -7) {
+                ForEach(Array(visible.enumerated()), id: \.offset) { _, name in
+                    avatar(text: initials(for: name))
+                }
+                if overflow > 0 {
+                    avatar(text: "+\(overflow)")
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(participantAccessibilityLabel)
+        }
+    }
+
+    private func avatar(text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.textSecondary)
+            .frame(width: 24, height: 24)
+            .background(Color.backgroundActive, in: Circle())
+            .overlay(
+                Circle().strokeBorder(Color.backgroundTertiary, lineWidth: 2)
+            )
+    }
+
+    private func initials(for name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init)
+        return letters.joined().uppercased()
+    }
+
+    private var participantAccessibilityLabel: String {
+        names.count == 1 ? "1 participant" : "\(names.count) participants"
     }
 }

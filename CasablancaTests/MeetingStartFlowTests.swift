@@ -1,4 +1,5 @@
 import CoreAudio
+import EventKit
 import SwiftData
 import XCTest
 @testable import Casablanca
@@ -435,6 +436,61 @@ final class MeetingDeletionTests: XCTestCase {
         try viewModel.deleteMeeting(meeting)
 
         XCTAssertEqual(removedSessionMeetingID, meeting.id)
+    }
+}
+
+@MainActor
+final class DashboardHeroPresentationTests: XCTestCase {
+    private func makeEvent(start: Date, end: Date, title: String) -> EKEvent {
+        let event = EKEvent(eventStore: EKEventStore())
+        event.title = title
+        event.startDate = start
+        event.endDate = end
+        return event
+    }
+
+    func testLiveMeetingShowsLiveNowEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(-300),
+                              end: now.addingTimeInterval(600),
+                              title: "Daily standup")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertTrue(presentation.isLive)
+        XCTAssertEqual(presentation.eyebrow, "Live now")
+        XCTAssertNil(presentation.minutesUntilStart)
+    }
+
+    func testUpcomingMeetingShowsCountdownEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(25 * 60),
+                              end: now.addingTimeInterval(40 * 60),
+                              title: "PM-PM")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertFalse(presentation.isLive)
+        XCTAssertEqual(presentation.minutesUntilStart, 25)
+        XCTAssertEqual(presentation.eyebrow, "Up next · in 25 min")
+    }
+
+    func testImminentMeetingShowsStartingSoonEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(30),
+                              end: now.addingTimeInterval(900),
+                              title: "Refinement")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertEqual(presentation.minutesUntilStart, 0)
+        XCTAssertEqual(presentation.eyebrow, "Starting soon")
+    }
+
+    func testDetailLineFallsBackToTimeRangeWithoutParticipants() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now, end: now.addingTimeInterval(900), title: "Sync")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertEqual(presentation.detailLine, presentation.timeRange)
+        XCTAssertEqual(presentation.participantCount, 0)
     }
 }
 
