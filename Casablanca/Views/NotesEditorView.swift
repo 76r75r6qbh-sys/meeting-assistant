@@ -149,12 +149,14 @@ struct NotesEditorView: View {
     @State private var showingAudioSettings = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
+    @State private var pulseOpacity: Double = 1
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 if presentation.showsExpandedRecordingChrome {
-                    header
+                    recordingBar
+                    audioSettingsStrip
                     Divider()
                 }
 
@@ -266,97 +268,155 @@ struct NotesEditorView: View {
         freeformWorkspace
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+    // MARK: - Calm recording bar
+
+    private var isRecordingState: Bool {
+        meeting.status == .recording && recordingService.isRecording
+    }
+
+    private var recordingBar: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if let presentation = autoPauseIndicatorPresentation, presentation.shouldShow {
                 Text(presentation.summary)
                     .font(.caption)
                     .foregroundStyle(Color.textSecondary)
-                    .padding(.bottom, CasaSpace.xs)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, CasaSpace.xl)
+                    .padding(.top, CasaSpace.sm)
             }
 
-            HStack(alignment: .center) {
-                HStack(spacing: CasaSpace.sm) {
-                    Circle()
-                        .fill(recordingService.isRecording ? Color.stateRecording : Color.stateIdle)
-                        .frame(width: 10, height: 10)
-                        .scaleEffect(recordingService.isRecording ? 1 : 0.85)
-                        .animation(
-                            recordingService.isRecording && !reduceMotion
-                                ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true)
-                                : .default,
-                            value: recordingService.isRecording
-                        )
-                        .accessibilityLabel(recordingService.isRecording ? "Recording in progress" : "Not recording")
+            HStack(spacing: CasaSpace.lg) {
+                recordingStatusDot
 
-                    Text(presentation.stateLabel)
-                        .font(.headline)
-                        .foregroundStyle(Color.textPrimary)
-                }
-
-                Spacer()
+                Text(presentation.stateLabel)
+                    .font(.system(.body, weight: .semibold))
+                    .foregroundStyle(isRecordingState ? Color.stateRecording : Color.textPrimary)
 
                 Text(formattedElapsed)
-                    .font(.system(.title3, design: .default, weight: .semibold))
+                    .font(.system(.body, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Color.textSecondary)
+                    .foregroundStyle(Color.textPrimary)
                     .accessibilityLabel("Elapsed time: \(formattedElapsed)")
 
-                Button("Focus on Notes") {
-                    recordingWorkspaceFocusMode = true
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack {
                 AudioLevelMeterView(level: recordingService.audioLevel)
 
-                Spacer()
+                Spacer(minLength: CasaSpace.md)
+
+                recordingControls
             }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.vertical, CasaSpace.md)
+        }
+        .background(Color.stateRecording.opacity(0.12))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.stateRecording.opacity(0.22))
+                .frame(height: 1)
+        }
+    }
 
-            DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
-                VStack(alignment: .leading, spacing: CasaSpace.md) {
-                    if recordingService.availableInputDevices.isEmpty {
-                        Text("No microphone found")
-                            .font(.body)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Picker("Microphone", selection: selectedMicrophoneBinding) {
-                            ForEach(recordingService.availableInputDevices) { device in
-                                Text(device.name).tag(device.id)
-                            }
-                        }
-                        .disabled(recordingService.isPreparing)
-                    }
+    private var recordingStatusDot: some View {
+        Circle()
+            .fill(Color.stateRecording)
+            .frame(width: 10, height: 10)
+            .opacity(pulseOpacity)
+            .onAppear { startPulseIfNeeded() }
+            .onChange(of: isRecordingState) { startPulseIfNeeded() }
+            .onChange(of: reduceMotion) { startPulseIfNeeded() }
+            .accessibilityLabel(isRecordingState ? "Recording in progress" : "Recording paused")
+    }
 
-                    Toggle(isOn: Binding(
-                        get: { recordingService.isSystemAudioEnabled },
-                        set: { newValue in
-                            if newValue != recordingService.isSystemAudioEnabled {
-                                recordingService.toggleSystemAudioEnabled()
-                            }
+    private func startPulseIfNeeded() {
+        if isRecordingState && !reduceMotion {
+            pulseOpacity = 1
+            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                pulseOpacity = 0.45
+            }
+        } else {
+            withAnimation(.default) {
+                pulseOpacity = 1
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recordingControls: some View {
+        if presentation.showsPauseRecordingButton {
+            Button {
+                Task { await pauseRecording() }
+            } label: {
+                Label("Pause", systemImage: "pause.fill")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(recordingService.isPreparing)
+        }
+
+        if presentation.showsResumeRecordingButton {
+            Button {
+                Task { await resumeRecording() }
+            } label: {
+                Label("Resume", systemImage: "play.fill")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(recordingService.isPreparing)
+        }
+
+        if presentation.showsStopRecordingButton {
+            Button {
+                Task { await stopRecording() }
+            } label: {
+                Label("Stop & Process", systemImage: "stop.fill")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(recordingService.isPreparing || isFinalizingRecording)
+        }
+    }
+
+    private var audioSettingsStrip: some View {
+        DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                if recordingService.availableInputDevices.isEmpty {
+                    Text("No microphone found")
+                        .font(.body)
+                        .foregroundStyle(Color.textTertiary)
+                } else {
+                    Picker("Microphone", selection: selectedMicrophoneBinding) {
+                        ForEach(recordingService.availableInputDevices) { device in
+                            Text(device.name).tag(device.id)
                         }
-                    )) {
-                        Label("Capture system audio", systemImage: "speaker.wave.2.fill")
                     }
                     .disabled(recordingService.isPreparing)
+                }
 
-                    Picker("Language", selection: $meeting.transcriptionLanguage) {
-                        ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
-                            Text(language.name).tag(language.id)
+                Toggle(isOn: Binding(
+                    get: { recordingService.isSystemAudioEnabled },
+                    set: { newValue in
+                        if newValue != recordingService.isSystemAudioEnabled {
+                            recordingService.toggleSystemAudioEnabled()
                         }
                     }
-                    .onChange(of: meeting.transcriptionLanguage) {
-                        save()
+                )) {
+                    Label("Capture system audio", systemImage: "speaker.wave.2.fill")
+                }
+                .disabled(recordingService.isPreparing)
+
+                Picker("Language", selection: $meeting.transcriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                        Text(language.name).tag(language.id)
                     }
                 }
-                .padding(.top, CasaSpace.sm)
+                .onChange(of: meeting.transcriptionLanguage) {
+                    save()
+                }
             }
-            .tint(Color.textPrimary)
+            .padding(.top, CasaSpace.sm)
         }
+        .tint(Color.textPrimary)
         .padding(.horizontal, CasaSpace.xl)
-        .padding(.top, CasaSpace.xl)
-        .padding(.bottom, CasaSpace.xxl)
+        .padding(.vertical, CasaSpace.md)
     }
 
     @ViewBuilder
@@ -529,6 +589,7 @@ struct NotesEditorView: View {
 
             if presentation.showsCompactRecordingControls {
                 compactRecordingControls
+                recordingControls
             }
 
             Spacer()
@@ -538,36 +599,6 @@ struct NotesEditorView: View {
                     Label("Start Recording", systemImage: "record.circle")
                 }
                 .buttonStyle(PrimaryButtonStyle())
-            } else {
-                if presentation.showsPauseRecordingButton {
-                    Button {
-                        Task { await pauseRecording() }
-                    } label: {
-                        Label("Pause Recording", systemImage: "pause.circle")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .disabled(recordingService.isPreparing)
-                }
-
-                if presentation.showsResumeRecordingButton {
-                    Button {
-                        Task { await resumeRecording() }
-                    } label: {
-                        Label("Resume Recording", systemImage: "record.circle")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(recordingService.isPreparing)
-                }
-
-                if presentation.showsStopRecordingButton {
-                    Button {
-                        Task { await stopRecording() }
-                    } label: {
-                        Label("Stop Recording", systemImage: "stop.circle")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(recordingService.isPreparing || isFinalizingRecording)
-                }
             }
 
             Button {
