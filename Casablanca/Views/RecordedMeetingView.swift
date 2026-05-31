@@ -17,13 +17,32 @@ struct RecordedMeetingView: View {
     @State private var didTriggerAutomaticSummary = false
     @State private var pendingReview: PendingTodoReview?
     @State private var pendingTodoTexts: [String] = []
+    @State private var selectedTab: DetailTab = .summary
+    @State private var showInspector = true
+
+    private enum DetailTab: String, CaseIterable, Identifiable {
+        case summary = "Summary"
+        case transcript = "Transcript"
+        case notes = "Notes"
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
-        GeometryReader { proxy in
+        HStack(spacing: 0) {
             ScrollView {
-                contentLayout(for: proxy.size.width)
+                readingColumn
                     .padding(CasaSpace.xl)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            if showInspector {
+                Divider()
+                inspector
+                    .frame(width: CasaLayout.inspectorWidth)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -34,21 +53,14 @@ struct RecordedMeetingView: View {
                     toolbarButton(for: primaryToolbarAction, isPrimary: true)
                 }
 
-                if primaryToolbarAction != .export, canExport {
-                    toolbarButton(for: .export, isPrimary: false)
+                Button {
+                    withAnimation(CasaAnimation.fast) { showInspector.toggle() }
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.trailing")
                 }
+                .help(showInspector ? "Hide inspector" : "Show inspector")
 
-                Button(action: onRecordAgain) {
-                    Label("Record Again", systemImage: "record.circle")
-                }
-
-                if let recordingURL {
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([recordingURL])
-                    } label: {
-                        Label("Show in Finder", systemImage: "folder")
-                    }
-                }
+                secondaryActionsMenu
             }
         }
         .task(id: meeting.id) {
@@ -80,34 +92,31 @@ struct RecordedMeetingView: View {
         }
     }
 
-    @ViewBuilder
-    private func contentLayout(for width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+    // MARK: - Reading column
+
+    private var readingColumn: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xl) {
             infoBar
+
+            Picker("View", selection: $selectedTab) {
+                ForEach(DetailTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
             if shouldShowPipelineBanner {
                 pipelineBanner
             }
 
-            if usesTwoColumnLayout(for: width) {
-                HStack(alignment: .top, spacing: CasaSpace.xl) {
-                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                        summaryCard
-                        transcriptCard
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                        freeformNotesCard
-                    }
-                    .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
-                }
-                actionItemsCard
-            } else {
-                summaryCard
-                transcriptCard
-                freeformNotesCard
-                actionItemsCard
+            switch selectedTab {
+            case .summary:
+                summaryTab
+            case .transcript:
+                transcriptTab
+            case .notes:
+                notesTab
             }
 
             Spacer(minLength: 0)
@@ -171,106 +180,226 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private var summaryCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Summary", systemImage: "sparkles")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
+    // MARK: - Summary tab
 
-                    Spacer()
+    @ViewBuilder
+    private var summaryTab: some View {
+        if summarizationService.isSummarizing {
+            HStack(spacing: CasaSpace.sm) {
+                ProgressView()
+                    .controlSize(.small)
 
-                    if let summary = meeting.summary, !summary.isEmpty {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(summary, forType: .string)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .font(.caption)
+                Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
+                    .font(.body)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let summary = meeting.summary,
+                  !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let parsed = SummaryResponseParser.parse(summary)
+
+            VStack(alignment: .leading, spacing: CasaSpace.xl) {
+                summaryHero(parsed)
+
+                if !parsed.decisions.isEmpty {
+                    parsedSection("Decisions", systemImage: "diamond.fill") {
+                        ForEach(Array(parsed.decisions.enumerated()), id: \.offset) { _, text in
+                            bulletRow(symbol: "diamond.fill", color: Color.accentSuccess, text: text)
                         }
-                        .buttonStyle(GhostButtonStyle())
                     }
                 }
 
-                if summarizationService.isSummarizing {
-                    HStack(spacing: CasaSpace.sm) {
-                        ProgressView()
-                            .controlSize(.small)
+                if !parsed.todoTexts.isEmpty {
+                    actionItemsSection(parsed.todoTexts)
+                }
 
-                        Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
-                            .font(.body)
-                            .foregroundStyle(Color.textSecondary)
+                if !parsed.risks.isEmpty {
+                    parsedSection("Risks & blockers", systemImage: "exclamationmark.triangle.fill") {
+                        ForEach(Array(parsed.risks.enumerated()), id: \.offset) { _, text in
+                            bulletRow(symbol: "exclamationmark.triangle.fill", color: Color.accentWarning, text: text)
+                        }
                     }
-                } else if let summary = meeting.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    renderedMarkdownSummary(summary)
-                } else {
-                    ContentUnavailableView {
-                        Label("No Summary Yet", systemImage: "sparkles")
-                    } description: {
-                        Text("Generate a structured summary from the transcript and notes.")
-                    } actions: {
-                        if canSummarize {
-                            Button("Summarize") {
-                                Task {
-                                    await summarizeMeeting()
-                                }
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
+                }
+
+                if !parsed.followUps.isEmpty {
+                    parsedSection("Follow-ups", systemImage: "arrow.turn.down.right") {
+                        ForEach(Array(parsed.followUps.enumerated()), id: \.offset) { _, text in
+                            bulletRow(symbol: "arrow.turn.down.right", color: Color.textSecondary, text: text)
                         }
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ContentUnavailableView {
+                Label("No Summary Yet", systemImage: "sparkles")
+            } description: {
+                Text("Generate a structured summary from the transcript and notes.")
+            } actions: {
+                if canSummarize {
+                    Button("Summarize") {
+                        Task {
+                            await summarizeMeeting()
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
         }
     }
 
-    private var transcriptCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Transcript", systemImage: "doc.text")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
+    @ViewBuilder
+    private func summaryHero(_ parsed: SummaryResponseParser.ParsedResponse) -> some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            HStack {
+                Label("AI Summary", systemImage: "sparkles")
+                    .font(.caption.weight(.bold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.accentSecondary)
+                    .symbolRenderingMode(.hierarchical)
 
-                    Spacer()
+                Spacer()
 
-                    if let transcript = meeting.transcript, !transcript.isEmpty {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(transcript, forType: .string)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(meeting.summary ?? "", forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(GhostButtonStyle())
+            }
+
+            renderedMarkdownSummary(parsed.summary)
+        }
+        .padding(CasaSpace.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.stateAIGenerated, in: RoundedRectangle(cornerRadius: CasaRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: CasaRadius.xl)
+                .strokeBorder(Color.accentSecondary.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func parsedSection<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.bold))
+                .textCase(.uppercase)
+                .foregroundStyle(Color.textTertiary)
+                .symbolRenderingMode(.hierarchical)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func bulletRow(symbol: String, color: Color, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+            Image(systemName: symbol)
+                .font(.caption)
+                .foregroundStyle(color)
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Color.textPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func actionItemsSection(_ texts: [String]) -> some View {
+        let doneCount = texts.filter { isActionItemCompleted($0) }.count
+
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            HStack(spacing: CasaSpace.xs) {
+                Label("Action items", systemImage: "checklist")
+                    .font(.caption.weight(.bold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.textTertiary)
+                    .symbolRenderingMode(.hierarchical)
+
+                Text("· \(doneCount) of \(texts.count) done")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            ForEach(Array(texts.enumerated()), id: \.offset) { _, text in
+                let completed = isActionItemCompleted(text)
+                HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+                    Button {
+                        toggleActionItem(text)
+                    } label: {
+                        Image(systemName: completed ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
                     }
+                    .buttonStyle(.borderless)
 
-                    if canReapplyTerminology {
-                        Button {
-                            Task { await reapplyTerminology() }
-                        } label: {
-                            Label("Re-apply terminology", systemImage: "wand.and.sparkles")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                        .disabled(terminologyService.isCorrecting)
-                    }
+                    Text(text)
+                        .font(.body)
+                        .strikethrough(completed)
+                        .foregroundStyle(completed ? Color.textTertiary : Color.textPrimary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-                    if meeting.rawTranscript != nil {
-                        Button {
-                            restoreOriginalTranscript()
-                        } label: {
-                            Label("Restore original", systemImage: "arrow.uturn.backward")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                        .disabled(terminologyService.isCorrecting)
-                        .help("Replace the displayed transcript with the unmodified text from the recording, discarding any terminology corrections.")
+    // MARK: - Transcript tab
+
+    private var transcriptTab: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.md) {
+            HStack {
+                Label("Transcript", systemImage: "doc.text")
+                    .font(.headline)
+                    .symbolRenderingMode(.hierarchical)
+
+                Spacer()
+
+                if let transcript = meeting.transcript, !transcript.isEmpty {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(transcript, forType: .string)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                            .font(.caption)
                     }
+                    .buttonStyle(GhostButtonStyle())
                 }
 
-                if let warning = terminologyService.warningMessage {
+                if canReapplyTerminology {
+                    Button {
+                        Task { await reapplyTerminology() }
+                    } label: {
+                        Label("Re-apply terminology", systemImage: "wand.and.sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                    .disabled(terminologyService.isCorrecting)
+                }
+
+                if meeting.rawTranscript != nil {
+                    Button {
+                        restoreOriginalTranscript()
+                    } label: {
+                        Label("Restore original", systemImage: "arrow.uturn.backward")
+                            .font(.caption)
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                    .disabled(terminologyService.isCorrecting)
+                    .help("Replace the displayed transcript with the unmodified text from the recording, discarding any terminology corrections.")
+                }
+            }
+
+            if let warning = terminologyService.warningMessage {
                     HStack(alignment: .top, spacing: CasaSpace.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.accentWarning)
@@ -317,13 +446,13 @@ struct RecordedMeetingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
 
-    private var freeformNotesCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Notes", systemImage: "pencil.line")
+    // MARK: - Notes tab
+
+    private var notesTab: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.md) {
+            HStack {
+                Label("Notes", systemImage: "pencil.line")
                         .font(.headline)
                         .symbolRenderingMode(.hierarchical)
 
@@ -372,11 +501,9 @@ struct RecordedMeetingView: View {
                         .buttonStyle(SecondaryButtonStyle())
                     }
                 }
-
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
 
     @ViewBuilder
     private func toolbarButton(for action: ReviewPrimaryAction, isPrimary: Bool) -> some View {
@@ -476,14 +603,6 @@ struct RecordedMeetingView: View {
         return nil
     }
 
-    private func usesTwoColumnLayout(for width: CGFloat) -> Bool {
-        width >= 1040
-    }
-
-    private func notesColumnWidth(for width: CGFloat) -> CGFloat {
-        min(max(width * 0.34, 320), 420)
-    }
-
     private var summaryErrorBinding: Binding<Bool> {
         Binding(
             get: { summarizationService.errorMessage != nil },
@@ -498,7 +617,7 @@ struct RecordedMeetingView: View {
     private func summarizeMeeting() async {
         do {
             let parsed = try await summarizationService.summarize(meeting: meeting)
-            meeting.summary = parsed.summary
+            meeting.summary = parsed.rawMarkdown
             if !parsed.todoTexts.isEmpty {
                 pendingTodoTexts = parsed.todoTexts
                 pendingReview = PendingTodoReview(
@@ -580,37 +699,195 @@ struct RecordedMeetingView: View {
         }
     }
 
+    // MARK: - Action item ↔ todo sync
+
+    /// Finds the meeting-scoped `TodoItem` whose text matches a parsed action item.
+    private func matchingTodo(for text: String) -> TodoItem? {
+        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return meeting.todos.first {
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == target
+        }
+    }
+
+    private func isActionItemCompleted(_ text: String) -> Bool {
+        matchingTodo(for: text)?.isCompleted ?? false
+    }
+
+    /// Toggles a parsed action item's completion through the existing
+    /// `ObsidianTodoSyncService` flow. If a meeting `TodoItem` already exists for
+    /// the text, its `isCompleted` is flipped; otherwise a new completed todo is
+    /// created (a check on a not-yet-tracked item).
+    private func toggleActionItem(_ text: String) {
+        if let todo = matchingTodo(for: text) {
+            try? ObsidianTodoSyncService.setCompleted(
+                !todo.isCompleted,
+                for: todo,
+                in: modelContext
+            )
+        } else {
+            try? ObsidianTodoSyncService.createMeetingTodo(
+                text: text,
+                meeting: meeting,
+                in: modelContext
+            )
+            if let created = matchingTodo(for: text) {
+                try? ObsidianTodoSyncService.setCompleted(true, for: created, in: modelContext)
+            }
+        }
+    }
+
+    // MARK: - Inspector
+
+    private var inspector: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: CasaSpace.xl) {
+                recordingInspectorSection
+
+                if !meeting.participants.isEmpty {
+                    participantsInspectorSection
+                }
+
+                exportInspectorSection
+            }
+            .padding(CasaSpace.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.backgroundSecondary)
+    }
+
     @ViewBuilder
-    private var actionItemsCard: some View {
-        if !meeting.todos.isEmpty {
-            GroupBox {
-                VStack(alignment: .leading, spacing: CasaSpace.md) {
-                    Label("Action Items", systemImage: "checklist")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
+    private var recordingInspectorSection: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            inspectorLabel("Recording")
 
-                    ForEach(meeting.todos.sorted(by: { $0.createdAt < $1.createdAt })) { todo in
-                        HStack(spacing: CasaSpace.sm) {
-                            Button {
-                                try? ObsidianTodoSyncService.setCompleted(
-                                    !todo.isCompleted,
-                                    for: todo,
-                                    in: modelContext
-                                )
-                            } label: {
-                                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)
-                            }
-                            .buttonStyle(.borderless)
-
-                            Text(todo.text)
-                                .strikethrough(todo.isCompleted)
-                                .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
+            if recordingURL != nil {
+                HStack(spacing: CasaSpace.sm) {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Saved locally")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.textPrimary)
+                        if let duration = meeting.recordingDuration {
+                            Text(duration.formattedRecordingDuration)
+                                .font(.caption)
+                                .foregroundStyle(Color.textSecondary)
                         }
                     }
+                    Spacer()
                 }
+                .padding(CasaSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: CasaRadius.md))
+
+                // NOTE: A full inline audio player (waveform + scrubber) is deferred
+                // to a later polish pass; "Show in Finder" is available in the ⋯ menu.
+            } else {
+                Text("No recording saved for this meeting.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
             }
+        }
+    }
+
+    private var participantsInspectorSection: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            inspectorLabel("Participants")
+
+            ForEach(Array(meeting.participants.enumerated()), id: \.offset) { _, name in
+                HStack(spacing: CasaSpace.sm) {
+                    Text(initials(for: name))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .background(Color.backgroundTertiary, in: Circle())
+                    Text(name)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exportInspectorSection: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            inspectorLabel("Export")
+
+            if meeting.appleNotesSummaryNoteID != nil || meeting.appleNotesRawNotesNoteID != nil {
+                Label("Exported to Apple Notes", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentSuccess)
+                    .symbolRenderingMode(.hierarchical)
+            } else if canExport {
+                Text("Not exported yet. Use the Export action to save to your configured destination.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+            } else {
+                Text("Generate a summary or transcript to enable export.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+    }
+
+    private func inspectorLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.bold))
+            .textCase(.uppercase)
+            .foregroundStyle(Color.textTertiary)
+    }
+
+    private func initials(for name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init)
+        return letters.isEmpty ? "?" : letters.joined().uppercased()
+    }
+
+    // MARK: - Secondary actions menu
+
+    private var secondaryActionsMenu: some View {
+        Menu {
+            if primaryToolbarAction != .export, canExport {
+                Button {
+                    exportMeeting()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+            }
+
+            if meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false, recordingURL != nil {
+                Button {
+                    onTranscribe()
+                } label: {
+                    Label("Re-transcribe", systemImage: "waveform")
+                }
+            }
+
+            if canReapplyTerminology {
+                Button {
+                    Task { await reapplyTerminology() }
+                } label: {
+                    Label("Re-apply terminology", systemImage: "wand.and.sparkles")
+                }
+                .disabled(terminologyService.isCorrecting)
+            }
+
+            Button(action: onRecordAgain) {
+                Label("Record Again", systemImage: "record.circle")
+            }
+
+            if let recordingURL {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([recordingURL])
+                } label: {
+                    Label("Show in Finder", systemImage: "folder")
+                }
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
         }
     }
 
