@@ -67,8 +67,8 @@ struct SidebarView: View {
                 }
             }
 
-            Section("Recent") {
-                if recentMeetings.isEmpty {
+            if recentMeetings.isEmpty {
+                Section("Recent") {
                     Text(
                         viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "No recent meetings yet."
@@ -77,16 +77,20 @@ struct SidebarView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .listRowBackground(Color.clear)
-                } else {
-                    ForEach(recentMeetings) { meeting in
-                        SidebarMeetingRow(
-                            meeting: meeting,
-                            section: .recent,
-                            onDeleteRequest: {
-                                meetingPendingDeletion = meeting
-                            }
-                        )
-                            .tag(SidebarDestination.meeting(meeting.id))
+                }
+            } else {
+                ForEach(bucketedRecentMeetings, id: \.bucket) { pair in
+                    Section(pair.bucket.title) {
+                        ForEach(pair.meetings) { meeting in
+                            SidebarMeetingRow(
+                                meeting: meeting,
+                                section: .recent,
+                                onDeleteRequest: {
+                                    meetingPendingDeletion = meeting
+                                }
+                            )
+                                .tag(SidebarDestination.meeting(meeting.id))
+                        }
                     }
                 }
             }
@@ -133,6 +137,21 @@ struct SidebarView: View {
 
     private var recentMeetings: [Meeting] {
         viewModel.filteredRecentMeetings(from: meetings)
+    }
+
+    /// Groups the already-filtered, reverse-chronological `recentMeetings` into the
+    /// five past recency buckets, returning only non-empty buckets in fixed order
+    /// (Today → Earlier). Order within each bucket is preserved from `recentMeetings`.
+    private var bucketedRecentMeetings: [(bucket: MeetingTimeBucket, meetings: [Meeting])] {
+        let now = Date()
+        let order: [MeetingTimeBucket] = [.today, .thisWeek, .thisMonth, .thisYear, .earlier]
+        let grouped = Dictionary(grouping: recentMeetings) {
+            MeetingTimeBucket.bucket(for: $0.date, now: now)
+        }
+        return order.compactMap { bucket in
+            guard let meetings = grouped[bucket], !meetings.isEmpty else { return nil }
+            return (bucket, meetings)
+        }
     }
 
     private var upcomingMeetings: [Meeting] {
