@@ -24,6 +24,8 @@ enum AppPreferenceKey {
     static let exportDestination = "exportDestination"
     static let prepTodoStorage = "prepTodoStorage"
     static let actionQueuePath = "actionQueuePath"
+    static let prepInspectorWidth = "prepInspectorWidth"
+    static let detailInspectorWidth = "detailInspectorWidth"
 }
 
 enum AppPreferenceValue {

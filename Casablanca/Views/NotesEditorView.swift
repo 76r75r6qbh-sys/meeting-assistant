@@ -158,6 +158,7 @@ struct NotesEditorView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var newTodoText = ""
+    @AppStorage(AppPreferenceKey.prepInspectorWidth) private var prepInspectorWidth = Double(CasaLayout.prepInspectorDefault)
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
     @State private var showingQuickControl = false
@@ -626,12 +627,32 @@ struct NotesEditorView: View {
     @ViewBuilder
     private var prepAwareNotesWorkspace: some View {
         if prepPresentation.showsPrepPane {
-            HStack(spacing: 0) {
-                prepPane
-                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 420)
+            GeometryReader { proxy in
+                let maxWidth = max(
+                    Double(CasaLayout.prepInspectorMin),
+                    Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
+                )
+                let clampedWidth = min(max(prepInspectorWidth, Double(CasaLayout.prepInspectorMin)), maxWidth)
 
-                Divider()
-                notesColumn
+                HStack(spacing: 0) {
+                    prepPane
+                        .frame(width: CGFloat(clampedWidth))
+
+                    // Divider drags to its RIGHT: moving right widens the
+                    // left-side prep pane, so the delta is added directly.
+                    ResizableInspectorDivider(
+                        width: $prepInspectorWidth,
+                        minWidth: Double(CasaLayout.prepInspectorMin),
+                        maxWidth: maxWidth,
+                        deltaSign: 1
+                    )
+
+                    notesColumn
+                }
+                .onAppear {
+                    // Keep a stored width that exceeds the current cap honest.
+                    prepInspectorWidth = clampedWidth
+                }
             }
         } else {
             notesColumn
@@ -1136,5 +1157,78 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
+    }
+}
+
+/// A thin, draggable vertical divider used to resize an adjacent inspector
+/// pane. On hover it shows an accent grip and switches the cursor to the
+/// horizontal resize arrow; dragging updates `width`, clamped to
+/// `[minWidth, maxWidth]`.
+///
+/// `deltaSign` accounts for which side the resized pane sits on relative to
+/// the divider: use `+1` when the pane is to the LEFT of the divider (drag
+/// right → wider), and `-1` when the pane is to the RIGHT (drag left → wider).
+struct ResizableInspectorDivider: View {
+    @Binding var width: Double
+    let minWidth: Double
+    let maxWidth: Double
+    var deltaSign: Double = 1
+
+    @State private var isHovering = false
+    @State private var dragStartWidth: Double?
+
+    var body: some View {
+        ZStack {
+            // Hairline that becomes a visible accent line on hover/drag.
+            Rectangle()
+                .fill(isActive ? Color.accentColor : Color.borderSubtle)
+                .frame(width: isActive ? 2 : 1)
+
+            if isActive {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 4, height: 42)
+            }
+        }
+        .frame(width: 10)
+        .frame(maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let start = dragStartWidth ?? width
+                    if dragStartWidth == nil { dragStartWidth = start }
+                    let proposed = start + deltaSign * Double(value.translation.width)
+                    width = min(max(proposed, minWidth), maxWidth)
+                }
+                .onEnded { _ in
+                    dragStartWidth = nil
+                }
+        )
+        .accessibilityElement()
+        .accessibilityLabel("Resize prep panel")
+        .accessibilityValue("\(Int(width)) points")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                width = min(width + 20, maxWidth)
+            case .decrement:
+                width = max(width - 20, minWidth)
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private var isActive: Bool {
+        isHovering || dragStartWidth != nil
     }
 }

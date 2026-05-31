@@ -54,6 +54,7 @@ enum CasaLayout {
     static let inspectorWidth: CGFloat = 280
     static let prepInspectorMin: CGFloat = 220
     static let prepInspectorMaxFraction: CGFloat = 0.5   // 50% of window width
+    static let prepInspectorDefault: CGFloat = 300
     static let windowDefaultWidth: CGFloat = 1080
     static let windowDefaultHeight: CGFloat = 720
 }

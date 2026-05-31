@@ -19,6 +19,7 @@ struct RecordedMeetingView: View {
     @State private var pendingTodoTexts: [String] = []
     @State private var selectedTab: DetailTab = .summary
     @State private var showInspector = true
+    @AppStorage(AppPreferenceKey.detailInspectorWidth) private var inspectorWidth = Double(CasaLayout.prepInspectorDefault)
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -29,23 +30,43 @@ struct RecordedMeetingView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                readingColumn
-                    .padding(CasaSpace.xl)
-                    .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
-                    .frame(maxWidth: .infinity, alignment: .top)
+        GeometryReader { proxy in
+            let maxInspectorWidth = max(
+                Double(CasaLayout.prepInspectorMin),
+                Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
+            )
+            let clampedInspectorWidth = min(
+                max(inspectorWidth, Double(CasaLayout.prepInspectorMin)),
+                maxInspectorWidth
+            )
+
+            HStack(spacing: 0) {
+                ScrollView {
+                    readingColumn
+                        .padding(CasaSpace.xl)
+                        .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                if showInspector {
+                    // Inspector sits to the RIGHT of the divider, so dragging
+                    // left widens it: deltaSign is -1.
+                    ResizableInspectorDivider(
+                        width: $inspectorWidth,
+                        minWidth: Double(CasaLayout.prepInspectorMin),
+                        maxWidth: maxInspectorWidth,
+                        deltaSign: -1
+                    )
+
+                    inspector
+                        .frame(width: CGFloat(clampedInspectorWidth))
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .onAppear { inspectorWidth = clampedInspectorWidth }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-            if showInspector {
-                Divider()
-                inspector
-                    .frame(width: CasaLayout.inspectorWidth)
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(meeting.title)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
