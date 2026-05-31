@@ -5,7 +5,6 @@ final class AppleNotesBodyRendererTests: XCTestCase {
     private func makeMeeting() -> Meeting {
         let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
         meeting.userNotes = "Freeform notes go here."
-        meeting.timestampedNotes = [TimestampedNote(timestamp: 65, text: "Discussed rollout plan")]
         meeting.summary = "We agreed on next steps."
         let todoOpen = TodoItem(text: "Send recap", isCompleted: false)
         let todoDone = TodoItem(text: "Book room", isCompleted: true)
@@ -93,12 +92,10 @@ final class AppleNotesBodyRendererTests: XCTestCase {
         XCTAssertTrue(html.contains("<p>\(expectedMarker)</p></body></html>"))
     }
 
-    func testRawNotesContainsFreeformAndTimestampedSections() {
+    func testRawNotesContainsFreeformSection() {
         let html = AppleNotesBodyRenderer.rawNotesHTML(for: makeMeeting())
         XCTAssertTrue(html.contains("Freeform Notes"))
         XCTAssertTrue(html.contains("Freeform notes go here."))
-        XCTAssertTrue(html.contains("Timestamped Notes"))
-        XCTAssertTrue(html.contains("[01:05] Discussed rollout plan"))
     }
 
     func testHTMLEscapesUserContent() {

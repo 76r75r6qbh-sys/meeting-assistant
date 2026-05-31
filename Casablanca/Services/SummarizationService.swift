@@ -49,9 +49,6 @@ final class SummarizationService {
 
     Freeform notes:
     {{freeform_notes}}
-
-    Timestamped notes (optional history):
-    {{timestamped_notes}}
     """
 
     private(set) var isSummarizing = false
@@ -62,12 +59,8 @@ final class SummarizationService {
     func summarize(meeting: Meeting) async throws -> SummaryResponseParser.ParsedResponse {
         let transcript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let timestampedNotes = meeting.timestampedNotes
-            .map { "\($0.formattedTimestamp) \($0.text)" }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !transcript.isEmpty || !freeformNotes.isEmpty || !timestampedNotes.isEmpty else {
+        guard !transcript.isEmpty || !freeformNotes.isEmpty else {
             throw SummarizationError.missingSourceMaterial
         }
 
@@ -87,7 +80,6 @@ final class SummarizationService {
             template: UserDefaults.standard.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             meeting: meeting,
             transcript: transcript,
-            timestampedNotes: timestampedNotes,
             freeformNotes: freeformNotes,
             terminologyBlock: terminologyBlock
         )
@@ -145,7 +137,6 @@ final class SummarizationService {
         template: String,
         meeting: Meeting,
         transcript: String,
-        timestampedNotes: String,
         freeformNotes: String,
         terminologyBlock: String
     ) -> String {
@@ -160,7 +151,6 @@ final class SummarizationService {
             .replacingOccurrences(of: "{{title}}", with: meeting.title)
             .replacingOccurrences(of: "{{scheduled_time}}", with: formattedDate)
             .replacingOccurrences(of: "{{transcript}}", with: transcript.isEmpty ? "None" : transcript)
-            .replacingOccurrences(of: "{{timestamped_notes}}", with: timestampedNotes.isEmpty ? "None" : timestampedNotes)
             .replacingOccurrences(of: "{{freeform_notes}}", with: freeformNotes.isEmpty ? "None" : freeformNotes)
             .replacingOccurrences(of: "{{terminology_list}}", with: terminologyBlock)
     }

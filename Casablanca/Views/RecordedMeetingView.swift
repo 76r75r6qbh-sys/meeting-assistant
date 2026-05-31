@@ -373,11 +373,6 @@ struct RecordedMeetingView: View {
                     }
                 }
 
-                if !meeting.timestampedNotes.isEmpty {
-                    Divider()
-
-                    TimestampedNotesHistorySection(notes: meeting.timestampedNotes)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -410,7 +405,7 @@ struct RecordedMeetingView: View {
     }
 
     private var hasNotes: Bool {
-        !meeting.timestampedNotes.isEmpty || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var canSummarize: Bool {

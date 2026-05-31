@@ -30,10 +30,6 @@ struct MeetingWorkspacePresentation {
         showsFocusedRecordingControls
     }
 
-    var showsTimestampedTools: Bool {
-        meeting.status == .recording && isActiveMeeting && isRecording
-    }
-
     var showsStartRecordingButton: Bool {
         meeting.status == .notesOnly || meeting.status == .upcoming
     }
@@ -100,13 +96,6 @@ struct FreeformWorkspacePresentation: Equatable {
     }
 }
 
-enum MeetingNotesMode {
-    case timestamped
-    case freeform
-
-    static let defaultForWorkspaceEntry: Self = .freeform
-}
-
 struct AutoPauseIndicatorPresentation {
     let records: [RecordingInterruptionCoordinator.InterruptionRecord]
     let referenceDate: Date
@@ -154,15 +143,12 @@ struct NotesEditorView: View {
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
-    @State private var noteText = ""
-    @State private var notesMode: MeetingNotesMode = .defaultForWorkspaceEntry
     @State private var newTodoText = ""
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
     @State private var showingAudioSettings = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
-    @FocusState private var isNoteFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -209,7 +195,6 @@ struct NotesEditorView: View {
         }
         .task(id: autoStartRecording) {
             guard autoStartRecording else { return }
-            notesMode = .defaultForWorkspaceEntry
             recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startRecordingIfNeeded()
         }
@@ -278,12 +263,7 @@ struct NotesEditorView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        switch notesMode {
-        case .timestamped where presentation.showsTimestampedTools:
-            timestampedNotesArea
-        default:
-            freeformWorkspace
-        }
+        freeformWorkspace
     }
 
     private var header: some View {
@@ -332,15 +312,6 @@ struct NotesEditorView: View {
                 AudioLevelMeterView(level: recordingService.audioLevel)
 
                 Spacer()
-
-                if presentation.showsTimestampedTools {
-                    Picker("Notes Mode", selection: $notesMode) {
-                        Text("Timestamped").tag(MeetingNotesMode.timestamped)
-                        Text("Freeform").tag(MeetingNotesMode.freeform)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                }
             }
 
             DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
@@ -388,100 +359,6 @@ struct NotesEditorView: View {
         .padding(.bottom, CasaSpace.xxl)
     }
 
-    private var timestampedNotesArea: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if meeting.timestampedNotes.isEmpty {
-                        ContentUnavailableView {
-                            Label("No Timestamped Notes Yet", systemImage: "clock")
-                        } description: {
-                            Text("Type a note below or switch to freeform notes.")
-                        } actions: {
-                            Button("Use Freeform Notes") {
-                                notesMode = .freeform
-                            }
-                            .buttonStyle(SecondaryButtonStyle())
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 320)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: CasaSpace.xs) {
-                            ForEach(meeting.timestampedNotes) { note in
-                                timestampedNoteRow(note)
-                                    .id(note.id)
-                            }
-                        }
-                        .padding(CasaSpace.lg)
-                    }
-                }
-                .onChange(of: meeting.timestampedNotes.count) {
-                    if let last = meeting.timestampedNotes.last {
-                        withAnimation(CasaAnimation.standard) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
-            }
-
-            Divider()
-            noteInputBar
-        }
-    }
-
-    private func timestampedNoteRow(_ note: TimestampedNote) -> some View {
-        HStack(alignment: .top, spacing: CasaSpace.sm) {
-            Text(note.formattedTimestamp)
-                .font(.caption.monospaced())
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, CasaSpace.xs)
-                .padding(.vertical, CasaSpace.xxs)
-                .background(Color.backgroundHover)
-                .clipShape(RoundedRectangle(cornerRadius: CasaRadius.sm))
-                .frame(minWidth: 52, alignment: .center)
-
-            Text(note.text)
-                .font(.body)
-                .foregroundStyle(Color.textPrimary)
-                .textSelection(.enabled)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, CasaSpace.xs)
-    }
-
-    private var noteInputBar: some View {
-        HStack(spacing: CasaSpace.sm) {
-            if recordingService.isRecording {
-                Text(formattedElapsed)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(minWidth: 52)
-            }
-
-            TextField("Add a note...", text: $noteText)
-                .textFieldStyle(.plain)
-                .font(.body)
-                .focused($isNoteFieldFocused)
-                .onSubmit {
-                    addTimestampedNote()
-                }
-
-            Button {
-                addTimestampedNote()
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(noteText.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? Color.textTertiary : Color.accentColor)
-            }
-            .buttonStyle(.plain)
-            .disabled(noteText.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding(.horizontal, CasaSpace.lg)
-        .padding(.vertical, CasaSpace.md)
-        .background(.bar)
-    }
-
     @ViewBuilder
     private var freeformWorkspace: some View {
         if freeformPresentation.showsTodosArea {
@@ -519,13 +396,6 @@ struct NotesEditorView: View {
             }
 
             freeformNotesEditor
-
-            if showsTimestampedHistorySection {
-                Divider()
-
-                TimestampedNotesHistorySection(notes: meeting.timestampedNotes)
-                    .padding(CasaSpace.lg)
-            }
         }
     }
 
@@ -661,12 +531,6 @@ struct NotesEditorView: View {
                 compactRecordingControls
             }
 
-            if !meeting.timestampedNotes.isEmpty {
-                Text("\(meeting.timestampedNotes.count) timestamped notes")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
             Spacer()
 
             if presentation.showsStartRecordingButton {
@@ -712,8 +576,7 @@ struct NotesEditorView: View {
                 Label("Save & Export", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && meeting.timestampedNotes.isEmpty)
+            .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(CasaSpace.lg)
         .background(.bar)
@@ -770,20 +633,6 @@ struct NotesEditorView: View {
         .transition(.opacity)
     }
 
-    private func addTimestampedNote() {
-        let trimmed = noteText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-
-        let note = TimestampedNote(
-            timestamp: recordingService.elapsedTime,
-            text: trimmed
-        )
-        meeting.timestampedNotes.append(note)
-        noteText = ""
-        save()
-        isNoteFieldFocused = true
-    }
-
     private func addTodo() {
         let trimmed = newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -798,7 +647,6 @@ struct NotesEditorView: View {
 
     private func requestRecordingStart() {
         guard meeting.status != .recording else { return }
-        notesMode = .defaultForWorkspaceEntry
         meeting.status = .recording
         save()
         recordingService.refreshInputDevices(forcePreferredSelection: true)
@@ -994,9 +842,5 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
-    }
-
-    private var showsTimestampedHistorySection: Bool {
-        !presentation.showsTimestampedTools && !meeting.timestampedNotes.isEmpty
     }
 }

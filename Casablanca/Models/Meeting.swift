@@ -59,31 +59,6 @@ extension MeetingStatus {
     }
 }
 
-struct TimestampedNote: Codable, Identifiable, Hashable {
-    let id: UUID
-    let timestamp: TimeInterval
-    let text: String
-    let createdAt: Date
-
-    init(timestamp: TimeInterval, text: String) {
-        self.id = UUID()
-        self.timestamp = timestamp
-        self.text = text
-        self.createdAt = Date()
-    }
-
-    var formattedTimestamp: String {
-        let totalSeconds = Int(timestamp)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-}
-
 @Model
 final class Meeting {
     var id: UUID
@@ -94,7 +69,6 @@ final class Meeting {
     var participants: [String]
     var status: MeetingStatus
     var userNotes: String
-    var timestampedNotes: [TimestampedNote] = []
     var transcript: String?
     var rawTranscript: String?
     var summary: String?
@@ -122,7 +96,6 @@ final class Meeting {
         self.participants = participants
         self.status = status
         self.userNotes = ""
-        self.timestampedNotes = []
         self.transcriptionLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultTranscriptionLanguage) ?? "en-US"
         self.createdAt = Date()
         self.todos = []

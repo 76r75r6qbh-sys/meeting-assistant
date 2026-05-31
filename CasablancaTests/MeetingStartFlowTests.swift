@@ -94,10 +94,6 @@ final class MeetingStartFlowTests: XCTestCase {
 
 @MainActor
 final class MeetingWorkspacePresentationTests: XCTestCase {
-    func testMeetingNotesModeDefaultsToFreeform() {
-        XCTAssertEqual(MeetingNotesMode.defaultForWorkspaceEntry, .freeform)
-    }
-
     func testNotesOnlyWorkspaceShowsStartRecordingButton() {
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .notesOnly)
         let presentation = MeetingWorkspacePresentation(
@@ -111,7 +107,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
 
         XCTAssertFalse(presentation.showsRecordingChrome)
         XCTAssertTrue(presentation.showsStartRecordingButton)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.backButtonDisabled)
     }
 
@@ -148,7 +143,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(presentation.showsExpandedRecordingChrome)
         XCTAssertFalse(presentation.showsCompactRecordingControls)
         XCTAssertFalse(presentation.showsStartRecordingButton)
-        XCTAssertTrue(presentation.showsTimestampedTools)
         XCTAssertTrue(presentation.backButtonDisabled)
     }
 
@@ -181,7 +175,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
 
         XCTAssertTrue(presentation.showsRecordingChrome)
         XCTAssertTrue(presentation.showsExpandedRecordingChrome)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
     }
 
@@ -197,7 +190,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
         XCTAssertFalse(presentation.showsPauseRecordingButton)
         XCTAssertTrue(presentation.showsResumeRecordingButton)

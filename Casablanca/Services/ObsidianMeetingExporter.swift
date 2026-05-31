@@ -89,16 +89,6 @@ enum ObsidianMeetingExporter {
     private static func rawNotesMarkdown(for meeting: Meeting, summaryFileName: String?) -> String {
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         let renderedFreeformNotes = freeformNotes.isEmpty ? "_No freeform notes captured._" : freeformNotes
-        let timestampedNotesSection = meeting.timestampedNotes.isEmpty
-            ? ""
-            : """
-
-        ## Timestamped Notes
-
-        \(meeting.timestampedNotes
-            .map { "- [\($0.formattedTimestamp)] \($0.text)" }
-            .joined(separator: "\n"))
-        """
         let summaryLink = summaryFileName.map { "[[\($0)]]" } ?? "_Not exported yet._"
 
         return """
@@ -121,7 +111,7 @@ enum ObsidianMeetingExporter {
 
         ## Freeform Notes
 
-        \(renderedFreeformNotes)\(timestampedNotesSection)
+        \(renderedFreeformNotes)
         """
     }
 

@@ -87,7 +87,6 @@ enum ExportService {
         meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !meeting.timestampedNotes.isEmpty
     }
 
     static func isAutoExportOn(defaults: UserDefaults = .standard) -> Bool {

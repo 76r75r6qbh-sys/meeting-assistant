@@ -331,7 +331,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
 
-                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -445,7 +445,7 @@ struct SettingsView: View {
                 .font(.system(.body, design: .monospaced))
                 .frame(height: 240)
 
-            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
+            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
                 .font(.caption)
                 .foregroundStyle(Color.textTertiary)
 
