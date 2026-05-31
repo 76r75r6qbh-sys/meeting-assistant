@@ -14,6 +14,7 @@ struct TranscriptionView: View {
     @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled = false
     @State private var didStart = false
     @State private var error: TranscriptionError?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,12 +61,15 @@ struct TranscriptionView: View {
                     } else {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(Color.accentSuccess)
+                            .transition(.scale.combined(with: .opacity))
                     }
 
-                    Text(transcriptionService.statusMessage.isEmpty ? "Preparing..." : transcriptionService.statusMessage)
+                    Text(transcriptionService.statusMessage.isEmpty ? "Preparing\u{2026}" : transcriptionService.statusMessage)
                         .font(.headline)
                         .foregroundStyle(Color.textPrimary)
+                        .contentTransition(.opacity)
                 }
+                .animation(reduceMotion ? nil : CasaAnimation.standard, value: transcriptionService.isTranscribing)
 
                 Spacer()
 

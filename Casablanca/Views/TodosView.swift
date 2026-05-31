@@ -8,6 +8,7 @@ struct TodosView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var filter: TodoFilter = .open
     @State private var newTodoText = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum TodoFilter: String, CaseIterable {
         case open = "Open"
@@ -47,6 +48,7 @@ struct TodosView: View {
                 emptyState
                 Spacer(minLength: 0)
             }
+            .transition(.opacity)
         } else {
             todoList
         }
@@ -65,13 +67,14 @@ struct TodosView: View {
 
     private var todoList: some View {
         List(filteredTodos) { todo in
-            TodoRow(todo: todo) {
+            TodoRow(todo: todo, reduceMotion: reduceMotion) {
                 if let meetingID = TodoRowPresentation(todo: todo).meetingID {
                     viewModel.sidebarSelection = .meeting(meetingID)
                 }
             }
         }
         .listStyle(.inset)
+        .animation(reduceMotion ? nil : CasaAnimation.fast, value: filteredTodos.map(\.id))
     }
 
     private var emptyState: some View {
@@ -164,6 +167,7 @@ struct TodoRowPresentation {
 
 private struct TodoRow: View {
     @Bindable var todo: TodoItem
+    var reduceMotion: Bool = false
     let onNavigateToMeeting: () -> Void
     @Environment(\.modelContext) private var modelContext
 
@@ -174,15 +178,18 @@ private struct TodoRow: View {
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
             Button {
-                try? ObsidianTodoSyncService.setCompleted(
-                    !todo.isCompleted,
-                    for: todo,
-                    in: modelContext
-                )
+                withAnimation(reduceMotion ? nil : CasaAnimation.fast) {
+                    try? ObsidianTodoSyncService.setCompleted(
+                        !todo.isCompleted,
+                        for: todo,
+                        in: modelContext
+                    )
+                }
             } label: {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)
                     .font(.title3)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.borderless)
 

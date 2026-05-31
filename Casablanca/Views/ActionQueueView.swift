@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ActionQueueView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var filter: ActionQueueFilter = .pending
     @State private var selectedItemID: String?
 
@@ -80,6 +81,7 @@ struct ActionQueueView: View {
                     .contextMenu { contextMenu(for: item) }
             }
             .listStyle(.inset)
+            .animation(reduceMotion ? nil : CasaAnimation.fast, value: filtered.map(\.id))
         }
     }
 

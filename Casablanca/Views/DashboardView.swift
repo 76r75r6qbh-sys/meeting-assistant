@@ -4,13 +4,15 @@ import SwiftUI
 struct DashboardView: View {
     @Bindable var viewModel: MeetingListViewModel
     @State private var selectedDay: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if !viewModel.calendarAuthorized {
                 calendarAccessView
             } else if viewModel.isLoading {
-                ProgressView()
+                ProgressView("Loading your calendar\u{2026}")
+                    .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !viewModel.hasEvents {
                 emptyStateView
@@ -54,7 +56,7 @@ struct DashboardView: View {
             if let activeDay = selectedDay,
                let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: activeDay) }) {
                 dayPage(date: group.date, events: group.events)
-                    .animation(CasaAnimation.standard, value: activeDay)
+                    .animation(reduceMotion ? nil : CasaAnimation.standard, value: activeDay)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

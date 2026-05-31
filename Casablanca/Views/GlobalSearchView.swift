@@ -93,16 +93,13 @@ struct GlobalSearchView: View {
     }
 
     private var noResults: some View {
-        VStack(spacing: CasaSpace.sm) {
-            Text("No results")
-                .font(.headline)
-                .foregroundStyle(Color.textSecondary)
-            Text("Nothing matches \u{201C}\(trimmedQuery)\u{201D}.")
-                .font(.caption)
-                .foregroundStyle(Color.textTertiary)
+        ContentUnavailableView {
+            Label("No Results", systemImage: "magnifyingglass")
+        } description: {
+            Text("Nothing matches \u{201C}\(trimmedQuery)\u{201D}. Try a different name, keyword, or phrase.")
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, CasaSpace.xxl)
+        .padding(.vertical, CasaSpace.xl)
     }
 
     private var resultsList: some View {
