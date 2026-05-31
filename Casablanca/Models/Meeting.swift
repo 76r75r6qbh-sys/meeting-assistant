@@ -77,6 +77,7 @@ final class Meeting {
     var transcriptionLanguage: String = "en-US"
     var appleNotesSummaryNoteID: String?
     var appleNotesRawNotesNoteID: String?
+    var localPrepNotes: String = ""
     var createdAt: Date
     @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
 

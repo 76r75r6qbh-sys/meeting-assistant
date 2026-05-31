@@ -69,6 +69,7 @@
 		A10035 /* MeetingStartFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* MeetingStartFlowTests.swift */; };
 		A10036 /* MeetingPrepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MeetingPrepService.swift */; };
 		A10037 /* MeetingPrepServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MeetingPrepServiceTests.swift */; };
+		A10104 /* MeetingPrepServiceWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104 /* MeetingPrepServiceWriteTests.swift */; };
 		A10038 /* ObsidianTodoMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* ObsidianTodoMarkdownTests.swift */; };
 		A10039 /* ObsidianMeetingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039 /* ObsidianMeetingFiles.swift */; };
 		A10040 /* ObsidianTodoMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* ObsidianTodoMarkdown.swift */; };
@@ -196,6 +197,7 @@
 		B10035 /* MeetingStartFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartFlowTests.swift; sourceTree = "<group>"; };
 		B10036 /* MeetingPrepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepService.swift; sourceTree = "<group>"; };
 		B10037 /* MeetingPrepServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceTests.swift; sourceTree = "<group>"; };
+		B10104 /* MeetingPrepServiceWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceWriteTests.swift; sourceTree = "<group>"; };
 		B10038 /* ObsidianTodoMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdownTests.swift; sourceTree = "<group>"; };
 		B10039 /* ObsidianMeetingFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingFiles.swift; sourceTree = "<group>"; };
 		B10040 /* ObsidianTodoMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdown.swift; sourceTree = "<group>"; };
@@ -486,6 +488,7 @@
 				B10033 /* MarkdownEditorBundleTests.swift */,
 				B10035 /* MeetingStartFlowTests.swift */,
 				B10037 /* MeetingPrepServiceTests.swift */,
+				B10104 /* MeetingPrepServiceWriteTests.swift */,
 				B10038 /* ObsidianTodoMarkdownTests.swift */,
 				B10041 /* ObsidianTodoSyncServiceTests.swift */,
 				B10043 /* PermissionsBehaviorTests.swift */,
@@ -709,6 +712,7 @@
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
 				A10035 /* MeetingStartFlowTests.swift in Sources */,
 				A10037 /* MeetingPrepServiceTests.swift in Sources */,
+				A10104 /* MeetingPrepServiceWriteTests.swift in Sources */,
 				A10038 /* ObsidianTodoMarkdownTests.swift in Sources */,
 				A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */,
 				A10043 /* PermissionsBehaviorTests.swift in Sources */,
