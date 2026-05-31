@@ -146,7 +146,7 @@ struct NotesEditorView: View {
     @State private var newTodoText = ""
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
-    @State private var showingAudioSettings = false
+    @State private var showingQuickControl = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
     @State private var pulseOpacity: Double = 1
@@ -156,7 +156,6 @@ struct NotesEditorView: View {
             VStack(spacing: 0) {
                 if presentation.showsExpandedRecordingChrome {
                     recordingBar
-                    audioSettingsStrip
                     Divider()
                 }
 
@@ -300,6 +299,8 @@ struct NotesEditorView: View {
 
                 AudioLevelMeterView(level: recordingService.audioLevel)
 
+                deviceLanguageChip
+
                 Spacer(minLength: CasaSpace.md)
 
                 recordingControls
@@ -375,48 +376,199 @@ struct NotesEditorView: View {
         }
     }
 
-    private var audioSettingsStrip: some View {
-        DisclosureGroup("Audio Settings", isExpanded: $showingAudioSettings) {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                if recordingService.availableInputDevices.isEmpty {
-                    Text("No microphone found")
-                        .font(.body)
-                        .foregroundStyle(Color.textTertiary)
-                } else {
-                    Picker("Microphone", selection: selectedMicrophoneBinding) {
-                        ForEach(recordingService.availableInputDevices) { device in
-                            Text(device.name).tag(device.id)
-                        }
-                    }
-                    .disabled(recordingService.isPreparing)
-                }
+    // MARK: - Device & language quick-control
 
-                Toggle(isOn: Binding(
-                    get: { recordingService.isSystemAudioEnabled },
-                    set: { newValue in
-                        if newValue != recordingService.isSystemAudioEnabled {
-                            recordingService.toggleSystemAudioEnabled()
-                        }
-                    }
-                )) {
-                    Label("Capture system audio", systemImage: "speaker.wave.2.fill")
-                }
-                .disabled(recordingService.isPreparing)
+    private var selectedDeviceName: String {
+        recordingService.availableInputDevices
+            .first(where: { $0.id == recordingService.selectedInputDeviceID })?
+            .name ?? "No microphone"
+    }
 
-                Picker("Language", selection: $meeting.transcriptionLanguage) {
-                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
-                        Text(language.name).tag(language.id)
-                    }
-                }
-                .onChange(of: meeting.transcriptionLanguage) {
-                    save()
+    private var selectedLanguageShortLabel: String {
+        let id = meeting.transcriptionLanguage
+        switch id {
+        case "en-US": return "EN-US"
+        case "en-GB": return "EN-GB"
+        case "nl-NL": return "NL"
+        default:
+            // Fall back to the language subtag of a BCP-47 id, uppercased.
+            let primary = id.split(separator: "-").first.map(String.init) ?? id
+            return primary.uppercased()
+        }
+    }
+
+    private var deviceLanguageChip: some View {
+        Button {
+            showingQuickControl.toggle()
+        } label: {
+            HStack(spacing: CasaSpace.sm) {
+                Image(systemName: "mic.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
+
+                Text("\(selectedDeviceName) · \(selectedLanguageShortLabel)")
+                    .font(.caption)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .padding(.horizontal, CasaSpace.md)
+            .padding(.vertical, CasaSpace.xs)
+            .background(Color.backgroundActive, in: RoundedRectangle(cornerRadius: CasaRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: CasaRadius.lg)
+                    .stroke(Color.borderSubtle, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Recording device and language")
+        .accessibilityValue("\(selectedDeviceName), \(selectedLanguageShortLabel)")
+        .popover(isPresented: $showingQuickControl, arrowEdge: .bottom) {
+            deviceLanguagePopover
+        }
+    }
+
+    private var deviceLanguagePopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Input device")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.textSecondary)
+                .textCase(.uppercase)
+                .padding(.horizontal, CasaSpace.sm)
+                .padding(.bottom, CasaSpace.xs)
+
+            if recordingService.availableInputDevices.isEmpty {
+                Text("No microphone found")
+                    .font(.body)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.horizontal, CasaSpace.sm)
+                    .padding(.vertical, CasaSpace.xs)
+            } else {
+                ForEach(recordingService.availableInputDevices) { device in
+                    deviceRow(device)
                 }
             }
-            .padding(.top, CasaSpace.sm)
+
+            Toggle(isOn: Binding(
+                get: { recordingService.isSystemAudioEnabled },
+                set: { newValue in
+                    if newValue != recordingService.isSystemAudioEnabled {
+                        recordingService.toggleSystemAudioEnabled()
+                    }
+                }
+            )) {
+                Label("Also capture system audio", systemImage: "speaker.wave.2.fill")
+                    .font(.body)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(recordingService.isPreparing)
+            .padding(.horizontal, CasaSpace.sm)
+            .padding(.top, CasaSpace.xs)
+
+            Divider()
+                .padding(.vertical, CasaSpace.md)
+
+            Text("Transcription language")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.textSecondary)
+                .textCase(.uppercase)
+                .padding(.horizontal, CasaSpace.sm)
+                .padding(.bottom, CasaSpace.xs)
+
+            ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
+                languageRow(id: language.id, name: language.name)
+            }
+
+            Divider()
+                .padding(.vertical, CasaSpace.md)
+
+            SettingsLink {
+                Label("Recording defaults in Settings…", systemImage: "gearshape")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, CasaSpace.sm)
         }
-        .tint(Color.textPrimary)
-        .padding(.horizontal, CasaSpace.xl)
-        .padding(.vertical, CasaSpace.md)
+        .padding(CasaSpace.md)
+        .frame(width: 288)
+    }
+
+    @ViewBuilder
+    private func deviceRow(_ device: AudioInputDevice) -> some View {
+        let isSelected = device.id == recordingService.selectedInputDeviceID
+
+        Button {
+            guard !isSelected else { return }
+            Task { await recordingService.selectInputDevice(device.id) }
+        } label: {
+            HStack(spacing: CasaSpace.sm) {
+                Image(systemName: "mic.fill")
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.textSecondary)
+                    .frame(width: 16)
+
+                Text(device.name)
+                    .font(.body)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: CasaSpace.sm)
+
+                if isSelected {
+                    AudioLevelMeterView(level: recordingService.audioLevel)
+                        .frame(height: 14)
+                }
+            }
+            .padding(.horizontal, CasaSpace.sm)
+            .padding(.vertical, CasaSpace.xs)
+            .background(
+                RoundedRectangle(cornerRadius: CasaRadius.md)
+                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(recordingService.isPreparing)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func languageRow(id: String, name: String) -> some View {
+        let isSelected = id == meeting.transcriptionLanguage
+
+        Button {
+            guard !isSelected else { return }
+            meeting.transcriptionLanguage = id
+            save()
+        } label: {
+            HStack(spacing: CasaSpace.sm) {
+                Text(name)
+                    .font(.body)
+                    .foregroundStyle(Color.textPrimary)
+
+                Spacer(minLength: CasaSpace.sm)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.horizontal, CasaSpace.sm)
+            .padding(.vertical, CasaSpace.xs)
+            .background(
+                RoundedRectangle(cornerRadius: CasaRadius.md)
+                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -595,6 +747,8 @@ struct NotesEditorView: View {
             Spacer()
 
             if presentation.showsStartRecordingButton {
+                deviceLanguageChip
+
                 Button(action: requestRecordingStart) {
                     Label("Start Recording", systemImage: "record.circle")
                 }
@@ -711,17 +865,6 @@ struct NotesEditorView: View {
             meeting.status = .pausedRecording
             save()
         }
-    }
-
-    private var selectedMicrophoneBinding: Binding<String> {
-        Binding(
-            get: { recordingService.selectedInputDeviceID },
-            set: { newValue in
-                Task {
-                    await recordingService.selectInputDevice(newValue)
-                }
-            }
-        )
     }
 
     private var formattedElapsed: String {
