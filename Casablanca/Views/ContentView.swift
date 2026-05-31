@@ -56,6 +56,15 @@ struct ContentView: View {
                 onDismiss: { showSearch = false }
             )
         }
+        .sheet(item: prepMeetingBinding) { meeting in
+            PrepEditorView(
+                meeting: meeting,
+                onStartRecording: {
+                    viewModel.beginRecording(for: meeting)
+                },
+                onDismiss: { viewModel.prepMeeting = nil }
+            )
+        }
         .task {
             viewModel.setModelContext(modelContext)
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
@@ -83,6 +92,13 @@ struct ContentView: View {
                 columnVisibility = focused ? .detailOnly : .automatic
             }
         }
+    }
+
+    private var prepMeetingBinding: Binding<Meeting?> {
+        Binding(
+            get: { viewModel.prepMeeting },
+            set: { viewModel.prepMeeting = $0 }
+        )
     }
 
     @ViewBuilder

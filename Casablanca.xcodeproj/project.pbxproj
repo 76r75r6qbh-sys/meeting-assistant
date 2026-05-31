@@ -35,6 +35,7 @@
 		A10005 /* MeetingListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* MeetingListViewModel.swift */; };
 		A10006 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* DashboardView.swift */; };
 		A10007 /* MeetingCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* MeetingCardView.swift */; };
+		A10070 /* PrepEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070 /* PrepEditorView.swift */; };
 		A10008 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* DesignTokens.swift */; };
 		A10009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* Theme.swift */; };
 		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* Permissions.swift */; };
@@ -163,6 +164,7 @@
 		B10004 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		B10005 /* MeetingListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingListViewModel.swift; sourceTree = "<group>"; };
 		B10006 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		B10070 /* PrepEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepEditorView.swift; sourceTree = "<group>"; };
 		B10007 /* MeetingCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCardView.swift; sourceTree = "<group>"; };
 		B10008 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		B10009 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -416,6 +418,7 @@
 			children = (
 				B10002 /* ContentView.swift */,
 				B10006 /* DashboardView.swift */,
+				B10070 /* PrepEditorView.swift */,
 				B10012 /* SidebarView.swift */,
 				B10500 /* GlobalSearchView.swift */,
 				B10013 /* NotesEditorView.swift */,
@@ -639,6 +642,7 @@
 				A10004 /* CalendarService.swift in Sources */,
 				A10005 /* MeetingListViewModel.swift in Sources */,
 				A10006 /* DashboardView.swift in Sources */,
+				A10070 /* PrepEditorView.swift in Sources */,
 				A10007 /* MeetingCardView.swift in Sources */,
 				A10008 /* DesignTokens.swift in Sources */,
 				A10009 /* Theme.swift in Sources */,

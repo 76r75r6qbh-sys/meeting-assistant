@@ -81,6 +81,8 @@ struct MenuBarMeetingView: View {
                             viewModel.beginRecording(for: event)
                         case .takeNotes:
                             viewModel.beginNotes(for: event)
+                        case .prepare:
+                            viewModel.beginPrepare(for: event)
                         case .viewDetails:
                             viewModel.openMeetingDetails(for: event)
                         }
@@ -97,6 +99,8 @@ struct MenuBarMeetingView: View {
                             viewModel.beginRecording(for: event)
                         case .takeNotes:
                             viewModel.beginNotes(for: event)
+                        case .prepare:
+                            viewModel.beginPrepare(for: event)
                         case .viewDetails:
                             viewModel.openMeetingDetails(for: event)
                         }

@@ -7,6 +7,7 @@ enum SidebarMeetingSection: Hashable {
 }
 
 enum SidebarMeetingRowAction: Hashable {
+    case prepare
     case deleteMeeting
 }
 
@@ -14,7 +15,7 @@ struct SidebarMeetingRowActions {
     let section: SidebarMeetingSection
 
     var contextMenuActions: [SidebarMeetingRowAction] {
-        section == .upcoming ? [] : [.deleteMeeting]
+        section == .upcoming ? [.prepare] : [.deleteMeeting]
     }
 }
 
@@ -58,6 +59,9 @@ struct SidebarView: View {
                         SidebarMeetingRow(
                             meeting: meeting,
                             section: .upcoming,
+                            onPrepareRequest: {
+                                viewModel.beginPrepare(for: meeting)
+                            },
                             onDeleteRequest: {
                                 meetingPendingDeletion = meeting
                             }
@@ -185,6 +189,7 @@ struct SidebarView: View {
 struct SidebarMeetingRow: View {
     let meeting: Meeting
     let section: SidebarMeetingSection
+    var onPrepareRequest: () -> Void = {}
     let onDeleteRequest: () -> Void
 
     private var actions: SidebarMeetingRowActions {
@@ -211,6 +216,8 @@ struct SidebarMeetingRow: View {
         .contextMenu {
             ForEach(actions.contextMenuActions, id: \.self) { action in
                 switch action {
+                case .prepare:
+                    Button("Prepare…", systemImage: "doc.text.magnifyingglass", action: onPrepareRequest)
                 case .deleteMeeting:
                     Button("Delete Meeting…", role: .destructive, action: onDeleteRequest)
                 }

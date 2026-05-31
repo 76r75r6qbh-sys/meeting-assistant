@@ -176,6 +176,187 @@ struct ToastMarkdownEditor: NSViewRepresentable {
     }
 }
 
+// MARK: - Editor appearance preferences
+
+/// Reading text size for freeform markdown editors. Persisted as a raw string
+/// via `@AppStorage(AppPreferenceKey.notesTextSize)`.
+enum NotesTextSize: String, CaseIterable, Identifiable {
+    case small
+    case medium
+    case large
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
+    var pointSize: CGFloat {
+        switch self {
+        case .small: return 13
+        case .medium: return 15
+        case .large: return 18
+        }
+    }
+}
+
+/// Reading measure (max content width) for freeform markdown editors.
+enum NotesReadingWidth: String, CaseIterable, Identifiable {
+    case comfortable
+    case full
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .comfortable: return "Comfortable"
+        case .full: return "Full"
+        }
+    }
+
+    /// `nil` means "fill the available width".
+    var maxWidth: CGFloat? {
+        switch self {
+        case .comfortable: return 680
+        case .full: return nil
+        }
+    }
+}
+
+// MARK: - Formatting toolbar
+
+/// A lightweight markdown formatting toolbar that wraps/inserts markdown syntax
+/// into the bound text. Reusable across the prep editor and notes editor.
+struct MarkdownFormattingToolbar: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: CasaSpace.xxs) {
+            formatButton("Bold", systemImage: "bold") { MarkdownEditing.wrap(&text, with: "**") }
+                .keyboardShortcut("b", modifiers: .command)
+            formatButton("Italic", systemImage: "italic") { MarkdownEditing.wrap(&text, with: "_") }
+                .keyboardShortcut("i", modifiers: .command)
+
+            separator
+
+            formatButton("Heading", systemImage: "textformat.size") { MarkdownEditing.prefixLine(&text, with: "## ") }
+            formatButton("Bullet List", systemImage: "list.bullet") { MarkdownEditing.prefixLine(&text, with: "- ") }
+            formatButton("Checklist", systemImage: "checklist") { MarkdownEditing.prefixLine(&text, with: "- [ ] ") }
+
+            separator
+
+            formatButton("Code", systemImage: "chevron.left.forwardslash.chevron.right") { MarkdownEditing.wrap(&text, with: "`") }
+            formatButton("Link", systemImage: "link") { MarkdownEditing.insertLink(&text) }
+        }
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.borderSubtle)
+            .frame(width: 1, height: 16)
+            .padding(.horizontal, CasaSpace.xs)
+    }
+
+    private func formatButton(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The "Aa" appearance popover: text size (3 steps) + reading width.
+struct MarkdownAppearanceControl: View {
+    @AppStorage(AppPreferenceKey.notesTextSize) private var textSizeRaw = NotesTextSize.medium.rawValue
+    @AppStorage(AppPreferenceKey.notesReadingWidth) private var readingWidthRaw = NotesReadingWidth.comfortable.rawValue
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "textformat.size")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .help("Text size and reading width")
+        .accessibilityLabel("Appearance")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                Text("Text size")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .textCase(.uppercase)
+
+                Picker("Text size", selection: $textSizeRaw) {
+                    ForEach(NotesTextSize.allCases) { size in
+                        Text(size.label).tag(size.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Divider()
+
+                Text("Reading width")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .textCase(.uppercase)
+
+                Picker("Reading width", selection: $readingWidthRaw) {
+                    ForEach(NotesReadingWidth.allCases) { width in
+                        Text(width.label).tag(width.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .padding(CasaSpace.md)
+            .frame(width: 240)
+        }
+    }
+}
+
+// MARK: - Markdown editing helpers
+
+/// Pure string transforms used by the formatting toolbar. Because the
+/// `ToastMarkdownEditor` binding round-trips through the web view, these
+/// operate on the whole text rather than a selection range. Bold/italic/code
+/// append a wrapped empty token at the end (cursor lands inside on next sync);
+/// heading/list prefixes are appended on a new line. Kept deliberately simple.
+enum MarkdownEditing {
+    static func wrap(_ text: inout String, with token: String) {
+        text += "\(token)\(token)"
+    }
+
+    static func prefixLine(_ text: inout String, with prefix: String) {
+        if text.isEmpty {
+            text = prefix
+        } else if text.hasSuffix("\n") {
+            text += prefix
+        } else {
+            text += "\n\(prefix)"
+        }
+    }
+
+    static func insertLink(_ text: inout String) {
+        text += "[](url)"
+    }
+}
+
 struct ToastMarkdownViewer: NSViewRepresentable {
     let markdown: String
 

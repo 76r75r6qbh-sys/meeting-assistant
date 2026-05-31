@@ -13,6 +13,9 @@ final class MeetingListViewModel {
 
     var sidebarSelection: SidebarDestination? = .dashboard
 
+    /// When non-nil, the preparation editor is presented for this meeting.
+    var prepMeeting: Meeting?
+
     var selectedMeeting: Meeting? {
         get {
             if case .meeting(let id) = sidebarSelection {
@@ -177,6 +180,15 @@ final class MeetingListViewModel {
         meeting.status = .recording
         selectedMeeting = meeting
         save()
+    }
+
+    func beginPrepare(for event: EKEvent) {
+        guard let meeting = findOrCreateMeeting(for: event) else { return }
+        beginPrepare(for: meeting)
+    }
+
+    func beginPrepare(for meeting: Meeting) {
+        prepMeeting = meeting
     }
 
     func openMeetingDetails(for event: EKEvent) {

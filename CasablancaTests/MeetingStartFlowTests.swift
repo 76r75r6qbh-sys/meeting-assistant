@@ -21,7 +21,7 @@ final class MeetingStartFlowTests: XCTestCase {
         let layout = MeetingEntryActionLayout(isPast: false)
 
         XCTAssertEqual(layout.visibleActions, [.startRecording, .takeNotes])
-        XCTAssertEqual(layout.contextMenuActions, [.startRecording, .takeNotes, .viewDetails])
+        XCTAssertEqual(layout.contextMenuActions, [.prepare, .startRecording, .takeNotes, .viewDetails])
     }
 
     func testPastMeetingsKeepDetailsPrimary() {
@@ -501,10 +501,11 @@ final class SidebarMeetingRowActionTests: XCTestCase {
         XCTAssertEqual(actions.contextMenuActions, [.deleteMeeting])
     }
 
-    func testUpcomingSectionRowsDoNotExposeDeleteAction() {
+    func testUpcomingSectionRowsExposePrepareNotDelete() {
         let actions = SidebarMeetingRowActions(section: .upcoming)
 
-        XCTAssertTrue(actions.contextMenuActions.isEmpty)
+        XCTAssertEqual(actions.contextMenuActions, [.prepare])
+        XCTAssertFalse(actions.contextMenuActions.contains(.deleteMeeting))
     }
 }
 

@@ -26,6 +26,8 @@ enum AppPreferenceKey {
     static let actionQueuePath = "actionQueuePath"
     static let prepInspectorWidth = "prepInspectorWidth"
     static let detailInspectorWidth = "detailInspectorWidth"
+    static let notesTextSize = "notesTextSize"
+    static let notesReadingWidth = "notesReadingWidth"
 }
 
 enum AppPreferenceValue {

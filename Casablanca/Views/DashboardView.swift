@@ -91,6 +91,13 @@ struct DashboardView: View {
 
             HStack(spacing: CasaSpace.sm) {
                 Button {
+                    viewModel.beginPrepare(for: event)
+                } label: {
+                    Label("Prepare", systemImage: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
                     viewModel.beginNotes(for: event)
                 } label: {
                     Label("Take Notes", systemImage: "pencil.line")
@@ -174,6 +181,9 @@ struct DashboardView: View {
                         },
                         onViewDetails: {
                             viewModel.openMeetingDetails(for: event)
+                        },
+                        onPrepare: {
+                            viewModel.beginPrepare(for: event)
                         }
                     )
                     .transition(.opacity.combined(with: .move(edge: .bottom)))

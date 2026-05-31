@@ -4,6 +4,7 @@ import SwiftUI
 enum MeetingEntryAction: String, CaseIterable {
     case startRecording
     case takeNotes
+    case prepare
     case viewDetails
 
     var title: String {
@@ -12,6 +13,8 @@ enum MeetingEntryAction: String, CaseIterable {
             return "Start Recording"
         case .takeNotes:
             return "Take Notes"
+        case .prepare:
+            return "Prepare…"
         case .viewDetails:
             return "View Details"
         }
@@ -23,6 +26,8 @@ enum MeetingEntryAction: String, CaseIterable {
             return "record.circle"
         case .takeNotes:
             return "pencil.line"
+        case .prepare:
+            return "doc.text.magnifyingglass"
         case .viewDetails:
             return "doc.text"
         }
@@ -37,7 +42,7 @@ struct MeetingEntryActionLayout {
     }
 
     var contextMenuActions: [MeetingEntryAction] {
-        isPast ? [.takeNotes, .viewDetails] : [.startRecording, .takeNotes, .viewDetails]
+        isPast ? [.takeNotes, .viewDetails] : [.prepare, .startRecording, .takeNotes, .viewDetails]
     }
 }
 
@@ -94,6 +99,7 @@ struct MeetingCardView: View {
     let onStartRecording: () -> Void
     let onTakeNotes: () -> Void
     let onViewDetails: () -> Void
+    var onPrepare: () -> Void = {}
 
     private var isPast: Bool {
         event.endDate < Date()
@@ -225,6 +231,8 @@ struct MeetingCardView: View {
             onStartRecording()
         case .takeNotes:
             onTakeNotes()
+        case .prepare:
+            onPrepare()
         case .viewDetails:
             onViewDetails()
         }
