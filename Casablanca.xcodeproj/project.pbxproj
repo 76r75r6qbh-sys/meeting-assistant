@@ -40,6 +40,7 @@
 		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* Permissions.swift */; };
 		A10011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10011 /* Assets.xcassets */; };
 		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
+		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
 		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
 		A10015 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* AudioRecordingService.swift */; };
@@ -168,6 +169,7 @@
 		B10010 /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
 		B10011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10012 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B10500 /* GlobalSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchView.swift; sourceTree = "<group>"; };
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
@@ -415,6 +417,7 @@
 				B10002 /* ContentView.swift */,
 				B10006 /* DashboardView.swift */,
 				B10012 /* SidebarView.swift */,
+				B10500 /* GlobalSearchView.swift */,
 				B10013 /* NotesEditorView.swift */,
 				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
@@ -641,6 +644,7 @@
 				A10009 /* Theme.swift in Sources */,
 				A10010 /* Permissions.swift in Sources */,
 				A10012 /* SidebarView.swift in Sources */,
+				A10500 /* GlobalSearchView.swift in Sources */,
 				A10013 /* NotesEditorView.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
 				A10015 /* AudioRecordingService.swift in Sources */,

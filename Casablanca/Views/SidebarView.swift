@@ -96,7 +96,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $viewModel.meetingSearchText, placement: .sidebar)
         .confirmationDialog(
             meetingPendingDeletion.map { "Delete \"\($0.title)\"?" } ?? "Delete Meeting?",
             isPresented: Binding(

@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: MeetingListViewModel
     @Environment(AppModel.self) private var appModel
+    @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     private var recordingService: AudioRecordingService { appModel.recordingService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
     @State private var interruptionMonitor = RecordingInterruptionMonitor()
@@ -12,6 +13,7 @@ struct ContentView: View {
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var detailRoute: SidebarDestination? = .dashboard
+    @State private var showSearch = false
 
     var body: some View {
         // Force @Observable tracking in ContentView's own body context, not inside
@@ -22,6 +24,30 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
+        }
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    showSearch = true
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .help("Search everything (\u{2318}F)")
+            }
+        }
+        .background(
+            // Hidden command target so ⌘F works from anywhere in the window.
+            Button("Search") { showSearch = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+        )
+        .sheet(isPresented: $showSearch) {
+            GlobalSearchView(
+                meetings: meetings,
+                viewModel: viewModel,
+                actionQueueModel: appModel.actionQueueModel,
+                onDismiss: { showSearch = false }
+            )
         }
         .task {
             viewModel.setModelContext(modelContext)
