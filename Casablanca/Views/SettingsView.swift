@@ -80,6 +80,11 @@ struct SettingsView: View {
                     Label("AI", systemImage: "sparkles")
                 }
 
+            recordingSettings
+                .tabItem {
+                    Label("Recording", systemImage: "mic")
+                }
+
             UpdatesSettingsView(updateService: appModel.updateService)
                 .tabItem {
                     Label("Updates", systemImage: "arrow.triangle.2.circlepath")
@@ -178,25 +183,6 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Recording") {
-                HStack(spacing: CasaSpace.md) {
-                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
-                        ForEach(recordingInputOptions, id: \.id) { option in
-                            Text(option.label).tag(option.id)
-                        }
-                    }
-
-                    Button("Refresh Devices") {
-                        refreshRecordingInputDevices()
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
-
-                Text(systemDefaultInputDeviceDescription)
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
             Section("Automation") {
                 Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
 
@@ -227,28 +213,6 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         Form {
-            Section("Transcription") {
-                Picker("Default language", selection: $defaultTranscriptionLanguage) {
-                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
-                        Text(lang.name).tag(lang.id)
-                    }
-                }
-
-                Text("Can be overridden per meeting before transcribing")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-
-                Picker("Local Whisper model", selection: $whisperModel) {
-                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
-
-                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
             Section("Local LLM (Summarization)") {
                 Picker("Provider", selection: $llmProviderRaw) {
                     Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
@@ -363,6 +327,52 @@ struct SettingsView: View {
                 terminologyListSheet
             }
         }
+    }
+
+    private var recordingSettings: some View {
+        Form {
+            Section("Input Device") {
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
+                        ForEach(recordingInputOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+
+                    Button("Refresh Devices") {
+                        refreshRecordingInputDevices()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Transcription") {
+                Picker("Default language", selection: $defaultTranscriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
+                        Text(lang.name).tag(lang.id)
+                    }
+                }
+
+                Text("Can be overridden per meeting before transcribing")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Picker("Local Whisper model", selection: $whisperModel) {
+                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+
+                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .formStyle(.grouped)
     }
 
     private var modelOptions: [String] {
