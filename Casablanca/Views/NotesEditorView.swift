@@ -22,6 +22,20 @@ struct MeetingWorkspacePresentation {
         showsRecordingChrome && prefersRecordingFocusMode
     }
 
+    /// Focus mode is a pure view state: it can be active whether or not a
+    /// recording is in progress. It hides chrome (prep, to-dos, the device
+    /// chip, the recording bar) and centers the notes for distraction-free
+    /// writing. Recording + autosave keep running underneath.
+    var isFocusModeActive: Bool {
+        prefersRecordingFocusMode && !isFinalizing
+    }
+
+    /// In focus mode, while recording, the live state collapses to a single
+    /// unobtrusive pill (pulsing dot + timer) that still exposes pause/stop.
+    var showsFocusRecordingPill: Bool {
+        isFocusModeActive && showsRecordingChrome
+    }
+
     var showsExpandedRecordingChrome: Bool {
         showsRecordingChrome && !showsFocusedRecordingControls
     }
@@ -154,20 +168,42 @@ struct NotesEditorView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if presentation.showsExpandedRecordingChrome {
+                if presentation.showsExpandedRecordingChrome && !presentation.isFocusModeActive {
                     recordingBar
                     Divider()
                 }
 
                 mainContent
 
-                Divider()
-                footer
+                if !presentation.isFocusModeActive {
+                    Divider()
+                    footer
+                }
             }
             .blur(radius: presentation.showsBlockingOverlay ? 1.5 : 0)
 
+            if presentation.showsFocusRecordingPill {
+                focusRecordingPill
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(CasaSpace.lg)
+                    .transition(.opacity)
+            }
+
+            if presentation.isFocusModeActive {
+                focusExitButton
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(CasaSpace.lg)
+                    .transition(.opacity)
+            }
+
             if presentation.showsBlockingOverlay {
                 finalizingOverlay
+            }
+        }
+        .animation(CasaAnimation.standard, value: presentation.isFocusModeActive)
+        .onExitCommand {
+            if recordingWorkspaceFocusMode {
+                recordingWorkspaceFocusMode = false
             }
         }
         .toolbar {
@@ -573,7 +609,9 @@ struct NotesEditorView: View {
 
     @ViewBuilder
     private var freeformWorkspace: some View {
-        if freeformPresentation.showsTodosArea {
+        if presentation.isFocusModeActive {
+            focusNotesCanvas
+        } else if freeformPresentation.showsTodosArea {
             HStack(spacing: 0) {
                 prepAwareNotesWorkspace
                 Divider()
@@ -598,6 +636,108 @@ struct NotesEditorView: View {
         } else {
             notesColumn
         }
+    }
+
+    // MARK: - Focus mode
+
+    /// Distraction-free writing surface: centers the editor at a comfortable
+    /// reading measure with airier, slightly larger text. No prep, no to-dos,
+    /// no device chip — just the notes.
+    private var focusNotesCanvas: some View {
+        ScrollView {
+            ToastMarkdownEditor(
+                text: $meeting.userNotes,
+                placeholder: "Type your notes here..."
+            )
+            .font(.system(size: 16))
+            .lineSpacing(6)
+            .frame(maxWidth: 600, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.top, CasaSpace.xxxl)
+            .padding(.bottom, CasaSpace.xxl)
+            .onChange(of: meeting.userNotes) {
+                debouncedSave()
+            }
+        }
+        .background(Color.backgroundPrimary)
+    }
+
+    private var focusRecordingPill: some View {
+        HStack(spacing: CasaSpace.sm) {
+            Circle()
+                .fill(Color.stateRecording)
+                .frame(width: 8, height: 8)
+                .opacity(pulseOpacity)
+                .onAppear { startPulseIfNeeded() }
+                .onChange(of: isRecordingState) { startPulseIfNeeded() }
+                .onChange(of: reduceMotion) { startPulseIfNeeded() }
+                .accessibilityLabel(isRecordingState ? "Recording in progress" : "Recording paused")
+
+            Text(formattedElapsed)
+                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(isRecordingState ? Color.stateRecording : Color.textPrimary)
+                .accessibilityLabel("Elapsed time: \(formattedElapsed)")
+
+            if presentation.showsPauseRecordingButton {
+                pillIconButton("pause.fill", label: "Pause") {
+                    Task { await pauseRecording() }
+                }
+                .disabled(recordingService.isPreparing)
+                .keyboardShortcut("p", modifiers: .command)
+            }
+
+            if presentation.showsResumeRecordingButton {
+                pillIconButton("play.fill", label: "Resume") {
+                    Task { await resumeRecording() }
+                }
+                .disabled(recordingService.isPreparing)
+                .keyboardShortcut("p", modifiers: .command)
+            }
+
+            if presentation.showsStopRecordingButton {
+                pillIconButton("stop.fill", label: "Stop & Process") {
+                    Task { await stopRecording() }
+                }
+                .disabled(recordingService.isPreparing || isFinalizingRecording)
+                .keyboardShortcut(.return, modifiers: .command)
+            }
+        }
+        .padding(.leading, CasaSpace.md)
+        .padding(.trailing, CasaSpace.sm)
+        .padding(.vertical, CasaSpace.xs)
+        .background(Color.stateRecording.opacity(0.14), in: Capsule())
+        .overlay(
+            Capsule().stroke(Color.stateRecording.opacity(0.25), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Recording status")
+    }
+
+    private func pillIconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .frame(width: 22, height: 22)
+                .background(Color.backgroundActive, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textPrimary)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var focusExitButton: some View {
+        Button {
+            recordingWorkspaceFocusMode = false
+        } label: {
+            Label("Exit Focus", systemImage: "arrow.down.right.and.arrow.up.left")
+                .font(.callout)
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .keyboardShortcut(.escape, modifiers: [])
+        .help("Exit Focus (Esc)")
     }
 
     private var notesColumn: some View {
@@ -739,11 +879,6 @@ struct NotesEditorView: View {
                     .controlSize(.small)
             }
 
-            if presentation.showsCompactRecordingControls {
-                compactRecordingControls
-                recordingControls
-            }
-
             Spacer()
 
             if presentation.showsStartRecordingButton {
@@ -756,6 +891,14 @@ struct NotesEditorView: View {
             }
 
             Button {
+                recordingWorkspaceFocusMode = true
+            } label: {
+                Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .help("Distraction-free notes (Esc to exit)")
+
+            Button {
                 exportNotes()
             } label: {
                 Label("Save & Export", systemImage: "square.and.arrow.up")
@@ -765,29 +908,6 @@ struct NotesEditorView: View {
         }
         .padding(CasaSpace.lg)
         .background(.bar)
-    }
-
-    private var compactRecordingControls: some View {
-        HStack(spacing: CasaSpace.md) {
-            HStack(spacing: CasaSpace.xs) {
-                Circle()
-                    .fill(recordingService.isRecording ? Color.stateRecording : Color.stateIdle)
-                    .frame(width: 8, height: 8)
-
-                Text(presentation.stateLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.textPrimary)
-            }
-
-            Text(formattedElapsed)
-                .font(.caption.monospaced())
-                .foregroundStyle(Color.textSecondary)
-
-            Button("Show Recording Controls") {
-                recordingWorkspaceFocusMode = false
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     private var finalizingOverlay: some View {

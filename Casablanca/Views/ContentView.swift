@@ -14,6 +14,13 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
+    @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
+
+    /// Focus mode is only meaningful inside a meeting workspace.
+    private var isFocusModeActive: Bool {
+        guard recordingWorkspaceFocusMode, case .meeting = detailRoute else { return false }
+        return true
+    }
 
     var body: some View {
         // Force @Observable tracking in ContentView's own body context, not inside
@@ -70,6 +77,11 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.sidebarSelection) { _, new in
             detailRoute = new
+        }
+        .onChange(of: isFocusModeActive) { _, focused in
+            withAnimation(CasaAnimation.standard) {
+                columnVisibility = focused ? .detailOnly : .automatic
+            }
         }
     }
 
