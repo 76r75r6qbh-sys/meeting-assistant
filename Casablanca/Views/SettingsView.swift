@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
+    @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
@@ -189,6 +190,17 @@ struct SettingsView: View {
                 Toggle("Automatically export notes after recording", isOn: $autoExportEnabled)
 
                 Text("Automations run in sequence after recording: transcription, summary generation, then export to the selected destination when enabled.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Setup") {
+                Button("Show Setup Guide Again") {
+                    hasCompletedOnboarding = false
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("Re-run the first-run onboarding to revisit vault, permissions and language model setup.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }

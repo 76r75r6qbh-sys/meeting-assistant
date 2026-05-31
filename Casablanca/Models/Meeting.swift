@@ -28,6 +28,7 @@ enum AppPreferenceKey {
     static let detailInspectorWidth = "detailInspectorWidth"
     static let notesTextSize = "notesTextSize"
     static let notesReadingWidth = "notesReadingWidth"
+    static let hasCompletedOnboarding = "hasCompletedOnboarding"
 }
 
 enum AppPreferenceValue {

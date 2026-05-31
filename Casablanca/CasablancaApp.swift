@@ -8,6 +8,7 @@ struct CasablancaApp: App {
     static let mainWindowID = "main-window"
 
     @State private var appModel: AppModel
+    @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
     private let sharedModelContainer: ModelContainer
 
     init() {
@@ -27,6 +28,13 @@ struct CasablancaApp: App {
                 .frame(minWidth: 800, minHeight: 500)
                 .task {
                     await appModel.bootstrap()
+                }
+                .sheet(isPresented: Binding(
+                    get: { !hasCompletedOnboarding },
+                    set: { hasCompletedOnboarding = !$0 }
+                )) {
+                    OnboardingView()
+                        .environment(appModel)
                 }
                 .sheet(isPresented: appModel.isAvailableSheetPresented) {
                     if case .available(let release) = appModel.updateService.state {

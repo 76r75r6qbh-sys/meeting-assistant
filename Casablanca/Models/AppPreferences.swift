@@ -47,6 +47,14 @@ enum AppPreferences {
         defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
     }
 
+    static func hasCompletedOnboarding(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding)
+    }
+
+    static func setHasCompletedOnboarding(_ value: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: AppPreferenceKey.hasCompletedOnboarding)
+    }
+
     /// One-shot migration: if the legacy `autoExportNotesToObsidian` key has a value but the new
     /// `autoExportEnabled` key has none, seed the new key from the legacy value. The legacy key is
     /// preserved (do not delete user data). Idempotent.
