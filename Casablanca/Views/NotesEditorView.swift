@@ -665,23 +665,23 @@ struct NotesEditorView: View {
     /// reading measure with airier, slightly larger text. No prep, no to-dos,
     /// no device chip — just the notes.
     private var focusNotesCanvas: some View {
-        ScrollView {
-            ToastMarkdownEditor(
-                text: $meeting.userNotes,
-                placeholder: "Type your notes here..."
-            )
-            .font(.system(size: 16))
-            .lineSpacing(6)
-            .frame(maxWidth: 600, alignment: .topLeading)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, CasaSpace.xl)
-            .padding(.top, CasaSpace.xxxl)
-            .padding(.bottom, CasaSpace.xxl)
-            .onChange(of: meeting.userNotes) {
-                debouncedSave()
-            }
-        }
+        // ToastMarkdownEditor wraps a WKWebView, which has no intrinsic height.
+        // It must be given a bounded fill frame (it scrolls its own content
+        // internally) — wrapping it in a SwiftUI ScrollView collapses it to
+        // zero height (blank screen). Mirror the working `notesColumn` framing,
+        // just centered at a comfortable reading measure.
+        ToastMarkdownEditor(
+            text: $meeting.userNotes,
+            placeholder: "Type your notes here..."
+        )
+        .frame(maxWidth: 600, maxHeight: .infinity, alignment: .top)
+        .padding(.horizontal, CasaSpace.xl)
+        .padding(.vertical, CasaSpace.xxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.backgroundPrimary)
+        .onChange(of: meeting.userNotes) {
+            debouncedSave()
+        }
     }
 
     private var focusRecordingPill: some View {
