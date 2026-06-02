@@ -19,10 +19,6 @@ struct RecordedMeetingView: View {
     @State private var pendingTodoTexts: [String] = []
     @State private var selectedTab: DetailTab = .summary
     @State private var showInspector = true
-    @AppStorage(AppPreferenceKey.detailInspectorWidth) private var inspectorWidth = Double(CasaLayout.prepInspectorDefault)
-    /// Transient width during an inspector-divider drag (nil when not dragging),
-    /// so resizing is smooth and only persists to @AppStorage on release.
-    @State private var liveDragInspectorWidth: Double?
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -33,48 +29,17 @@ struct RecordedMeetingView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let maxInspectorWidth = max(
-                Double(CasaLayout.prepInspectorMin),
-                Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
-            )
-            let effectiveInspectorWidth = liveDragInspectorWidth ?? inspectorWidth
-            let clampedInspectorWidth = min(
-                max(effectiveInspectorWidth, Double(CasaLayout.prepInspectorMin)),
-                maxInspectorWidth
-            )
-
-            HStack(spacing: 0) {
-                ScrollView {
-                    readingColumn
-                        .padding(CasaSpace.xl)
-                        .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                if showInspector {
-                    // Inspector sits to the RIGHT of the divider, so dragging
-                    // left widens it: deltaSign is -1.
-                    ResizableInspectorDivider(
-                        width: clampedInspectorWidth,
-                        minWidth: Double(CasaLayout.prepInspectorMin),
-                        maxWidth: maxInspectorWidth,
-                        deltaSign: -1,
-                        onResize: { liveDragInspectorWidth = $0 },
-                        onCommit: {
-                            inspectorWidth = $0
-                            liveDragInspectorWidth = nil
-                        }
-                    )
-
-                    inspector
-                        .frame(width: CGFloat(clampedInspectorWidth))
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .onAppear { inspectorWidth = clampedInspectorWidth }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        ScrollView {
+            readingColumn
+                .padding(CasaSpace.xl)
+                .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Native trailing inspector (AppKit-driven resize, HIG-compliant).
+        .inspector(isPresented: $showInspector) {
+            inspector
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
         }
         .navigationTitle(meeting.title)
         .toolbar {

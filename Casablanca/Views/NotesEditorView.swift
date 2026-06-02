@@ -88,6 +88,12 @@ struct MeetingWorkspacePresentation {
     }
 }
 
+enum InspectorTab: String, CaseIterable, Identifiable {
+    case prep = "Prep"
+    case todos = "To-Dos"
+    var id: String { rawValue }
+}
+
 struct MeetingPrepPresentation: Equatable {
     let markdown: String?
     let isExpanded: Bool
@@ -165,13 +171,11 @@ struct NotesEditorView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var newTodoText = ""
-    @AppStorage(AppPreferenceKey.prepInspectorWidth) private var prepInspectorWidth = Double(CasaLayout.prepInspectorDefault)
     @State private var prepMarkdown: String?
-    @State private var isPrepExpanded = false
-    @AppStorage(AppPreferenceKey.notesTodosExpanded) private var isTodosExpanded = false
-    /// Transient width during a prep-divider drag (nil when not dragging) — kept
-    /// in memory so resizing is smooth and only persists to @AppStorage on release.
-    @State private var liveDragPrepWidth: Double?
+    // Native trailing inspector hosting Prep + To-Dos as tabs. Resizing and the
+    // toggle state are handled by AppKit (smooth + HIG-compliant).
+    @State private var isInspectorPresented = false
+    @State private var inspectorTab: InspectorTab = .prep
     @State private var showingQuickControl = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
@@ -235,21 +239,13 @@ struct NotesEditorView: View {
             // notes and recording states — matching the approved mockup.
             if !presentation.isFocusModeActive && !presentation.isFinalizing {
                 ToolbarItemGroup {
-                    // Toggles (not plain buttons) so macOS shows a clear on/off
-                    // highlighted state while the pane is open.
-                    Toggle(isOn: $isTodosExpanded) {
-                        Label("To-Dos", systemImage: "checklist")
+                    // Single inspector toggle (Prep & To-Dos live as tabs inside).
+                    // A Toggle with .button style shows a clear on-state natively.
+                    Toggle(isOn: $isInspectorPresented) {
+                        Label("Inspector", systemImage: "sidebar.right")
                     }
                     .toggleStyle(.button)
-                    .help(isTodosExpanded ? "Hide To-Dos" : "Show To-Dos")
-
-                    if prepPresentation.hasPrep {
-                        Toggle(isOn: $isPrepExpanded) {
-                            Label("Prep", systemImage: "sidebar.right")
-                        }
-                        .toggleStyle(.button)
-                        .help(isPrepExpanded ? "Hide Prep" : "Show Prep")
-                    }
+                    .help(isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
 
                     Button {
                         recordingWorkspaceFocusMode = true
@@ -334,7 +330,7 @@ struct NotesEditorView: View {
     private var prepPresentation: MeetingPrepPresentation {
         MeetingPrepPresentation(
             markdown: prepMarkdown,
-            isExpanded: isPrepExpanded
+            isExpanded: isInspectorPresented
         )
     }
 
@@ -657,60 +653,48 @@ struct NotesEditorView: View {
     private var freeformWorkspace: some View {
         if presentation.isFocusModeActive {
             focusNotesCanvas
-        } else if isTodosExpanded {
-            HStack(spacing: 0) {
-                prepAwareNotesWorkspace
-                Divider()
-                todosArea
-                    .frame(width: 260)
-            }
         } else {
-            prepAwareNotesWorkspace
+            // Native trailing inspector (AppKit-driven resize, HIG-compliant)
+            // hosting Prep & To-Dos as tabs. The notes editor keeps its proven
+            // bounded layout as the primary content.
+            notesColumn
+                .inspector(isPresented: $isInspectorPresented) {
+                    inspectorContent
+                        .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
+                }
         }
     }
 
+    /// The inspector hosts Prep and To-Dos as tabs. The segmented control only
+    /// appears when prep exists; otherwise the inspector is just To-Dos.
     @ViewBuilder
-    private var prepAwareNotesWorkspace: some View {
-        if prepPresentation.showsPrepPane {
-            GeometryReader { proxy in
-                let maxWidth = max(
-                    Double(CasaLayout.prepInspectorMin),
-                    Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
-                )
-                // Live drag value (in memory) takes precedence so resizing is
-                // smooth; falls back to the persisted width otherwise.
-                let effectiveWidth = liveDragPrepWidth ?? prepInspectorWidth
-                let clampedWidth = min(max(effectiveWidth, Double(CasaLayout.prepInspectorMin)), maxWidth)
-
-                HStack(spacing: 0) {
-                    notesColumn
-
-                    // Prep is a right-side inspector (matching the mockup). The
-                    // divider drags to its LEFT to widen the right-side pane, so
-                    // the delta is negated.
-                    ResizableInspectorDivider(
-                        width: clampedWidth,
-                        minWidth: Double(CasaLayout.prepInspectorMin),
-                        maxWidth: maxWidth,
-                        deltaSign: -1,
-                        onResize: { liveDragPrepWidth = $0 },
-                        onCommit: {
-                            prepInspectorWidth = $0
-                            liveDragPrepWidth = nil
-                        }
-                    )
-
-                    prepPane
-                        .frame(width: CGFloat(clampedWidth))
+    private var inspectorContent: some View {
+        VStack(spacing: 0) {
+            if prepPresentation.hasPrep {
+                Picker("Inspector tab", selection: $inspectorTab) {
+                    ForEach(InspectorTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
                 }
-                .onAppear {
-                    // Keep a stored width that exceeds the current cap honest.
-                    prepInspectorWidth = clampedWidth
-                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(CasaSpace.md)
+
+                Divider()
             }
-        } else {
-            notesColumn
+
+            if effectiveInspectorTab == .prep {
+                ToastMarkdownViewer(markdown: prepPresentation.markdownText)
+                    .padding(CasaSpace.lg)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                todosArea
+            }
         }
+    }
+
+    private var effectiveInspectorTab: InspectorTab {
+        prepPresentation.hasPrep ? inspectorTab : .todos
     }
 
     // MARK: - Focus mode
@@ -819,26 +803,6 @@ struct NotesEditorView: View {
         // Pane controls now live in the toolbar (consistent across states), so
         // the notes column is just the editor — its proven layout is untouched.
         freeformNotesEditor
-    }
-
-    private var prepPane: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: CasaSpace.sm) {
-                Text("Preparation")
-                    .font(.headline)
-                    .foregroundStyle(Color.textPrimary)
-
-                Spacer()
-            }
-            .padding(.horizontal, CasaSpace.lg)
-            .padding(.vertical, CasaSpace.md)
-
-            Divider()
-
-            ToastMarkdownViewer(markdown: prepPresentation.markdownText)
-                .padding(CasaSpace.lg)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
     }
 
     /// Calm in-content meeting header for the notes-taking state, mirroring the
@@ -1139,9 +1103,7 @@ struct NotesEditorView: View {
     }
 
     private func loadPrepMarkdown() {
-        let markdown = MeetingPrepService.loadPrepMarkdown(for: meeting)
-        prepMarkdown = markdown
-        isPrepExpanded = markdown?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        prepMarkdown = MeetingPrepService.loadPrepMarkdown(for: meeting)
     }
 
     private func debouncedSave() {
@@ -1222,89 +1184,5 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
-    }
-}
-
-/// A thin, draggable vertical divider used to resize an adjacent inspector
-/// pane. On hover it shows an accent grip and switches the cursor to the
-/// horizontal resize arrow; dragging updates `width`, clamped to
-/// `[minWidth, maxWidth]`.
-///
-/// `deltaSign` accounts for which side the resized pane sits on relative to
-/// the divider: use `+1` when the pane is to the LEFT of the divider (drag
-/// right → wider), and `-1` when the pane is to the RIGHT (drag left → wider).
-struct ResizableInspectorDivider: View {
-    /// The currently displayed width (committed value, or the live drag value
-    /// the parent is showing). Used as the drag baseline.
-    let width: Double
-    let minWidth: Double
-    let maxWidth: Double
-    var deltaSign: Double = 1
-    /// Called continuously during the drag with the new (clamped) width. The
-    /// parent should store this in plain @State so the pane resizes smoothly
-    /// WITHOUT touching persistent storage every frame.
-    let onResize: (Double) -> Void
-    /// Called once when the drag ends with the final width — persist here.
-    let onCommit: (Double) -> Void
-
-    @State private var isHovering = false
-    @State private var dragStartWidth: Double?
-
-    var body: some View {
-        ZStack {
-            // Hairline that becomes a visible accent line on hover/drag.
-            Rectangle()
-                .fill(isActive ? Color.accentColor : Color.borderSubtle)
-                .frame(width: isActive ? 2 : 1)
-
-            if isActive {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: 4, height: 42)
-            }
-        }
-        .frame(width: 10)
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovering = hovering
-            if hovering {
-                NSCursor.resizeLeftRight.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    let start = dragStartWidth ?? width
-                    if dragStartWidth == nil { dragStartWidth = start }
-                    let proposed = start + deltaSign * Double(value.translation.width)
-                    onResize(min(max(proposed, minWidth), maxWidth))
-                }
-                .onEnded { value in
-                    let start = dragStartWidth ?? width
-                    let proposed = start + deltaSign * Double(value.translation.width)
-                    onCommit(min(max(proposed, minWidth), maxWidth))
-                    dragStartWidth = nil
-                }
-        )
-        .accessibilityElement()
-        .accessibilityLabel("Resize panel")
-        .accessibilityValue("\(Int(width)) points")
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment:
-                onCommit(min(width + 20, maxWidth))
-            case .decrement:
-                onCommit(max(width - 20, minWidth))
-            @unknown default:
-                break
-            }
-        }
-    }
-
-    private var isActive: Bool {
-        isHovering || dragStartWidth != nil
     }
 }
