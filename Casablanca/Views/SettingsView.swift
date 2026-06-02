@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.summaryThinkingEnabled) private var summaryThinkingEnabled = false
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
@@ -298,6 +299,11 @@ struct SettingsView: View {
             }
 
             Section("Summary Prompt") {
+                Toggle("Allow model thinking", isOn: $summaryThinkingEnabled)
+                Text("Reasoning models think before answering. Off (recommended) gives faster, more concise summaries; on allows extended reasoning (slower, larger output budget).")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
                 Button("Customize Prompt...") {
                     presentedSheet = .summaryPrompt
                 }

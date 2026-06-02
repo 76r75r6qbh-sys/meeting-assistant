@@ -29,6 +29,7 @@ enum AppPreferenceKey {
     static let notesTextSize = "notesTextSize"
     static let notesReadingWidth = "notesReadingWidth"
     static let notesTodosExpanded = "notesTodosExpanded"
+    static let summaryThinkingEnabled = "summaryThinkingEnabled"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
 }
 

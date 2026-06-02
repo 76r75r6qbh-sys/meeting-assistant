@@ -52,10 +52,32 @@ final class SummarizationService {
     {{freeform_notes}}
     """
 
-    /// Upper bound on generated summary length. Local models can otherwise
-    /// ramble or loop for thousands of tokens on a short transcript; this caps
-    /// runaway generation (callers see the truncation flag if it's hit).
+    /// Upper bound on generated summary length when thinking is OFF. Local models
+    /// can otherwise ramble or loop for thousands of tokens on a short transcript.
     static let maxSummaryTokens = 2000
+
+    /// Larger budget when the user enables model thinking, so the reasoning has
+    /// room to finish before the actual answer (still bounded to avoid runaways).
+    static let maxThinkingTokens = 8000
+
+    /// Removes chain-of-thought blocks reasoning models emit before their answer
+    /// (e.g. `<think>…</think>` / `<thinking>…</thinking>`), so they don't end up
+    /// in the stored summary. Handles an unclosed tag (output cut mid-thought) by
+    /// dropping from the opening tag onward.
+    static func stripReasoning(_ text: String) -> String {
+        var s = text
+        for tag in ["think", "thinking"] {
+            s = s.replacingOccurrences(
+                of: "(?is)<\(tag)>.*?</\(tag)>",
+                with: "",
+                options: .regularExpression
+            )
+            if let open = s.range(of: "<\(tag)>", options: .caseInsensitive) {
+                s = String(s[..<open.lowerBound])
+            }
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private(set) var isSummarizing = false
     private(set) var statusMessage = ""
@@ -133,7 +155,7 @@ final class SummarizationService {
             raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
         )
 
-        let prompt = Self.renderPrompt(
+        var prompt = Self.renderPrompt(
             template: UserDefaults.standard.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             meeting: meeting,
             transcript: transcript,
@@ -141,13 +163,24 @@ final class SummarizationService {
             terminologyBlock: terminologyBlock
         )
 
+        // Reasoning models "think out loud" before answering, which on short
+        // transcripts becomes pages of rambling that never reaches the summary.
+        // When thinking is disabled (default), append the Qwen soft-switch and
+        // allow only a tight output budget; when enabled, give room for the
+        // reasoning to complete before the answer.
+        let thinkingEnabled = UserDefaults.standard.bool(forKey: AppPreferenceKey.summaryThinkingEnabled)
+        if !thinkingEnabled {
+            prompt += "\n\n/no_think"
+        }
+        let tokenBudget = thinkingEnabled ? Self.maxThinkingTokens : Self.maxSummaryTokens
+
         var wasTruncated = false
         let summary: String
         do {
             summary = try await provider.generate(
                 prompt: prompt,
                 temperature: nil,
-                maxTokens: Self.maxSummaryTokens,
+                maxTokens: tokenBudget,
                 timeout: 120,
                 truncated: { wasTruncated = $0 }
             )
@@ -160,7 +193,8 @@ final class SummarizationService {
         }
 
         statusMessage = "Summary generated"
-        return SummaryResponseParser.parse(summary)
+        // Strip any chain-of-thought the model still emitted (e.g. <think>…</think>).
+        return SummaryResponseParser.parse(Self.stripReasoning(summary))
     }
 
     func clearError() {
