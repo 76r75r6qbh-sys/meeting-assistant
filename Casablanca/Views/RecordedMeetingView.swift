@@ -141,7 +141,7 @@ struct RecordedMeetingView: View {
     private var pipelineBanner: some View {
         GroupBox {
             HStack(spacing: CasaSpace.sm) {
-                if summarizationService.isSummarizing || terminologyService.isCorrecting {
+                if isSummarizingThisMeeting || terminologyService.isCorrecting {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -161,7 +161,7 @@ struct RecordedMeetingView: View {
 
     @ViewBuilder
     private var summaryTab: some View {
-        if summarizationService.isSummarizing {
+        if isSummarizingThisMeeting {
             HStack(spacing: CasaSpace.sm) {
                 ProgressView()
                     .controlSize(.small)
@@ -491,7 +491,7 @@ struct RecordedMeetingView: View {
             Button {
                 summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
             } label: {
-                Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
+                Label("Summarize", systemImage: isSummarizingThisMeeting ? "hourglass" : "sparkles")
             }
             .disabled(!canSummarize || summarizationService.isSummarizing)
         case .export:
@@ -523,9 +523,17 @@ struct RecordedMeetingView: View {
         return URL(fileURLWithPath: path)
     }
 
+    /// True only when the shared summarization service is processing THIS
+    /// meeting — the service is app-wide, so other meetings' detail views must
+    /// not show this one's "generating…" state.
+    private var isSummarizingThisMeeting: Bool {
+        summarizationService.isSummarizing
+            && summarizationService.summarizingMeetingID == meeting.id
+    }
+
     private var shouldShowPipelineBanner: Bool {
         terminologyService.isCorrecting
-            || summarizationService.isSummarizing
+            || isSummarizingThisMeeting
             || (autoSummarizeAfterTranscription
                 && meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
@@ -543,7 +551,7 @@ struct RecordedMeetingView: View {
             return "Correcting terminology..."
         }
 
-        if summarizationService.isSummarizing {
+        if isSummarizingThisMeeting {
             return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
         }
 
