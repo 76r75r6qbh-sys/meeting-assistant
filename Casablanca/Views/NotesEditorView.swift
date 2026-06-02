@@ -169,6 +169,9 @@ struct NotesEditorView: View {
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
     @AppStorage(AppPreferenceKey.notesTodosExpanded) private var isTodosExpanded = false
+    /// Transient width during a prep-divider drag (nil when not dragging) — kept
+    /// in memory so resizing is smooth and only persists to @AppStorage on release.
+    @State private var liveDragPrepWidth: Double?
     @State private var showingQuickControl = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
@@ -232,19 +235,19 @@ struct NotesEditorView: View {
             // notes and recording states — matching the approved mockup.
             if !presentation.isFocusModeActive && !presentation.isFinalizing {
                 ToolbarItemGroup {
-                    Button {
-                        isTodosExpanded.toggle()
-                    } label: {
+                    // Toggles (not plain buttons) so macOS shows a clear on/off
+                    // highlighted state while the pane is open.
+                    Toggle(isOn: $isTodosExpanded) {
                         Label("To-Dos", systemImage: "checklist")
                     }
+                    .toggleStyle(.button)
                     .help(isTodosExpanded ? "Hide To-Dos" : "Show To-Dos")
 
                     if prepPresentation.hasPrep {
-                        Button {
-                            isPrepExpanded.toggle()
-                        } label: {
+                        Toggle(isOn: $isPrepExpanded) {
                             Label("Prep", systemImage: "sidebar.right")
                         }
+                        .toggleStyle(.button)
                         .help(isPrepExpanded ? "Hide Prep" : "Show Prep")
                     }
 
@@ -674,7 +677,10 @@ struct NotesEditorView: View {
                     Double(CasaLayout.prepInspectorMin),
                     Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
                 )
-                let clampedWidth = min(max(prepInspectorWidth, Double(CasaLayout.prepInspectorMin)), maxWidth)
+                // Live drag value (in memory) takes precedence so resizing is
+                // smooth; falls back to the persisted width otherwise.
+                let effectiveWidth = liveDragPrepWidth ?? prepInspectorWidth
+                let clampedWidth = min(max(effectiveWidth, Double(CasaLayout.prepInspectorMin)), maxWidth)
 
                 HStack(spacing: 0) {
                     notesColumn
@@ -683,10 +689,15 @@ struct NotesEditorView: View {
                     // divider drags to its LEFT to widen the right-side pane, so
                     // the delta is negated.
                     ResizableInspectorDivider(
-                        width: $prepInspectorWidth,
+                        width: clampedWidth,
                         minWidth: Double(CasaLayout.prepInspectorMin),
                         maxWidth: maxWidth,
-                        deltaSign: -1
+                        deltaSign: -1,
+                        onResize: { liveDragPrepWidth = $0 },
+                        onCommit: {
+                            prepInspectorWidth = $0
+                            liveDragPrepWidth = nil
+                        }
                     )
 
                     prepPane
@@ -1223,10 +1234,18 @@ struct NotesEditorView: View {
 /// the divider: use `+1` when the pane is to the LEFT of the divider (drag
 /// right → wider), and `-1` when the pane is to the RIGHT (drag left → wider).
 struct ResizableInspectorDivider: View {
-    @Binding var width: Double
+    /// The currently displayed width (committed value, or the live drag value
+    /// the parent is showing). Used as the drag baseline.
+    let width: Double
     let minWidth: Double
     let maxWidth: Double
     var deltaSign: Double = 1
+    /// Called continuously during the drag with the new (clamped) width. The
+    /// parent should store this in plain @State so the pane resizes smoothly
+    /// WITHOUT touching persistent storage every frame.
+    let onResize: (Double) -> Void
+    /// Called once when the drag ends with the final width — persist here.
+    let onCommit: (Double) -> Void
 
     @State private var isHovering = false
     @State private var dragStartWidth: Double?
@@ -1256,26 +1275,29 @@ struct ResizableInspectorDivider: View {
             }
         }
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     let start = dragStartWidth ?? width
                     if dragStartWidth == nil { dragStartWidth = start }
                     let proposed = start + deltaSign * Double(value.translation.width)
-                    width = min(max(proposed, minWidth), maxWidth)
+                    onResize(min(max(proposed, minWidth), maxWidth))
                 }
-                .onEnded { _ in
+                .onEnded { value in
+                    let start = dragStartWidth ?? width
+                    let proposed = start + deltaSign * Double(value.translation.width)
+                    onCommit(min(max(proposed, minWidth), maxWidth))
                     dragStartWidth = nil
                 }
         )
         .accessibilityElement()
-        .accessibilityLabel("Resize prep panel")
+        .accessibilityLabel("Resize panel")
         .accessibilityValue("\(Int(width)) points")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment:
-                width = min(width + 20, maxWidth)
+                onCommit(min(width + 20, maxWidth))
             case .decrement:
-                width = max(width - 20, minWidth)
+                onCommit(max(width - 20, minWidth))
             @unknown default:
                 break
             }

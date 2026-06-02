@@ -20,6 +20,9 @@ struct RecordedMeetingView: View {
     @State private var selectedTab: DetailTab = .summary
     @State private var showInspector = true
     @AppStorage(AppPreferenceKey.detailInspectorWidth) private var inspectorWidth = Double(CasaLayout.prepInspectorDefault)
+    /// Transient width during an inspector-divider drag (nil when not dragging),
+    /// so resizing is smooth and only persists to @AppStorage on release.
+    @State private var liveDragInspectorWidth: Double?
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -35,8 +38,9 @@ struct RecordedMeetingView: View {
                 Double(CasaLayout.prepInspectorMin),
                 Double(proxy.size.width) * Double(CasaLayout.prepInspectorMaxFraction)
             )
+            let effectiveInspectorWidth = liveDragInspectorWidth ?? inspectorWidth
             let clampedInspectorWidth = min(
-                max(inspectorWidth, Double(CasaLayout.prepInspectorMin)),
+                max(effectiveInspectorWidth, Double(CasaLayout.prepInspectorMin)),
                 maxInspectorWidth
             )
 
@@ -53,10 +57,15 @@ struct RecordedMeetingView: View {
                     // Inspector sits to the RIGHT of the divider, so dragging
                     // left widens it: deltaSign is -1.
                     ResizableInspectorDivider(
-                        width: $inspectorWidth,
+                        width: clampedInspectorWidth,
                         minWidth: Double(CasaLayout.prepInspectorMin),
                         maxWidth: maxInspectorWidth,
-                        deltaSign: -1
+                        deltaSign: -1,
+                        onResize: { liveDragInspectorWidth = $0 },
+                        onCommit: {
+                            inspectorWidth = $0
+                            liveDragInspectorWidth = nil
+                        }
                     )
 
                     inspector
