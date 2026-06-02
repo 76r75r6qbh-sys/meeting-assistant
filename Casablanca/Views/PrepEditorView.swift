@@ -329,7 +329,7 @@ struct PrepEditorView: View {
             let draft = try await provider.generate(
                 prompt: prompt,
                 temperature: nil,
-                maxTokens: thinkingEnabled ? SummarizationService.maxThinkingTokens : SummarizationService.maxSummaryTokens,
+                maxTokens: thinkingEnabled ? nil : SummarizationService.maxSummaryTokens,
                 timeout: 120,
                 truncated: nil
             )

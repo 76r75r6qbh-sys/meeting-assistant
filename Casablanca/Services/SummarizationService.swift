@@ -56,10 +56,6 @@ final class SummarizationService {
     /// can otherwise ramble or loop for thousands of tokens on a short transcript.
     static let maxSummaryTokens = 2000
 
-    /// Larger budget when the user enables model thinking, so the reasoning has
-    /// room to finish before the actual answer (still bounded to avoid runaways).
-    static let maxThinkingTokens = 8000
-
     /// Removes chain-of-thought blocks reasoning models emit before their answer
     /// (e.g. `<think>…</think>` / `<thinking>…</thinking>`), so they don't end up
     /// in the stored summary. Handles an unclosed tag (output cut mid-thought) by
@@ -172,7 +168,8 @@ final class SummarizationService {
         if !thinkingEnabled {
             prompt += "\n\n/no_think"
         }
-        let tokenBudget = thinkingEnabled ? Self.maxThinkingTokens : Self.maxSummaryTokens
+        // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
+        let tokenBudget: Int? = thinkingEnabled ? nil : Self.maxSummaryTokens
 
         var wasTruncated = false
         let summary: String
