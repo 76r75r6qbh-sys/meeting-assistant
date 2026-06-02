@@ -40,6 +40,13 @@ struct MeetingWorkspacePresentation {
         showsRecordingChrome && !showsFocusedRecordingControls
     }
 
+    /// The calm in-content meeting header (title + meta + avatars) sits above
+    /// the notes area in the notes-taking state only — not while recording (the
+    /// recording bar serves that role) and not in focus mode (distraction-free).
+    var showsNotesHeader: Bool {
+        !showsRecordingChrome && !isFocusModeActive && !isFinalizing
+    }
+
     var showsCompactRecordingControls: Bool {
         showsFocusedRecordingControls
     }
@@ -171,6 +178,11 @@ struct NotesEditorView: View {
             VStack(spacing: 0) {
                 if presentation.showsExpandedRecordingChrome && !presentation.isFocusModeActive {
                     recordingBar
+                    Divider()
+                }
+
+                if presentation.showsNotesHeader {
+                    meetingHeader
                     Divider()
                 }
 
@@ -763,8 +775,24 @@ struct NotesEditorView: View {
 
     private var notesColumn: some View {
         VStack(spacing: 0) {
-            if prepPresentation.showsShowPrepButton {
-                notesHeader
+            // The meeting header carries Show Prep in the notes-taking state.
+            // During recording the header is hidden, so keep a minimal Show Prep
+            // row here as a fallback. Structure (optional row + editor) matches
+            // the proven layout so the editor never loses its height.
+            if prepPresentation.showsShowPrepButton && !presentation.showsNotesHeader {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        isPrepExpanded = true
+                    } label: {
+                        Label("Show Prep", systemImage: "sidebar.left")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, CasaSpace.lg)
+                .padding(.vertical, CasaSpace.md)
+
                 Divider()
             }
 
@@ -799,19 +827,52 @@ struct NotesEditorView: View {
         }
     }
 
-    private var notesHeader: some View {
-        HStack {
-            Spacer()
+    /// Calm in-content meeting header for the notes-taking state, mirroring the
+    /// prep/detail headers: title + meta line (date · time · participant count)
+    /// + participant avatars, with the "Show Prep" affordance folded in on the
+    /// trailing side. Placed as a sibling above `mainContent` so the notes
+    /// editor's container is never restructured.
+    private var meetingHeader: some View {
+        HStack(alignment: .top, spacing: CasaSpace.md) {
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(meeting.title)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(2)
 
-            Button {
-                isPrepExpanded = true
-            } label: {
-                Label("Show Prep", systemImage: "sidebar.left")
+                Text(meetingHeaderMetaLine)
+                    .font(.caption)
+                    .foregroundStyle(Color.textSecondary)
             }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: CasaSpace.md)
+
+            ParticipantAvatars(names: meeting.participants)
+
+            if prepPresentation.showsShowPrepButton {
+                Button {
+                    isPrepExpanded = true
+                } label: {
+                    Label("Show Prep", systemImage: "sidebar.left")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+            }
         }
-        .padding(.horizontal, CasaSpace.lg)
-        .padding(.vertical, CasaSpace.md)
+        .padding(.horizontal, CasaSpace.xl)
+        .padding(.vertical, CasaSpace.lg)
+    }
+
+    private var meetingHeaderMetaLine: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEE d MMM"
+        let day = dateFormatter.string(from: meeting.date)
+        let count = meeting.participants.count
+        guard count > 0 else {
+            return "\(day) · \(meeting.formattedTime)"
+        }
+        let participantLabel = count == 1 ? "1 participant" : "\(count) participants"
+        return "\(day) · \(meeting.formattedTime) · \(participantLabel)"
     }
 
     private var freeformNotesEditor: some View {
