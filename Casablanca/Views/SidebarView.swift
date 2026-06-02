@@ -59,6 +59,7 @@ struct SidebarView: View {
                         SidebarMeetingRow(
                             meeting: meeting,
                             section: .upcoming,
+                            isProcessing: isProcessing(meeting),
                             onPrepareRequest: {
                                 viewModel.beginPrepare(for: meeting)
                             },
@@ -89,6 +90,7 @@ struct SidebarView: View {
                             SidebarMeetingRow(
                                 meeting: meeting,
                                 section: .recent,
+                                isProcessing: isProcessing(meeting),
                                 onDeleteRequest: {
                                     meetingPendingDeletion = meeting
                                 }
@@ -136,6 +138,13 @@ struct SidebarView: View {
         .onChange(of: viewModel.sidebarSelection) { _, new in
             if selection != new { selection = new }
         }
+    }
+
+    /// A meeting is "processing" while transcription is running (status) or while
+    /// a background summary is in flight for it.
+    private func isProcessing(_ meeting: Meeting) -> Bool {
+        meeting.status == .processing
+            || appModel.summarizationService.summarizingMeetingID == meeting.id
     }
 
     private var recentMeetings: [Meeting] {
@@ -189,6 +198,7 @@ struct SidebarView: View {
 struct SidebarMeetingRow: View {
     let meeting: Meeting
     let section: SidebarMeetingSection
+    var isProcessing: Bool = false
     var onPrepareRequest: () -> Void = {}
     let onDeleteRequest: () -> Void
 
@@ -198,8 +208,16 @@ struct SidebarMeetingRow: View {
 
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
-            statusIcon
-                .frame(width: 14)
+            Group {
+                if isProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                } else {
+                    statusIcon
+                }
+            }
+            .frame(width: 14)
 
             VStack(alignment: .leading, spacing: CasaSpace.xxs) {
                 Text(meeting.title)
@@ -224,7 +242,7 @@ struct SidebarMeetingRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(meeting.title), \(statusAccessibilityLabel), \(formattedDate)")
+        .accessibilityLabel("\(meeting.title), \(isProcessing ? "Processing" : statusAccessibilityLabel), \(formattedDate)")
     }
 
     @ViewBuilder

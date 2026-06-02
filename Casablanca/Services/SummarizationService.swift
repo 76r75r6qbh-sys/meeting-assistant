@@ -57,6 +57,10 @@ final class SummarizationService {
     var errorMessage: String?
     var warningMessage: String?
 
+    /// The meeting currently being summarized in the background (nil when idle).
+    /// Lets list rows show a spinner on the specific meeting being processed.
+    private(set) var summarizingMeetingID: UUID?
+
     private var backgroundTask: Task<Void, Never>?
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -64,8 +68,20 @@ final class SummarizationService {
     /// stores the summary on the meeting and silently saves newly extracted
     /// action items as meeting to-dos (deduped), then persists.
     func summarizeInBackground(meeting: Meeting, modelContext: ModelContext) {
-        backgroundTask?.cancel()
+        // If a summary is already in flight, do nothing — never cancel/restart a
+        // running summary (e.g. when the view re-appears and re-triggers this).
+        guard !isSummarizing else { return }
+        // Mark busy synchronously so a near-simultaneous re-trigger can't double-start.
+        isSummarizing = true
+        summarizingMeetingID = meeting.id
+
         backgroundTask = Task { @MainActor in
+            // Guarantees the busy flag clears on every exit path, including the
+            // early "no source material" throw inside summarize().
+            defer {
+                self.isSummarizing = false
+                self.summarizingMeetingID = nil
+            }
             do {
                 let parsed = try await self.summarize(meeting: meeting)
                 meeting.summary = parsed.rawMarkdown
@@ -83,9 +99,10 @@ final class SummarizationService {
                     )
                 }
                 try? modelContext.save()
-            } catch is CancellationError {
-                // A newer summarize started, or the app is tearing down — leave as-is.
             } catch {
+                // Cancellation (Swift's CancellationError or a wrapped URLSession
+                // cancel) is not a real failure — never surface it.
+                if Task.isCancelled { return }
                 self.errorMessage = error.localizedDescription
             }
         }
