@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftData
 
 enum SummarizationError: LocalizedError {
     case invalidEndpoint(provider: String)
@@ -55,6 +56,40 @@ final class SummarizationService {
     private(set) var statusMessage = ""
     var errorMessage: String?
     var warningMessage: String?
+
+    private var backgroundTask: Task<Void, Never>?
+
+    /// Summarize in a service-owned task that is NOT tied to any view's
+    /// lifecycle, so it keeps running if the user navigates away. On success it
+    /// stores the summary on the meeting and silently saves newly extracted
+    /// action items as meeting to-dos (deduped), then persists.
+    func summarizeInBackground(meeting: Meeting, modelContext: ModelContext) {
+        backgroundTask?.cancel()
+        backgroundTask = Task { @MainActor in
+            do {
+                let parsed = try await self.summarize(meeting: meeting)
+                meeting.summary = parsed.rawMarkdown
+
+                let existing = Set(
+                    meeting.todos.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                )
+                for text in parsed.todoTexts {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty, !existing.contains(trimmed) else { continue }
+                    try? ObsidianTodoSyncService.createMeetingTodo(
+                        text: trimmed,
+                        meeting: meeting,
+                        in: modelContext
+                    )
+                }
+                try? modelContext.save()
+            } catch is CancellationError {
+                // A newer summarize started, or the app is tearing down — leave as-is.
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
+        }
+    }
 
     func summarize(meeting: Meeting) async throws -> SummaryResponseParser.ParsedResponse {
         let transcript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

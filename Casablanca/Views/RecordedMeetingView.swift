@@ -15,8 +15,6 @@ struct RecordedMeetingView: View {
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerAutomaticSummary = false
-    @State private var pendingReview: PendingTodoReview?
-    @State private var pendingTodoTexts: [String] = []
     @State private var selectedTab: DetailTab = .summary
     @State private var showInspector = true
 
@@ -68,22 +66,6 @@ struct RecordedMeetingView: View {
             }
         } message: {
             Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
-        }
-        .sheet(item: $pendingReview) { review in
-            TodoReviewSheet(
-                meetingTitle: meeting.title,
-                summary: review.summary,
-                todoTexts: $pendingTodoTexts,
-                onSave: {
-                    saveTodos(texts: pendingTodoTexts)
-                    pendingReview = nil
-                },
-                onDiscard: {
-                    pendingReview = nil
-                    save()
-                }
-            )
-            .interactiveDismissDisabled()
         }
     }
 
@@ -233,9 +215,7 @@ struct RecordedMeetingView: View {
             } actions: {
                 if canSummarize {
                     Button("Summarize") {
-                        Task {
-                            await summarizeMeeting()
-                        }
+                        summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
                     }
                     .buttonStyle(PrimaryButtonStyle())
                 }
@@ -509,9 +489,7 @@ struct RecordedMeetingView: View {
             }
         case .summarize:
             Button {
-                Task {
-                    await summarizeMeeting()
-                }
+                summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
             } label: {
                 Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
             }
@@ -609,25 +587,6 @@ struct RecordedMeetingView: View {
         )
     }
 
-    private func summarizeMeeting() async {
-        do {
-            let parsed = try await summarizationService.summarize(meeting: meeting)
-            meeting.summary = parsed.rawMarkdown
-            if !parsed.todoTexts.isEmpty {
-                pendingTodoTexts = parsed.todoTexts
-                pendingReview = PendingTodoReview(
-                    meetingID: meeting.id,
-                    summary: parsed.summary,
-                    todoTexts: parsed.todoTexts
-                )
-            } else {
-                save()
-            }
-        } catch {
-            summarizationService.errorMessage = error.localizedDescription
-        }
-    }
-
     private func reapplyTerminology() async {
         guard let raw = meeting.rawTranscript else { return }
         let entries = TerminologyService.parse(
@@ -681,16 +640,6 @@ struct RecordedMeetingView: View {
                     exportedURLs: []
                 )
             }
-        }
-    }
-
-    private func saveTodos(texts: [String]) {
-        for text in texts where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? ObsidianTodoSyncService.createMeetingTodo(
-                text: text,
-                meeting: meeting,
-                in: modelContext
-            )
         }
     }
 
@@ -912,7 +861,9 @@ struct RecordedMeetingView: View {
         }
 
         didTriggerAutomaticSummary = true
-        await summarizeMeeting()
+        // Runs in a service-owned background task — keeps going if the user
+        // leaves this screen, and silently saves extracted to-dos on completion.
+        summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
     }
 
     private func presentExportAlert(title: String, message: String, exportedURLs: [URL]) {
