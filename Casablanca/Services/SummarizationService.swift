@@ -52,6 +52,11 @@ final class SummarizationService {
     {{freeform_notes}}
     """
 
+    /// Upper bound on generated summary length. Local models can otherwise
+    /// ramble or loop for thousands of tokens on a short transcript; this caps
+    /// runaway generation (callers see the truncation flag if it's hit).
+    static let maxSummaryTokens = 2000
+
     private(set) var isSummarizing = false
     private(set) var statusMessage = ""
     var errorMessage: String?
@@ -142,6 +147,7 @@ final class SummarizationService {
             summary = try await provider.generate(
                 prompt: prompt,
                 temperature: nil,
+                maxTokens: Self.maxSummaryTokens,
                 timeout: 120,
                 truncated: { wasTruncated = $0 }
             )

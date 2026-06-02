@@ -12,7 +12,14 @@ struct OllamaProvider: LLMProvider {
         let prompt: String
         let stream: Bool
         let options: Options?
-        struct Options: Encodable { let temperature: Double }
+        struct Options: Encodable {
+            let temperature: Double?
+            let numPredict: Int?
+            enum CodingKeys: String, CodingKey {
+                case temperature
+                case numPredict = "num_predict"
+            }
+        }
     }
 
     private struct GenerateResponse: Decodable {
@@ -35,6 +42,7 @@ struct OllamaProvider: LLMProvider {
     func generate(
         prompt: String,
         temperature: Double?,
+        maxTokens: Int? = nil,
         timeout: TimeInterval,
         truncated: ((Bool) -> Void)?
     ) async throws -> String {
@@ -51,7 +59,9 @@ struct OllamaProvider: LLMProvider {
                 model: model,
                 prompt: prompt,
                 stream: false,
-                options: temperature.map { GenerateRequest.Options(temperature: $0) }
+                options: (temperature == nil && maxTokens == nil)
+                    ? nil
+                    : GenerateRequest.Options(temperature: temperature, numPredict: maxTokens)
             )
         )
 

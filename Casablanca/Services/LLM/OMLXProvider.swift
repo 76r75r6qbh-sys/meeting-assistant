@@ -22,7 +22,13 @@ struct OMLXProvider: LLMProvider {
         let messages: [Message]
         let stream: Bool
         let temperature: Double?
+        let maxTokens: Int?
         struct Message: Encodable { let role: String; let content: String }
+
+        enum CodingKeys: String, CodingKey {
+            case model, messages, stream, temperature
+            case maxTokens = "max_tokens"
+        }
     }
 
     private struct ChatResponse: Decodable {
@@ -62,6 +68,7 @@ struct OMLXProvider: LLMProvider {
     func generate(
         prompt: String,
         temperature: Double?,
+        maxTokens: Int? = nil,
         timeout: TimeInterval,
         truncated: ((Bool) -> Void)?
     ) async throws -> String {
@@ -81,7 +88,8 @@ struct OMLXProvider: LLMProvider {
                 model: model,
                 messages: [.init(role: "user", content: prompt)],
                 stream: false,
-                temperature: temperature
+                temperature: temperature,
+                maxTokens: maxTokens
             )
         )
 

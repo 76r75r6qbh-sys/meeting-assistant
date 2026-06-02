@@ -75,6 +75,7 @@ final class TerminologyService {
         return try await LLMProviderFactory.current().generate(
             prompt: prompt,
             temperature: 0,
+            maxTokens: nil,
             timeout: 60,
             truncated: nil
         )

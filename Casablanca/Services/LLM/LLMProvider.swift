@@ -39,6 +39,7 @@ protocol LLMProvider {
     func generate(
         prompt: String,
         temperature: Double?,
+        maxTokens: Int?,
         timeout: TimeInterval,
         truncated: ((Bool) -> Void)?
     ) async throws -> String
