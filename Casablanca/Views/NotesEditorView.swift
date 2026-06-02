@@ -227,6 +227,35 @@ struct NotesEditorView: View {
                 }
                 .disabled(presentation.backButtonDisabled)
             }
+
+            // Pane controls live in the toolbar (top-right), consistent across the
+            // notes and recording states — matching the approved mockup.
+            if !presentation.isFocusModeActive && !presentation.isFinalizing {
+                ToolbarItemGroup {
+                    Button {
+                        isTodosExpanded.toggle()
+                    } label: {
+                        Label("To-Dos", systemImage: "checklist")
+                    }
+                    .help(isTodosExpanded ? "Hide To-Dos" : "Show To-Dos")
+
+                    if prepPresentation.hasPrep {
+                        Button {
+                            isPrepExpanded.toggle()
+                        } label: {
+                            Label("Prep", systemImage: "sidebar.right")
+                        }
+                        .help(isPrepExpanded ? "Hide Prep" : "Show Prep")
+                    }
+
+                    Button {
+                        recordingWorkspaceFocusMode = true
+                    } label: {
+                        Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .help("Distraction-free notes (Esc to exit)")
+                }
+            }
         }
         .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
         .task(id: meeting.id) {
@@ -648,19 +677,20 @@ struct NotesEditorView: View {
                 let clampedWidth = min(max(prepInspectorWidth, Double(CasaLayout.prepInspectorMin)), maxWidth)
 
                 HStack(spacing: 0) {
-                    prepPane
-                        .frame(width: CGFloat(clampedWidth))
+                    notesColumn
 
-                    // Divider drags to its RIGHT: moving right widens the
-                    // left-side prep pane, so the delta is added directly.
+                    // Prep is a right-side inspector (matching the mockup). The
+                    // divider drags to its LEFT to widen the right-side pane, so
+                    // the delta is negated.
                     ResizableInspectorDivider(
                         width: $prepInspectorWidth,
                         minWidth: Double(CasaLayout.prepInspectorMin),
                         maxWidth: maxWidth,
-                        deltaSign: 1
+                        deltaSign: -1
                     )
 
-                    notesColumn
+                    prepPane
+                        .frame(width: CGFloat(clampedWidth))
                 }
                 .onAppear {
                     // Keep a stored width that exceeds the current cap honest.
@@ -775,30 +805,9 @@ struct NotesEditorView: View {
     }
 
     private var notesColumn: some View {
-        VStack(spacing: 0) {
-            // The meeting header carries Show Prep in the notes-taking state.
-            // During recording the header is hidden, so keep a minimal Show Prep
-            // row here as a fallback. Structure (optional row + editor) matches
-            // the proven layout so the editor never loses its height.
-            if prepPresentation.hasPrep && !presentation.showsNotesHeader {
-                HStack {
-                    Spacer()
-
-                    Button {
-                        isPrepExpanded.toggle()
-                    } label: {
-                        Label(isPrepExpanded ? "Hide Prep" : "Show Prep", systemImage: "sidebar.left")
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, CasaSpace.lg)
-                .padding(.vertical, CasaSpace.md)
-
-                Divider()
-            }
-
-            freeformNotesEditor
-        }
+        // Pane controls now live in the toolbar (consistent across states), so
+        // the notes column is just the editor — its proven layout is untouched.
+        freeformNotesEditor
     }
 
     private var prepPane: some View {
@@ -842,30 +851,6 @@ struct NotesEditorView: View {
             Spacer(minLength: CasaSpace.md)
 
             ParticipantAvatars(names: meeting.participants)
-
-            // Consistent panel toggles — they stay in the same place whether the
-            // panel is shown or hidden (no jumping). Accent-tinted when active.
-            HStack(spacing: CasaSpace.sm) {
-                Button {
-                    isTodosExpanded.toggle()
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(isTodosExpanded ? Color.accentColor : Color.textSecondary)
-                .help(isTodosExpanded ? "Hide To-Dos" : "Show To-Dos")
-
-                if prepPresentation.hasPrep {
-                    Button {
-                        isPrepExpanded.toggle()
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(isPrepExpanded ? Color.accentColor : Color.textSecondary)
-                    .help(isPrepExpanded ? "Hide Prep" : "Show Prep")
-                }
-            }
         }
         .padding(.horizontal, CasaSpace.xl)
         .padding(.vertical, CasaSpace.lg)
