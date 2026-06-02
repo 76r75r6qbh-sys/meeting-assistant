@@ -168,6 +168,7 @@ struct NotesEditorView: View {
     @AppStorage(AppPreferenceKey.prepInspectorWidth) private var prepInspectorWidth = Double(CasaLayout.prepInspectorDefault)
     @State private var prepMarkdown: String?
     @State private var isPrepExpanded = false
+    @AppStorage(AppPreferenceKey.notesTodosExpanded) private var isTodosExpanded = false
     @State private var showingQuickControl = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
@@ -624,7 +625,7 @@ struct NotesEditorView: View {
     private var freeformWorkspace: some View {
         if presentation.isFocusModeActive {
             focusNotesCanvas
-        } else if freeformPresentation.showsTodosArea {
+        } else if isTodosExpanded {
             HStack(spacing: 0) {
                 prepAwareNotesWorkspace
                 Divider()
@@ -779,14 +780,14 @@ struct NotesEditorView: View {
             // During recording the header is hidden, so keep a minimal Show Prep
             // row here as a fallback. Structure (optional row + editor) matches
             // the proven layout so the editor never loses its height.
-            if prepPresentation.showsShowPrepButton && !presentation.showsNotesHeader {
+            if prepPresentation.hasPrep && !presentation.showsNotesHeader {
                 HStack {
                     Spacer()
 
                     Button {
-                        isPrepExpanded = true
+                        isPrepExpanded.toggle()
                     } label: {
-                        Label("Show Prep", systemImage: "sidebar.left")
+                        Label(isPrepExpanded ? "Hide Prep" : "Show Prep", systemImage: "sidebar.left")
                     }
                     .buttonStyle(.plain)
                 }
@@ -808,13 +809,6 @@ struct NotesEditorView: View {
                     .foregroundStyle(Color.textPrimary)
 
                 Spacer()
-
-                Button {
-                    isPrepExpanded = false
-                } label: {
-                    Label("Hide Prep", systemImage: "sidebar.left")
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, CasaSpace.lg)
             .padding(.vertical, CasaSpace.md)
@@ -849,14 +843,28 @@ struct NotesEditorView: View {
 
             ParticipantAvatars(names: meeting.participants)
 
-            if prepPresentation.showsShowPrepButton {
+            // Consistent panel toggles — they stay in the same place whether the
+            // panel is shown or hidden (no jumping). Accent-tinted when active.
+            HStack(spacing: CasaSpace.sm) {
                 Button {
-                    isPrepExpanded = true
+                    isTodosExpanded.toggle()
                 } label: {
-                    Label("Show Prep", systemImage: "sidebar.left")
+                    Image(systemName: "checklist")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(isTodosExpanded ? Color.accentColor : Color.textSecondary)
+                .help(isTodosExpanded ? "Hide To-Dos" : "Show To-Dos")
+
+                if prepPresentation.hasPrep {
+                    Button {
+                        isPrepExpanded.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isPrepExpanded ? Color.accentColor : Color.textSecondary)
+                    .help(isPrepExpanded ? "Hide Prep" : "Show Prep")
+                }
             }
         }
         .padding(.horizontal, CasaSpace.xl)
