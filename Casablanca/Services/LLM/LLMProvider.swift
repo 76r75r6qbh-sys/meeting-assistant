@@ -56,19 +56,24 @@ enum LLMProviderFactory {
         defaults: UserDefaults = .standard,
         urlSession: URLSession = .shared
     ) -> LLMProvider {
+        // Reasoning models think out loud before answering, which derails the
+        // summary. Off (default) → tell the provider to disable thinking.
+        let enableThinking = defaults.bool(forKey: AppPreferenceKey.summaryThinkingEnabled)
         switch AppPreferences.llmProvider(in: defaults) {
         case .ollama:
             return OllamaProvider(
                 endpoint: defaults.string(forKey: AppPreferenceKey.ollamaEndpoint) ?? "http://localhost:11434",
                 model: defaults.string(forKey: AppPreferenceKey.ollamaModel) ?? "llama3.2",
-                urlSession: urlSession
+                urlSession: urlSession,
+                enableThinking: enableThinking
             )
         case .omlx:
             return OMLXProvider(
                 endpoint: defaults.string(forKey: AppPreferenceKey.omlxEndpoint) ?? "http://localhost:8000/v1",
                 model: defaults.string(forKey: AppPreferenceKey.omlxModel) ?? "",
                 urlSession: urlSession,
-                apiKey: defaults.string(forKey: AppPreferenceKey.omlxAPIKey) ?? ""
+                apiKey: defaults.string(forKey: AppPreferenceKey.omlxAPIKey) ?? "",
+                enableThinking: enableThinking
             )
         }
     }

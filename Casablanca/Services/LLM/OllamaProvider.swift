@@ -4,6 +4,14 @@ struct OllamaProvider: LLMProvider {
     let endpoint: String
     let model: String
     let urlSession: URLSession
+    let enableThinking: Bool
+
+    init(endpoint: String, model: String, urlSession: URLSession, enableThinking: Bool = true) {
+        self.endpoint = endpoint
+        self.model = model
+        self.urlSession = urlSession
+        self.enableThinking = enableThinking
+    }
 
     var displayName: String { "Ollama" }
 
@@ -11,6 +19,8 @@ struct OllamaProvider: LLMProvider {
         let model: String
         let prompt: String
         let stream: Bool
+        /// Ollama's native thinking switch (ignored by non-reasoning models).
+        let think: Bool?
         let options: Options?
         struct Options: Encodable {
             let temperature: Double?
@@ -59,6 +69,7 @@ struct OllamaProvider: LLMProvider {
                 model: model,
                 prompt: prompt,
                 stream: false,
+                think: enableThinking ? nil : false,
                 options: (temperature == nil && maxTokens == nil)
                     ? nil
                     : GenerateRequest.Options(temperature: temperature, numPredict: maxTokens)

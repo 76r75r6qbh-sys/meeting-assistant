@@ -5,12 +5,14 @@ struct OMLXProvider: LLMProvider {
     let model: String
     let urlSession: URLSession
     let apiKey: String
+    let enableThinking: Bool
 
-    init(endpoint: String, model: String, urlSession: URLSession, apiKey: String = "") {
+    init(endpoint: String, model: String, urlSession: URLSession, apiKey: String = "", enableThinking: Bool = true) {
         self.endpoint = endpoint
         self.model = model
         self.urlSession = urlSession
         self.apiKey = apiKey
+        self.enableThinking = enableThinking
     }
 
     var displayName: String { "oMLX" }
@@ -23,11 +25,15 @@ struct OMLXProvider: LLMProvider {
         let stream: Bool
         let temperature: Double?
         let maxTokens: Int?
+        /// Passed through to the server's chat-template renderer. Used to set
+        /// `enable_thinking: false` for reasoning models (Qwen3.x etc.).
+        let chatTemplateKwargs: [String: Bool]?
         struct Message: Encodable { let role: String; let content: String }
 
         enum CodingKeys: String, CodingKey {
             case model, messages, stream, temperature
             case maxTokens = "max_tokens"
+            case chatTemplateKwargs = "chat_template_kwargs"
         }
     }
 
@@ -89,7 +95,8 @@ struct OMLXProvider: LLMProvider {
                 messages: [.init(role: "user", content: prompt)],
                 stream: false,
                 temperature: temperature,
-                maxTokens: maxTokens
+                maxTokens: maxTokens,
+                chatTemplateKwargs: enableThinking ? nil : ["enable_thinking": false]
             )
         )
 

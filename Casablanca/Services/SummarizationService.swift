@@ -72,7 +72,16 @@ final class SummarizationService {
                 s = String(s[..<open.lowerBound])
             }
         }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Fallback for models that emit UNTAGGED chain-of-thought before the
+        // answer: the structured summary begins at a top-level "# " heading, so
+        // if a real heading exists, drop any reasoning preamble before it.
+        if let h1 = s.range(of: "(?m)^#[ \\t]+\\S", options: .regularExpression),
+           h1.lowerBound != s.startIndex {
+            s = String(s[h1.lowerBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return s
     }
 
     private(set) var isSummarizing = false
