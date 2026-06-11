@@ -30,9 +30,11 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 This script:
 
 - builds the app in `Release`
-- re-signs the `.app` bundle so resources are sealed correctly
+- re-signs the `.app` bundle with hardened runtime, the app entitlements, and a pinned, team-based designated requirement so resources are sealed correctly **and** macOS treats it as the same app as the Xcode build
 - verifies the signature with `codesign --verify`
 - produces a zip asset in `.build/release-assets/`
+
+By default the script auto-selects a signing identity: a **Developer ID Application** cert if you have one, otherwise an **Apple Development** cert, otherwise ad-hoc. The pinned designated requirement (`scripts/casablanca.req`) is keyed on the team ID (`OU`), not a specific certificate, so macOS keeps microphone / screen-recording / calendar permissions across rebuilds, version updates, and certificate renewals. The same requirement is pinned on the Xcode build via `OTHER_CODE_SIGN_FLAGS`, so switching between the Xcode build and the distributed `.app` no longer wipes permissions. Ad-hoc signing (no identity available) breaks this — each build looks like a different app to TCC.
 
 The built app bundle is produced at a path like:
 
@@ -46,7 +48,18 @@ Optional environment variables:
 SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' ./scripts/build-release.sh
 DERIVED_DATA_PATH=.build/custom-release ./scripts/build-release.sh
 ZIP_OUTPUT_PATH=.build/release-assets/Casablanca-custom.zip ./scripts/build-release.sh
+
+# Notarize for frictionless public download (requires a paid Developer ID + a
+# stored notarytool credential profile: xcrun notarytool store-credentials):
+NOTARIZE=1 NOTARY_PROFILE='casablanca-notary' \
+  SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+  ./scripts/build-release.sh
 ```
+
+> If the pinned requirement's team ID ever changes (e.g. enrolling the same
+> Apple ID in the paid Developer Program issues a new Team ID), update the `OU`
+> value in `scripts/casablanca.req` to match. Confirm the team with
+> `codesign -dvv <app>` (`TeamIdentifier=…`).
 
 ## Test
 
@@ -64,7 +77,8 @@ xcodebuild test -project Casablanca.xcodeproj \
 
 - Each GitHub release ships a zipped `.app` bundle.
 - A raw `xcodebuild` output with signing disabled is not suitable for distribution by itself; re-sign the bundle before sharing it.
-- Ad-hoc signing avoids the broken “app is damaged” bundle state, but macOS still requires Developer ID signing and notarization for a frictionless public download experience.
+- Signing every release with the same team identity is what keeps users' TCC permissions intact across in-app updates — the bundle's designated requirement must stay stable, or macOS revokes the grants on each update.
+- For a frictionless **first** download from GitHub on someone else's Mac, macOS still requires Developer ID signing **and** notarization (a paid Apple Developer account). Without it, Gatekeeper blocks the initial download (the in-app updater strips quarantine, so subsequent updates are unaffected).
 
 ## Auto-update
 
