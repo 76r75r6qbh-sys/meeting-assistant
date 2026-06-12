@@ -25,6 +25,6 @@ func bestEffort(_ label: StaticString, _ log: Logger, _ body: () throws -> Void)
     do {
         try body()
     } catch {
-        log.warning("\(String(describing: label), privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        log.warning("\(String(describing: label), privacy: .public) failed: \(error.localizedDescription)")
     }
 }

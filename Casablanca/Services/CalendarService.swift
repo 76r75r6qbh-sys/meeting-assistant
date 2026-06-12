@@ -28,7 +28,7 @@ final class CalendarService {
             }
             return granted
         } catch {
-            Log.calendar.error("Calendar access request failed: \(error.localizedDescription, privacy: .public)")
+            Log.calendar.error("Calendar access request failed: \(error.localizedDescription)")
             return false
         }
     }

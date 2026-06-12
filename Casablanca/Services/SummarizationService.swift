@@ -133,14 +133,15 @@ final class SummarizationService {
                         )
                     } catch {
                         // The summary itself succeeded; a failed to-do is a warning, not a failure.
-                        Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription, privacy: .public)")
-                        self.warningMessage = "Summary saved, but creating its to-dos failed: \(error.localizedDescription)"
+                        Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription)")
+                        // TODO(phase5): surface warningMessage in pipeline status UI
+                        self.warningMessage = "Summary generated, but creating its to-dos failed: \(error.localizedDescription)"
                     }
                 }
                 do {
                     try modelContext.save()
                 } catch {
-                    Log.summarization.error("Saving summary failed: \(error.localizedDescription, privacy: .public)")
+                    Log.summarization.error("Saving summary failed: \(error.localizedDescription)")
                 }
             } catch {
                 // Cancellation (Swift's CancellationError or a wrapped URLSession

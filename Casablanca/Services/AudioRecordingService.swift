@@ -1250,7 +1250,7 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
 
     private static func mapSystemAudioError(_ error: Error) -> RecordingError {
         let nsError = error as NSError
-        Log.recording.error("System audio capture error: \(nsError.domain, privacy: .public) \(nsError.code) \(nsError.localizedDescription, privacy: .public)")
+        Log.recording.error("System audio capture error: \(nsError.domain, privacy: .public) \(nsError.code) \(nsError.localizedDescription)")
 
         if nsError.domain == SCStreamErrorDomain, nsError.code == -3801 {
             return .systemAudioPermissionDenied

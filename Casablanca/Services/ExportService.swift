@@ -80,7 +80,7 @@ enum ExportService {
         do {
             _ = try await exportCompletedMeeting(meeting, defaults: defaults, appleNotesScripting: appleNotesScripting)
         } catch {
-            Log.export.error("Automatic export skipped: \(error.localizedDescription, privacy: .public)")
+            Log.export.error("Automatic export skipped: \(error.localizedDescription)")
         }
     }
 

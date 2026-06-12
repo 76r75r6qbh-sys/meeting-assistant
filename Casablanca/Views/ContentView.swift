@@ -65,7 +65,7 @@ struct ContentView: View {
                 onDismiss: { viewModel.prepMeeting = nil }
             )
         }
-        .alert("Unable to Save Changes", isPresented: persistenceErrorBinding) {
+        .alert("Data Error", isPresented: persistenceErrorBinding) {
             Button("OK", role: .cancel) {
                 viewModel.persistenceErrorMessage = nil
             }

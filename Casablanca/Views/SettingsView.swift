@@ -218,7 +218,7 @@ struct SettingsView: View {
                         try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
                     } catch {
                         // Best-effort refresh — surface non-blocking error in the log only.
-                        Log.persistence.error("Storage transition refresh failed: \(error.localizedDescription, privacy: .public)")
+                        Log.persistence.error("Storage transition refresh failed: \(error.localizedDescription)")
                     }
                 }
             }

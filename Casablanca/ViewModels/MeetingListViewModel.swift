@@ -68,8 +68,8 @@ final class MeetingListViewModel {
     }
 
     private func reportPersistenceFailure(_ operation: String, _ error: Error) {
-        Log.persistence.error("\(operation, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        persistenceErrorMessage = error.localizedDescription
+        Log.persistence.error("\(operation, privacy: .public): \(error.localizedDescription)")
+        persistenceErrorMessage = "\(operation): \(error.localizedDescription)"
     }
 
     var groupedEvents: [(date: Date, events: [EKEvent])] {
@@ -140,7 +140,7 @@ final class MeetingListViewModel {
         } catch {
             // Called from view bodies (e.g. `selectedMeeting`), so only log —
             // mutating observable state here would happen during a view update.
-            Log.persistence.error("Fetching meeting by id failed: \(error.localizedDescription, privacy: .public)")
+            Log.persistence.error("Fetching meeting by id failed: \(error.localizedDescription)")
             return nil
         }
     }
