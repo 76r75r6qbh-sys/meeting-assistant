@@ -45,7 +45,11 @@
 		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
 		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
-		A10015 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* AudioRecordingService.swift */; };
+		A10610 /* RecordingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10610 /* RecordingTypes.swift */; };
+		A10611 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10611 /* AudioRecordingService.swift */; };
+		A10612 /* AudioInputDeviceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10612 /* AudioInputDeviceProvider.swift */; };
+		A10613 /* RecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10613 /* RecordingSession.swift */; };
+		A10614 /* RecordingSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10614 /* RecordingSegmentMerger.swift */; };
 		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
 		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
 		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
@@ -177,7 +181,11 @@
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
-		B10016 /* AudioRecordingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingService.swift; sourceTree = "<group>"; };
+		B10610 /* RecordingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTypes.swift; sourceTree = "<group>"; };
+		B10611 /* AudioRecordingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingService.swift; sourceTree = "<group>"; };
+		B10612 /* AudioInputDeviceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProvider.swift; sourceTree = "<group>"; };
+		B10613 /* RecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSession.swift; sourceTree = "<group>"; };
+		B10614 /* RecordingSegmentMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMerger.swift; sourceTree = "<group>"; };
 		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
 		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
 		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
@@ -316,6 +324,19 @@
 			path = LLM;
 			sourceTree = "<group>";
 		};
+		E10610 /* Recording */ = {
+			isa = PBXGroup;
+			children = (
+				B10610 /* RecordingTypes.swift */,
+				B10611 /* AudioRecordingService.swift */,
+				B10612 /* AudioInputDeviceProvider.swift */,
+				B10613 /* RecordingSession.swift */,
+				B10614 /* RecordingSegmentMerger.swift */,
+			);
+			name = Recording;
+			path = Recording;
+			sourceTree = "<group>";
+		};
 		C16AE52BC6C407C652EB053F /* Updates */ = {
 			isa = PBXGroup;
 			children = (
@@ -379,7 +400,7 @@
 			isa = PBXGroup;
 			children = (
 				B10004 /* CalendarService.swift */,
-				B10016 /* AudioRecordingService.swift */,
+				E10610 /* Recording */,
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				B10024 /* ExportService.swift */,
@@ -657,7 +678,11 @@
 				A10500 /* GlobalSearchView.swift in Sources */,
 				A10013 /* NotesEditorView.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
-				A10015 /* AudioRecordingService.swift in Sources */,
+				A10610 /* RecordingTypes.swift in Sources */,
+				A10611 /* AudioRecordingService.swift in Sources */,
+				A10612 /* AudioInputDeviceProvider.swift in Sources */,
+				A10613 /* RecordingSession.swift in Sources */,
+				A10614 /* RecordingSegmentMerger.swift in Sources */,
 				A10016 /* RecordingView.swift in Sources */,
 				A10017 /* AudioLevelMeterView.swift in Sources */,
 				A10018 /* RecordedMeetingView.swift in Sources */,
