@@ -1,4 +1,5 @@
 import EventKit
+import OSLog
 import SwiftData
 import SwiftUI
 
@@ -10,6 +11,9 @@ final class MeetingListViewModel {
     private let removeResumableRecordingSession: (UUID) throws -> Void
     private var modelContext: ModelContext?
     var meetingSearchText = ""
+
+    /// Set when a SwiftData save/fetch fails, so the UI can surface it.
+    var persistenceErrorMessage: String?
 
     var sidebarSelection: SidebarDestination? = .dashboard
 
@@ -55,7 +59,17 @@ final class MeetingListViewModel {
     }
 
     func save() {
-        try? modelContext?.save()
+        guard let modelContext else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            reportPersistenceFailure("Saving changes failed", error)
+        }
+    }
+
+    private func reportPersistenceFailure(_ operation: String, _ error: Error) {
+        Log.persistence.error("\(operation, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        persistenceErrorMessage = error.localizedDescription
     }
 
     var groupedEvents: [(date: Date, events: [EKEvent])] {
@@ -121,7 +135,14 @@ final class MeetingListViewModel {
                 meeting.id == id
             }
         )
-        return try? modelContext.fetch(descriptor).first
+        do {
+            return try modelContext.fetch(descriptor).first
+        } catch {
+            // Called from view bodies (e.g. `selectedMeeting`), so only log —
+            // mutating observable state here would happen during a view update.
+            Log.persistence.error("Fetching meeting by id failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     func findOrCreateMeeting(for event: EKEvent) -> Meeting? {
@@ -135,8 +156,13 @@ final class MeetingListViewModel {
             }
         )
 
-        if let existing = try? modelContext.fetch(descriptor).first {
-            return existing
+        do {
+            if let existing = try modelContext.fetch(descriptor).first {
+                return existing
+            }
+        } catch {
+            reportPersistenceFailure("Fetching meeting for calendar event failed", error)
+            return nil
         }
 
         // Create new meeting from calendar event
@@ -149,7 +175,11 @@ final class MeetingListViewModel {
         )
 
         modelContext.insert(meeting)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            reportPersistenceFailure("Saving meeting for calendar event failed", error)
+        }
         return meeting
     }
 
@@ -162,7 +192,11 @@ final class MeetingListViewModel {
         )
 
         modelContext.insert(meeting)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            reportPersistenceFailure("Saving manual meeting failed", error)
+        }
         return meeting
     }
 
@@ -220,7 +254,9 @@ final class MeetingListViewModel {
         }
 
         let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
-        try? removeResumableRecordingSession(meeting.id)
+        bestEffort("remove resumable recording session", Log.recording) {
+            try removeResumableRecordingSession(meeting.id)
+        }
         modelContext.delete(meeting)
 
         if isSelectedMeeting {

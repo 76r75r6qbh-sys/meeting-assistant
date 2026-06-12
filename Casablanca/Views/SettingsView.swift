@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import SwiftData
 
@@ -216,8 +217,8 @@ struct SettingsView: View {
                     do {
                         try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
                     } catch {
-                        // Best-effort refresh — surface non-blocking error in console only.
-                        print("Storage transition refresh failed:", error.localizedDescription)
+                        // Best-effort refresh — surface non-blocking error in the log only.
+                        Log.persistence.error("Storage transition refresh failed: \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }

@@ -67,6 +67,7 @@
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
 		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
 		A10032 /* MarkdownConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* MarkdownConverter.swift */; };
+		A10600 /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10600 /* Logging.swift */; };
 		A10033 /* MarkdownEditorBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MarkdownEditorBundleTests.swift */; };
 		A10034 /* MarkdownEditor in Resources */ = {isa = PBXBuildFile; fileRef = B10034 /* MarkdownEditor */; };
 		A10035 /* MeetingStartFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* MeetingStartFlowTests.swift */; };
@@ -197,6 +198,7 @@
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
 		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
 		B10032 /* MarkdownConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownConverter.swift; sourceTree = "<group>"; };
+		B10600 /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
 		B10033 /* MarkdownEditorBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorBundleTests.swift; sourceTree = "<group>"; };
 		B10034 /* MarkdownEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MarkdownEditor; sourceTree = "<group>"; };
 		B10035 /* MeetingStartFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartFlowTests.swift; sourceTree = "<group>"; };
@@ -455,6 +457,7 @@
 			children = (
 				B10010 /* Permissions.swift */,
 				B10032 /* MarkdownConverter.swift */,
+				B10600 /* Logging.swift */,
 				6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */,
 			);
 			path = Utilities;
@@ -673,6 +676,7 @@
 				A10030 /* TodoReviewSheet.swift in Sources */,
 				A10031 /* TodosView.swift in Sources */,
 				A10032 /* MarkdownConverter.swift in Sources */,
+				A10600 /* Logging.swift in Sources */,
 				A10036 /* MeetingPrepService.swift in Sources */,
 				A10039 /* ObsidianMeetingFiles.swift in Sources */,
 				A10040 /* ObsidianTodoMarkdown.swift in Sources */,

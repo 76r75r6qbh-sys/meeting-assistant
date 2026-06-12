@@ -2,6 +2,7 @@
 import AudioToolbox
 import CoreAudio
 import CoreGraphics
+import OSLog
 import Observation
 @preconcurrency import ScreenCaptureKit
 
@@ -299,7 +300,9 @@ final class AudioRecordingService {
 
         let segmentURLs = persisted.segments.map { URL(fileURLWithPath: $0.filePath) }
         guard !segmentURLs.isEmpty else {
-            try? sessionStore.deleteSession(for: meeting.id)
+            bestEffort("delete recording session", Log.recording) {
+                try sessionStore.deleteSession(for: meeting.id)
+            }
             throw RecordingError.noCapturedAudio
         }
 
@@ -461,7 +464,9 @@ final class AudioRecordingService {
         let result = try await session.stop()
 
         if dropIfEmpty && !session.hasCapturedFrames {
-            try? FileManager.default.removeItem(at: result.outputURL)
+            bestEffort("remove empty segment file", Log.recording) {
+                try FileManager.default.removeItem(at: result.outputURL)
+            }
             return RecordingResult(outputURL: result.outputURL, duration: 0)
         }
 
@@ -739,15 +744,15 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
         }
         engine.stop()
         didStartEngine = false
-        try? microphoneFileHandle?.close()
-        try? systemAudioFileHandle?.close()
+        bestEffort("close microphone temp file", Log.recording) { try microphoneFileHandle?.close() }
+        bestEffort("close system audio temp file", Log.recording) { try systemAudioFileHandle?.close() }
         microphoneFileHandle = nil
         systemAudioFileHandle = nil
 
         guard capturedMicrophoneFrames > 0 || capturedSystemAudioFrames > 0 else {
-            try? FileManager.default.removeItem(at: microphoneTempURL)
-            try? FileManager.default.removeItem(at: systemAudioTempURL)
-            try? FileManager.default.removeItem(at: outputURL)
+            bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneTempURL) }
+            bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioTempURL) }
+            bestEffort("remove output file", Log.recording) { try FileManager.default.removeItem(at: outputURL) }
             throw RecordingError.noCapturedAudio
         }
 
@@ -1079,12 +1084,8 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
         let microphoneBytes = Self.fileSize(at: microphoneTempURL)
         let systemAudioBytes = Self.fileSize(at: systemAudioTempURL)
 
-        print(
-            "Finalizing recording:",
-            "micFrames=\(capturedMicrophoneFrames)",
-            "micBytes=\(microphoneBytes)",
-            "systemFrames=\(capturedSystemAudioFrames)",
-            "systemBytes=\(systemAudioBytes)"
+        Log.recording.debug(
+            "Finalizing recording: micFrames=\(self.capturedMicrophoneFrames) micBytes=\(microphoneBytes) systemFrames=\(self.capturedSystemAudioFrames) systemBytes=\(systemAudioBytes)"
         )
 
         let microphoneHandle = capturedMicrophoneFrames > 0
@@ -1101,7 +1102,9 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
         }
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
-            try? FileManager.default.removeItem(at: outputURL)
+            bestEffort("remove existing output file", Log.recording) {
+                try FileManager.default.removeItem(at: outputURL)
+            }
         }
         guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
               let outputHandle = try? FileHandle(forWritingTo: outputURL)
@@ -1121,7 +1124,7 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
         do {
             try outputHandle.write(contentsOf: Data(repeating: 0, count: 44))
         } catch {
-            try? outputHandle.close()
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
             throw RecordingError.failedToFinalizeRecording(
                 "Casablanca could not initialize the final WAV file: \(Self.describeFinalizationError(error))."
             )
@@ -1161,9 +1164,9 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
                 mixedAudioByteCount += mixedData.count
             }
         } catch {
-            try? outputHandle.close()
-            try? microphoneHandle?.close()
-            try? systemAudioHandle?.close()
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
             throw RecordingError.failedToFinalizeRecording(
                 "Casablanca could not read one of the temporary recordings: \(Self.describeFinalizationError(error))."
             )
@@ -1173,12 +1176,12 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
             try outputHandle.seek(toOffset: 0)
             try outputHandle.write(contentsOf: Self.wavHeader(dataByteCount: mixedAudioByteCount))
             try outputHandle.close()
-            try? microphoneHandle?.close()
-            try? systemAudioHandle?.close()
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
         } catch {
-            try? outputHandle.close()
-            try? microphoneHandle?.close()
-            try? systemAudioHandle?.close()
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
             throw RecordingError.failedToFinalizeRecording(
                 "Casablanca could not finalize the final WAV file: \(Self.describeFinalizationError(error))."
             )
@@ -1191,8 +1194,8 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
             )
         }
 
-        try? FileManager.default.removeItem(at: microphoneTempURL)
-        try? FileManager.default.removeItem(at: systemAudioTempURL)
+        bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneTempURL) }
+        bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioTempURL) }
     }
 
     private static func ensureMicrophonePermission() async throws {
@@ -1247,7 +1250,7 @@ private final class RecordingSession: NSObject, RecordingSessionControlling, @un
 
     private static func mapSystemAudioError(_ error: Error) -> RecordingError {
         let nsError = error as NSError
-        print("System audio capture error:", nsError.domain, nsError.code, nsError.localizedDescription)
+        Log.recording.error("System audio capture error: \(nsError.domain, privacy: .public) \(nsError.code) \(nsError.localizedDescription, privacy: .public)")
 
         if nsError.domain == SCStreamErrorDomain, nsError.code == -3801 {
             return .systemAudioPermissionDenied

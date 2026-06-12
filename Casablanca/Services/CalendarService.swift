@@ -1,4 +1,5 @@
 import EventKit
+import OSLog
 import SwiftUI
 
 @Observable
@@ -27,7 +28,7 @@ final class CalendarService {
             }
             return granted
         } catch {
-            print("Calendar access error: \(error)")
+            Log.calendar.error("Calendar access request failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

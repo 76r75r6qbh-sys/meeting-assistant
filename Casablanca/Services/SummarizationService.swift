@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import SwiftData
 
@@ -124,13 +125,23 @@ final class SummarizationService {
                 for text in parsed.todoTexts {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty, !existing.contains(trimmed) else { continue }
-                    try? ObsidianTodoSyncService.createMeetingTodo(
-                        text: trimmed,
-                        meeting: meeting,
-                        in: modelContext
-                    )
+                    do {
+                        try ObsidianTodoSyncService.createMeetingTodo(
+                            text: trimmed,
+                            meeting: meeting,
+                            in: modelContext
+                        )
+                    } catch {
+                        // The summary itself succeeded; a failed to-do is a warning, not a failure.
+                        Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription, privacy: .public)")
+                        self.warningMessage = "Summary saved, but creating its to-dos failed: \(error.localizedDescription)"
+                    }
                 }
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    Log.summarization.error("Saving summary failed: \(error.localizedDescription, privacy: .public)")
+                }
             } catch {
                 // Cancellation (Swift's CancellationError or a wrapped URLSession
                 // cancel) is not a real failure — never surface it.

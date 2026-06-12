@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 enum ExportError: LocalizedError {
     case missingVaultPath
@@ -79,7 +80,7 @@ enum ExportService {
         do {
             _ = try await exportCompletedMeeting(meeting, defaults: defaults, appleNotesScripting: appleNotesScripting)
         } catch {
-            print("Automatic export skipped:", error.localizedDescription)
+            Log.export.error("Automatic export skipped: \(error.localizedDescription, privacy: .public)")
         }
     }
 

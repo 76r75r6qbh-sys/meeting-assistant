@@ -65,6 +65,13 @@ struct ContentView: View {
                 onDismiss: { viewModel.prepMeeting = nil }
             )
         }
+        .alert("Unable to Save Changes", isPresented: persistenceErrorBinding) {
+            Button("OK", role: .cancel) {
+                viewModel.persistenceErrorMessage = nil
+            }
+        } message: {
+            Text(viewModel.persistenceErrorMessage ?? "Unknown error")
+        }
         .task {
             viewModel.setModelContext(modelContext)
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
@@ -92,6 +99,17 @@ struct ContentView: View {
                 columnVisibility = focused ? .detailOnly : .automatic
             }
         }
+    }
+
+    private var persistenceErrorBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.persistenceErrorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    viewModel.persistenceErrorMessage = nil
+                }
+            }
+        )
     }
 
     private var prepMeetingBinding: Binding<Meeting?> {
