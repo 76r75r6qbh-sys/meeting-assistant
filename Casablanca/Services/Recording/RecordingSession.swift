@@ -494,21 +494,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
                 guard frameCount > 0 else { break }
 
-                var mixedSamples = [Int16](repeating: 0, count: frameCount)
-                for index in 0..<frameCount {
-                    var sample: Float = 0
-
-                    if index < microphoneSamples.count {
-                        sample += microphoneSamples[index] * 1.35
-                    }
-
-                    if index < systemAudioSamples.count {
-                        sample += systemAudioSamples[index] * 0.8
-                    }
-
-                    let clamped = min(max(sample, -1), 1)
-                    mixedSamples[index] = Int16((clamped * Float(Int16.max)).rounded())
-                }
+                let mixedSamples = Self.mixFrames(
+                    microphoneSamples: microphoneSamples,
+                    systemAudioSamples: systemAudioSamples
+                )
 
                 let mixedData = mixedSamples.withUnsafeBufferPointer { buffer in
                     Data(buffer: buffer)
@@ -676,6 +665,31 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         @unknown default:
             return nil
         }
+    }
+
+    // Test seam (Phase 1b golden-fixture pinning): the per-frame mixing
+    // arithmetic was lifted verbatim out of `mixTemporaryRecordings()`'s chunk
+    // loop so it can be exercised headlessly. The formula is unchanged:
+    // clamp(mic*1.35 + system*0.8, -1, 1) scaled to Int16. `internal` so tests
+    // can pin it; the production call site is byte-identical.
+    static func mixFrames(microphoneSamples: [Float], systemAudioSamples: [Float]) -> [Int16] {
+        let frameCount = max(microphoneSamples.count, systemAudioSamples.count)
+        var mixedSamples = [Int16](repeating: 0, count: frameCount)
+        for index in 0..<frameCount {
+            var sample: Float = 0
+
+            if index < microphoneSamples.count {
+                sample += microphoneSamples[index] * 1.35
+            }
+
+            if index < systemAudioSamples.count {
+                sample += systemAudioSamples[index] * 0.8
+            }
+
+            let clamped = min(max(sample, -1), 1)
+            mixedSamples[index] = Int16((clamped * Float(Int16.max)).rounded())
+        }
+        return mixedSamples
     }
 
     private static func wavHeader(dataByteCount: Int) -> Data {

@@ -3,11 +3,25 @@ import Foundation
 
 extension AudioRecordingService {
     static func preferredInputDeviceID(in devices: [AudioInputDevice]) -> String? {
-        let storedPreference = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultRecordingInputDeviceID)
-            ?? AppPreferenceValue.systemDefaultRecordingInputDevice
+        // Test seam (Phase 1b): default parameters keep every existing call site
+        // compiling identically while allowing tests to inject the stored
+        // preference and the system default without touching UserDefaults or
+        // Core Audio hardware. The selection logic below is unchanged.
+        preferredInputDeviceID(
+            in: devices,
+            storedPreference: UserDefaults.standard.string(forKey: AppPreferenceKey.defaultRecordingInputDeviceID)
+                ?? AppPreferenceValue.systemDefaultRecordingInputDevice,
+            defaultDeviceIDProvider: { defaultInputDeviceID() }
+        )
+    }
 
+    static func preferredInputDeviceID(
+        in devices: [AudioInputDevice],
+        storedPreference: String,
+        defaultDeviceIDProvider: () -> AudioDeviceID?
+    ) -> String? {
         if storedPreference == AppPreferenceValue.systemDefaultRecordingInputDevice {
-            guard let defaultDeviceID = defaultInputDeviceID() else {
+            guard let defaultDeviceID = defaultDeviceIDProvider() else {
                 return nil
             }
 

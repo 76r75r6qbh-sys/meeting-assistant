@@ -50,6 +50,9 @@
 		A10612 /* AudioInputDeviceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10612 /* AudioInputDeviceProvider.swift */; };
 		A10613 /* RecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10613 /* RecordingSession.swift */; };
 		A10614 /* RecordingSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10614 /* RecordingSegmentMerger.swift */; };
+		A10700 /* RecordingSegmentMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10700 /* RecordingSegmentMergerTests.swift */; };
+		A10701 /* RecordingMixdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* RecordingMixdownTests.swift */; };
+		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
 		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
 		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
@@ -186,6 +189,9 @@
 		B10612 /* AudioInputDeviceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProvider.swift; sourceTree = "<group>"; };
 		B10613 /* RecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSession.swift; sourceTree = "<group>"; };
 		B10614 /* RecordingSegmentMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMerger.swift; sourceTree = "<group>"; };
+		B10700 /* RecordingSegmentMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMergerTests.swift; sourceTree = "<group>"; };
+		B10701 /* RecordingMixdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownTests.swift; sourceTree = "<group>"; };
+		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
 		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
 		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
@@ -528,6 +534,9 @@
 				B10044 /* ExportServiceTests.swift */,
 				B10045 /* SummarizationServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
+				B10700 /* RecordingSegmentMergerTests.swift */,
+				B10701 /* RecordingMixdownTests.swift */,
+				B10702 /* AudioInputDeviceProviderTests.swift */,
 				B10051 /* RecordingInterruptionCoordinatorTests.swift */,
 				B10054 /* AppPreferencesTests.swift */,
 				B10057 /* AppleNotesScriptingFakeTests.swift */,
@@ -760,6 +769,9 @@
 				A10044 /* ExportServiceTests.swift in Sources */,
 				A10045 /* SummarizationServiceTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
+				A10700 /* RecordingSegmentMergerTests.swift in Sources */,
+				A10701 /* RecordingMixdownTests.swift in Sources */,
+				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */,
 				A10054 /* AppPreferencesTests.swift in Sources */,
 				A10056 /* InMemoryAppleNotesScripting.swift in Sources */,
