@@ -7,7 +7,7 @@ import XCTest
 /// hardware (a running `AVAudioEngine` + `SCStream`) to reach, so it cannot be
 /// invoked headlessly. The load-bearing, hardware-independent part is the
 /// per-frame mixing arithmetic. Phase 1b lifted that loop verbatim into the
-/// `RecordingSession.mixFrames(microphoneSamples:systemAudioSamples:)` seam
+/// `RecordingMixdownRenderer.mixFrames(microphoneSamples:systemAudioSamples:)` seam
 /// (internal, body unchanged) so it can be pinned here.
 ///
 /// The mixing formula being pinned:
@@ -29,7 +29,7 @@ final class RecordingMixdownTests: XCTestCase {
         // index 5: 0.25*1.35 + 0.1*0.8 = 0.4175 -> 13680
         let expected: [Int16] = [0, 32767, -32767, 32767, -32767, 13680]
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
             expected
         )
     }
@@ -41,7 +41,7 @@ final class RecordingMixdownTests: XCTestCase {
         // index 2/3 have no system sample: mic*1.35 only.
         let expected: [Int16] = [11468, 20316, 26541, 32767]
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
             expected
         )
     }
@@ -53,7 +53,7 @@ final class RecordingMixdownTests: XCTestCase {
         // index 1/2 have no mic sample: system*0.8 only.
         let expected: [Int16] = [21135, 23592, -23592]
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
             expected
         )
     }
@@ -66,24 +66,26 @@ final class RecordingMixdownTests: XCTestCase {
         // index 2: 0.9*2.15 = 1.935 -> clamp 1.0 -> 32767
         let expected: [Int16] = [32767, -32767, 32767]
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
             expected
         )
     }
 
     func testEmptyInputsProduceEmptyOutput() {
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: [], systemAudioSamples: []),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: [], systemAudioSamples: []),
             []
         )
     }
 
     func testOnlyMicrophoneTrackAppliesMicGain() {
-        // 0.1*1.35 = 0.135 -> 0.135*32767 = 4423.5 -> 4424 (banker's? .rounded() = away-from-zero)
+        // 0.1*1.35 = 0.135 -> 0.135*32767 = 4423.5 -> 4424.
+        // `.rounded()` is round-half-away-from-zero (NOT banker's rounding), so
+        // the .5 tie rounds up to 4424.
         let mic: [Float] = [0.1]
-        let expected = RecordingSession.mixFrames(microphoneSamples: mic, systemAudioSamples: [])
+        let result = RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: [])
         // Pin the captured constant (mic-only gain path).
-        XCTAssertEqual(expected, [4424])
+        XCTAssertEqual(result, [4424])
     }
 
     /// Pins the Float32 -> Int16 PCM round trip through the same storage layer
@@ -105,7 +107,7 @@ final class RecordingMixdownTests: XCTestCase {
 
         // 0.2*1.35 + 0.1*0.8 = 0.35 -> 11468 ; 0.4*1.35 + 0.1*0.8 = 0.62 -> 20316
         XCTAssertEqual(
-            RecordingSession.mixFrames(microphoneSamples: micSamples, systemAudioSamples: systemSamples),
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: micSamples, systemAudioSamples: systemSamples),
             [11468, 20316]
         )
     }
