@@ -6,8 +6,9 @@ import XCTest
 /// These pin the EXACT byte output of the current implementation so the
 /// Phase 1c `WAVCodec` unification cannot silently change the on-disk format.
 /// The expected byte arrays are literal constants captured from the current
-/// implementation (see /tmp/capture_golden.swift in the implementing session),
-/// NOT recomputed via the production function under test.
+/// implementation, NOT recomputed via the production function under test.
+/// To regenerate after an intentional format change, dump the bytes:
+///   `print([UInt8](RecordingSegmentMerger.header(dataByteCount: N)))`.
 final class RecordingSegmentMergerGoldenTests: XCTestCase {
     // MARK: - header(dataByteCount:) golden fixtures
 

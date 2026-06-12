@@ -3,10 +3,11 @@ import Foundation
 
 extension AudioRecordingService {
     static func preferredInputDeviceID(in devices: [AudioInputDevice]) -> String? {
-        // Test seam (Phase 1b): default parameters keep every existing call site
-        // compiling identically while allowing tests to inject the stored
-        // preference and the system default without touching UserDefaults or
-        // Core Audio hardware. The selection logic below is unchanged.
+        // Test seam (Phase 1b): this no-arg overload reads the live stored
+        // preference (UserDefaults) and the Core Audio system default, then
+        // forwards to the injectable overload below. Tests call that overload
+        // directly with synthetic values, exercising the selection logic
+        // without touching UserDefaults or audio hardware. Behavior is identical.
         preferredInputDeviceID(
             in: devices,
             storedPreference: UserDefaults.standard.string(forKey: AppPreferenceKey.defaultRecordingInputDeviceID)

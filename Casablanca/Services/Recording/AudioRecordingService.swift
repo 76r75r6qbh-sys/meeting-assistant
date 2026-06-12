@@ -1,4 +1,3 @@
-@preconcurrency import AVFoundation
 import CoreAudio
 import Foundation
 import Observation
@@ -352,12 +351,5 @@ final class AudioRecordingService {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
-    }
-
-    private var currentInputDevice: AudioInputDevice? {
-        if let selected = availableInputDevices.first(where: { $0.id == selectedInputDeviceID }) {
-            return selected
-        }
-        return availableInputDevices.first
     }
 }
