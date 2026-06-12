@@ -17,10 +17,10 @@ final class MeetingStartFlowTests: XCTestCase {
         XCTAssertEqual(MeetingStatus.pausedRecording.detailPresentation, .workspace)
     }
 
-    func testUpcomingMeetingsShowRecordingAndNotesButtons() {
+    func testUpcomingMeetingsShowPrepareNotesAndRecordingButtons() {
         let layout = MeetingEntryActionLayout(isPast: false)
 
-        XCTAssertEqual(layout.visibleActions, [.startRecording, .takeNotes])
+        XCTAssertEqual(layout.visibleActions, [.prepare, .takeNotes, .startRecording])
         XCTAssertEqual(layout.contextMenuActions, [.prepare, .startRecording, .takeNotes, .viewDetails])
     }
 

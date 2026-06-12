@@ -38,7 +38,7 @@ struct MeetingEntryActionLayout {
     let isPast: Bool
 
     var visibleActions: [MeetingEntryAction] {
-        isPast ? [.viewDetails] : [.startRecording, .takeNotes]
+        isPast ? [.viewDetails] : [.prepare, .takeNotes, .startRecording]
     }
 
     var contextMenuActions: [MeetingEntryAction] {
