@@ -92,7 +92,8 @@ struct ContentView: View {
             if searchViewModel == nil {
                 searchViewModel = GlobalSearchViewModel(
                     modelContext: modelContext,
-                    actionQueueModel: appModel.actionQueueModel
+                    actionQueueModel: appModel.actionQueueModel,
+                    isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
                 )
             }
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)

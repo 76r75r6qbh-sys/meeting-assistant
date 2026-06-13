@@ -202,6 +202,44 @@ final class GlobalSearchViewModelTests: XCTestCase {
         XCTAssertLessThan(n, tr)
     }
 
+    // MARK: - Pending soft-deletion filtering
+
+    /// A meeting whose id is in the pending-deletion set (the 6s undo grace window)
+    /// must NOT appear in search results, matching the sidebar's `visibleMeetings`
+    /// filter. Removing it from the set restores it.
+    func testPendingDeletionExcludedFromResults() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let meeting = Meeting(title: "Orchestra migration", date: .now)
+        meeting.transcript = "Orchestra on Azure transcript text"
+        context.insert(meeting)
+        try context.save()
+
+        var pending: Set<UUID> = [meeting.id]
+        let vm = GlobalSearchViewModel(
+            modelContext: context,
+            actionQueueModel: ActionQueueModel(),
+            debounceInterval: .milliseconds(1),
+            isPendingDeletion: { pending.contains($0) }
+        )
+
+        // While pending-deleted: no result in either tier (title or transcript).
+        await vm.search("orchestra")?.value
+        XCTAssertFalse(
+            vm.results.contains { $0.meeting.id == meeting.id },
+            "A pending-deleted meeting must not appear in global search"
+        )
+
+        // Undo the pending deletion: the meeting is searchable again.
+        pending.remove(meeting.id)
+        await vm.search("orchestra")?.value
+        XCTAssertTrue(
+            vm.results.contains { $0.meeting.id == meeting.id && $0.kind == .title },
+            "Removing the meeting from the pending set restores it in search"
+        )
+    }
+
     // MARK: - Empty query
 
     func testEmptyQueryClearsResultsImmediately() async throws {

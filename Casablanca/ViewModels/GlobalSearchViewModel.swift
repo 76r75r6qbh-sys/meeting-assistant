@@ -71,6 +71,14 @@ final class GlobalSearchViewModel {
     private let modelContext: ModelContext
     private let actionQueueModel: ActionQueueModel
 
+    /// Excludes meetings hidden behind a pending soft-delete (the 6s undo grace
+    /// window owned by `MeetingListViewModel`). The sidebar already filters these
+    /// via `visibleMeetings(from:)`; search must match that so a meeting the user
+    /// just deleted doesn't reappear in ⌘F mid-undo. Evaluated at search time so
+    /// it always reflects the current pending set. Default lets it match nothing
+    /// (no filtering) for callers/tests that don't wire soft-delete.
+    @ObservationIgnored private let isPendingDeletion: (UUID) -> Bool
+
     /// Coalesces keystrokes; a newer keystroke cancels the pending search so we
     /// only ever run the search for the final, settled query. Injectable so
     /// tests can drive it with a tiny interval.
@@ -80,11 +88,13 @@ final class GlobalSearchViewModel {
     init(
         modelContext: ModelContext,
         actionQueueModel: ActionQueueModel,
-        debounceInterval: Duration = .milliseconds(250)
+        debounceInterval: Duration = .milliseconds(250),
+        isPendingDeletion: @escaping (UUID) -> Bool = { _ in false }
     ) {
         self.modelContext = modelContext
         self.actionQueueModel = actionQueueModel
         self.debounceInterval = debounceInterval
+        self.isPendingDeletion = isPendingDeletion
     }
 
     // MARK: - Debounced entry point
@@ -189,6 +199,7 @@ final class GlobalSearchViewModel {
         descriptor.fetchLimit = Self.tier1Limit
         do {
             return try modelContext.fetch(descriptor)
+                .filter { !isPendingDeletion($0.id) }
         } catch {
             Log.search.error("Global search Tier 1 fetch failed: \(error.localizedDescription)")
             return []
@@ -210,6 +221,7 @@ final class GlobalSearchViewModel {
         let recent: [Meeting]
         do {
             recent = try modelContext.fetch(descriptor)
+                .filter { !isPendingDeletion($0.id) }
         } catch {
             Log.search.error("Global search Tier 2 fetch failed: \(error.localizedDescription)")
             return []
