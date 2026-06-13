@@ -82,17 +82,23 @@ struct OllamaProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .network((error as? URLError)?.code),
                 message: "Could not reach \(displayName): \(error.localizedDescription)"
             )
         }
 
         guard let http = response as? HTTPURLResponse else {
-            throw LLMProviderError.requestFailed(provider: displayName, message: "\(displayName) returned an invalid response.")
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                kind: .malformedResponse,
+                message: "\(displayName) returned an invalid response."
+            )
         }
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .httpStatus(http.statusCode),
                 message: body.isEmpty
                     ? "\(displayName) request failed with status \(http.statusCode)."
                     : "\(displayName) request failed: \(body)"
@@ -105,11 +111,16 @@ struct OllamaProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .malformedResponse,
                 message: "\(displayName) returned a malformed response: \(error.localizedDescription)"
             )
         }
         if let err = payload.error, !err.isEmpty {
-            throw LLMProviderError.requestFailed(provider: displayName, message: "\(displayName) returned an error: \(err)")
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                kind: .backendError,
+                message: "\(displayName) returned an error: \(err)"
+            )
         }
 
         let text = payload.response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -131,15 +142,17 @@ struct OllamaProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .network((error as? URLError)?.code),
                 message: "Could not reach \(displayName): \(error.localizedDescription)"
             )
         }
 
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let body = (response as? HTTPURLResponse).map { "\($0.statusCode)" } ?? "unknown"
+            let status = (response as? HTTPURLResponse)?.statusCode
             throw LLMProviderError.requestFailed(
                 provider: displayName,
-                message: "\(displayName) model lookup failed with status \(body)."
+                kind: status.map { .httpStatus($0) } ?? .malformedResponse,
+                message: "\(displayName) model lookup failed with status \(status.map(String.init) ?? "unknown")."
             )
         }
 
@@ -149,6 +162,7 @@ struct OllamaProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .malformedResponse,
                 message: "\(displayName) model lookup returned a malformed response: \(error.localizedDescription)"
             )
         }

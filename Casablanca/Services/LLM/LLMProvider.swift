@@ -1,18 +1,58 @@
 import Foundation
 
+/// Classifies why a provider request failed, so callers (notably the retry
+/// policy) can decide whether retrying could plausibly help.
+enum LLMFailureKind: Equatable {
+    /// URLSession-level transport failure; carries the `URLError.Code` when known.
+    case network(URLError.Code?)
+    /// The backend returned a non-2xx HTTP status.
+    case httpStatus(Int)
+    /// The response body could not be decoded into the expected shape.
+    case malformedResponse
+    /// The backend returned a well-formed response carrying an explicit error.
+    case backendError
+}
+
 enum LLMProviderError: LocalizedError {
     case invalidEndpoint(provider: String)
-    case requestFailed(provider: String, message: String)
+    case requestFailed(provider: String, kind: LLMFailureKind, message: String)
     case emptyResponse(provider: String)
 
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint(let provider):
             return "The \(provider) endpoint is invalid. Update it in Settings."
-        case .requestFailed(_, let message):
+        case .requestFailed(_, _, let message):
             return message
         case .emptyResponse(let provider):
             return "\(provider) returned an empty response."
+        }
+    }
+
+    /// HTTP status codes that signal a transient server-side condition worth retrying.
+    private static let transientStatusCodes: Set<Int> = [408, 429, 500, 502, 503, 504]
+
+    /// URLError codes that signal a transient transport condition worth retrying.
+    private static let transientNetworkCodes: Set<URLError.Code> = [
+        .timedOut, .cannotConnectToHost, .networkConnectionLost,
+        .cannotFindHost, .notConnectedToInternet, .dnsLookupFailed
+    ]
+
+    /// Whether retrying the same request could plausibly succeed. Network blips
+    /// and 5xx/408/429 are transient; 4xx (other than 408/429), malformed bodies
+    /// and explicit backend errors are not.
+    var isTransient: Bool {
+        guard case .requestFailed(_, let kind, _) = self else { return false }
+        switch kind {
+        case .network(let code):
+            // No code means an unclassified transport error — treat as transient
+            // (most URLSession failures we can't pin down are connection blips).
+            guard let code else { return true }
+            return Self.transientNetworkCodes.contains(code)
+        case .httpStatus(let code):
+            return Self.transientStatusCodes.contains(code)
+        case .malformedResponse, .backendError:
+            return false
         }
     }
 }

@@ -1,0 +1,99 @@
+<style>
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea}
+  .tbar{display:flex;align-items:center;gap:10px;padding:11px 16px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tbtn{padding:5px 11px;border-radius:7px;background:rgba(255,255,255,.08);font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px}
+  .tbtn.p{background:#0a84ff;font-weight:600}
+  .recdot{width:8px;height:8px;border-radius:50%;background:#ff453a}
+  .body{display:flex;min-height:430px}
+  .main{flex:1;padding:22px 30px}
+  .upnext{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#8e8e93;font-weight:700;margin-bottom:8px}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:0 0 5px}
+  .meta{font-size:12.5px;opacity:.55;margin-bottom:8px}
+  .prepbadge{display:inline-flex;align-items:center;gap:6px;background:rgba(10,132,255,.16);color:#7fb4ff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;margin-bottom:18px}
+  /* format toolbar */
+  .ftools{display:flex;align-items:center;gap:3px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:16px}
+  .fbtn{width:28px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.7}
+  .fbtn.b{font-weight:800}.fbtn.i{font-style:italic;font-family:Georgia,serif}
+  .fsep{width:1px;height:16px;background:rgba(255,255,255,.1);margin:0 4px}
+  .aidraft{margin-left:auto;display:flex;align-items:center;gap:6px;background:rgba(191,90,242,.16);border:1px solid rgba(191,90,242,.3);color:#d9a9f5;border-radius:8px;padding:4px 11px;font-size:12px;font-weight:600}
+  /* prep content (template) */
+  .ph{font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.45;font-weight:700;margin:18px 0 7px}
+  .ph:first-child{margin-top:0}
+  .ptxt{font-size:14px;line-height:1.65}
+  .ptxt p{margin:0 0 6px}
+  .ptxt ul{margin:0;padding-left:20px}.ptxt li{margin-bottom:5px}
+  .ph-placeholder{opacity:.3;font-style:italic}
+  .cbar{width:2px;height:18px;background:#0a84ff;animation:blink 1.1s step-end infinite;display:inline-block;vertical-align:middle}
+  @keyframes blink{50%{opacity:0}}
+  /* inspector: calendar context */
+  .insp{width:250px;background:rgba(255,255,255,.04);border-left:1px solid rgba(255,255,255,.06);padding:18px 16px}
+  .ilbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.42;font-weight:700;margin:0 0 9px}
+  .ilbl.s2{margin-top:18px}
+  .prow{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:3px 0}
+  .pav{width:23px;height:23px;border-radius:50%;background:#3a3a42;display:flex;align-items:center;justify-content:center;font-size:10px;color:#bbb;flex:none}
+  .ctx{font-size:12px;line-height:1.55;opacity:.7}
+  .save{font-size:11px;opacity:.5;margin-top:auto;padding-top:16px}
+</style>
+
+<h2>New screen — Preparation mode</h2>
+<p class="subtitle">Write your own prep for an upcoming meeting, in-app. Reuses the markdown editor; calendar context sits in the inspector; saves to your vault so it round-trips with existing prep.</p>
+
+<div class="win">
+  <div class="tbar">
+    <div class="tl"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div style="font-size:13px;font-weight:600;margin-left:6px">Prepare</div>
+    <div style="margin-left:auto"></div>
+    <div class="tbtn">Done</div>
+    <div class="tbtn p"><span class="recdot"></span> Start Recording</div>
+  </div>
+  <div class="body">
+    <div class="main">
+      <div class="upnext">● Upcoming · in 25 min</div>
+      <h1>Daily standup — Team Link</h1>
+      <div class="meta">Today · 11:00 – 11:15 · 6 participants</div>
+      <div class="prepbadge">◳ Preparation</div>
+
+      <div class="ftools">
+        <div class="fbtn b">B</div><div class="fbtn i">I</div><div class="fsep"></div>
+        <div class="fbtn">H</div><div class="fbtn">•</div><div class="fbtn">☑</div><div class="fsep"></div>
+        <div class="fbtn">🔗</div>
+        <div class="aidraft">✦ Draft with AI</div>
+      </div>
+
+      <div class="ptxt">
+        <div class="ph">Goal</div>
+        <p>Align on BgZ kickoff follow-through and unblock the test environment.</p>
+        <div class="ph">Agenda</div>
+        <ul>
+          <li>FHIR mapping ownership — confirm Team Link</li>
+          <li>Connectathon date</li>
+          <li>Test env from Orchestra (Manon)</li>
+        </ul>
+        <div class="ph">Questions to ask</div>
+        <ul>
+          <li>Kim — partner timeline expectations? <span class="cbar"></span></li>
+        </ul>
+        <div class="ph">Notes / background</div>
+        <p class="ph-placeholder">Add links, prior decisions, context…</p>
+      </div>
+    </div>
+
+    <div class="insp" style="display:flex;flex-direction:column">
+      <div class="ilbl">Participants</div>
+      <div class="prow"><span class="pav">M</span>Martijn de Hoogh</div>
+      <div class="prow"><span class="pav">J</span>Jeroen van Dijk</div>
+      <div class="prow" style="opacity:.55"><span class="pav">+4</span>4 more</div>
+
+      <div class="ilbl s2">From the calendar</div>
+      <div class="ctx">Recurring · Teams link<br>"Quick round — blockers &amp; today's focus."</div>
+
+      <div class="ilbl s2">Related</div>
+      <div class="ctx">↳ Last standup (yesterday)<br>↳ Wegiz BgZ kickoff</div>
+
+      <div class="save">✓ Saved to vault<br><span style="opacity:.6">…/2026-05-30 Daily standup - Prep.md</span></div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px"><b>How it fits:</b> a <b>Prepare</b> action on any upcoming meeting (dashboard hero, cards, sidebar context-menu) opens this. Starts from an optional template (Goal · Agenda · Questions · Notes) or blank. Uses the same markdown toolbar + Aa controls. <b>Saves to the Obsidian vault as <code>YYYY-MM-DD Meeting Name - Prep.md</code></b> — the existing convention — so morning-briefing AI prep and your own edits live in one place and show in the recording workspace's Prep inspector. <b>✦ Draft with AI</b> is an optional starting point you then edit. Local-only mode (no vault) stores prep on the Meeting instead. Tweak, or I'll fold it into the spec.</p>

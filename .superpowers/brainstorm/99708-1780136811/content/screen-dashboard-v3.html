@@ -1,0 +1,108 @@
+<style>
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea;margin-bottom:16px}
+  .tbar{display:flex;align-items:center;gap:12px;padding:12px 16px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tsearch{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:5px 11px;font-size:12px;width:210px;color:#8a8a8f;margin:0 auto}
+  .body{display:flex;min-height:440px}
+  .sb{width:212px;padding:10px 9px;background:rgba(255,255,255,.045);border-right:1px solid rgba(255,255,255,.05);overflow:hidden}
+  .nav{display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:8px;margin-bottom:1px;font-size:13px}
+  .nav .ic{width:16px;text-align:center;opacity:.75}
+  .navsel{background:rgba(10,132,255,.22);font-weight:600}.navsel .ic{opacity:1;color:#4d9bff}
+  .badge{margin-left:auto;font-size:11px;padding:1px 7px;border-radius:9px;background:rgba(255,255,255,.13)}
+  .badge.accent{background:#0a84ff;color:#fff}
+  .sblabel{font-size:10px;letter-spacing:.07em;text-transform:uppercase;opacity:.42;margin:14px 8px 6px;font-weight:600}
+  .mitem{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:7px;font-size:12.5px;margin-bottom:1px}
+  .mitem .sd{width:6px;height:6px;border-radius:50%;flex:none}
+  .mitem .mt{opacity:.5;font-size:10.5px;margin-left:auto}
+  .main{flex:1;padding:22px 26px}
+  .daynav{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .chev{width:24px;height:24px;border-radius:7px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.7}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:0}
+  .sub{font-size:12.5px;opacity:.5;margin:2px 0 20px}
+  .hero{background:linear-gradient(135deg,rgba(10,132,255,.16),rgba(10,132,255,.04));border:1px solid rgba(10,132,255,.28);border-radius:13px;padding:16px 18px;margin-bottom:18px;display:flex;align-items:center;gap:16px}
+  .heronow{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#4d9bff;font-weight:700;margin-bottom:4px}
+  .btn{padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:600;border:none}
+  .btnp{background:#0a84ff;color:#fff}.btns{background:rgba(255,255,255,.1);color:#e8e8ea}
+  .seclabel{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.45;font-weight:600;margin:0 0 10px}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.025));border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px;margin-bottom:9px;display:flex;align-items:center;gap:13px}
+  .card .sd{width:7px;height:7px;border-radius:50%;flex:none}
+  .ct{font-size:14px;font-weight:600}.cm{font-size:11.5px;opacity:.5;margin-top:2px}
+  .avs{display:flex;margin-left:auto;margin-right:6px}
+  .av{width:24px;height:24px;border-radius:50%;background:#3a3a42;border:2px solid #161618;margin-left:-7px;font-size:10px;display:flex;align-items:center;justify-content:center;color:#bbb}
+  /* search addition strip */
+  .srch{border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(40,40,44,.6);padding:14px 18px;font-family:-apple-system,system-ui,sans-serif;color:#e8e8ea}
+  .grp{font-size:10px;letter-spacing:.07em;text-transform:uppercase;opacity:.42;font-weight:700;margin:6px 0 4px}
+  .res{display:flex;gap:10px;align-items:center;padding:6px 8px;border-radius:8px}
+  .res.sel{background:rgba(10,132,255,.25)}
+  .ri{width:24px;height:24px;border-radius:50%;background:#0a84ff;display:flex;align-items:center;justify-content:center;font-size:11px;flex:none;font-weight:600}
+  mark{background:rgba(255,214,10,.32);color:#ffe9a8;border-radius:3px;padding:0 2px}
+</style>
+
+<h2>Screen 1 — Sidebar regrouped by time + search adds People</h2>
+<p class="subtitle">Sidebar meetings now bucket by recency. Search gains a People group that matches participants.</p>
+
+<div class="win">
+  <div class="tbar">
+    <div class="tl"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div class="tsearch">⌕ <span>Search everything</span><span style="margin-left:auto;font-size:10px;opacity:.6">⌘F</span></div>
+    <button class="btn btnp" style="display:flex;align-items:center;gap:5px">＋ New</button>
+  </div>
+  <div class="body">
+    <div class="sb">
+      <div class="nav navsel"><span class="ic">◳</span>Dashboard</div>
+      <div class="nav"><span class="ic">✓</span>To-Dos<span class="badge">7</span></div>
+      <div class="nav"><span class="ic">⊞</span>Approvals<span class="badge accent">3</span></div>
+
+      <div class="sblabel">Upcoming</div>
+      <div class="mitem"><span class="sd" style="background:#8e8e93"></span>Daily standup — Link<span class="mt">11:00</span></div>
+      <div class="mitem"><span class="sd" style="background:#8e8e93"></span>PM-PM · Kim<span class="mt">14:00</span></div>
+
+      <div class="sblabel">Today</div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Week start<span class="mt">9:00</span></div>
+
+      <div class="sblabel">This Week</div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Wegiz BgZ kickoff<span class="mt">Mon</span></div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Orchestra migration<span class="mt">Wed</span></div>
+
+      <div class="sblabel">This Month</div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Sprint 2026.3.2 retro<span class="mt">May 9</span></div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Architecture review<span class="mt">May 5</span></div>
+
+      <div class="sblabel">This Year</div>
+      <div class="mitem"><span class="sd" style="background:#30d158"></span>Q1 partner planning<span class="mt">Mar 4</span></div>
+    </div>
+    <div class="main">
+      <div class="daynav"><span class="chev">‹</span><h1>Today</h1><span class="chev">›</span></div>
+      <div class="sub">Saturday, May 30 · 3 meetings</div>
+      <div class="hero">
+        <div style="flex:1">
+          <div class="heronow">● Up next · in 25 min</div>
+          <div style="font-size:16px;font-weight:600">Daily standup — Team Link</div>
+          <div style="font-size:12px;opacity:.6;margin-top:3px">11:00 – 11:15 · 6 participants</div>
+        </div>
+        <button class="btn btns">Take Notes</button>
+        <button class="btn btnp">● Start Recording</button>
+      </div>
+      <div class="seclabel">Later today</div>
+      <div class="card"><span class="sd" style="background:#8e8e93"></span>
+        <div><div class="ct">PM-PM meeting</div><div class="cm">14:00 – 14:30 · with Kim, Arriejanne</div></div>
+        <div class="avs"><div class="av">K</div><div class="av">A</div></div><button class="btn btns" style="font-size:12px">Start</button></div>
+      <div class="card"><span class="sd" style="background:#8e8e93"></span>
+        <div><div class="ct">Refinement — Team Link</div><div class="cm">15:30 – 16:30 · 5 participants</div></div>
+        <div class="avs"><div class="av">M</div><div class="av">J</div><div class="av">+3</div></div><button class="btn btns" style="font-size:12px">Start</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="srch">
+  <div style="font-size:13px;opacity:.7;margin-bottom:8px">Search <mark>Kim</mark> — now matches people too:</div>
+  <div class="grp">People</div>
+  <div class="res sel">
+    <div class="ri">KO</div>
+    <div><div style="font-size:13px;font-weight:600"><mark>Kim</mark> Owen-Jones</div><div style="font-size:11px;opacity:.55">Participant in 9 meetings · last: PM-PM, today</div></div>
+  </div>
+  <div class="grp" style="margin-top:8px">Meetings with this person</div>
+  <div class="res"><div class="ri" style="background:rgba(255,255,255,.12)">🎙</div><div><div style="font-size:13px;font-weight:600">Wegiz BgZ kickoff</div><div style="font-size:11px;opacity:.55">May 26 · with <mark>Kim</mark>, Arriejanne, +3</div></div></div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">Buckets fill only when they have meetings (empty ones hidden). Selecting a person can filter to their meetings. Tweak the bucket names/ranges if you'd like, or say next for the recorded-meeting detail.</p>

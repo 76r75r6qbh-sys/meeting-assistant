@@ -85,8 +85,37 @@ final class SummarizationService {
         return s
     }
 
+    /// Where the summarization pipeline currently is. Drives `statusMessage`.
+    enum SummarizationPhase: Equatable {
+        case idle
+        case sending
+        case retrying(attempt: Int, maxAttempts: Int)
+        case parsing
+    }
+
     private(set) var isSummarizing = false
-    private(set) var statusMessage = ""
+    private(set) var phase: SummarizationPhase = .idle
+
+    /// Human-readable status derived from `phase`. Kept as a computed property so
+    /// existing views that read `statusMessage` keep working. `.idle` maps to "",
+    /// which RecordedMeetingView turns into its "Generating summary..." fallback.
+    var statusMessage: String {
+        switch phase {
+        case .idle:
+            return ""
+        case .sending:
+            return "Sending transcript and notes to \(providerDisplayName)..."
+        case .retrying(let attempt, let maxAttempts):
+            return "\(providerDisplayName) request failed, retrying (\(attempt)/\(maxAttempts))..."
+        case .parsing:
+            return "Summary generated"
+        }
+    }
+
+    /// Display name of the provider for the in-flight summarization, captured so
+    /// `statusMessage` can name it without re-reading preferences off-thread.
+    private var providerDisplayName = "the model"
+
     var errorMessage: String?
     var warningMessage: String?
 
@@ -164,8 +193,12 @@ final class SummarizationService {
         isSummarizing = true
         errorMessage = nil
         warningMessage = nil
-        statusMessage = "Sending transcript and notes to \(provider.displayName)..."
-        defer { isSummarizing = false }
+        providerDisplayName = provider.displayName
+        phase = .sending
+        defer {
+            isSummarizing = false
+            phase = .idle
+        }
 
         let terminologyBlock = TerminologyService.renderTerminologyBlock(
             enabled: UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
@@ -193,15 +226,22 @@ final class SummarizationService {
         let tokenBudget: Int? = thinkingEnabled ? nil : Self.maxSummaryTokens
 
         var wasTruncated = false
+        let retryPolicy = LLMRetryPolicy()
         let summary: String
         do {
-            summary = try await provider.generate(
-                prompt: prompt,
-                temperature: nil,
-                maxTokens: tokenBudget,
-                timeout: 120,
-                truncated: { wasTruncated = $0 }
-            )
+            summary = try await retryPolicy.withRetry(
+                onAttempt: { [weak self] attempt in
+                    self?.phase = .retrying(attempt: attempt, maxAttempts: retryPolicy.maxAttempts)
+                }
+            ) {
+                try await provider.generate(
+                    prompt: prompt,
+                    temperature: nil,
+                    maxTokens: tokenBudget,
+                    timeout: 120,
+                    truncated: { wasTruncated = $0 }
+                )
+            }
         } catch let error as LLMProviderError {
             throw Self.mapProviderError(error)
         }
@@ -210,7 +250,7 @@ final class SummarizationService {
             warningMessage = "Summary may be truncated: \(provider.displayName) reached its output length limit."
         }
 
-        statusMessage = "Summary generated"
+        phase = .parsing
         // Strip any chain-of-thought the model still emitted (e.g. <think>…</think>).
         return SummaryResponseParser.parse(Self.stripReasoning(summary))
     }
@@ -236,7 +276,7 @@ final class SummarizationService {
         switch error {
         case .invalidEndpoint(let provider):
             return .invalidEndpoint(provider: provider)
-        case .requestFailed(_, let message):
+        case .requestFailed(_, _, let message):
             return .requestFailed(message)
         case .emptyResponse(let provider):
             return .emptyResponse(provider: provider)

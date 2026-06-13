@@ -1,0 +1,64 @@
+<style>
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea}
+  .tbar{display:flex;align-items:center;gap:10px;padding:11px 16px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tt{font-size:13px;font-weight:600;margin-left:6px}
+  .recbar{display:flex;align-items:center;gap:13px;padding:11px 18px;background:linear-gradient(90deg,rgba(255,69,58,.14),rgba(255,69,58,.04));border-bottom:1px solid rgba(255,69,58,.22)}
+  .recdot{width:10px;height:10px;border-radius:50%;background:#ff453a;box-shadow:0 0 9px #ff453a}
+  .recstate{font-size:12.5px;font-weight:600;color:#ff8a80}
+  .timer{font-size:14px;font-variant-numeric:tabular-nums;font-family:"SF Mono",monospace;font-weight:600}
+  .body{display:flex;min-height:330px;position:relative}
+  .main{flex:1;padding:20px 26px}
+  .notes{font-size:14px;line-height:1.7;opacity:.9}.notes p{margin:0 0 12px}
+  /* draggable divider */
+  .divider{width:10px;cursor:col-resize;display:flex;align-items:center;justify-content:center;position:relative;background:rgba(10,132,255,.0)}
+  .divider .line{position:absolute;inset:0 auto 0 0;width:1px;left:50%;background:rgba(255,255,255,.07)}
+  .divider .grip{width:4px;height:42px;border-radius:3px;background:#4d9bff;box-shadow:0 0 0 4px rgba(10,132,255,.18);z-index:2}
+  .divider .cursor{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:16px;opacity:.85;z-index:3}
+  .insp{width:300px;background:rgba(255,255,255,.04);padding:16px 16px;position:relative}
+  .ilbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.42;font-weight:700;margin-bottom:10px}
+  .prep{font-size:12.5px;line-height:1.6;opacity:.78}.prep b{opacity:1}
+  .ghost{position:absolute;top:0;bottom:0;left:-78px;width:78px;border:1.5px dashed rgba(10,132,255,.4);border-right:none;background:rgba(10,132,255,.05);border-radius:10px 0 0 10px}
+  .rng{font-size:10px;color:#4d9bff;opacity:.8;position:absolute;top:8px;left:-72px}
+</style>
+
+<h2>Resizable Prep inspector</h2>
+<p class="subtitle">Drag the divider to make Prep wider or narrower. Highlights on hover, snaps within min/max, and remembers your width.</p>
+
+<div class="win">
+  <div class="tbar">
+    <div class="tl"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div class="tt">Daily standup — Team Link</div>
+  </div>
+  <div class="recbar"><span class="recdot"></span><span class="recstate">Recording</span><span class="timer">00:12:34</span></div>
+  <div class="body">
+    <div class="main">
+      <div class="notes">
+        <p>Kim raised the partner timeline — wants BgZ status before the PM-PM at 14:00.</p>
+        <p><b>Decision:</b> move connectathon prep into sprint 2026.3.4.</p>
+        <p>Manon: test environment from Orchestra is the blocker.</p>
+      </div>
+    </div>
+    <div class="divider">
+      <div class="line"></div>
+      <div class="grip"></div>
+      <div class="cursor">⟺</div>
+    </div>
+    <div class="insp">
+      <div class="ghost"><div class="rng">drag range</div></div>
+      <div class="ilbl">◳ Prep notes</div>
+      <div class="prep">
+        <b>Goal:</b> align on BgZ kickoff follow-through.<br><br>
+        <b>Agenda</b>
+        <ul style="margin:4px 0 0;padding-left:16px">
+          <li>FHIR mapping ownership</li>
+          <li>Connectathon date</li>
+          <li>Test env from Orchestra</li>
+        </ul>
+        <br><b>Ask Kim:</b> partner timeline expectations.
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">Behaviour: hover the divider → it highlights &amp; the cursor becomes a resize arrow · drag between a min (~220pt) and max (~480pt) · the width persists per your preference (via <code>@AppStorage</code>) · the <b>▣ Prep</b> toolbar toggle still hides/shows it entirely. Same resizable pattern applies to the detail-view inspector. Ready for the final screen — Settings + onboarding?</p>

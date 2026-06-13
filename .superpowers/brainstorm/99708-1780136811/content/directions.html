@@ -1,0 +1,126 @@
+<style>
+  .win{border-radius:12px;overflow:hidden;border:1px solid rgba(0,0,0,.12);box-shadow:0 18px 50px rgba(0,0,0,.22);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;margin-bottom:10px}
+  .tl{display:flex;gap:7px;align-items:center;padding:10px 14px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .row{display:flex;min-height:300px}
+  .sb{width:180px;padding:12px 10px;font-size:12.5px}
+  .dt{flex:1;padding:18px 20px}
+  .nav{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:7px;margin-bottom:2px}
+  .navsel{font-weight:600}
+  .badge{margin-left:auto;font-size:11px;padding:1px 7px;border-radius:8px}
+  .sblabel{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.5;margin:14px 6px 6px;font-weight:600}
+  .mtitle{font-size:13px;font-weight:600;padding:5px 9px;border-radius:7px;margin-bottom:1px}
+  .mtime{font-size:11px;opacity:.55;padding:0 9px;margin-bottom:7px}
+  .palette{display:flex;gap:6px;margin-top:12px}
+  .sw{width:26px;height:26px;border-radius:6px;border:1px solid rgba(0,0,0,.08)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:20px;margin-right:6px}
+  .vibe{font-size:12px;opacity:.6;margin-top:6px}
+  h4.dh{font-size:18px;margin:0 0 2px;font-weight:700}
+</style>
+
+<h2>Pick the design language</h2>
+<p class="subtitle">All three are calm and mature — they differ in how much visual chrome they carry. Click the one that feels most "showcase" to you. We refine from there.</p>
+
+<div class="cards" style="grid-template-columns:1fr">
+
+  <!-- DIRECTION A -->
+  <div class="card" data-choice="quiet" onclick="toggleSelect(this)" style="cursor:pointer">
+   <div class="card-body">
+    <h3>A · Quiet Neutral <span style="font-weight:400;opacity:.55;font-size:14px">— think Things 3 / Craft</span></h3>
+    <p>Warm off-white surfaces, soft cards, lots of air. Honors your <b>system accent</b> for selection &amp; primary actions only; state colors muted. Friendly, warm, calm.</p>
+    <div class="win" style="background:#fbfaf8">
+      <div class="tl" style="background:#f3f1ee;border-bottom:1px solid #eae7e2"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="row">
+        <div class="sb" style="background:#f3f1ee;color:#3a3833">
+          <div class="nav navsel" style="background:#e7e3dc;color:#2a2824"><span>◳</span>Dashboard</div>
+          <div class="nav"><span style="opacity:.6">✓</span>To-Dos<span class="badge" style="background:#dfdbd2;color:#6b6760">7</span></div>
+          <div class="nav"><span style="opacity:.6">⊞</span>Approvals<span class="badge" style="background:#2f6fed;color:#fff">3</span></div>
+          <div class="sblabel">Recent</div>
+          <div class="mtitle">Weekly Sync</div><div class="mtime">Yesterday · 30 min</div>
+          <div class="mtitle">Wegiz BgZ kickoff</div><div class="mtime">Mon · 45 min</div>
+        </div>
+        <div class="dt" style="background:#fbfaf8;color:#2a2824">
+          <h4 class="dh">Weekly Sync</h4>
+          <div style="font-size:12px;opacity:.5;margin-bottom:14px">May 28 · 10:00 · 4 participants</div>
+          <div style="background:#fff;border:1px solid #ece8e1;border-radius:11px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="width:6px;height:6px;border-radius:50%;background:#7c9885"></span><span style="font-size:12px;font-weight:600">Summary</span></div>
+            <div style="font-size:12.5px;line-height:1.55;opacity:.8">Team aligned on the BgZ exchange timeline. Two decisions made; one risk flagged around the test environment.</div>
+          </div>
+          <div class="palette">
+            <div class="sw" style="background:#fbfaf8"></div><div class="sw" style="background:#f3f1ee"></div><div class="sw" style="background:#2f6fed"></div><div class="sw" style="background:#7c9885"></div><div class="sw" style="background:#c9a26b"></div>
+          </div>
+          <div class="vibe">Warm neutrals · system-blue accent · muted sage/amber states</div>
+        </div>
+      </div>
+    </div>
+   </div>
+  </div>
+
+  <!-- DIRECTION B -->
+  <div class="card" data-choice="editorial" onclick="toggleSelect(this)" style="cursor:pointer">
+   <div class="card-body">
+    <h3>B · Editorial Mono <span style="font-weight:400;opacity:.55;font-size:14px">— think iA Writer / Bear / Reeder</span></h3>
+    <p>Near-monochrome. No filled cards — content sits on the page, divided by hairlines. Hierarchy comes from <b>typography &amp; whitespace</b>, not color. The calmest, most "serious" option.</p>
+    <div class="win" style="background:#ffffff">
+      <div class="tl" style="background:#fafafa;border-bottom:1px solid #eee"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="row">
+        <div class="sb" style="background:#fafafa;color:#444;border-right:1px solid #eee">
+          <div class="nav navsel" style="color:#111"><span>◳</span>Dashboard</div>
+          <div class="nav"><span style="opacity:.5">✓</span>To-Dos<span class="badge" style="background:none;color:#999;padding:0">7</span></div>
+          <div class="nav"><span style="opacity:.5">⊞</span>Approvals<span class="badge" style="background:#111;color:#fff">3</span></div>
+          <div class="sblabel" style="opacity:.4">Recent</div>
+          <div class="mtitle" style="font-weight:600">Weekly Sync</div><div class="mtime">Yesterday · 30 min</div>
+          <div class="mtitle" style="font-weight:400;opacity:.7">Wegiz BgZ kickoff</div><div class="mtime">Mon · 45 min</div>
+        </div>
+        <div class="dt" style="background:#fff;color:#1a1a1a">
+          <h4 class="dh" style="font-size:21px;letter-spacing:-.01em">Weekly Sync</h4>
+          <div style="font-size:12px;opacity:.45;margin-bottom:18px;border-bottom:1px solid #eee;padding-bottom:14px">May 28 · 10:00 · 4 participants</div>
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.45;font-weight:600;margin-bottom:8px">Summary</div>
+          <div style="font-size:13px;line-height:1.6;opacity:.82">Team aligned on the BgZ exchange timeline. Two decisions made; one risk flagged around the test environment.</div>
+          <div class="palette">
+            <div class="sw" style="background:#ffffff"></div><div class="sw" style="background:#fafafa"></div><div class="sw" style="background:#1a1a1a"></div><div class="sw" style="background:#8a8a8a"></div><div class="sw" style="background:#3a6b6b"></div>
+          </div>
+          <div class="vibe">Monochrome · hairline rules · type-driven · single muted-teal accent</div>
+        </div>
+      </div>
+    </div>
+   </div>
+  </div>
+
+  <!-- DIRECTION C -->
+  <div class="card" data-choice="material" onclick="toggleSelect(this)" style="cursor:pointer">
+   <div class="card-body">
+    <h3>C · Layered Material <span style="font-weight:400;opacity:.55;font-size:14px">— think modern native macOS (Sonoma/Tahoe)</span></h3>
+    <p>Translucent vibrancy sidebar, layered surfaces, gentle depth. Feels unmistakably like a current first-party Mac app. Honors system accent, subtle tints, soft gradients in headers.</p>
+    <div class="win" style="background:linear-gradient(180deg,#1c1c1e,#161618);color:#e8e8ea">
+      <div class="tl" style="background:rgba(255,255,255,.04)"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="row">
+        <div class="sb" style="background:rgba(255,255,255,.05);color:#c8c8cc;backdrop-filter:blur(20px)">
+          <div class="nav navsel" style="background:rgba(120,140,255,.22);color:#fff"><span>◳</span>Dashboard</div>
+          <div class="nav"><span style="opacity:.6">✓</span>To-Dos<span class="badge" style="background:rgba(255,255,255,.12);color:#ddd">7</span></div>
+          <div class="nav"><span style="opacity:.6">⊞</span>Approvals<span class="badge" style="background:#5a78ff;color:#fff">3</span></div>
+          <div class="sblabel">Recent</div>
+          <div class="mtitle">Weekly Sync</div><div class="mtime">Yesterday · 30 min</div>
+          <div class="mtitle">Wegiz BgZ kickoff</div><div class="mtime">Mon · 45 min</div>
+        </div>
+        <div class="dt" style="background:transparent">
+          <h4 class="dh">Weekly Sync</h4>
+          <div style="font-size:12px;opacity:.5;margin-bottom:14px">May 28 · 10:00 · 4 participants</div>
+          <div style="background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.09);border-radius:11px;padding:14px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="width:6px;height:6px;border-radius:50%;background:#5ad19a;box-shadow:0 0 8px #5ad19a"></span><span style="font-size:12px;font-weight:600">Summary</span></div>
+            <div style="font-size:12.5px;line-height:1.55;opacity:.82">Team aligned on the BgZ exchange timeline. Two decisions made; one risk flagged around the test environment.</div>
+          </div>
+          <div class="palette">
+            <div class="sw" style="background:#161618"></div><div class="sw" style="background:#2a2a2e"></div><div class="sw" style="background:#5a78ff"></div><div class="sw" style="background:#5ad19a"></div><div class="sw" style="background:#e8e8ea"></div>
+          </div>
+          <div class="vibe">Vibrancy &amp; depth · system accent · glows for live state · shown in dark mode</div>
+        </div>
+      </div>
+    </div>
+   </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">Not locked in — we can also blend (e.g. "B's restraint with C's materials"). Tell me which way you lean.</p>

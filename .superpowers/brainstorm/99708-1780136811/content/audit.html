@@ -1,0 +1,71 @@
+<h2>Casablanca — Design Overhaul: where to aim</h2>
+<p class="subtitle">Your app already has a real design system. This is refinement &amp; HIG compliance, not a rebuild. Pick the areas that matter most (select multiple).</p>
+
+<div class="section">
+  <span class="label">What's already solid</span>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <span style="background:rgba(52,211,153,.15);color:#1a9e6f;padding:4px 10px;border-radius:6px;font-size:13px">✓ Semantic color tokens</span>
+    <span style="background:rgba(52,211,153,.15);color:#1a9e6f;padding:4px 10px;border-radius:6px;font-size:13px">✓ Adaptive light/dark</span>
+    <span style="background:rgba(52,211,153,.15);color:#1a9e6f;padding:4px 10px;border-radius:6px;font-size:13px">✓ 4pt spacing grid</span>
+    <span style="background:rgba(52,211,153,.15);color:#1a9e6f;padding:4px 10px;border-radius:6px;font-size:13px">✓ Native button wrappers</span>
+    <span style="background:rgba(52,211,153,.15);color:#1a9e6f;padding:4px 10px;border-radius:6px;font-size:13px">✓ Spring animations</span>
+  </div>
+</div>
+
+<div class="section">
+  <span class="label">HIG gaps &amp; friction I found — pick what to prioritize</span>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="accent" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Respect the system accent color</h3>
+      <p>App hardcodes an indigo (#5B6EF5) everywhere. HIG says honor the user's chosen accent. Biggest single compliance miss.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="recording" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>Recording workspace clarity</h3>
+      <p>Most complex screen — live notes, controls, transcript, meter, prep pane all at once. Needs clearer hierarchy &amp; an always-visible recording state.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="detail" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>Recorded-meeting detail layout</h3>
+      <p>Summary / transcript / notes / action items competing in a dense two-column view. Reading hierarchy &amp; the primary-action flow can be calmer.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="sidebar" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Sidebar &amp; navigation</h3>
+      <p>Dashboard / To-Dos / Approvals + meeting list. Tighten grouping, badges, selection &amp; keyboard focus to feel like Mail/Things.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="empty" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>Empty states, loading &amp; feedback</h3>
+      <p>Plain ProgressViews and bare empty screens. Add proper empty states, skeletons, and micro-feedback on approve/complete actions.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="queue" onclick="toggleSelect(this)">
+    <div class="letter">6</div>
+    <div class="content">
+      <h3>Approvals queue polish</h3>
+      <p>Your approval inbox — filter dropdown + context menus + detail sheet. Make the approve/revise/decline flow feel first-class.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="settings" onclick="toggleSelect(this)">
+    <div class="letter">7</div>
+    <div class="content">
+      <h3>Settings &amp; first-run onboarding</h3>
+      <p>Long ungrouped forms; no first-run setup for vault path, LLM endpoint, permissions. A guided onboarding would cut setup friction.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">Click the ones to focus on, then tell me in the terminal. I'll also ask about your overall goal there.</p>
