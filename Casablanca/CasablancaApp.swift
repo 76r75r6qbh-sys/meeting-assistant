@@ -187,8 +187,13 @@ final class AppModel {
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { [housekeeping] _ in
+        ) { [housekeeping, summarizationService] _ in
             housekeeping.removeSentinelOnTerminate()
+            // Cancel the detached background summarization task so it doesn't
+            // outlive the process as an orphaned task.
+            MainActor.assumeIsolated {
+                summarizationService.cancelBackgroundWork()
+            }
         }
     }
 

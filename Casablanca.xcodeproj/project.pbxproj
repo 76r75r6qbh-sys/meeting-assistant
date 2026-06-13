@@ -131,6 +131,7 @@
 		C40DAA304D9C44955F64244C /* Casablanca-99.0.0-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */; };
 		C514F5A5E0BEA52EA0DC4B59 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */; };
 		C9BC31735C018EA073CE78BD /* ActionQueueStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* ActionQueueModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */; };
 		CA604E75D903664CE5D5A80A /* UpdateProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
 		CEFB80B9E5C58D2FB05541A7 /* UpdatePromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */; };
@@ -171,6 +172,7 @@
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePromptView.swift; sourceTree = "<group>"; };
 		7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueStoreTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModelTests.swift; sourceTree = "<group>"; };
 		7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateProgressView.swift; sourceTree = "<group>"; };
 		7EE76844700FCF7A055497BB /* OMLXProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProvider.swift; sourceTree = "<group>"; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
@@ -575,6 +577,7 @@
 				DD1D869FE75C9137CBB92593 /* Fixtures */,
 				F0FD78121BD9F422E1B23EB5 /* LLM */,
 				7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */,
+				A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -832,6 +835,7 @@
 				863B495C0E86496DB75A9C91 /* LLMProviderFactoryTests.swift in Sources */,
 				F373A6A220EDD1B513D31EDE /* LLMRetryPolicyTests.swift in Sources */,
 				C9BC31735C018EA073CE78BD /* ActionQueueStoreTests.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* ActionQueueModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

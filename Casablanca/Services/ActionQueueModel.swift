@@ -12,7 +12,15 @@ final class ActionQueueModel {
 
     @ObservationIgnored private var watchSource: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedFD: CInt = -1
-    @ObservationIgnored private var debounceWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+
+    /// How long to coalesce filesystem events before reloading. Injectable so
+    /// tests can drive the debounce with a tiny interval; defaults to 250 ms.
+    @ObservationIgnored private let debounceInterval: Duration
+
+    init(debounceInterval: Duration = .milliseconds(250)) {
+        self.debounceInterval = debounceInterval
+    }
 
     var pendingCount: Int {
         items.filter { $0.status == .pending }.count
@@ -126,8 +134,8 @@ final class ActionQueueModel {
     }
 
     func stopWatching() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
+        debounceTask?.cancel()
+        debounceTask = nil
         if let watchSource {
             watchSource.cancel() // cancel handler closes the fd
             self.watchSource = nil
@@ -135,20 +143,34 @@ final class ActionQueueModel {
         watchedFD = -1
     }
 
-    /// Debounce ~250 ms and coalesce filesystem events, then reload on the main actor.
+    /// Debounce (~250 ms) and coalesce filesystem events, then reload on the main
+    /// actor. Callable from the file-watch event handler, which runs on a
+    /// background DispatchQueue, so it hops to the MainActor before touching
+    /// state. The `watchSource != nil` guard closes the stop-watching race: if
+    /// watching was stopped (e.g. the file was deleted) while a debounce was
+    /// pending, the late reload is skipped.
     nonisolated private func scheduleDebouncedReload() {
-        Task { @MainActor in
-            self.debounceWorkItem?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                Task { @MainActor in self?.reload() }
-            }
-            self.debounceWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        Task { @MainActor in self.scheduleDebouncedReloadNow() }
+    }
+
+    /// MainActor-isolated body of the debounce. Separated so tests can drive it
+    /// directly (the `nonisolated` wrapper just hops onto the MainActor from the
+    /// background file-watch queue). Returns the scheduled task so a test can
+    /// `await` its completion deterministically.
+    @discardableResult
+    func scheduleDebouncedReloadNow() -> Task<Void, Never> {
+        debounceTask?.cancel()
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: self.debounceInterval)
+            guard !Task.isCancelled, self.watchSource != nil else { return }
+            self.reload()
         }
+        debounceTask = task
+        return task
     }
 
     deinit {
-        debounceWorkItem?.cancel()
+        debounceTask?.cancel()
         watchSource?.cancel()
     }
 }

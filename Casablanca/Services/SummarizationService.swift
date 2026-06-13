@@ -255,6 +255,14 @@ final class SummarizationService {
         return SummaryResponseParser.parse(Self.stripReasoning(summary))
     }
 
+    /// Cancels the detached background summarization task, if any. Called on app
+    /// termination so the view-independent task doesn't outlive the process. The
+    /// `Task.isCancelled` guard in `summarizeInBackground`'s catch suppresses the
+    /// resulting cancellation error, so this is a clean stop.
+    func cancelBackgroundWork() {
+        backgroundTask?.cancel()
+    }
+
     func clearError() {
         errorMessage = nil
     }
