@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var interruptionMonitor = RecordingInterruptionMonitor()
     @State private var interruptionNotifier = RecordingNotificationCenter()
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
+    @State private var sidebarMeetings: SidebarMeetingsProvider?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
@@ -27,8 +28,16 @@ struct ContentView: View {
         // the NavigationSplitView detail closure (which has its own rendering context).
         let _ = viewModel.sidebarSelection
         return NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
+            Group {
+                if let sidebarMeetings {
+                    SidebarView(viewModel: viewModel, meetingsProvider: sidebarMeetings)
+                } else {
+                    // Provider is created in `.task` once the modelContext is
+                    // available; show nothing meaningful for the brief gap.
+                    SidebarPlaceholderView()
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
         }
@@ -74,6 +83,9 @@ struct ContentView: View {
         }
         .task {
             viewModel.setModelContext(modelContext)
+            if sidebarMeetings == nil {
+                sidebarMeetings = SidebarMeetingsProvider(modelContext: modelContext)
+            }
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
         }
         .task {

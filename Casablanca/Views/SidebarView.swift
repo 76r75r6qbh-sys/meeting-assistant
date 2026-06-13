@@ -21,8 +21,10 @@ struct SidebarMeetingRowActions {
 
 struct SidebarView: View {
     @Bindable var viewModel: MeetingListViewModel
+    /// Windowed, partial-fetch provider of recent meetings (Phase 3b). Replaces
+    /// the old `@Query` that hydrated every meeting (transcripts included).
+    var meetingsProvider: SidebarMeetingsProvider
     @Environment(AppModel.self) private var appModel
-    @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
     @State private var selection: SidebarDestination? = .dashboard
@@ -99,9 +101,30 @@ struct SidebarView: View {
                         }
                     }
                 }
+
+                if meetingsProvider.hasMore {
+                    Section {
+                        Button {
+                            meetingsProvider.loadMore()
+                        } label: {
+                            Label("Show earlier meetings", systemImage: "clock.arrow.circlepath")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
+                        .listRowBackground(Color.clear)
+                    }
+                }
             }
         }
         .listStyle(.sidebar)
+        // Push the sidebar's title search down into the provider's SQLite fetch.
+        .onChange(of: viewModel.meetingSearchText) { _, new in
+            meetingsProvider.searchText = new
+        }
+        .onAppear {
+            meetingsProvider.searchText = viewModel.meetingSearchText
+        }
         .confirmationDialog(
             meetingPendingDeletion.map { "Delete \"\($0.title)\"?" } ?? "Delete Meeting?",
             isPresented: Binding(
@@ -148,7 +171,7 @@ struct SidebarView: View {
     }
 
     private var recentMeetings: [Meeting] {
-        viewModel.filteredRecentMeetings(from: meetings)
+        viewModel.filteredRecentMeetings(from: meetingsProvider.meetings)
     }
 
     /// Groups the already-filtered, reverse-chronological `recentMeetings` into the
@@ -167,7 +190,7 @@ struct SidebarView: View {
     }
 
     private var upcomingMeetings: [Meeting] {
-        viewModel.filteredUpcomingMeetings(from: meetings)
+        viewModel.filteredUpcomingMeetings(from: meetingsProvider.meetings)
     }
 
     private var deletionErrorBinding: Binding<Bool> {
@@ -296,6 +319,19 @@ struct SidebarMeetingRow: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
         return formatter.string(from: meeting.date)
+    }
+}
+
+/// Shown for the brief moment before the windowed meetings provider is created
+/// (it needs the modelContext, wired in ContentView's `.task`).
+struct SidebarPlaceholderView: View {
+    var body: some View {
+        List {
+            Section {
+                Label("Dashboard", systemImage: "calendar")
+            }
+        }
+        .listStyle(.sidebar)
     }
 }
 
