@@ -37,6 +37,8 @@ struct MeetingTranscriptTab: View {
                             .font(.caption)
                     }
                     .buttonStyle(GhostButtonStyle())
+                    .help("Copy transcript to clipboard")
+                    .accessibilityLabel("Copy transcript")
                 }
 
                 if canReapplyTerminology {
@@ -78,21 +80,15 @@ struct MeetingTranscriptTab: View {
                             .foregroundStyle(Color.textTertiary)
                     }
                     .buttonStyle(.plain)
+                    .help("Dismiss warning")
+                    .accessibilityLabel("Dismiss warning")
                 }
                 .padding(CasaSpace.sm)
                 .background(Color.accentWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
 
             if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ScrollView {
-                    Text(transcript)
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineSpacing(4)
-                }
-                .frame(maxHeight: 280)
+                transcriptBody(transcript)
             } else {
                 ContentUnavailableView {
                     Label("No Transcript Yet", systemImage: "waveform")
@@ -109,6 +105,31 @@ struct MeetingTranscriptTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Renders the transcript: timestamped transcripts become collapsible
+    /// ~5-minute chapters (first expanded); untimestamped transcripts fall back
+    /// to plain selectable text. Uses the full reading column (no inner scroll).
+    @ViewBuilder
+    private func transcriptBody(_ transcript: String) -> some View {
+        switch TranscriptPresentation.parse(transcript) {
+        case .chapters(let chapters):
+            VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                ForEach(Array(chapters.enumerated()), id: \.element.id) { index, chapter in
+                    ChapterDisclosure(chapter: chapter, startsExpanded: index == 0)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .plain(let text):
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Color.textSecondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineSpacing(4)
+        case .empty:
+            EmptyView()
+        }
     }
 
     private func reapplyTerminology() async {
@@ -129,5 +150,46 @@ struct MeetingTranscriptTab: View {
         meeting.transcript = raw
         terminologyService.clearWarning()
         onSave()
+    }
+}
+
+/// One collapsible transcript chapter with a monospaced timestamp gutter on each
+/// segment. The first chapter starts expanded; the rest collapsed.
+private struct ChapterDisclosure: View {
+    let chapter: TranscriptPresentation.Chapter
+    let startsExpanded: Bool
+    @State private var isExpanded: Bool
+
+    init(chapter: TranscriptPresentation.Chapter, startsExpanded: Bool) {
+        self.chapter = chapter
+        self.startsExpanded = startsExpanded
+        _isExpanded = State(initialValue: startsExpanded)
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                ForEach(chapter.segments) { segment in
+                    HStack(alignment: .firstTextBaseline, spacing: CasaSpace.md) {
+                        Text(TranscriptPresentation.formatClock(segment.start))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.textTertiary)
+                            .frame(width: 56, alignment: .trailing)
+                        Text(segment.text)
+                            .font(.body)
+                            .foregroundStyle(Color.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .lineSpacing(4)
+                    }
+                }
+            }
+            .padding(.top, CasaSpace.xs)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text(chapter.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.textPrimary)
+        }
     }
 }

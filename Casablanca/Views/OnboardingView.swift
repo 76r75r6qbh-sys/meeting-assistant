@@ -24,6 +24,7 @@ struct OnboardingView: View {
 
     @State private var step: Step = .welcome
     @State private var llmCheck: LLMCheckState = .idle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum Step: Int, CaseIterable {
         case welcome, vault, permissions, llm
@@ -80,7 +81,7 @@ struct OnboardingView: View {
             .padding(.top, CasaSpace.xl)
             .padding(.bottom, CasaSpace.lg)
         }
-        .frame(width: 460)
+        .frame(width: CasaLayout.modalWidthSmall)
         .frame(minHeight: 520)
         .background(Color.backgroundPrimary)
     }
@@ -439,7 +440,7 @@ struct OnboardingView: View {
                 Capsule()
                     .fill(s == step ? Color.accentPrimary : Color.textTertiary.opacity(0.4))
                     .frame(width: s == step ? 20 : 7, height: 7)
-                    .animation(CasaAnimation.fast, value: step)
+                    .casaAnimation(CasaAnimation.fast, value: step)
             }
         }
         .frame(maxWidth: .infinity)
@@ -470,12 +471,12 @@ struct OnboardingView: View {
 
     private func goForward() {
         guard let next = Step(rawValue: step.rawValue + 1) else { return }
-        withAnimation(CasaAnimation.standard) { step = next }
+        withAnimation(reduceMotion ? nil : CasaAnimation.standard) { step = next }
     }
 
     private func goBack() {
         guard let prev = Step(rawValue: step.rawValue - 1) else { return }
-        withAnimation(CasaAnimation.standard) { step = prev }
+        withAnimation(reduceMotion ? nil : CasaAnimation.standard) { step = prev }
     }
 
     private func finish() {

@@ -22,6 +22,7 @@ struct RecordedMeetingView: View {
     // the user leaves the Notes tab (which tears down MeetingNotesTab).
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -52,7 +53,7 @@ struct RecordedMeetingView: View {
                 }
 
                 Button {
-                    withAnimation(CasaAnimation.fast) { showInspector.toggle() }
+                    withAnimation(reduceMotion ? nil : CasaAnimation.fast) { showInspector.toggle() }
                 } label: {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
@@ -416,6 +417,8 @@ struct RecordedMeetingView: View {
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
+        .help("More actions")
+        .accessibilityLabel("More actions")
     }
 
     private func save() {

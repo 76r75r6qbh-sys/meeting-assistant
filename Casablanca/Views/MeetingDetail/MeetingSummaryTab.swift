@@ -9,6 +9,7 @@ struct MeetingSummaryTab: View {
     let onSummarize: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
 
     var body: some View {
         summaryTab
@@ -17,13 +18,27 @@ struct MeetingSummaryTab: View {
     @ViewBuilder
     private var summaryTab: some View {
         if isSummarizing {
-            HStack(spacing: CasaSpace.sm) {
-                ProgressView()
-                    .controlSize(.small)
+            VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                HStack(spacing: CasaSpace.sm) {
+                    ProgressView()
+                        .controlSize(.small)
 
-                Text(statusMessage.isEmpty ? "Generating summary..." : statusMessage)
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
+                    Text(statusMessage.isEmpty ? "Generating summary..." : statusMessage)
+                        .font(.body)
+                        .foregroundStyle(Color.textSecondary)
+                }
+
+                // Skeleton placeholder lines while the summary is being drafted.
+                VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                    Text(String(repeating: "\u{2588}", count: 48))
+                    Text(String(repeating: "\u{2588}", count: 40))
+                    Text(String(repeating: "\u{2588}", count: 44))
+                }
+                .font(.body)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .casaSkeleton(true)
+                .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if let summary = meeting.summary,
@@ -98,6 +113,8 @@ struct MeetingSummaryTab: View {
                         .font(.caption)
                 }
                 .buttonStyle(GhostButtonStyle())
+                .help("Copy summary to clipboard")
+                .accessibilityLabel("Copy summary")
             }
 
             renderedMarkdownSummary(parsed.summary)
@@ -168,8 +185,11 @@ struct MeetingSummaryTab: View {
                     } label: {
                         Image(systemName: completed ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
+                            .symbolEffect(.bounce, value: completed)
                     }
                     .buttonStyle(.borderless)
+                    .help(completed ? "Mark as not done" : "Mark as done")
+                    .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
 
                     Text(text)
                         .font(.body)
@@ -224,21 +244,26 @@ struct MeetingSummaryTab: View {
     /// the text, its `isCompleted` is flipped; otherwise a new completed todo is
     /// created (a check on a not-yet-tracked item).
     private func toggleActionItem(_ text: String) {
-        if let todo = matchingTodo(for: text) {
-            try? ObsidianTodoSyncService.setCompleted(
-                !todo.isCompleted,
-                for: todo,
-                in: modelContext
-            )
-        } else {
-            try? ObsidianTodoSyncService.createMeetingTodo(
-                text: text,
-                meeting: meeting,
-                in: modelContext
-            )
-            if let created = matchingTodo(for: text) {
-                try? ObsidianTodoSyncService.setCompleted(true, for: created, in: modelContext)
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        do {
+            if let todo = matchingTodo(for: text) {
+                try ObsidianTodoSyncService.setCompleted(
+                    !todo.isCompleted,
+                    for: todo,
+                    in: modelContext
+                )
+            } else {
+                try ObsidianTodoSyncService.createMeetingTodo(
+                    text: text,
+                    meeting: meeting,
+                    in: modelContext
+                )
+                if let created = matchingTodo(for: text) {
+                    try ObsidianTodoSyncService.setCompleted(true, for: created, in: modelContext)
+                }
             }
+        } catch {
+            appModel.toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
         }
     }
 }

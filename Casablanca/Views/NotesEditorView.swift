@@ -88,7 +88,7 @@ struct NotesEditorView: View {
                 )
             }
         }
-        .animation(CasaAnimation.standard, value: presentation.isFocusModeActive)
+        .casaAnimation(CasaAnimation.standard, value: presentation.isFocusModeActive)
         .onExitCommand {
             if recordingWorkspaceFocusMode {
                 recordingWorkspaceFocusMode = false
@@ -115,11 +115,12 @@ struct NotesEditorView: View {
                     .help(isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
 
                     Button {
-                        recordingWorkspaceFocusMode = true
+                        recordingWorkspaceFocusMode.toggle()
                     } label: {
                         Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
-                    .help("Distraction-free notes (Esc to exit)")
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .help("Distraction-free notes (\u{2318}\u{21E7}F · Esc to exit)")
                 }
             }
         }

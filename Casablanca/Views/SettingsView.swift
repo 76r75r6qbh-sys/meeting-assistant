@@ -558,7 +558,7 @@ struct SettingsView: View {
             .padding(.horizontal, CasaSpace.xl)
             .padding(.vertical, CasaSpace.sm)
         }
-        .frame(width: 560)
+        .frame(width: CasaLayout.modalWidthLarge)
         .fixedSize(horizontal: false, vertical: true)
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }

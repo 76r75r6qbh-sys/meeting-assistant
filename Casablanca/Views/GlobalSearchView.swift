@@ -21,6 +21,7 @@ struct GlobalSearchView: View {
     @State private var query = ""
     @State private var selectedIndex = 0
     @FocusState private var fieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - Body
 
@@ -44,7 +45,7 @@ struct GlobalSearchView: View {
                 footer
             }
         }
-        .frame(width: 560)
+        .frame(width: CasaLayout.modalWidthLarge)
         .frame(maxHeight: 520)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: CasaRadius.xl))
@@ -136,7 +137,7 @@ struct GlobalSearchView: View {
                 .padding(.bottom, CasaSpace.xs)
             }
             .onChange(of: selectedIndex) { _, new in
-                withAnimation(CasaAnimation.fast) {
+                withAnimation(reduceMotion ? nil : CasaAnimation.fast) {
                     proxy.scrollTo(new, anchor: .center)
                 }
             }
@@ -195,21 +196,11 @@ struct GlobalSearchView: View {
         .onTapGesture { open(row) }
     }
 
-    /// Renders `text` with the matched substring of the *settled* query
-    /// accent-tinted. Uses the VM's settled query (not the in-flight field text)
-    /// so highlighting always matches the results actually on screen.
+    /// Renders `text` with EVERY case-insensitive occurrence of the *settled*
+    /// query accent-tinted. Uses the VM's settled query (not the in-flight field
+    /// text) so highlighting always matches the results actually on screen.
     private func highlighted(_ text: String) -> Text {
-        let needle = searchViewModel.settledQuery
-        guard !needle.isEmpty,
-              let range = text.range(of: needle, options: .caseInsensitive) else {
-            return Text(text)
-        }
-        let before = String(text[text.startIndex..<range.lowerBound])
-        let match = String(text[range])
-        let after = String(text[range.upperBound...])
-        return Text(before)
-            + Text(match).foregroundColor(Color.accentColor).bold()
-            + Text(after)
+        Text(highlightOccurrences(of: searchViewModel.settledQuery, in: text))
     }
 
     private var footer: some View {

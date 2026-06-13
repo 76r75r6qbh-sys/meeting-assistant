@@ -1,3 +1,4 @@
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -7,6 +8,7 @@ struct MeetingTodosPanel: View {
     @Bindable var meeting: Meeting
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
     @State private var newTodoText = ""
 
     var body: some View {
@@ -22,17 +24,16 @@ struct MeetingTodosPanel: View {
                         ForEach(meeting.todos) { todo in
                             HStack(spacing: CasaSpace.sm) {
                                 Button {
-                                    try? ObsidianTodoSyncService.setCompleted(
-                                        !todo.isCompleted,
-                                        for: todo,
-                                        in: modelContext
-                                    )
+                                    toggle(todo)
                                 } label: {
                                     Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                                         .font(.body)
                                         .foregroundStyle(todo.isCompleted ? Color.accentColor : Color.textTertiary)
+                                        .symbolEffect(.bounce, value: todo.isCompleted)
                                 }
                                 .buttonStyle(.plain)
+                                .help(todo.isCompleted ? "Mark as not done" : "Mark as done")
+                                .accessibilityLabel(todo.isCompleted ? "Completed: \(todo.text)" : "Not completed: \(todo.text)")
 
                                 Text(todo.text)
                                     .font(.body)
@@ -69,10 +70,25 @@ struct MeetingTodosPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(newTodoText.trimmingCharacters(in: .whitespaces).isEmpty)
+                .help("Add to-do")
+                .accessibilityLabel("Add to-do")
             }
             .padding(.horizontal, CasaSpace.lg)
             .padding(.vertical, CasaSpace.md)
             .background(.bar)
+        }
+    }
+
+    private func toggle(_ todo: TodoItem) {
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        do {
+            try ObsidianTodoSyncService.setCompleted(
+                !todo.isCompleted,
+                for: todo,
+                in: modelContext
+            )
+        } catch {
+            appModel.toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
         }
     }
 

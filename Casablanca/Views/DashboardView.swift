@@ -11,9 +11,7 @@ struct DashboardView: View {
             if !viewModel.calendarAuthorized {
                 calendarAccessView
             } else if viewModel.isLoading {
-                ProgressView("Loading your calendar\u{2026}")
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                loadingSkeleton
             } else if !viewModel.hasEvents {
                 emptyStateView
             } else {
@@ -42,6 +40,45 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    /// Placeholder hero + meeting rows shown while the calendar is loading, so
+    /// the dashboard keeps its shape instead of flashing a bare spinner.
+    private var loadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            // Hero placeholder
+            HStack(alignment: .center, spacing: CasaSpace.lg) {
+                VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                    Text("Up next placeholder")
+                        .font(.title2.weight(.bold))
+                    Text("Meeting title placeholder line here")
+                        .font(.body)
+                }
+                Spacer()
+            }
+            .padding(CasaSpace.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
+
+            // Meeting row placeholders
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                        Text("Meeting title placeholder row")
+                            .font(.headline)
+                        Text("10:00 – 11:00 placeholder subtitle")
+                            .font(.caption)
+                    }
+                    .padding(CasaSpace.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardStyle()
+                }
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .casaSkeleton(true)
+        .accessibilityLabel("Loading your calendar")
     }
 
     private var meetingListView: some View {
@@ -144,6 +181,8 @@ struct DashboardView: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(previousDay == nil)
+            .help("Previous day")
+            .accessibilityLabel("Previous day")
 
             VStack(alignment: .leading, spacing: CasaSpace.xxs) {
                 Text(selectedDayTitle)
@@ -164,6 +203,8 @@ struct DashboardView: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(nextDay == nil)
+            .help("Next day")
+            .accessibilityLabel("Next day")
         }
     }
 

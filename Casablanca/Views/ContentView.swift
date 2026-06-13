@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Focus mode is only meaningful inside a meeting workspace.
     private var isFocusModeActive: Bool {
@@ -41,6 +42,7 @@ struct ContentView: View {
         } detail: {
             detailView
         }
+        .toastOverlay(appModel.toastCenter)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -114,7 +116,7 @@ struct ContentView: View {
             detailRoute = new
         }
         .onChange(of: isFocusModeActive) { _, focused in
-            withAnimation(CasaAnimation.standard) {
+            withAnimation(reduceMotion ? nil : CasaAnimation.standard) {
                 columnVisibility = focused ? .detailOnly : .automatic
             }
         }

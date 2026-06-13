@@ -357,7 +357,7 @@ private struct ActionQueueDetailSheet: View {
             Divider()
             actionBar
         }
-        .frame(width: 600)
+        .frame(width: CasaLayout.modalWidthXL)
         .frame(minHeight: 420)
         .overlay(alignment: .topTrailing) { closeButton }
     }

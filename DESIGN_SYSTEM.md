@@ -166,6 +166,15 @@ All spacing derives from a 4pt base unit:
 | Small element radius | 4pt | Tags, badges, chips |
 | Content max width | 720pt | Readable line length for notes/transcript |
 | Inspector panel width | 280pt | Right-side detail panel |
+| Popover width | 288pt | `CasaLayout.popoverWidth` |
+| Modal width — small | 460pt | `CasaLayout.modalWidthSmall` (Onboarding) |
+| Modal width — medium | 520pt | `CasaLayout.modalWidthMedium` (Update prompt) |
+| Modal width — large | 560pt | `CasaLayout.modalWidthLarge` (Global Search, Settings) |
+| Modal width — XL | 600pt | `CasaLayout.modalWidthXL` (Action Queue) |
+
+Sheets and modal panels use the `CasaLayout.modalWidth*` tier tokens rather than
+hardcoded `.frame(width:)` values, so modal sizing stays consistent and tunable
+in one place.
 
 ### 4.3 Window Layout
 
