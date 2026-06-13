@@ -24,7 +24,10 @@ enum MeetingSeriesResolver {
     /// `calendarEventID`; they are distinguished by their start `date`.
     static func isSameOccurrence(_ a: Meeting, asEventID eventID: String, occurrenceStart: Date) -> Bool {
         guard let id = a.calendarEventID, !id.isEmpty, id == eventID else { return false }
-        return a.date == occurrenceStart
+        // Compare at second granularity to match the disambiguation key used by
+        // `findOrCreateMeeting` (see `Meeting.normalizedOccurrenceDate`), so a
+        // sub-second-jittered `occurrenceStart` still resolves to the same row.
+        return Meeting.normalizedOccurrenceDate(a.date) == Meeting.normalizedOccurrenceDate(occurrenceStart)
     }
 
     /// The PREVIOUS occurrence of `meeting`'s series: the most-recent meeting

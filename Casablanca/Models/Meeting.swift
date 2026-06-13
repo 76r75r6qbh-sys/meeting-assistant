@@ -183,6 +183,31 @@ final class Meeting {
         return "\(formatter.string(from: date)) \(sanitizedTitle)"
     }
 
+    // MARK: - Occurrence date normalization
+
+    /// Canonical form of a recurring-event occurrence start used as the
+    /// disambiguation key in ``MeetingListViewModel/findOrCreateMeeting``.
+    ///
+    /// EventKit can hand back an `EKEvent.startDate` for the SAME occurrence that
+    /// differs by a sub-second amount between two fetches. The match path uses an
+    /// exact `Date ==` in a `#Predicate`, so an un-normalized jittered start would
+    /// miss the existing row and create a DUPLICATE meeting (re-introducing the
+    /// notes/transcript collision in reverse). We therefore round the start to the
+    /// nearest WHOLE SECOND at BOTH the create and the match path, so two `Date`s
+    /// with identical wall-clock-to-the-second compare equal.
+    ///
+    /// Rounding (`.rounded()`, i.e. round-half-to-even at the second boundary) is
+    /// chosen over flooring purely so the collapse is symmetric around the true
+    /// instant — flooring would also work; the only invariant that matters is that
+    /// both paths apply the SAME transform. Second granularity is invisible to
+    /// users (all display formatters are `HH:mm` / `yyyy-MM-dd`) and to series
+    /// ordering (`MeetingSeriesResolver` orders by `<`/`>` and real occurrences are
+    /// minutes-to-days apart), so nothing user-facing depends on sub-second
+    /// precision.
+    static func normalizedOccurrenceDate(_ date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded())
+    }
+
     // MARK: - Tags
 
     /// The single source of truth for how a raw tag string becomes its canonical

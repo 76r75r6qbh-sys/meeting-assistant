@@ -44,6 +44,26 @@ final class MeetingSeriesResolverTests: XCTestCase {
         XCTAssertEqual(meetings.count, 2)
     }
 
+    func testSubSecondJitteredOccurrenceStartReturnsSameRowNotADuplicate() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let viewModel = MeetingListViewModel(calendarService: CalendarService())
+        viewModel.setModelContext(context)
+
+        let sharedID = "recurring-shared-id"
+        // Same occurrence, but EventKit hands back a start that differs by a
+        // sub-second amount (< 0.5s) between two fetches. Normalization to whole
+        // seconds must collapse them to the SAME row — no duplicate.
+        let firstFetch = findOrCreate(viewModel, id: sharedID, start: Date(timeIntervalSince1970: 1_000.0))
+        let secondFetch = findOrCreate(viewModel, id: sharedID, start: Date(timeIntervalSince1970: 1_000.3))
+
+        XCTAssertNotNil(firstFetch)
+        XCTAssertEqual(firstFetch?.id, secondFetch?.id, "Jittered start for the same occurrence must resolve to the same row")
+
+        let meetings = try context.fetch(FetchDescriptor<Meeting>())
+        XCTAssertEqual(meetings.count, 1, "Sub-second jitter must not create a duplicate meeting")
+    }
+
     func testOpeningAnOccurrenceReturnsItsOwnRowNotTheFirst() throws {
         let container = try makeContainer()
         let context = ModelContext(container)

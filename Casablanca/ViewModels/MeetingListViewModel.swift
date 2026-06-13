@@ -174,6 +174,14 @@ final class MeetingListViewModel {
     /// opens occurrence 2, colliding their notes/transcript. We therefore
     /// disambiguate by the occurrence's start date (`Meeting.date`, which stores
     /// the occurrence's `event.startDate`).
+    ///
+    /// The occurrence start is normalized to whole seconds (via
+    /// ``Meeting/normalizedOccurrenceDate(_:)``) at BOTH the `#Predicate` match
+    /// AND before storing `meeting.date`, so a created row and a later lookup of
+    /// the SAME occurrence agree even if EventKit returns a sub-second-jittered
+    /// `startDate` between fetches — otherwise the exact `Date ==` would miss and
+    /// create a duplicate. Normalization happens here (not at the callers) so the
+    /// invariant holds for every entry point, including the EKEvent overload.
     func findOrCreateMeeting(
         calendarEventID: String?,
         occurrenceStart: Date,
@@ -184,9 +192,10 @@ final class MeetingListViewModel {
         guard let modelContext else { return nil }
 
         let eventID = calendarEventID ?? ""
+        let normalizedStart = Meeting.normalizedOccurrenceDate(occurrenceStart)
         let descriptor = FetchDescriptor<Meeting>(
             predicate: #Predicate { meeting in
-                meeting.calendarEventID == eventID && meeting.date == occurrenceStart
+                meeting.calendarEventID == eventID && meeting.date == normalizedStart
             }
         )
 
@@ -202,7 +211,7 @@ final class MeetingListViewModel {
         // Create new meeting from calendar event
         let meeting = Meeting(
             title: title,
-            date: occurrenceStart,
+            date: normalizedStart,
             endDate: endDate,
             calendarEventID: calendarEventID,
             participants: participants
