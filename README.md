@@ -2,7 +2,7 @@
 
 Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with a local LLM (Ollama or oMLX), and exporting meeting notes to Obsidian or Apple Notes.
 
-## What `v0.7.1` includes
+## What `v0.8.0` includes
 
 - Calendar-driven meeting list plus manual meetings
 - Live meeting workspace with freeform notes by default and optional timestamped capture
@@ -12,6 +12,20 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
 - **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
+
+### New in `v0.8.0`
+
+- **Meeting tags** — label meetings and filter the sidebar by tag; tags are searchable and written to Obsidian frontmatter
+- **Ask your meeting** — a grounded Q&A chat that answers from a meeting's transcript, summary, and notes using your local LLM
+- **Auto-record prompt** — an optional notification at a meeting's start time with a one-tap "Start Recording" action
+- **Recurring-series linking** — surfaces the previous occurrence's summary and carries open action items into prep; fixes an occurrence-collision bug
+- **Compressed recordings** — finished recordings are encoded to AAC/m4a (~5–8× smaller), with a "Keep original WAV" option
+- **Unified processing status** — a single transcribe → summarize → export card with per-stage cancel, retry, and error surfacing
+- **Faster at scale** — windowed sidebar and debounced full-content search (including summaries) stay responsive with thousands of meetings
+- **Reliability** — local-LLM retry with backoff, corrupt-store recovery, event-driven calendar refresh, and audio thread-safety hardening
+- **UX polish** — undoable meeting deletion, loading skeletons, transcript chapters, search highlight-all, reduce-motion support, and a `⌘⇧F` focus-mode shortcut
+- **Native notes editor (beta)** — an `NSTextView`-based markdown editor behind a Settings toggle, with selection-aware formatting
+- See [`CHANGELOG.md`](CHANGELOG.md) for the full list.
 
 ## Requirements
 
