@@ -79,6 +79,9 @@
 		A10101 /* MeetingTimeBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* MeetingTimeBucketTests.swift */; };
 		A10102 /* MeetingSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102 /* MeetingSearchIndex.swift */; };
 		A10103 /* MeetingSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MeetingSearchIndexTests.swift */; };
+		A10108 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10108 /* PersistenceController.swift */; };
+		A10105 /* PersistenceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* PersistenceControllerTests.swift */; };
+		A10106 /* ExternalStorageSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* ExternalStorageSpikeTests.swift */; };
 		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
 		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
@@ -230,6 +233,9 @@
 		B10101 /* MeetingTimeBucketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucketTests.swift; sourceTree = "<group>"; };
 		B10102 /* MeetingSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndex.swift; sourceTree = "<group>"; };
 		B10103 /* MeetingSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndexTests.swift; sourceTree = "<group>"; };
+		B10108 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		B10105 /* PersistenceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceControllerTests.swift; sourceTree = "<group>"; };
+		B10106 /* ExternalStorageSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalStorageSpikeTests.swift; sourceTree = "<group>"; };
 		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
 		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
@@ -448,6 +454,7 @@
 				B10100 /* MeetingTimeBucket.swift */,
 				B10102 /* MeetingSearchIndex.swift */,
 				B10047 /* RecordingResumeSessionStore.swift */,
+				B10108 /* PersistenceController.swift */,
 				B10048 /* RecordingInterruptionMonitor.swift */,
 				B10050 /* RecordingInterruptionCoordinator.swift */,
 				B10052 /* RecordingNotificationCenter.swift */,
@@ -553,6 +560,8 @@
 				B10028 /* SummaryResponseParserTests.swift */,
 				B10101 /* MeetingTimeBucketTests.swift */,
 				B10103 /* MeetingSearchIndexTests.swift */,
+				B10105 /* PersistenceControllerTests.swift */,
+				B10106 /* ExternalStorageSpikeTests.swift */,
 				B10033 /* MarkdownEditorBundleTests.swift */,
 				B10035 /* MeetingStartFlowTests.swift */,
 				B10037 /* MeetingPrepServiceTests.swift */,
@@ -755,6 +764,7 @@
 				A10040 /* ObsidianTodoMarkdown.swift in Sources */,
 				A10042 /* ObsidianTodoSyncService.swift in Sources */,
 				A10047 /* RecordingResumeSessionStore.swift in Sources */,
+				A10108 /* PersistenceController.swift in Sources */,
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
@@ -799,6 +809,8 @@
 				A10028 /* SummaryResponseParserTests.swift in Sources */,
 				A10101 /* MeetingTimeBucketTests.swift in Sources */,
 				A10103 /* MeetingSearchIndexTests.swift in Sources */,
+				A10105 /* PersistenceControllerTests.swift in Sources */,
+				A10106 /* ExternalStorageSpikeTests.swift in Sources */,
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
 				A10035 /* MeetingStartFlowTests.swift in Sources */,
 				A10037 /* MeetingPrepServiceTests.swift in Sources */,

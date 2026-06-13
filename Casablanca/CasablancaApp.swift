@@ -9,16 +9,52 @@ struct CasablancaApp: App {
 
     @State private var appModel: AppModel
     @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
+    @State private var storeFailure: StoreFailure?
     private let sharedModelContainer: ModelContainer
+
+    /// Unrecoverable persistence failure surfaced to the user instead of a crash.
+    private struct StoreFailure: Identifiable {
+        let id = UUID()
+        let message: String
+    }
 
     init() {
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
         do {
-            sharedModelContainer = try ModelContainer(for: Meeting.self, TodoItem.self)
+            let result = try PersistenceController.makeAppContainer()
+            sharedModelContainer = result.container
+            if case .recovered(let backups) = result.recovery {
+                _storeFailure = State(initialValue: StoreFailure(
+                    message: "Your meeting database could not be opened and may have been corrupted. "
+                        + "A fresh database has been created so Casablanca can keep working. "
+                        + "Your previous data has been backed up (not deleted) and may be recoverable:\n\n"
+                        + backups.map(\.lastPathComponent).joined(separator: "\n")
+                ))
+            }
+            _appModel = State(initialValue: AppModel())
         } catch {
-            fatalError("Failed to create model container: \(error)")
+            // Even a fresh store could not be created. Fall back to an
+            // in-memory store so the window can still open and present the
+            // failure, rather than crashing on launch.
+            Log.persistence.error("Falling back to in-memory store: \(error.localizedDescription)")
+            do {
+                let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+                sharedModelContainer = try ModelContainer(
+                    for: Meeting.self, TodoItem.self, configurations: configuration
+                )
+            } catch {
+                // In-memory creation should never fail for a valid schema; if it
+                // does, the schema itself is broken and there is nothing to do.
+                Log.persistence.error("In-memory ModelContainer creation failed: \(error.localizedDescription)")
+                fatalError("Unrecoverable persistence failure: \(error.localizedDescription)")
+            }
+            _storeFailure = State(initialValue: StoreFailure(
+                message: "Casablanca could not open or recreate its meeting database. "
+                    + "It is running in a temporary mode and changes will not be saved. "
+                    + "Please restart the app; if the problem persists, contact support."
+            ))
+            _appModel = State(initialValue: AppModel())
         }
-        _appModel = State(initialValue: AppModel())
     }
 
     var body: some Scene {
@@ -66,6 +102,16 @@ struct CasablancaApp: App {
                     message: { error in
                         Text(error.errorDescription ?? "Update failed.")
                     }
+                )
+                .alert(
+                    "Meeting Database",
+                    isPresented: Binding(
+                        get: { storeFailure != nil },
+                        set: { if !$0 { storeFailure = nil } }
+                    ),
+                    presenting: storeFailure,
+                    actions: { _ in Button("OK") { storeFailure = nil } },
+                    message: { Text($0.message) }
                 )
         }
         .modelContainer(sharedModelContainer)

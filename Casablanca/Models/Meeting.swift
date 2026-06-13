@@ -76,6 +76,14 @@ final class Meeting {
     var participants: [String]
     var status: MeetingStatus
     var userNotes: String
+    // NOTE (Phase 3a spike, macOS 14/15): do NOT add @Attribute(.externalStorage)
+    // to `transcript` / `rawTranscript`. The spike (ExternalStorageSpikeTests)
+    // proved it is a silent NO-OP on String/String? — saving a ~4 MB transcript
+    // produced ZERO files in the store's _EXTERNAL_DATA directory; the value
+    // stays inline in the row. `.externalStorage` only externalizes `Data`.
+    // It round-trips fine, but adds migration risk for no benefit, so it was
+    // dropped. The real fix for large-transcript memory/IO pressure is Phase 3b's
+    // `propertiesToFetch` (fetch metadata without hydrating these large columns).
     var transcript: String?
     var rawTranscript: String?
     var summary: String?
