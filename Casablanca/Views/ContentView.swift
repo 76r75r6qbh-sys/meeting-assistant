@@ -5,13 +5,13 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: MeetingListViewModel
     @Environment(AppModel.self) private var appModel
-    @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     private var recordingService: AudioRecordingService { appModel.recordingService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
     @State private var interruptionMonitor = RecordingInterruptionMonitor()
     @State private var interruptionNotifier = RecordingNotificationCenter()
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
     @State private var sidebarMeetings: SidebarMeetingsProvider?
+    @State private var searchViewModel: GlobalSearchViewModel?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
@@ -58,12 +58,13 @@ struct ContentView: View {
                 .hidden()
         )
         .sheet(isPresented: $showSearch) {
-            GlobalSearchView(
-                meetings: meetings,
-                viewModel: viewModel,
-                actionQueueModel: appModel.actionQueueModel,
-                onDismiss: { showSearch = false }
-            )
+            if let searchViewModel {
+                GlobalSearchView(
+                    searchViewModel: searchViewModel,
+                    viewModel: viewModel,
+                    onDismiss: { showSearch = false }
+                )
+            }
         }
         .sheet(item: prepMeetingBinding) { meeting in
             PrepEditorView(
@@ -85,6 +86,12 @@ struct ContentView: View {
             viewModel.setModelContext(modelContext)
             if sidebarMeetings == nil {
                 sidebarMeetings = SidebarMeetingsProvider(modelContext: modelContext)
+            }
+            if searchViewModel == nil {
+                searchViewModel = GlobalSearchViewModel(
+                    modelContext: modelContext,
+                    actionQueueModel: appModel.actionQueueModel
+                )
             }
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
         }

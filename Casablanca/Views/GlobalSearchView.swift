@@ -2,16 +2,20 @@ import SwiftUI
 
 /// A Spotlight-style global search overlay (⌘F).
 ///
-/// Searches the in-memory `meetings` (via ``MeetingSearchIndex``) plus the
+/// Searches via ``GlobalSearchViewModel`` (debounced, two-tier: SQLite
+/// predicates + a bounded in-memory transcript/participant scan) plus the
 /// action-queue items, groups the results by source, and navigates the app on
 /// selection. Presented as a sheet from `ContentView`.
+///
+/// The view does NO searching itself: it binds the field to the VM and renders
+/// `searchViewModel.results` / `searchViewModel.approvalItems`. The search runs
+/// once per settled query in the VM, not on every render/keystroke.
 ///
 /// Keyboard: ↑/↓ move the selection, ⏎ opens the selected result, esc dismisses.
 /// Rows are also clickable.
 struct GlobalSearchView: View {
-    let meetings: [Meeting]
+    let searchViewModel: GlobalSearchViewModel
     @Bindable var viewModel: MeetingListViewModel
-    let actionQueueModel: ActionQueueModel
     let onDismiss: () -> Void
 
     @State private var query = ""
@@ -27,7 +31,13 @@ struct GlobalSearchView: View {
             if trimmedQuery.isEmpty {
                 emptyPrompt
             } else if rows.isEmpty {
-                noResults
+                // While the debounced search is still in flight (the VM hasn't
+                // settled on this query yet) show nothing rather than flashing
+                // "No Results"; only show it once the search has completed and
+                // genuinely returned nothing.
+                if searchCompleted {
+                    noResults
+                }
             } else {
                 resultsList
                 Divider()
@@ -43,7 +53,13 @@ struct GlobalSearchView: View {
                 .strokeBorder(Color.borderSubtle, lineWidth: 1)
         )
         .onAppear { fieldFocused = true }
-        .onChange(of: query) { _, _ in selectedIndex = 0 }
+        .onChange(of: query) { _, newValue in
+            selectedIndex = 0
+            // Hand the query to the VM, which debounces (250 ms) and runs the
+            // two-tier search once the query settles — never per keystroke.
+            searchViewModel.search(newValue)
+        }
+        .onDisappear { searchViewModel.clear() }
     }
 
     // MARK: - Header / search field
@@ -179,9 +195,11 @@ struct GlobalSearchView: View {
         .onTapGesture { open(row) }
     }
 
-    /// Renders `text` with the matched substring of the current query accent-tinted.
+    /// Renders `text` with the matched substring of the *settled* query
+    /// accent-tinted. Uses the VM's settled query (not the in-flight field text)
+    /// so highlighting always matches the results actually on screen.
     private func highlighted(_ text: String) -> Text {
-        let needle = trimmedQuery
+        let needle = searchViewModel.settledQuery
         guard !needle.isEmpty,
               let range = text.range(of: needle, options: .caseInsensitive) else {
             return Text(text)
@@ -224,38 +242,44 @@ struct GlobalSearchView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// True once the VM has finished searching for the *current* field text, so
+    /// the view can tell "still debouncing" apart from "searched, found nothing".
+    private var searchCompleted: Bool {
+        searchViewModel.settledQuery == trimmedQuery
+    }
+
     /// All rows flattened in display order, each tagged with its global index
     /// (so arrow-key selection maps onto a single integer).
     private var rows: [ResultRow] {
         groups.flatMap(\.rows)
     }
 
-    /// Grouped, display-ordered results. Empty groups are omitted.
+    /// Grouped, display-ordered results, built from the VM's already-computed
+    /// (debounced) results — the view does NO searching here. Empty groups are
+    /// omitted.
     private var groups: [ResultGroup] {
-        let needle = trimmedQuery
-        guard !needle.isEmpty else { return [] }
-
-        let searchResults = MeetingSearchIndex.search(needle, in: meetings)
+        let searchResults = searchViewModel.results
+        guard !searchResults.isEmpty || !searchViewModel.approvalItems.isEmpty else { return [] }
 
         // People — dedupe by person name, count their meetings.
         var personMeetings: [String: Set<UUID>] = [:]
+        var personLatest: [String: Meeting] = [:]
         var personOrder: [String] = []
         for result in searchResults where result.kind == .person {
             guard let person = result.person else { continue }
             if personMeetings[person] == nil { personOrder.append(person) }
             personMeetings[person, default: []].insert(result.meeting.id)
+            if let current = personLatest[person] {
+                if result.meeting.date > current.date { personLatest[person] = result.meeting }
+            } else {
+                personLatest[person] = result.meeting
+            }
         }
 
         let titleResults = searchResults.filter { $0.kind == .title }
         let summaryResults = searchResults.filter { $0.kind == .summary }
         let transcriptResults = searchResults.filter { $0.kind == .transcript }
         let notesResults = searchResults.filter { $0.kind == .notes }
-
-        let lowerNeedle = needle.lowercased()
-        let approvalItems = actionQueueModel.items.filter { item in
-            item.title.lowercased().contains(lowerNeedle)
-            || item.body.lowercased().contains(lowerNeedle)
-        }
 
         var built: [ResultGroup] = []
         var cursor = 0
@@ -271,22 +295,15 @@ struct GlobalSearchView: View {
 
         makeGroup("People", personOrder.map { person in
             .person(name: person, count: personMeetings[person]?.count ?? 0,
-                    meeting: latestMeeting(for: person))
+                    meeting: personLatest[person])
         })
         makeGroup("Meetings", titleResults.map { .meeting($0.meeting) })
         makeGroup("In summaries", summaryResults.map { .snippetMeeting($0.meeting, kind: .summary, snippet: $0.snippet) })
         makeGroup("In transcripts", transcriptResults.map { .snippetMeeting($0.meeting, kind: .transcript, snippet: $0.snippet) })
         makeGroup("Notes", notesResults.map { .snippetMeeting($0.meeting, kind: .notes, snippet: $0.snippet) })
-        makeGroup("Approvals", approvalItems.map { .approval($0) })
+        makeGroup("Approvals", searchViewModel.approvalItems.map { .approval($0) })
 
         return built
-    }
-
-    /// The most recent meeting a person participated in, among the search set.
-    private func latestMeeting(for person: String) -> Meeting? {
-        meetings
-            .filter { $0.participants.contains(where: { $0.localizedCaseInsensitiveContains(person) }) }
-            .max { $0.date < $1.date }
     }
 
     // MARK: - Selection / navigation

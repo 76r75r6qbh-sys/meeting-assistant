@@ -85,7 +85,10 @@ enum MeetingSearchIndex {
     /// Returns ~±``snippetContext`` characters of context around the first
     /// case-insensitive occurrence of `needle` in `text`, clamped to string
     /// bounds. Returns `nil` if `needle` is not found.
-    private static func snippet(from text: String, matching needle: String) -> String? {
+    ///
+    /// Internal (not private) so ``GlobalSearchViewModel`` reuses the exact same
+    /// snippet extraction for its Tier 1 predicate matches.
+    static func snippet(from text: String, matching needle: String) -> String? {
         guard let matchRange = text.range(of: needle, options: .caseInsensitive) else {
             return nil
         }

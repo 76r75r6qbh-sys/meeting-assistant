@@ -339,7 +339,11 @@ final class MeetingListViewModel {
         }
 
         let queryFiltered = filteredMeetings.filter { meeting in
-            meeting.title.localizedCaseInsensitiveContains(query)
+            // Use `localizedStandardContains` to match the DB-side title
+            // predicate in `SidebarMeetingsProvider` exactly (case- AND
+            // diacritic-insensitive), so the Swift residual filter and the
+            // SQLite fetch agree on what "matches".
+            meeting.title.localizedStandardContains(query)
         }
 
         return sortMeetings(queryFiltered, in: section)
