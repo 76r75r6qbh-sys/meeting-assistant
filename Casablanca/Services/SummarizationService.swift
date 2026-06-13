@@ -55,34 +55,15 @@ final class SummarizationService {
 
     /// Upper bound on generated summary length when thinking is OFF. Local models
     /// can otherwise ramble or loop for thousands of tokens on a short transcript.
-    static let maxSummaryTokens = 2000
+    /// Kept as a forwarding alias to the shared helper so existing callers
+    /// (PrepEditorView, tests) keep working.
+    static var maxSummaryTokens: Int { LLMPromptSupport.cappedOutputTokens }
 
-    /// Removes chain-of-thought blocks reasoning models emit before their answer
-    /// (e.g. `<think>…</think>` / `<thinking>…</thinking>`), so they don't end up
-    /// in the stored summary. Handles an unclosed tag (output cut mid-thought) by
-    /// dropping from the opening tag onward.
+    /// Removes chain-of-thought blocks reasoning models emit before their answer.
+    /// Forwards to the shared `LLMPromptSupport.stripReasoning` so the summary,
+    /// prep and chat flows all use one copy.
     static func stripReasoning(_ text: String) -> String {
-        var s = text
-        for tag in ["think", "thinking"] {
-            s = s.replacingOccurrences(
-                of: "(?is)<\(tag)>.*?</\(tag)>",
-                with: "",
-                options: .regularExpression
-            )
-            if let open = s.range(of: "<\(tag)>", options: .caseInsensitive) {
-                s = String(s[..<open.lowerBound])
-            }
-        }
-        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Fallback for models that emit UNTAGGED chain-of-thought before the
-        // answer: the structured summary begins at a top-level "# " heading, so
-        // if a real heading exists, drop any reasoning preamble before it.
-        if let h1 = s.range(of: "(?m)^#[ \\t]+\\S", options: .regularExpression),
-           h1.lowerBound != s.startIndex {
-            s = String(s[h1.lowerBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return s
+        LLMPromptSupport.stripReasoning(text)
     }
 
     /// Where the summarization pipeline currently is. Drives `statusMessage`.
@@ -227,12 +208,10 @@ final class SummarizationService {
         // When thinking is disabled (default), append the Qwen soft-switch and
         // allow only a tight output budget; when enabled, give room for the
         // reasoning to complete before the answer.
-        let thinkingEnabled = UserDefaults.standard.bool(forKey: AppPreferenceKey.summaryThinkingEnabled)
-        if !thinkingEnabled {
-            prompt += "\n\n/no_think"
-        }
+        let thinkingEnabled = LLMPromptSupport.thinkingEnabled()
+        prompt = LLMPromptSupport.applyThinkingSwitch(to: prompt, thinkingEnabled: thinkingEnabled)
         // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
-        let tokenBudget: Int? = thinkingEnabled ? nil : Self.maxSummaryTokens
+        let tokenBudget = LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled)
 
         var wasTruncated = false
         let retryPolicy = LLMRetryPolicy()

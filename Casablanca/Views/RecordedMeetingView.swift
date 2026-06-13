@@ -22,12 +22,17 @@ struct RecordedMeetingView: View {
     // the user leaves the Notes tab (which tears down MeetingNotesTab).
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
+    // In-memory chat, owned by this detail view so it survives tab switches and
+    // resets when the user navigates to a different meeting (keyed internally by
+    // meeting id). No persistence in v1.
+    @State private var chatService = MeetingChatService()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
         case transcript = "Transcript"
         case notes = "Notes"
+        case ask = "Ask"
 
         var id: String { rawValue }
     }
@@ -124,6 +129,15 @@ struct RecordedMeetingView: View {
                     meeting: meeting,
                     isEditingNotes: $isEditingNotes,
                     onNotesEdited: debouncedSave
+                )
+            case .ask:
+                MeetingChatTab(
+                    meeting: meeting,
+                    chatService: chatService,
+                    hasGroundingContent: hasGroundingContent,
+                    // The local LLM serializes requests — a chat during any
+                    // background summary would queue and risk the 120s timeout.
+                    isSummaryInProgress: summarizationService.summarizingMeetingID != nil
                 )
             }
 
@@ -267,6 +281,14 @@ struct RecordedMeetingView: View {
 
     private var canSummarize: Bool {
         meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasNotes
+    }
+
+    /// Whether there's anything to ground a chat answer on — a transcript or a
+    /// summary. (Notes alone aren't enough signal for grounded Q&A; the summary
+    /// captures notes anyway.)
+    private var hasGroundingContent: Bool {
+        meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private var canExport: Bool {

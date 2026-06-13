@@ -341,22 +341,20 @@ struct PrepEditorView: View {
         defer { isDrafting = false }
 
         let provider = LLMProviderFactory.current()
-        var prompt = Self.draftPrompt(for: meeting)
+        let basePrompt = Self.draftPrompt(for: meeting)
 
-        let thinkingEnabled = UserDefaults.standard.bool(forKey: AppPreferenceKey.summaryThinkingEnabled)
-        if !thinkingEnabled {
-            prompt += "\n\n/no_think"
-        }
+        let thinkingEnabled = LLMPromptSupport.thinkingEnabled()
+        let prompt = LLMPromptSupport.applyThinkingSwitch(to: basePrompt, thinkingEnabled: thinkingEnabled)
 
         do {
             let draft = try await provider.generate(
                 prompt: prompt,
                 temperature: nil,
-                maxTokens: thinkingEnabled ? nil : SummarizationService.maxSummaryTokens,
+                maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled),
                 timeout: 120,
                 truncated: nil
             )
-            let trimmed = SummarizationService.stripReasoning(draft)
+            let trimmed = LLMPromptSupport.stripReasoning(draft)
             guard !trimmed.isEmpty else {
                 draftError = "\(provider.displayName) returned an empty draft."
                 return
