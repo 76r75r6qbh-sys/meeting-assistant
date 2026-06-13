@@ -26,6 +26,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
     @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
@@ -396,6 +397,14 @@ struct SettingsView: View {
                 }
 
                 Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Editor") {
+                Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
+
+                Text("Replaces the web-based notes editor with a native macOS text view: live markdown highlighting, native undo, ⌘F find, and dictation. Restart not required — open a meeting's notes to try it.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }

@@ -89,6 +89,8 @@
 		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
 		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
+		A10800 /* NativeMarkdownEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10800 /* NativeMarkdownEditor.swift */; };
+		A10801 /* NativeMarkdownEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10801 /* NativeMarkdownEditorTests.swift */; };
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
 		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
 		A10215 /* MeetingPipelineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10215 /* MeetingPipelineState.swift */; };
@@ -276,6 +278,8 @@
 		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
+		B10800 /* NativeMarkdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMarkdownEditor.swift; sourceTree = "<group>"; };
+		B10801 /* NativeMarkdownEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMarkdownEditorTests.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
 		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		B10215 /* MeetingPipelineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineState.swift; sourceTree = "<group>"; };
@@ -623,6 +627,7 @@
 				B10007 /* MeetingCardView.swift */,
 				B10018 /* AudioLevelMeterView.swift */,
 				B10022 /* MarkdownTextEditor.swift */,
+				B10800 /* NativeMarkdownEditor.swift */,
 				B10205 /* DeviceLanguageChip.swift */,
 				B10206 /* MeetingTodosPanel.swift */,
 				B10207 /* BlockingProgressOverlay.swift */,
@@ -669,6 +674,7 @@
 				B10105 /* PersistenceControllerTests.swift */,
 				B10106 /* ExternalStorageSpikeTests.swift */,
 				B10033 /* MarkdownEditorBundleTests.swift */,
+				B10801 /* NativeMarkdownEditorTests.swift */,
 				B10035 /* MeetingStartFlowTests.swift */,
 				B10037 /* MeetingPrepServiceTests.swift */,
 				B10104 /* MeetingPrepServiceWriteTests.swift */,
@@ -879,6 +885,7 @@
 				A10019 /* TranscriptionService.swift in Sources */,
 				A10020 /* TranscriptionView.swift in Sources */,
 				A10021 /* MarkdownTextEditor.swift in Sources */,
+				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
 				A10023 /* ExportService.swift in Sources */,
 				A10215 /* MeetingPipelineState.swift in Sources */,
@@ -950,6 +957,7 @@
 				A10105 /* PersistenceControllerTests.swift in Sources */,
 				A10106 /* ExternalStorageSpikeTests.swift in Sources */,
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
+				A10801 /* NativeMarkdownEditorTests.swift in Sources */,
 				A10035 /* MeetingStartFlowTests.swift in Sources */,
 				A10037 /* MeetingPrepServiceTests.swift in Sources */,
 				A10104 /* MeetingPrepServiceWriteTests.swift in Sources */,

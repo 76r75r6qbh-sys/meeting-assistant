@@ -32,6 +32,7 @@ enum AppPreferenceKey {
     static let summaryThinkingEnabled = "summaryThinkingEnabled"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let keepOriginalWAV = "keepOriginalWAV"
+    static let useNativeMarkdownEditor = "useNativeMarkdownEditor"
 }
 
 enum AppPreferenceValue {

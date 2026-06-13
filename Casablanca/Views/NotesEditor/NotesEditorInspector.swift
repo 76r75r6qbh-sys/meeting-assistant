@@ -8,6 +8,8 @@ struct NotesEditorInspector: View {
     let prepPresentation: MeetingPrepPresentation
     @Binding var inspectorTab: InspectorTab
 
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+
     private var effectiveInspectorTab: InspectorTab {
         prepPresentation.hasPrep ? inspectorTab : .todos
     }
@@ -28,9 +30,15 @@ struct NotesEditorInspector: View {
             }
 
             if effectiveInspectorTab == .prep {
-                ToastMarkdownViewer(markdown: prepPresentation.markdownText)
-                    .padding(CasaSpace.lg)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                Group {
+                    if useNativeMarkdownEditor {
+                        NativeMarkdownViewer(markdown: prepPresentation.markdownText)
+                    } else {
+                        ToastMarkdownViewer(markdown: prepPresentation.markdownText)
+                    }
+                }
+                .padding(CasaSpace.lg)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 MeetingTodosPanel(meeting: meeting)
             }

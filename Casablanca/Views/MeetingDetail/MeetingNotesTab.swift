@@ -9,6 +9,8 @@ struct MeetingNotesTab: View {
     /// keeps a pending save alive when this subview is torn down on tab switch.
     let onNotesEdited: () -> Void
 
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: CasaSpace.md) {
             HStack {
@@ -32,10 +34,19 @@ struct MeetingNotesTab: View {
 
             if isEditingNotes {
                 VStack(spacing: 0) {
-                    ToastMarkdownEditor(
-                        text: $meeting.userNotes,
-                        placeholder: "Capture decisions, follow-ups, and context..."
-                    )
+                    Group {
+                        if useNativeMarkdownEditor {
+                            NativeMarkdownEditor(
+                                text: $meeting.userNotes,
+                                placeholder: "Capture decisions, follow-ups, and context..."
+                            )
+                        } else {
+                            ToastMarkdownEditor(
+                                text: $meeting.userNotes,
+                                placeholder: "Capture decisions, follow-ups, and context..."
+                            )
+                        }
+                    }
                     .frame(minHeight: 160)
                     .onChange(of: meeting.userNotes) {
                         onNotesEdited()

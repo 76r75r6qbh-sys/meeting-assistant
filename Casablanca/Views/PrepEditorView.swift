@@ -17,6 +17,7 @@ struct PrepEditorView: View {
 
     @AppStorage(AppPreferenceKey.notesTextSize) private var textSizeRaw = NotesTextSize.medium.rawValue
     @AppStorage(AppPreferenceKey.notesReadingWidth) private var readingWidthRaw = NotesReadingWidth.comfortable.rawValue
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
 
     @State private var prepText = ""
     @State private var didLoad = false
@@ -127,10 +128,19 @@ struct PrepEditorView: View {
 
             Divider()
 
-            ToastMarkdownEditor(
-                text: $prepText,
-                placeholder: "Write your preparation notes here…"
-            )
+            Group {
+                if useNativeMarkdownEditor {
+                    NativeMarkdownEditor(
+                        text: $prepText,
+                        placeholder: "Write your preparation notes here…"
+                    )
+                } else {
+                    ToastMarkdownEditor(
+                        text: $prepText,
+                        placeholder: "Write your preparation notes here…"
+                    )
+                }
+            }
             .font(.system(size: textSize.pointSize))
             .frame(maxWidth: readingWidth.maxWidth, alignment: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

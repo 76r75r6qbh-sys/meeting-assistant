@@ -14,6 +14,7 @@ struct NotesEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var prepMarkdown: String?
@@ -251,11 +252,21 @@ struct NotesEditorView: View {
         // It must be given a bounded fill frame (it scrolls its own content
         // internally) — wrapping it in a SwiftUI ScrollView collapses it to
         // zero height (blank screen). Mirror the working `notesColumn` framing,
-        // just centered at a comfortable reading measure.
-        ToastMarkdownEditor(
-            text: $meeting.userNotes,
-            placeholder: "Type your notes here..."
-        )
+        // just centered at a comfortable reading measure. The native editor
+        // fills the same frame (its NSScrollView scrolls internally).
+        Group {
+            if useNativeMarkdownEditor {
+                NativeMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            } else {
+                ToastMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            }
+        }
         .frame(maxWidth: 600, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, CasaSpace.xl)
         .padding(.vertical, CasaSpace.xxl)
@@ -273,10 +284,19 @@ struct NotesEditorView: View {
     }
 
     private var freeformNotesEditor: some View {
-        ToastMarkdownEditor(
-            text: $meeting.userNotes,
-            placeholder: "Type your notes here..."
-        )
+        Group {
+            if useNativeMarkdownEditor {
+                NativeMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            } else {
+                ToastMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            }
+        }
         .padding(CasaSpace.lg)
         .onChange(of: meeting.userNotes) {
             debouncedSave()
