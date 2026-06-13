@@ -288,6 +288,88 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertEqual((metadata?["run"] as? NSNumber)?.intValue, 42)
     }
 
+    // MARK: - Large-integer precision in JSON passthrough
+
+    /// Reads the on-disk file as a raw UTF-8 string (NOT via JSONSerialization,
+    /// which would itself coerce large integers to Double and mask the bug).
+    private func rawFileString() throws -> String {
+        let data = try Data(contentsOf: queueURL)
+        return String(data: data, encoding: .utf8)!
+    }
+
+    func testLargeIntegerInUnknownTopLevelKeySurvivesRoundTrip() throws {
+        // `bigId` is larger than Int64.max — the old Int-then-Double decode
+        // would corrupt it to `1e+19` (or `10000000000000000000`).
+        try write("""
+        {
+          "version": 1,
+          "bigId": 9999999999999999999,
+          "items": [
+            { "id": "AQ-1", "title": "Item", "status": "pending" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
+
+        // Assert against the raw on-disk bytes: the exact digits must be present
+        // and no scientific-notation/magnitude corruption may appear.
+        let onDisk = try rawFileString()
+        XCTAssertTrue(onDisk.contains("9999999999999999999"),
+                      "Large integer lost its exact digits on round trip: \(onDisk)")
+        XCTAssertFalse(onDisk.contains("1e+19"), "Large integer corrupted to scientific notation")
+        XCTAssertFalse(onDisk.contains("1E+19"), "Large integer corrupted to scientific notation")
+    }
+
+    func testBigIntegerInsideUnparsedItemSurvivesRoundTrip() throws {
+        // Second item is structurally broken (numeric `id`) so it lands in
+        // `unparsedItems` and is preserved verbatim. The 23-digit `ref` inside it
+        // must keep its exact digits through the whole-document rewrite.
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-good", "title": "Good", "status": "pending", "body": "hi" },
+            { "id": 12345, "title": "Broken item", "ref": 99999999999999999999999 }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.unparsedItemCount, 1)
+
+        try ActionQueueStore.approve(id: "AQ-good", userDefaults: defaults)
+
+        let onDisk = try rawFileString()
+        XCTAssertTrue(onDisk.contains("99999999999999999999999"),
+                      "23-digit integer lost its exact digits on round trip: \(onDisk)")
+        XCTAssertFalse(onDisk.contains("e+"), "Big integer corrupted to scientific notation")
+        XCTAssertFalse(onDisk.contains("E+"), "Big integer corrupted to scientific notation")
+    }
+
+    func testSmallNumbersAndFractionsRoundTripIntact() throws {
+        // Existing small-number behaviour must be unaffected: small ints stay
+        // exact, fractions keep their value. (A whole-number `42.0` may normalize
+        // to `42` — acceptable, since JSON has no int/float distinction.)
+        try write("""
+        {
+          "version": 1,
+          "metadata": { "run": 42, "ratio": 3.14159, "neg": -17 },
+          "items": [
+            { "id": "AQ-1", "title": "Item", "status": "pending" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
+
+        let obj = try rawJSON()
+        let metadata = obj["metadata"] as? [String: Any]
+        XCTAssertEqual((metadata?["run"] as? NSNumber)?.intValue, 42)
+        XCTAssertEqual((metadata?["neg"] as? NSNumber)?.intValue, -17)
+        XCTAssertEqual((metadata?["ratio"] as? NSNumber)?.doubleValue ?? 0, 3.14159, accuracy: 1e-9)
+    }
+
     // MARK: - Absent file
 
     func testAbsentFileReturnsEmptyDoc() throws {

@@ -379,11 +379,21 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
 /// the agent's data. Decoding is intentionally tolerant; encoding re-emits the
 /// exact structure that was decoded (subject to key ordering, which the encoder
 /// sorts — values and keys themselves are preserved).
+///
+/// DATA PRESERVATION (numbers): JSON draws no int/float distinction, so a single
+/// `.number(Decimal)` case backs every numeric literal. `Decimal` is decoded
+/// directly from the JSON number token by Foundation's `JSONDecoder`, which
+/// avoids the magnitude/precision loss of routing through `Int` (overflow) then
+/// `Double` (lossy ~15–17 significant digits). An agent-supplied ID such as
+/// `9999999999999999999` — larger than `Int64.max` — therefore round-trips with
+/// its exact digits instead of corrupting to `1e+19`. The only normalization is
+/// cosmetic: a whole-number literal written as `42.0` re-emits as `42`, which is
+/// acceptable because JSON cannot distinguish the two (magnitude/precision are
+/// preserved; only the redundant `.0` is dropped).
 indirect enum JSONValue: Codable, Hashable {
     case null
     case bool(Bool)
-    case int(Int)
-    case double(Double)
+    case number(Decimal)
     case string(String)
     case array([JSONValue])
     case object([String: JSONValue])
@@ -394,10 +404,10 @@ indirect enum JSONValue: Codable, Hashable {
             self = .null
         } else if let value = try? container.decode(Bool.self) {
             self = .bool(value)
-        } else if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .double(value)
+        } else if let value = try? container.decode(Decimal.self) {
+            // Decimal captures the full numeric token (incl. integers > Int64.max)
+            // without the precision loss of an Int-then-Double fallback chain.
+            self = .number(value)
         } else if let value = try? container.decode(String.self) {
             self = .string(value)
         } else if let value = try? container.decode([JSONValue].self) {
@@ -417,8 +427,7 @@ indirect enum JSONValue: Codable, Hashable {
         switch self {
         case .null: try container.encodeNil()
         case .bool(let value): try container.encode(value)
-        case .int(let value): try container.encode(value)
-        case .double(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
         case .string(let value): try container.encode(value)
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
