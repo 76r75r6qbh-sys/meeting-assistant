@@ -138,6 +138,57 @@ final class NativeMarkdownEditorTests: XCTestCase {
         XCTAssertEqual(result.text, "## Already")
     }
 
+    func testChecklistPrefix() {
+        let result = MarkdownSelectionEditing.apply(.checklist, to: "buy milk", selectedRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(result.text, "- [ ] buy milk")
+    }
+
+    func testLinkInsertionAtCaretPlacesCursorInsideBrackets() {
+        let result = MarkdownSelectionEditing.apply(.link, to: "see ", selectedRange: NSRange(location: 4, length: 0))
+        XCTAssertEqual(result.text, "see [](url)")
+        // Caret lands between the brackets so the user can type the link text.
+        XCTAssertEqual(result.selectedRange, NSRange(location: 5, length: 0))
+    }
+
+    // MARK: - Toolbar → command routing
+
+    /// The toolbar's button → MarkdownSelectionSyntax mapping. Mirrors the
+    /// `run(_:legacy:)` wiring in `MarkdownFormattingToolbar`; if a button is
+    /// re-pointed at the wrong syntax this test fails.
+    func testToolbarButtonsRouteToExpectedSyntax() {
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .bold), .bold)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .italic), .italic)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .code), .code)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .heading), .heading)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .bulletList), .list)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .checklist), .checklist)
+        XCTAssertEqual(MarkdownFormattingToolbar.syntax(for: .link), .link)
+    }
+
+    /// When an `onCommand` closure is supplied, invoking a button dispatches the
+    /// mapped syntax through it (and does NOT touch the string binding). When it
+    /// is nil, the legacy string transform runs instead.
+    func testToolbarRoutesThroughOnCommandWhenPresent() {
+        var captured: [MarkdownSelectionSyntax] = []
+        for button in MarkdownFormattingToolbar.ToolbarButton.allCases {
+            captured.removeAll()
+            var text = "x"
+            MarkdownFormattingToolbar.dispatch(button, text: &text, onCommand: { captured.append($0) })
+            XCTAssertEqual(captured, [MarkdownFormattingToolbar.syntax(for: button)])
+            XCTAssertEqual(text, "x", "onCommand path must not mutate the string binding")
+        }
+    }
+
+    func testToolbarFallsBackToLegacyWhenNoCommand() {
+        var text = ""
+        MarkdownFormattingToolbar.dispatch(.bold, text: &text, onCommand: nil)
+        XCTAssertEqual(text, "****")
+
+        text = "line"
+        MarkdownFormattingToolbar.dispatch(.heading, text: &text, onCommand: nil)
+        XCTAssertEqual(text, "line\n## ")
+    }
+
     // MARK: - Storage delegate styling (integration of pure ranges + AppKit)
 
     func testStorageDelegateAppliesHeadingFont() {

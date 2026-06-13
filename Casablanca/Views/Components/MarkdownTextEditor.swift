@@ -234,23 +234,115 @@ enum NotesReadingWidth: String, CaseIterable, Identifiable {
 struct MarkdownFormattingToolbar: View {
     @Binding var text: String
 
+    /// When set, each button routes through this closure instead of mutating the
+    /// `text` binding directly. PrepEditorView supplies this when the native
+    /// editor is active so formatting wraps the *selection* rather than appending
+    /// markers at the document end. When `nil`, the legacy string-binding
+    /// (Toast-path) behavior is preserved exactly.
+    var onCommand: ((MarkdownSelectionSyntax) -> Void)?
+
+    init(text: Binding<String>, onCommand: ((MarkdownSelectionSyntax) -> Void)? = nil) {
+        self._text = text
+        self.onCommand = onCommand
+    }
+
+    /// The toolbar's logical buttons. Drives both the selection-aware syntax
+    /// mapping and the legacy string transform from one place so the two paths
+    /// can't drift, and so the wiring is unit-testable without a live view.
+    enum ToolbarButton: CaseIterable {
+        case bold, italic, heading, bulletList, checklist, code, link
+
+        var label: String {
+            switch self {
+            case .bold: return "Bold"
+            case .italic: return "Italic"
+            case .heading: return "Heading"
+            case .bulletList: return "Bullet List"
+            case .checklist: return "Checklist"
+            case .code: return "Code"
+            case .link: return "Link"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .bold: return "bold"
+            case .italic: return "italic"
+            case .heading: return "textformat.size"
+            case .bulletList: return "list.bullet"
+            case .checklist: return "checklist"
+            case .code: return "chevron.left.forwardslash.chevron.right"
+            case .link: return "link"
+            }
+        }
+    }
+
+    /// Selection-aware syntax a button maps to (used when `onCommand` is set).
+    static func syntax(for button: ToolbarButton) -> MarkdownSelectionSyntax {
+        switch button {
+        case .bold: return .bold
+        case .italic: return .italic
+        case .heading: return .heading
+        case .bulletList: return .list
+        case .checklist: return .checklist
+        case .code: return .code
+        case .link: return .link
+        }
+    }
+
+    /// Apply a button's legacy string transform to the (append-at-end) binding.
+    /// Preserves the exact pre-existing Toast-path behavior.
+    static func legacyTransform(_ button: ToolbarButton, text: inout String) {
+        switch button {
+        case .bold: MarkdownEditing.wrap(&text, with: "**")
+        case .italic: MarkdownEditing.wrap(&text, with: "_")
+        case .heading: MarkdownEditing.prefixLine(&text, with: "## ")
+        case .bulletList: MarkdownEditing.prefixLine(&text, with: "- ")
+        case .checklist: MarkdownEditing.prefixLine(&text, with: "- [ ] ")
+        case .code: MarkdownEditing.wrap(&text, with: "`")
+        case .link: MarkdownEditing.insertLink(&text)
+        }
+    }
+
+    /// Route a button: prefer the selection-aware command when present, otherwise
+    /// fall back to the legacy string-binding transform.
+    static func dispatch(
+        _ button: ToolbarButton,
+        text: inout String,
+        onCommand: ((MarkdownSelectionSyntax) -> Void)?
+    ) {
+        if let onCommand {
+            onCommand(syntax(for: button))
+        } else {
+            legacyTransform(button, text: &text)
+        }
+    }
+
     var body: some View {
         HStack(spacing: CasaSpace.xxs) {
-            formatButton("Bold", systemImage: "bold") { MarkdownEditing.wrap(&text, with: "**") }
-                .keyboardShortcut("b", modifiers: .command)
-            formatButton("Italic", systemImage: "italic") { MarkdownEditing.wrap(&text, with: "_") }
-                .keyboardShortcut("i", modifiers: .command)
+            button(.bold).keyboardShortcut("b", modifiers: .command)
+            button(.italic).keyboardShortcut("i", modifiers: .command)
 
             separator
 
-            formatButton("Heading", systemImage: "textformat.size") { MarkdownEditing.prefixLine(&text, with: "## ") }
-            formatButton("Bullet List", systemImage: "list.bullet") { MarkdownEditing.prefixLine(&text, with: "- ") }
-            formatButton("Checklist", systemImage: "checklist") { MarkdownEditing.prefixLine(&text, with: "- [ ] ") }
+            button(.heading)
+            button(.bulletList)
+            button(.checklist)
 
             separator
 
-            formatButton("Code", systemImage: "chevron.left.forwardslash.chevron.right") { MarkdownEditing.wrap(&text, with: "`") }
-            formatButton("Link", systemImage: "link") { MarkdownEditing.insertLink(&text) }
+            button(.code)
+            button(.link)
+        }
+    }
+
+    private func button(_ kind: ToolbarButton) -> some View {
+        formatButton(kind.label, systemImage: kind.systemImage) {
+            if let onCommand {
+                onCommand(Self.syntax(for: kind))
+            } else {
+                Self.legacyTransform(kind, text: &text)
+            }
         }
     }
 

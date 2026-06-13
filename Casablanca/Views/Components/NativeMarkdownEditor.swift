@@ -172,13 +172,15 @@ enum MarkdownSelectionSyntax: Equatable {
     case code
     case heading
     case list
+    case checklist
+    case link
 
     var inlineToken: String? {
         switch self {
         case .bold: return "**"
         case .italic: return "_"
         case .code: return "`"
-        case .heading, .list: return nil
+        case .heading, .list, .checklist, .link: return nil
         }
     }
 
@@ -186,7 +188,17 @@ enum MarkdownSelectionSyntax: Equatable {
         switch self {
         case .heading: return "## "
         case .list: return "- "
-        case .bold, .italic, .code: return nil
+        case .checklist: return "- [ ] "
+        case .bold, .italic, .code, .link: return nil
+        }
+    }
+
+    /// A snippet inserted at the caret (no selection-wrapping). Used for links,
+    /// where the caret lands inside the `[]` so the user can type link text.
+    var caretInsertion: (text: String, caretOffset: Int)? {
+        switch self {
+        case .link: return ("[](url)", 1) // caret between the brackets
+        case .bold, .italic, .code, .heading, .list, .checklist: return nil
         }
     }
 }
@@ -206,8 +218,22 @@ enum MarkdownSelectionEditing {
             return wrap(text: text, selectedRange: selectedRange, token: token)
         } else if let prefix = syntax.linePrefix {
             return prefixLines(text: text, selectedRange: selectedRange, prefix: prefix)
+        } else if let insertion = syntax.caretInsertion {
+            return insertAtCaret(text: text, selectedRange: selectedRange, insertion: insertion)
         }
         return MarkdownSelectionEdit(text: text, selectedRange: selectedRange)
+    }
+
+    private static func insertAtCaret(
+        text: String,
+        selectedRange: NSRange,
+        insertion: (text: String, caretOffset: Int)
+    ) -> MarkdownSelectionEdit {
+        let ns = text as NSString
+        let safeRange = clamp(selectedRange, length: ns.length)
+        let newText = ns.replacingCharacters(in: safeRange, with: insertion.text)
+        let caret = NSRange(location: safeRange.location + insertion.caretOffset, length: 0)
+        return MarkdownSelectionEdit(text: newText, selectedRange: caret)
     }
 
     private static func wrap(text: String, selectedRange: NSRange, token: String) -> MarkdownSelectionEdit {
@@ -340,6 +366,30 @@ final class MarkdownStylingTextStorageDelegate: NSObject, NSTextStorageDelegate 
     }
 }
 
+// MARK: - Formatter handle exposed to toolbars
+
+/// A lightweight, value-type handle a parent (e.g. a formatting toolbar) can use
+/// to drive selection-aware formatting on the active native editor. It holds the
+/// coordinator *weakly*, so a stale handle left in parent `@State` after the
+/// editor goes away simply no-ops rather than leaking the editor.
+struct MarkdownEditorFormatter: Equatable {
+    fileprivate weak var coordinator: NativeMarkdownEditor.Coordinator?
+
+    fileprivate init(coordinator: NativeMarkdownEditor.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    /// Apply a markdown transform around the editor's current selection. No-ops
+    /// if the underlying editor is gone.
+    func apply(_ syntax: MarkdownSelectionSyntax) {
+        coordinator?.applyMarkdown(syntax)
+    }
+
+    static func == (lhs: MarkdownEditorFormatter, rhs: MarkdownEditorFormatter) -> Bool {
+        lhs.coordinator === rhs.coordinator
+    }
+}
+
 // MARK: - NSViewRepresentable editor
 
 /// Native NSTextView-based markdown editor. Contract is identical to
@@ -351,6 +401,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var placeholder = "Type your notes here..."
     var isEditable = true
 
+    /// Optional handle a parent can bind to in order to drive selection-aware
+    /// formatting (e.g. a toolbar). The Representable assigns the live coordinator
+    /// when the view is created and clears it when the view is dismantled, so the
+    /// parent never holds a stale reference after the editor goes away.
+    var formatter: Binding<MarkdownEditorFormatter?>?
+
     @AppStorage(AppPreferenceKey.notesTextSize) private var textSizeRaw = NotesTextSize.medium.rawValue
     @AppStorage(AppPreferenceKey.notesReadingWidth) private var readingWidthRaw = NotesReadingWidth.comfortable.rawValue
 
@@ -359,6 +415,13 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        // Drop the parent's handle so it can't invoke a coordinator whose text
+        // view is gone. The formatter holds the coordinator weakly anyway, but
+        // clearing keeps the parent's `@State` tidy.
+        coordinator.clearFormatterBinding()
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -408,6 +471,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
 
+        // Publish a formatter handle to the parent (e.g. the formatting toolbar).
+        context.coordinator.publishFormatter(to: formatter)
+
         return scrollView
     }
 
@@ -449,6 +515,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
 
         context.coordinator.updatePlaceholder(placeholder, isEmpty: textView.string.isEmpty)
+
+        // Keep the parent's handle pointing at this live coordinator (idempotent).
+        context.coordinator.publishFormatter(to: formatter)
     }
 
     private func applyLayout(to textView: NSTextView) {
@@ -472,6 +541,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         var stylingDelegate: MarkdownStylingTextStorageDelegate?
         private var placeholderLayer: PlaceholderState?
+        private var formatterBinding: Binding<MarkdownEditorFormatter?>?
 
         private struct PlaceholderState {
             var text: String
@@ -506,6 +576,24 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             } else {
                 textView.setValue(NSAttributedString(string: ""), forKey: "placeholderAttributedString")
             }
+        }
+
+        /// Publish a weak formatter handle into the parent's binding so a toolbar
+        /// can drive `applyMarkdown`. Idempotent — safe to call from update too.
+        func publishFormatter(to binding: Binding<MarkdownEditorFormatter?>?) {
+            formatterBinding = binding
+            guard let binding else { return }
+            let handle = MarkdownEditorFormatter(coordinator: self)
+            // Avoid a redundant write (and a SwiftUI update cycle) if already set.
+            if binding.wrappedValue?.coordinator !== self {
+                binding.wrappedValue = handle
+            }
+        }
+
+        /// Clear the parent's handle (called on dismantle).
+        func clearFormatterBinding() {
+            formatterBinding?.wrappedValue = nil
+            formatterBinding = nil
         }
 
         /// Selection-aware formatting entry point used by toolbars.

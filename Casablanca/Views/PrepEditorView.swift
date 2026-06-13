@@ -20,6 +20,9 @@ struct PrepEditorView: View {
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
 
     @State private var prepText = ""
+    /// Handle to the active native editor's selection-aware formatting. Set by
+    /// `NativeMarkdownEditor` when that editor is on screen; nil otherwise.
+    @State private var nativeFormatter: MarkdownEditorFormatter?
     @State private var didLoad = false
     @State private var saveError: String?
     @State private var isDrafting = false
@@ -132,7 +135,8 @@ struct PrepEditorView: View {
                 if useNativeMarkdownEditor {
                     NativeMarkdownEditor(
                         text: $prepText,
-                        placeholder: "Write your preparation notes here…"
+                        placeholder: "Write your preparation notes here…",
+                        formatter: $nativeFormatter
                     )
                 } else {
                     ToastMarkdownEditor(
@@ -185,7 +189,7 @@ struct PrepEditorView: View {
 
     private var formatBar: some View {
         HStack(spacing: CasaSpace.xs) {
-            MarkdownFormattingToolbar(text: $prepText)
+            MarkdownFormattingToolbar(text: $prepText, onCommand: formattingCommand)
 
             if prepText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button("Use template") {
@@ -203,6 +207,15 @@ struct PrepEditorView: View {
 
             MarkdownAppearanceControl()
         }
+    }
+
+    /// When the native editor is active, route toolbar buttons to its
+    /// selection-aware `applyMarkdown`. When the Toast (WebView) editor is active
+    /// the flag is off → return `nil` so the toolbar keeps its legacy
+    /// string-binding behavior unchanged.
+    private var formattingCommand: ((MarkdownSelectionSyntax) -> Void)? {
+        guard useNativeMarkdownEditor else { return nil }
+        return { syntax in nativeFormatter?.apply(syntax) }
     }
 
     private var draftWithAIButton: some View {
