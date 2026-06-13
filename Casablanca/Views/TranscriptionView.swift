@@ -180,7 +180,7 @@ struct TranscriptionView: View {
             await compressRecordingIfEnabled(wavURL: fileURL)
 
             _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
-            await ExportService.exportAutomaticallyIfEnabled(meeting)
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: appModel.exportStatusCenter)
 
             onComplete()
         } catch is CancellationError {

@@ -61,7 +61,7 @@ struct SidebarView: View {
                         SidebarMeetingRow(
                             meeting: meeting,
                             section: .upcoming,
-                            isProcessing: isProcessing(meeting),
+                            pipeline: pipelinePresentation(for: meeting),
                             onPrepareRequest: {
                                 viewModel.beginPrepare(for: meeting)
                             },
@@ -92,7 +92,7 @@ struct SidebarView: View {
                             SidebarMeetingRow(
                                 meeting: meeting,
                                 section: .recent,
-                                isProcessing: isProcessing(meeting),
+                                pipeline: pipelinePresentation(for: meeting),
                                 onDeleteRequest: {
                                     meetingPendingDeletion = meeting
                                 }
@@ -163,11 +163,26 @@ struct SidebarView: View {
         }
     }
 
-    /// A meeting is "processing" while transcription is running (status) or while
-    /// a background summary is in flight for it.
-    private func isProcessing(_ meeting: Meeting) -> Bool {
-        meeting.status == .processing
-            || appModel.summarizationService.summarizingMeetingID == meeting.id
+    /// Pure pipeline presentation for a row's compact processing indicator,
+    /// derived from the live services + this meeting's state.
+    private func pipelinePresentation(for meeting: Meeting) -> MeetingPipelinePresentation {
+        let isSummarizingThis = appModel.summarizationService.summarizingMeetingID == meeting.id
+        return MeetingPipelinePresentation(
+            isThisMeetingTranscribing: appModel.transcriptionService.isTranscribing && meeting.status == .processing,
+            transcriptionProgress: appModel.transcriptionService.progress,
+            isSummarizingThisMeeting: isSummarizingThis,
+            summarizationPhase: appModel.summarizationService.phase,
+            summarizationStartedAt: appModel.summarizationService.summarizationStartedAt,
+            // Errors (summary/export) are surfaced in the detail view, not the
+            // sidebar row, so the row only reflects active/stale state.
+            summarizationError: nil,
+            autoExportFailure: nil,
+            meetingStatus: meeting.status,
+            hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            hasSummary: meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            autoSummarize: false,
+            autoExport: false
+        )
     }
 
     private var recentMeetings: [Meeting] {
@@ -221,7 +236,7 @@ struct SidebarView: View {
 struct SidebarMeetingRow: View {
     let meeting: Meeting
     let section: SidebarMeetingSection
-    var isProcessing: Bool = false
+    var pipeline: MeetingPipelinePresentation? = nil
     var onPrepareRequest: () -> Void = {}
     let onDeleteRequest: () -> Void
 
@@ -229,13 +244,24 @@ struct SidebarMeetingRow: View {
         SidebarMeetingRowActions(section: section)
     }
 
+    /// The row shows a processing/error glyph when the pipeline is active or
+    /// failed; otherwise the resting status icon.
+    private var isProcessing: Bool {
+        pipeline?.isActive ?? false
+    }
+
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
             Group {
-                if isProcessing {
+                if let pipeline, pipeline.isActive {
                     ProgressView()
                         .controlSize(.small)
                         .scaleEffect(0.7)
+                } else if let pipeline, pipeline.hasError {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .imageScale(.small)
+                        .foregroundStyle(Color.accentDanger)
                 } else {
                     statusIcon
                 }

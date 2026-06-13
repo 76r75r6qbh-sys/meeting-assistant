@@ -12,6 +12,7 @@ struct NotesEditorView: View {
     let onBack: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
@@ -437,7 +438,7 @@ struct NotesEditorView: View {
     private func save() {
         try? modelContext.save()
         Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting)
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: appModel.exportStatusCenter)
         }
     }
 

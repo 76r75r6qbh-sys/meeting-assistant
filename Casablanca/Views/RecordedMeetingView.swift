@@ -12,6 +12,8 @@ struct RecordedMeetingView: View {
     @Environment(AppModel.self) private var appModel
     private var summarizationService: SummarizationService { appModel.summarizationService }
     private var terminologyService: TerminologyService { appModel.terminologyService }
+    private var transcriptionService: TranscriptionService { appModel.transcriptionService }
+    private var exportStatusCenter: ExportStatusCenter { appModel.exportStatusCenter }
     @State private var didTriggerAutomaticSummary = false
     @State private var selectedTab: DetailTab = .summary
     @State private var showInspector = true
@@ -86,8 +88,15 @@ struct RecordedMeetingView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            if shouldShowPipelineBanner {
-                pipelineBanner
+            if shouldShowPipelineCard {
+                ProcessingStatusCard(
+                    presentation: pipelinePresentation,
+                    transcriptionProgress: transcriptionService.progress,
+                    summarizationStartedAt: summarizationService.summarizationStartedAt,
+                    onCancel: cancelActiveStage,
+                    onRetry: retryFailedStage,
+                    onDismissError: dismissPipelineError
+                )
             }
 
             switch selectedTab {
@@ -158,22 +167,70 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private var pipelineBanner: some View {
-        GroupBox {
-            HStack(spacing: CasaSpace.sm) {
-                if isSummarizingThisMeeting || terminologyService.isCorrecting {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(Color.textSecondary)
-                }
+    /// Pure presentation driving the ProcessingStatusCard, built fresh each render
+    /// from the live services + this meeting's state.
+    private var pipelinePresentation: MeetingPipelinePresentation {
+        MeetingPipelinePresentation(
+            isThisMeetingTranscribing: isTranscribingThisMeeting,
+            transcriptionProgress: transcriptionService.progress,
+            isSummarizingThisMeeting: isSummarizingThisMeeting,
+            summarizationPhase: summarizationService.phase,
+            summarizationStartedAt: summarizationService.summarizationStartedAt,
+            summarizationError: summarizationService.errorMessage ?? summarizationService.warningMessage,
+            autoExportFailure: exportStatusCenter.failure(for: meeting.id),
+            meetingStatus: meeting.status,
+            hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            hasSummary: meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            autoSummarize: autoSummarizeAfterTranscription,
+            autoExport: autoExportEnabled
+        )
+    }
 
-                Text(pipelineStatusText)
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
+    /// True while this meeting is the one actively transcribing. Transcription is
+    /// app-wide and ordinarily runs in TranscriptionView, but the meeting carries
+    /// `.processing` for its duration, so we scope by that + the service flag.
+    private var isTranscribingThisMeeting: Bool {
+        transcriptionService.isTranscribing && meeting.status == .processing
+    }
+
+    private func cancelActiveStage() {
+        switch pipelinePresentation.stage {
+        case .transcribing:
+            transcriptionService.cancel()
+        case .summarizing:
+            summarizationService.cancelBackgroundWork()
+        default:
+            break
+        }
+    }
+
+    private func retryFailedStage() {
+        guard case .failed(let stage, _) = pipelinePresentation.stage else { return }
+        switch stage {
+        case .transcription:
+            onTranscribe()
+        case .summarization:
+            summarizationService.clearError()
+            summarizationService.clearWarning()
+            summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
+        case .export:
+            exportStatusCenter.clearFailure(for: meeting.id)
+            Task { @MainActor in
+                await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func dismissPipelineError() {
+        guard case .failed(let stage, _) = pipelinePresentation.stage else { return }
+        switch stage {
+        case .transcription:
+            break
+        case .summarization:
+            summarizationService.clearError()
+            summarizationService.clearWarning()
+        case .export:
+            exportStatusCenter.clearFailure(for: meeting.id)
         }
     }
 
@@ -228,12 +285,10 @@ struct RecordedMeetingView: View {
             && summarizationService.summarizingMeetingID == meeting.id
     }
 
-    private var shouldShowPipelineBanner: Bool {
-        terminologyService.isCorrecting
-            || isSummarizingThisMeeting
-            || (autoSummarizeAfterTranscription
-                && meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+    /// Show the pipeline card whenever a stage is active or there's an error to
+    /// surface (incl. auto-export failures). `.done`/`.idle` hide it.
+    private var shouldShowPipelineCard: Bool {
+        pipelinePresentation.isActive || pipelinePresentation.hasError
     }
 
     private var canReapplyTerminology: Bool {
@@ -241,26 +296,6 @@ struct RecordedMeetingView: View {
         guard UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled) else { return false }
         let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
         return !TerminologyService.parse(raw).isEmpty
-    }
-
-    private var pipelineStatusText: String {
-        if terminologyService.isCorrecting {
-            return "Correcting terminology..."
-        }
-
-        if isSummarizingThisMeeting {
-            return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
-        }
-
-        if autoSummarizeAfterTranscription && autoExportEnabled {
-            return "Casablanca is moving this meeting through summary and export automatically."
-        }
-
-        if autoSummarizeAfterTranscription {
-            return "Casablanca will generate the summary automatically."
-        }
-
-        return "The next recommended step is ready in the toolbar."
     }
 
     private var primaryToolbarAction: ReviewPrimaryAction? {
@@ -381,7 +416,7 @@ struct RecordedMeetingView: View {
     private func save() {
         try? modelContext.save()
         Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting)
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
         }
     }
 

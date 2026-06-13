@@ -72,15 +72,25 @@ enum ExportService {
     static func exportAutomaticallyIfEnabled(
         _ meeting: Meeting,
         defaults: UserDefaults = .standard,
-        appleNotesScripting: AppleNotesScripting? = nil
+        appleNotesScripting: AppleNotesScripting? = nil,
+        reporter: ExportStatusCenter? = nil
     ) async {
         guard isAutoExportOn(defaults: defaults),
               hasExportableContent(meeting)
         else { return }
+        let meetingID = meeting.id
         do {
             _ = try await exportCompletedMeeting(meeting, defaults: defaults, appleNotesScripting: appleNotesScripting)
+            // A later successful export clears any earlier failure for this meeting.
+            reporter?.clearFailure(for: meetingID)
         } catch {
-            Log.export.error("Automatic export skipped: \(error.localizedDescription)")
+            let destination = AppPreferences.exportDestination(in: defaults) == .appleNotes ? "Apple Notes" : "Obsidian"
+            Log.export.error("Automatic export to \(destination, privacy: .public) failed: \(error.localizedDescription)")
+            reporter?.reportFailure(
+                meetingID: meetingID,
+                destination: destination,
+                message: error.localizedDescription
+            )
         }
     }
 

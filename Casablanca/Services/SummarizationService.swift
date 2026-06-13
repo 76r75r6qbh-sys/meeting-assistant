@@ -123,6 +123,11 @@ final class SummarizationService {
     /// Lets list rows show a spinner on the specific meeting being processed.
     private(set) var summarizingMeetingID: UUID?
 
+    /// Wall-clock time the current summarization began (nil when idle). Used by
+    /// the pipeline-status UI to show elapsed time for the indeterminate
+    /// summarization stage.
+    private(set) var summarizationStartedAt: Date?
+
     private var backgroundTask: Task<Void, Never>?
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -136,6 +141,7 @@ final class SummarizationService {
         // Mark busy synchronously so a near-simultaneous re-trigger can't double-start.
         isSummarizing = true
         summarizingMeetingID = meeting.id
+        summarizationStartedAt = Date()
 
         backgroundTask = Task { @MainActor in
             // Guarantees the busy flag clears on every exit path, including the
@@ -143,6 +149,7 @@ final class SummarizationService {
             defer {
                 self.isSummarizing = false
                 self.summarizingMeetingID = nil
+                self.summarizationStartedAt = nil
             }
             do {
                 let parsed = try await self.summarize(meeting: meeting)
@@ -163,7 +170,9 @@ final class SummarizationService {
                     } catch {
                         // The summary itself succeeded; a failed to-do is a warning, not a failure.
                         Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription)")
-                        // TODO(phase5): surface warningMessage in pipeline status UI
+                        // Surfaced by MeetingPipelinePresentation (errorMessage ??
+                        // warningMessage) in the ProcessingStatusCard error row,
+                        // with a Dismiss affordance.
                         self.warningMessage = "Summary generated, but creating its to-dos failed: \(error.localizedDescription)"
                     }
                 }

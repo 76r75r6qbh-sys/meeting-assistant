@@ -63,7 +63,7 @@ struct CasablancaApp: App {
                 .environment(appModel)
                 .frame(minWidth: 800, minHeight: 500)
                 .task {
-                    await appModel.bootstrap()
+                    await appModel.bootstrap(modelContext: sharedModelContainer.mainContext)
                 }
                 .sheet(isPresented: Binding(
                     get: { !hasCompletedOnboarding },
@@ -154,6 +154,7 @@ final class AppModel {
     let transcriptionService = TranscriptionService()
     let summarizationService = SummarizationService()
     let terminologyService = TerminologyService()
+    let exportStatusCenter = ExportStatusCenter()
     let meetingListViewModel: MeetingListViewModel
     let actionQueueModel = ActionQueueModel()
     let updateService: UpdateService
@@ -211,9 +212,16 @@ final class AppModel {
         )
     }
 
-    func bootstrap() async {
+    func bootstrap(modelContext: ModelContext? = nil) async {
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
+
+        // One-shot recovery: meetings left mid-pipeline (`.processing`) by a
+        // crash/force-quit would otherwise spin forever. Nothing is running at
+        // launch, so downgrade them off `.processing`.
+        if let modelContext {
+            recoverStaleProcessingMeetings(modelContext: modelContext)
+        }
 
         // Populate the approvals badge and start watching early — before the
         // (potentially slow) calendar permission check.
@@ -227,6 +235,39 @@ final class AppModel {
         }
         await applicationsLocationCheck.runOnceIfNeeded()
         updateService.startScheduling()
+    }
+
+    /// Sweeps SwiftData for meetings stuck in `.processing` and downgrades them
+    /// per `StaleProcessingRecovery` so they stop spinning and the detail view
+    /// surfaces a Retry. Pipeline-active guard means it's safe to call any time,
+    /// though at launch nothing should be running yet.
+    private func recoverStaleProcessingMeetings(modelContext: ModelContext) {
+        let isAnyPipelineActive = transcriptionService.isTranscribing || summarizationService.isSummarizing
+        // Enum-typed stored properties don't filter reliably in SwiftData
+        // predicates, so fetch all and filter in memory — this is a one-shot at
+        // launch over a small set.
+        guard let all = try? modelContext.fetch(FetchDescriptor<Meeting>()) else { return }
+        let stale = all.filter { $0.status == .processing }
+        guard !stale.isEmpty else { return }
+
+        var recovered = 0
+        for meeting in stale {
+            let hasTranscript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let hasUserNotes = !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if let newStatus = StaleProcessingRecovery.recoveredStatus(
+                currentStatus: meeting.status,
+                hasTranscript: hasTranscript,
+                hasUserNotes: hasUserNotes,
+                isAnyPipelineActive: isAnyPipelineActive
+            ) {
+                meeting.status = newStatus
+                recovered += 1
+            }
+        }
+        if recovered > 0 {
+            try? modelContext.save()
+            Log.persistence.notice("Recovered \(recovered) stale .processing meeting(s) on launch.")
+        }
     }
 
     private func registerSentinelCleanup() {
