@@ -3,6 +3,7 @@ import CoreAudio
 import CoreGraphics
 import Foundation
 import OSLog
+import os
 
 /// Composes the recording units (`MicrophoneCaptureUnit`,
 /// `SystemAudioCaptureUnit`, two `PCMTrackWriter`s, `AudioLevelAggregator`) and
@@ -34,6 +35,14 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private var microphoneUnit: MicrophoneCaptureUnit?
     private var systemAudioUnit: SystemAudioCaptureUnit?
 
+    /// Frames captured by the just-finalized track(s), cached during `stop()`
+    /// before the writers are released. The facade reads `hasCapturedFrames`
+    /// *after* `stop()` (to decide whether to keep the segment), so the count
+    /// must outlive the writers — matching the pre-Phase-1c behavior where the
+    /// counters were session-level stored properties. Lock-guarded so it stays
+    /// safe to read from any thread.
+    private let finalizedFrameCount = OSAllocatedUnfairLock<AVAudioFramePosition>(initialState: 0)
+
     init(
         outputURL: URL,
         meeting: Meeting,
@@ -55,7 +64,11 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     }
 
     var hasCapturedFrames: Bool {
-        (microphoneWriter?.frames ?? 0) > 0 || (systemAudioWriter?.frames ?? 0) > 0
+        // Live writers report frames while recording; once `stop()` releases the
+        // writers it caches the final total in `finalizedFrameCount`, so this
+        // stays accurate when the facade checks it after stopping.
+        let live = (microphoneWriter?.frames ?? 0) + (systemAudioWriter?.frames ?? 0)
+        return live > 0 || finalizedFrameCount.withLock { $0 } > 0
     }
 
     func start() async throws {
@@ -98,6 +111,9 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
         let microphoneFrames = microphoneWriter?.frames ?? 0
         let systemAudioFrames = systemAudioWriter?.frames ?? 0
+        // Cache the total before releasing the writers so `hasCapturedFrames`
+        // (read by the facade after `stop()` returns) reflects what was captured.
+        finalizedFrameCount.withLock { $0 = microphoneFrames + systemAudioFrames }
         microphoneWriter = nil
         systemAudioWriter = nil
 
