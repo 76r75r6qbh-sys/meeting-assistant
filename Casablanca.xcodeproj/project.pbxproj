@@ -58,6 +58,13 @@
 		A10205 /* DeviceLanguageChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10205 /* DeviceLanguageChip.swift */; };
 		A10206 /* MeetingTodosPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10206 /* MeetingTodosPanel.swift */; };
 		A10207 /* BlockingProgressOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10207 /* BlockingProgressOverlay.swift */; };
+		A10208 /* MeetingDetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10208 /* MeetingDetailPresentation.swift */; };
+		A10209 /* ExportAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10209 /* ExportAlertPresenter.swift */; };
+		A10210 /* MeetingDetailPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10210 /* MeetingDetailPresentationTests.swift */; };
+		A10211 /* MeetingDetailInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10211 /* MeetingDetailInspector.swift */; };
+		A10212 /* MeetingSummaryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10212 /* MeetingSummaryTab.swift */; };
+		A10213 /* MeetingTranscriptTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10213 /* MeetingTranscriptTab.swift */; };
+		A10214 /* MeetingNotesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10214 /* MeetingNotesTab.swift */; };
 		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
 		A10610 /* RecordingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10610 /* RecordingTypes.swift */; };
 		A10611 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10611 /* AudioRecordingService.swift */; };
@@ -226,6 +233,13 @@
 		B10205 /* DeviceLanguageChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLanguageChip.swift; sourceTree = "<group>"; };
 		B10206 /* MeetingTodosPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTodosPanel.swift; sourceTree = "<group>"; };
 		B10207 /* BlockingProgressOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingProgressOverlay.swift; sourceTree = "<group>"; };
+		B10208 /* MeetingDetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetailPresentation.swift; sourceTree = "<group>"; };
+		B10209 /* ExportAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportAlertPresenter.swift; sourceTree = "<group>"; };
+		B10210 /* MeetingDetailPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetailPresentationTests.swift; sourceTree = "<group>"; };
+		B10211 /* MeetingDetailInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetailInspector.swift; sourceTree = "<group>"; };
+		B10212 /* MeetingSummaryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSummaryTab.swift; sourceTree = "<group>"; };
+		B10213 /* MeetingTranscriptTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTranscriptTab.swift; sourceTree = "<group>"; };
+		B10214 /* MeetingNotesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingNotesTab.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
 		B10610 /* RecordingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTypes.swift; sourceTree = "<group>"; };
@@ -521,6 +535,7 @@
 				B10500 /* GlobalSearchView.swift */,
 				B10013 /* NotesEditorView.swift */,
 				E10200 /* NotesEditor */,
+				E10210 /* MeetingDetail */,
 				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
 				B10021 /* TranscriptionView.swift */,
@@ -585,6 +600,7 @@
 				B10205 /* DeviceLanguageChip.swift */,
 				B10206 /* MeetingTodosPanel.swift */,
 				B10207 /* BlockingProgressOverlay.swift */,
+				B10209 /* ExportAlertPresenter.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -599,6 +615,18 @@
 				B10204 /* MeetingNotesHeader.swift */,
 			);
 			path = NotesEditor;
+			sourceTree = "<group>";
+		};
+		E10210 /* MeetingDetail */ = {
+			isa = PBXGroup;
+			children = (
+				B10208 /* MeetingDetailPresentation.swift */,
+				B10211 /* MeetingDetailInspector.swift */,
+				B10212 /* MeetingSummaryTab.swift */,
+				B10213 /* MeetingTranscriptTab.swift */,
+				B10214 /* MeetingNotesTab.swift */,
+			);
+			path = MeetingDetail;
 			sourceTree = "<group>";
 		};
 		E10012 /* CasablancaTests */ = {
@@ -640,6 +668,7 @@
 				7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */,
 				A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */,
 				CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */,
+				B10210 /* MeetingDetailPresentationTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -788,6 +817,12 @@
 				A10205 /* DeviceLanguageChip.swift in Sources */,
 				A10206 /* MeetingTodosPanel.swift in Sources */,
 				A10207 /* BlockingProgressOverlay.swift in Sources */,
+				A10208 /* MeetingDetailPresentation.swift in Sources */,
+				A10209 /* ExportAlertPresenter.swift in Sources */,
+				A10211 /* MeetingDetailInspector.swift in Sources */,
+				A10212 /* MeetingSummaryTab.swift in Sources */,
+				A10213 /* MeetingTranscriptTab.swift in Sources */,
+				A10214 /* MeetingNotesTab.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
 				A10610 /* RecordingTypes.swift in Sources */,
 				A10611 /* AudioRecordingService.swift in Sources */,
@@ -916,6 +951,7 @@
 				C9BC31735C018EA073CE78BD /* ActionQueueStoreTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* ActionQueueModelTests.swift in Sources */,
 				CA1EAD0000000000000000C1 /* CalendarServiceTests.swift in Sources */,
+				A10210 /* MeetingDetailPresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

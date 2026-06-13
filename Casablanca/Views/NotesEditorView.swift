@@ -471,25 +471,6 @@ struct NotesEditorView: View {
         }
     }
 
-    private func presentExportAlert(title: String, message: String, exportedURLs: [URL]) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-
-        if exportedURLs.isEmpty {
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        alert.addButton(withTitle: "Show in Finder")
-        alert.addButton(withTitle: "OK")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.activateFileViewerSelecting(exportedURLs)
-        }
-    }
-
     private func openPrivacySettings(anchor: String) {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else {
             return
