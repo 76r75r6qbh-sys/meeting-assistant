@@ -50,6 +50,14 @@
 		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
 		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
+		A10200 /* MeetingWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* MeetingWorkspacePresentation.swift */; };
+		A10201 /* RecordingStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10201 /* RecordingStatusBar.swift */; };
+		A10202 /* FocusRecordingPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10202 /* FocusRecordingPill.swift */; };
+		A10203 /* NotesEditorInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* NotesEditorInspector.swift */; };
+		A10204 /* MeetingNotesHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10204 /* MeetingNotesHeader.swift */; };
+		A10205 /* DeviceLanguageChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10205 /* DeviceLanguageChip.swift */; };
+		A10206 /* MeetingTodosPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10206 /* MeetingTodosPanel.swift */; };
+		A10207 /* BlockingProgressOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10207 /* BlockingProgressOverlay.swift */; };
 		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
 		A10610 /* RecordingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10610 /* RecordingTypes.swift */; };
 		A10611 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10611 /* AudioRecordingService.swift */; };
@@ -210,6 +218,14 @@
 		B10012 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B10500 /* GlobalSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchView.swift; sourceTree = "<group>"; };
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
+		B10200 /* MeetingWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingWorkspacePresentation.swift; sourceTree = "<group>"; };
+		B10201 /* RecordingStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStatusBar.swift; sourceTree = "<group>"; };
+		B10202 /* FocusRecordingPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusRecordingPill.swift; sourceTree = "<group>"; };
+		B10203 /* NotesEditorInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorInspector.swift; sourceTree = "<group>"; };
+		B10204 /* MeetingNotesHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingNotesHeader.swift; sourceTree = "<group>"; };
+		B10205 /* DeviceLanguageChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLanguageChip.swift; sourceTree = "<group>"; };
+		B10206 /* MeetingTodosPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTodosPanel.swift; sourceTree = "<group>"; };
+		B10207 /* BlockingProgressOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingProgressOverlay.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
 		B10610 /* RecordingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTypes.swift; sourceTree = "<group>"; };
@@ -504,6 +520,7 @@
 				B10012 /* SidebarView.swift */,
 				B10500 /* GlobalSearchView.swift */,
 				B10013 /* NotesEditorView.swift */,
+				E10200 /* NotesEditor */,
 				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
 				B10021 /* TranscriptionView.swift */,
@@ -565,8 +582,23 @@
 				B10007 /* MeetingCardView.swift */,
 				B10018 /* AudioLevelMeterView.swift */,
 				B10022 /* MarkdownTextEditor.swift */,
+				B10205 /* DeviceLanguageChip.swift */,
+				B10206 /* MeetingTodosPanel.swift */,
+				B10207 /* BlockingProgressOverlay.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		E10200 /* NotesEditor */ = {
+			isa = PBXGroup;
+			children = (
+				B10200 /* MeetingWorkspacePresentation.swift */,
+				B10201 /* RecordingStatusBar.swift */,
+				B10202 /* FocusRecordingPill.swift */,
+				B10203 /* NotesEditorInspector.swift */,
+				B10204 /* MeetingNotesHeader.swift */,
+			);
+			path = NotesEditor;
 			sourceTree = "<group>";
 		};
 		E10012 /* CasablancaTests */ = {
@@ -748,6 +780,14 @@
 				A10012 /* SidebarView.swift in Sources */,
 				A10500 /* GlobalSearchView.swift in Sources */,
 				A10013 /* NotesEditorView.swift in Sources */,
+				A10200 /* MeetingWorkspacePresentation.swift in Sources */,
+				A10201 /* RecordingStatusBar.swift in Sources */,
+				A10202 /* FocusRecordingPill.swift in Sources */,
+				A10203 /* NotesEditorInspector.swift in Sources */,
+				A10204 /* MeetingNotesHeader.swift in Sources */,
+				A10205 /* DeviceLanguageChip.swift in Sources */,
+				A10206 /* MeetingTodosPanel.swift in Sources */,
+				A10207 /* BlockingProgressOverlay.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
 				A10610 /* RecordingTypes.swift in Sources */,
 				A10611 /* AudioRecordingService.swift in Sources */,

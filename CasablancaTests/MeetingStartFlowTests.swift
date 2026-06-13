@@ -245,7 +245,7 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         )
 
         XCTAssertTrue(presentation.showsBlockingOverlay)
-        XCTAssertEqual(presentation.blockingOverlayTitle, "Recording finaliseren...")
+        XCTAssertEqual(presentation.blockingOverlayTitle, "Finalizing recording…")
         XCTAssertTrue(presentation.backButtonDisabled)
     }
 

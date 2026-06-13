@@ -57,4 +57,5 @@ enum CasaLayout {
     static let prepInspectorDefault: CGFloat = 300
     static let windowDefaultWidth: CGFloat = 1080
     static let windowDefaultHeight: CGFloat = 720
+    static let popoverWidth: CGFloat = 288
 }

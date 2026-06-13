@@ -2,160 +2,6 @@ import AppKit
 import SwiftData
 import SwiftUI
 
-struct MeetingWorkspacePresentation {
-    let meeting: Meeting
-    let activeMeetingID: UUID?
-    let isRecording: Bool
-    let isPreparing: Bool
-    let isFinalizing: Bool
-    let prefersRecordingFocusMode: Bool
-
-    var isActiveMeeting: Bool {
-        activeMeetingID == meeting.id
-    }
-
-    var showsRecordingChrome: Bool {
-        meeting.status == .recording || meeting.status == .pausedRecording
-    }
-
-    var showsFocusedRecordingControls: Bool {
-        showsRecordingChrome && prefersRecordingFocusMode
-    }
-
-    /// Focus mode is a pure view state: it can be active whether or not a
-    /// recording is in progress. It hides chrome (prep, to-dos, the device
-    /// chip, the recording bar) and centers the notes for distraction-free
-    /// writing. Recording + autosave keep running underneath.
-    var isFocusModeActive: Bool {
-        prefersRecordingFocusMode && !isFinalizing
-    }
-
-    /// In focus mode, while recording, the live state collapses to a single
-    /// unobtrusive pill (pulsing dot + timer) that still exposes pause/stop.
-    var showsFocusRecordingPill: Bool {
-        isFocusModeActive && showsRecordingChrome
-    }
-
-    var showsExpandedRecordingChrome: Bool {
-        showsRecordingChrome && !showsFocusedRecordingControls
-    }
-
-    /// The calm in-content meeting header (title + meta + avatars) sits above
-    /// the notes area in the notes-taking state only — not while recording (the
-    /// recording bar serves that role) and not in focus mode (distraction-free).
-    var showsNotesHeader: Bool {
-        !showsRecordingChrome && !isFocusModeActive && !isFinalizing
-    }
-
-    var showsCompactRecordingControls: Bool {
-        showsFocusedRecordingControls
-    }
-
-    var showsStartRecordingButton: Bool {
-        meeting.status == .notesOnly || meeting.status == .upcoming
-    }
-
-    var showsPauseRecordingButton: Bool {
-        meeting.status == .recording && isActiveMeeting && isRecording && !isFinalizing
-    }
-
-    var showsResumeRecordingButton: Bool {
-        meeting.status == .pausedRecording && !isFinalizing
-    }
-
-    var showsStopRecordingButton: Bool {
-        showsRecordingChrome && !isFinalizing
-    }
-
-    var backButtonDisabled: Bool {
-        isFinalizing || (meeting.status == .recording && isActiveMeeting && isRecording)
-    }
-
-    var showsBlockingOverlay: Bool {
-        isFinalizing
-    }
-
-    var blockingOverlayTitle: String? {
-        guard isFinalizing else { return nil }
-        return "Recording finaliseren..."
-    }
-
-    var stateLabel: String {
-        if isFinalizing { return "Finalizing" }
-        if isPreparing { return "Preparing" }
-        if meeting.status == .pausedRecording { return "Paused" }
-        return "Recording"
-    }
-}
-
-enum InspectorTab: String, CaseIterable, Identifiable {
-    case prep = "Prep"
-    case todos = "To-Dos"
-    var id: String { rawValue }
-}
-
-struct MeetingPrepPresentation: Equatable {
-    let markdown: String?
-    let isExpanded: Bool
-
-    var hasPrep: Bool {
-        !(markdown?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-    }
-
-    var showsPrepPane: Bool {
-        hasPrep && isExpanded
-    }
-
-    var showsShowPrepButton: Bool {
-        hasPrep && !isExpanded
-    }
-
-    var markdownText: String {
-        markdown ?? ""
-    }
-}
-
-struct FreeformWorkspacePresentation: Equatable {
-    let showsRecordingChrome: Bool
-
-    var showsTodosArea: Bool {
-        true
-    }
-}
-
-struct AutoPauseIndicatorPresentation {
-    let records: [RecordingInterruptionCoordinator.InterruptionRecord]
-    let referenceDate: Date
-
-    private static let visibilityWindow: TimeInterval = 300
-
-    var shouldShow: Bool {
-        guard let latest = records.last, let endedAt = latest.endedAt else { return false }
-        return referenceDate.timeIntervalSince(endedAt) < Self.visibilityWindow
-    }
-
-    var summary: String {
-        guard let latest = records.last, let endedAt = latest.endedAt else { return "" }
-        let duration = Int(endedAt.timeIntervalSince(latest.startedAt).rounded())
-        let timeOfDay = formattedTime(latest.startedAt)
-        let suffix = latest.resumedAutomatically ? "recording resumed." : "tap Resume to continue."
-        let cause: String
-        switch latest.reason {
-        case .screenLock: cause = "Auto-paused at \(timeOfDay) for \(duration)s"
-        case .systemSleep: cause = "Auto-paused at \(timeOfDay) (sleep, \(duration)s)"
-        case .audioDeviceLost: cause = "Auto-paused at \(timeOfDay) — microphone disconnected"
-        case .streamFailure: cause = "Auto-paused at \(timeOfDay) — recording stream stopped"
-        }
-        return "\(cause) — \(suffix)"
-    }
-
-    func formattedTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
-    }
-}
-
 struct NotesEditorView: View {
     private enum RecordingActionPhase { case start, pause, resume, stop }
 
@@ -166,31 +12,39 @@ struct NotesEditorView: View {
     let onBack: () -> Void
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
-    @State private var newTodoText = ""
     @State private var prepMarkdown: String?
     // Native trailing inspector hosting Prep + To-Dos as tabs. Resizing and the
     // toggle state are handled by AppKit (smooth + HIG-compliant).
     @State private var isInspectorPresented = false
     @State private var inspectorTab: InspectorTab = .prep
-    @State private var showingQuickControl = false
     @State private var isFinalizingRecording = false
     @State private var recordingActionPhase: RecordingActionPhase = .start
-    @State private var pulseOpacity: Double = 1
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 if presentation.showsExpandedRecordingChrome && !presentation.isFocusModeActive {
-                    recordingBar
+                    RecordingStatusBar(
+                        presentation: presentation,
+                        autoPause: autoPauseIndicatorPresentation,
+                        elapsed: formattedElapsed,
+                        audioLevel: recordingService.audioLevel,
+                        isPreparing: recordingService.isPreparing,
+                        isFinalizing: isFinalizingRecording,
+                        isRecordingState: isRecordingState,
+                        onPause: { Task { await pauseRecording() } },
+                        onResume: { Task { await resumeRecording() } },
+                        onStop: { Task { await stopRecording() } },
+                        deviceChip: { deviceLanguageChip }
+                    )
                     Divider()
                 }
 
                 if presentation.showsNotesHeader {
-                    meetingHeader
+                    MeetingNotesHeader(meeting: meeting)
                     Divider()
                 }
 
@@ -204,21 +58,33 @@ struct NotesEditorView: View {
             .blur(radius: presentation.showsBlockingOverlay ? 1.5 : 0)
 
             if presentation.showsFocusRecordingPill {
-                focusRecordingPill
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(CasaSpace.lg)
-                    .transition(.opacity)
+                FocusRecordingPill(
+                    presentation: presentation,
+                    elapsed: formattedElapsed,
+                    isRecordingState: isRecordingState,
+                    isPreparing: recordingService.isPreparing,
+                    isFinalizing: isFinalizingRecording,
+                    onPause: { Task { await pauseRecording() } },
+                    onResume: { Task { await resumeRecording() } },
+                    onStop: { Task { await stopRecording() } }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(CasaSpace.lg)
+                .transition(.opacity)
             }
 
             if presentation.isFocusModeActive {
-                focusExitButton
+                FocusExitButton(onExitFocus: { recordingWorkspaceFocusMode = false })
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(CasaSpace.lg)
                     .transition(.opacity)
             }
 
             if presentation.showsBlockingOverlay {
-                finalizingOverlay
+                BlockingProgressOverlay(
+                    title: presentation.blockingOverlayTitle ?? "Finalizing recording…",
+                    message: "Just a moment — Casablanca is preparing the recording for transcription."
+                )
             }
         }
         .animation(CasaAnimation.standard, value: presentation.isFocusModeActive)
@@ -334,319 +200,23 @@ struct NotesEditorView: View {
         )
     }
 
-    private var freeformPresentation: FreeformWorkspacePresentation {
-        FreeformWorkspacePresentation(
-            showsRecordingChrome: presentation.showsRecordingChrome
-        )
-    }
-
     @ViewBuilder
     private var mainContent: some View {
         freeformWorkspace
     }
 
-    // MARK: - Calm recording bar
-
     private var isRecordingState: Bool {
         meeting.status == .recording && recordingService.isRecording
     }
 
-    private var recordingBar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let presentation = autoPauseIndicatorPresentation, presentation.shouldShow {
-                Text(presentation.summary)
-                    .font(.caption)
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, CasaSpace.xl)
-                    .padding(.top, CasaSpace.sm)
-            }
-
-            HStack(spacing: CasaSpace.lg) {
-                recordingStatusDot
-
-                Text(presentation.stateLabel)
-                    .font(.system(.body, weight: .semibold))
-                    .foregroundStyle(isRecordingState ? Color.stateRecording : Color.textPrimary)
-
-                Text(formattedElapsed)
-                    .font(.system(.body, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.textPrimary)
-                    .accessibilityLabel("Elapsed time: \(formattedElapsed)")
-
-                AudioLevelMeterView(level: recordingService.audioLevel)
-
-                deviceLanguageChip
-
-                Spacer(minLength: CasaSpace.md)
-
-                recordingControls
-            }
-            .padding(.horizontal, CasaSpace.xl)
-            .padding(.vertical, CasaSpace.md)
-        }
-        .background(Color.stateRecording.opacity(0.12))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.stateRecording.opacity(0.22))
-                .frame(height: 1)
-        }
-    }
-
-    private var recordingStatusDot: some View {
-        Circle()
-            .fill(Color.stateRecording)
-            .frame(width: 10, height: 10)
-            .opacity(pulseOpacity)
-            .onAppear { startPulseIfNeeded() }
-            .onChange(of: isRecordingState) { startPulseIfNeeded() }
-            .onChange(of: reduceMotion) { startPulseIfNeeded() }
-            .accessibilityLabel(isRecordingState ? "Recording in progress" : "Recording paused")
-    }
-
-    private func startPulseIfNeeded() {
-        if isRecordingState && !reduceMotion {
-            pulseOpacity = 1
-            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                pulseOpacity = 0.45
-            }
-        } else {
-            withAnimation(.default) {
-                pulseOpacity = 1
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var recordingControls: some View {
-        if presentation.showsPauseRecordingButton {
-            Button {
-                Task { await pauseRecording() }
-            } label: {
-                Label("Pause", systemImage: "pause.fill")
-            }
-            .buttonStyle(SecondaryButtonStyle())
-            .keyboardShortcut("p", modifiers: .command)
-            .disabled(recordingService.isPreparing)
-        }
-
-        if presentation.showsResumeRecordingButton {
-            Button {
-                Task { await resumeRecording() }
-            } label: {
-                Label("Resume", systemImage: "play.fill")
-            }
-            .buttonStyle(SecondaryButtonStyle())
-            .keyboardShortcut("p", modifiers: .command)
-            .disabled(recordingService.isPreparing)
-        }
-
-        if presentation.showsStopRecordingButton {
-            Button {
-                Task { await stopRecording() }
-            } label: {
-                Label("Stop & Process", systemImage: "stop.fill")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(recordingService.isPreparing || isFinalizingRecording)
-        }
-    }
-
     // MARK: - Device & language quick-control
 
-    private var selectedDeviceName: String {
-        recordingService.availableInputDevices
-            .first(where: { $0.id == recordingService.selectedInputDeviceID })?
-            .name ?? "No microphone"
-    }
-
-    private var selectedLanguageShortLabel: String {
-        let id = meeting.transcriptionLanguage
-        switch id {
-        case "en-US": return "EN-US"
-        case "en-GB": return "EN-GB"
-        case "nl-NL": return "NL"
-        default:
-            // Fall back to the language subtag of a BCP-47 id, uppercased.
-            let primary = id.split(separator: "-").first.map(String.init) ?? id
-            return primary.uppercased()
-        }
-    }
-
     private var deviceLanguageChip: some View {
-        Button {
-            showingQuickControl.toggle()
-        } label: {
-            HStack(spacing: CasaSpace.sm) {
-                Image(systemName: "mic.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.textSecondary)
-
-                Text("\(selectedDeviceName) · \(selectedLanguageShortLabel)")
-                    .font(.caption)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.textTertiary)
-            }
-            .padding(.horizontal, CasaSpace.md)
-            .padding(.vertical, CasaSpace.xs)
-            .background(Color.backgroundActive, in: RoundedRectangle(cornerRadius: CasaRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: CasaRadius.lg)
-                    .stroke(Color.borderSubtle, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Recording device and language")
-        .accessibilityValue("\(selectedDeviceName), \(selectedLanguageShortLabel)")
-        .popover(isPresented: $showingQuickControl, arrowEdge: .bottom) {
-            deviceLanguagePopover
-        }
-    }
-
-    private var deviceLanguagePopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Input device")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.textSecondary)
-                .textCase(.uppercase)
-                .padding(.horizontal, CasaSpace.sm)
-                .padding(.bottom, CasaSpace.xs)
-
-            if recordingService.availableInputDevices.isEmpty {
-                Text("No microphone found")
-                    .font(.body)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, CasaSpace.sm)
-                    .padding(.vertical, CasaSpace.xs)
-            } else {
-                ForEach(recordingService.availableInputDevices) { device in
-                    deviceRow(device)
-                }
-            }
-
-            Toggle(isOn: Binding(
-                get: { recordingService.isSystemAudioEnabled },
-                set: { newValue in
-                    if newValue != recordingService.isSystemAudioEnabled {
-                        recordingService.toggleSystemAudioEnabled()
-                    }
-                }
-            )) {
-                Label("Also capture system audio", systemImage: "speaker.wave.2.fill")
-                    .font(.body)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .disabled(recordingService.isPreparing)
-            .padding(.horizontal, CasaSpace.sm)
-            .padding(.top, CasaSpace.xs)
-
-            Divider()
-                .padding(.vertical, CasaSpace.md)
-
-            Text("Transcription language")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.textSecondary)
-                .textCase(.uppercase)
-                .padding(.horizontal, CasaSpace.sm)
-                .padding(.bottom, CasaSpace.xs)
-
-            ForEach(TranscriptionService.supportedLanguages, id: \.id) { language in
-                languageRow(id: language.id, name: language.name)
-            }
-
-            Divider()
-                .padding(.vertical, CasaSpace.md)
-
-            SettingsLink {
-                Label("Recording defaults in Settings…", systemImage: "gearshape")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, CasaSpace.sm)
-        }
-        .padding(CasaSpace.md)
-        .frame(width: 288)
-    }
-
-    @ViewBuilder
-    private func deviceRow(_ device: AudioInputDevice) -> some View {
-        let isSelected = device.id == recordingService.selectedInputDeviceID
-
-        Button {
-            guard !isSelected else { return }
-            Task { await recordingService.selectInputDevice(device.id) }
-        } label: {
-            HStack(spacing: CasaSpace.sm) {
-                Image(systemName: "mic.fill")
-                    .font(.caption)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.textSecondary)
-                    .frame(width: 16)
-
-                Text(device.name)
-                    .font(.body)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-
-                Spacer(minLength: CasaSpace.sm)
-
-                if isSelected {
-                    AudioLevelMeterView(level: recordingService.audioLevel)
-                        .frame(height: 14)
-                }
-            }
-            .padding(.horizontal, CasaSpace.sm)
-            .padding(.vertical, CasaSpace.xs)
-            .background(
-                RoundedRectangle(cornerRadius: CasaRadius.md)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(recordingService.isPreparing)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private func languageRow(id: String, name: String) -> some View {
-        let isSelected = id == meeting.transcriptionLanguage
-
-        Button {
-            guard !isSelected else { return }
-            meeting.transcriptionLanguage = id
-            save()
-        } label: {
-            HStack(spacing: CasaSpace.sm) {
-                Text(name)
-                    .font(.body)
-                    .foregroundStyle(Color.textPrimary)
-
-                Spacer(minLength: CasaSpace.sm)
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .padding(.horizontal, CasaSpace.sm)
-            .padding(.vertical, CasaSpace.xs)
-            .background(
-                RoundedRectangle(cornerRadius: CasaRadius.md)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        DeviceLanguageChip(
+            recordingService: recordingService,
+            transcriptionLanguage: $meeting.transcriptionLanguage,
+            onLanguageChanged: { save() }
+        )
     }
 
     @ViewBuilder
@@ -659,42 +229,14 @@ struct NotesEditorView: View {
             // bounded layout as the primary content.
             notesColumn
                 .inspector(isPresented: $isInspectorPresented) {
-                    inspectorContent
-                        .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
+                    NotesEditorInspector(
+                        meeting: meeting,
+                        prepPresentation: prepPresentation,
+                        inspectorTab: $inspectorTab
+                    )
+                    .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
                 }
         }
-    }
-
-    /// The inspector hosts Prep and To-Dos as tabs. The segmented control only
-    /// appears when prep exists; otherwise the inspector is just To-Dos.
-    @ViewBuilder
-    private var inspectorContent: some View {
-        VStack(spacing: 0) {
-            if prepPresentation.hasPrep {
-                Picker("Inspector tab", selection: $inspectorTab) {
-                    ForEach(InspectorTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(CasaSpace.md)
-
-                Divider()
-            }
-
-            if effectiveInspectorTab == .prep {
-                ToastMarkdownViewer(markdown: prepPresentation.markdownText)
-                    .padding(CasaSpace.lg)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                todosArea
-            }
-        }
-    }
-
-    private var effectiveInspectorTab: InspectorTab {
-        prepPresentation.hasPrep ? inspectorTab : .todos
     }
 
     // MARK: - Focus mode
@@ -722,125 +264,10 @@ struct NotesEditorView: View {
         }
     }
 
-    private var focusRecordingPill: some View {
-        HStack(spacing: CasaSpace.sm) {
-            Circle()
-                .fill(Color.stateRecording)
-                .frame(width: 8, height: 8)
-                .opacity(pulseOpacity)
-                .onAppear { startPulseIfNeeded() }
-                .onChange(of: isRecordingState) { startPulseIfNeeded() }
-                .onChange(of: reduceMotion) { startPulseIfNeeded() }
-                .accessibilityLabel(isRecordingState ? "Recording in progress" : "Recording paused")
-
-            Text(formattedElapsed)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(isRecordingState ? Color.stateRecording : Color.textPrimary)
-                .accessibilityLabel("Elapsed time: \(formattedElapsed)")
-
-            if presentation.showsPauseRecordingButton {
-                pillIconButton("pause.fill", label: "Pause") {
-                    Task { await pauseRecording() }
-                }
-                .disabled(recordingService.isPreparing)
-                .keyboardShortcut("p", modifiers: .command)
-            }
-
-            if presentation.showsResumeRecordingButton {
-                pillIconButton("play.fill", label: "Resume") {
-                    Task { await resumeRecording() }
-                }
-                .disabled(recordingService.isPreparing)
-                .keyboardShortcut("p", modifiers: .command)
-            }
-
-            if presentation.showsStopRecordingButton {
-                pillIconButton("stop.fill", label: "Stop & Process") {
-                    Task { await stopRecording() }
-                }
-                .disabled(recordingService.isPreparing || isFinalizingRecording)
-                .keyboardShortcut(.return, modifiers: .command)
-            }
-        }
-        .padding(.leading, CasaSpace.md)
-        .padding(.trailing, CasaSpace.sm)
-        .padding(.vertical, CasaSpace.xs)
-        .background(Color.stateRecording.opacity(0.14), in: Capsule())
-        .overlay(
-            Capsule().stroke(Color.stateRecording.opacity(0.25), lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Recording status")
-    }
-
-    private func pillIconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.caption.weight(.semibold))
-                .frame(width: 22, height: 22)
-                .background(Color.backgroundActive, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.textPrimary)
-        .help(label)
-        .accessibilityLabel(label)
-    }
-
-    private var focusExitButton: some View {
-        Button {
-            recordingWorkspaceFocusMode = false
-        } label: {
-            Label("Exit Focus", systemImage: "arrow.down.right.and.arrow.up.left")
-                .font(.callout)
-        }
-        .buttonStyle(SecondaryButtonStyle())
-        .keyboardShortcut(.escape, modifiers: [])
-        .help("Exit Focus (Esc)")
-    }
-
     private var notesColumn: some View {
         // Pane controls now live in the toolbar (consistent across states), so
         // the notes column is just the editor — its proven layout is untouched.
         freeformNotesEditor
-    }
-
-    /// Calm in-content meeting header for the notes-taking state, mirroring the
-    /// prep/detail headers: title + meta line (date · time · participant count)
-    /// + participant avatars, with the "Show Prep" affordance folded in on the
-    /// trailing side. Placed as a sibling above `mainContent` so the notes
-    /// editor's container is never restructured.
-    private var meetingHeader: some View {
-        HStack(alignment: .top, spacing: CasaSpace.md) {
-            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                Text(meeting.title)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(2)
-
-                Text(meetingHeaderMetaLine)
-                    .font(.caption)
-                    .foregroundStyle(Color.textSecondary)
-            }
-
-            Spacer(minLength: CasaSpace.md)
-
-            ParticipantAvatars(names: meeting.participants)
-        }
-        .padding(.horizontal, CasaSpace.xl)
-        .padding(.vertical, CasaSpace.lg)
-    }
-
-    private var meetingHeaderMetaLine: String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "EEE d MMM"
-        let day = dateFormatter.string(from: meeting.date)
-        let count = meeting.participants.count
-        guard count > 0 else {
-            return "\(day) · \(meeting.formattedTime)"
-        }
-        let participantLabel = count == 1 ? "1 participant" : "\(count) participants"
-        return "\(day) · \(meeting.formattedTime) · \(participantLabel)"
     }
 
     private var freeformNotesEditor: some View {
@@ -851,74 +278,6 @@ struct NotesEditorView: View {
         .padding(CasaSpace.lg)
         .onChange(of: meeting.userNotes) {
             debouncedSave()
-        }
-    }
-
-    @ViewBuilder
-    private var todosArea: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                if meeting.todos.isEmpty {
-                    Text("No to-dos yet. Add one below.")
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(maxWidth: .infinity, minHeight: 320, alignment: .center)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: CasaSpace.xs) {
-                        ForEach(meeting.todos) { todo in
-                            HStack(spacing: CasaSpace.sm) {
-                                Button {
-                                    try? ObsidianTodoSyncService.setCompleted(
-                                        !todo.isCompleted,
-                                        for: todo,
-                                        in: modelContext
-                                    )
-                                } label: {
-                                    Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                                        .font(.body)
-                                        .foregroundStyle(todo.isCompleted ? Color.accentColor : Color.textTertiary)
-                                }
-                                .buttonStyle(.plain)
-
-                                Text(todo.text)
-                                    .font(.body)
-                                    .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
-                                    .strikethrough(todo.isCompleted, color: Color.textTertiary)
-                                    .textSelection(.enabled)
-
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.vertical, CasaSpace.xs)
-                        }
-                    }
-                    .padding(CasaSpace.lg)
-                }
-            }
-
-            Divider()
-
-            HStack(spacing: CasaSpace.sm) {
-                TextField("Add a to-do...", text: $newTodoText)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .onSubmit {
-                        addTodo()
-                    }
-
-                Button {
-                    addTodo()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(newTodoText.trimmingCharacters(in: .whitespaces).isEmpty
-                            ? Color.textTertiary : Color.accentColor)
-                }
-                .buttonStyle(.plain)
-                .disabled(newTodoText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.horizontal, CasaSpace.lg)
-            .padding(.vertical, CasaSpace.md)
-            .background(.bar)
         }
     }
 
@@ -958,46 +317,6 @@ struct NotesEditorView: View {
         }
         .padding(CasaSpace.lg)
         .background(.bar)
-    }
-
-    private var finalizingOverlay: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            VStack(spacing: CasaSpace.md) {
-                ProgressView()
-                    .controlSize(.regular)
-
-                Text(presentation.blockingOverlayTitle ?? "Recording finaliseren...")
-                    .font(.headline)
-                    .foregroundStyle(Color.textPrimary)
-
-                Text("Even geduld, Casablanca maakt de opname klaar voor transcriptie.")
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(CasaSpace.xxl)
-            .frame(width: 360)
-            .background(Color.backgroundPrimary.opacity(0.96))
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
-            .shadow(color: .black.opacity(0.12), radius: 20, y: 10)
-        }
-        .transition(.opacity)
-    }
-
-    private func addTodo() {
-        let trimmed = newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        try? ObsidianTodoSyncService.createMeetingTodo(
-            text: trimmed,
-            meeting: meeting,
-            in: modelContext
-        )
-        newTodoText = ""
     }
 
     private func requestRecordingStart() {
