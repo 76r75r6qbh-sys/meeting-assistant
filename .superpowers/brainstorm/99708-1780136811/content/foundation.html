@@ -1,0 +1,85 @@
+<style>
+  .fcard{background:linear-gradient(180deg,rgba(127,127,140,.06),rgba(127,127,140,.02));border:1px solid rgba(127,127,140,.18);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .frow{display:flex;gap:14px;flex-wrap:wrap}
+  .frow > .fcard{flex:1;min-width:240px}
+  .sw{height:40px;border-radius:8px;display:flex;align-items:flex-end;padding:5px 7px;font-size:9.5px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+  .swlight{color:#222;text-shadow:none}
+  .layer{height:34px;border-radius:8px;display:flex;align-items:center;padding-left:12px;font-size:11px;margin-bottom:5px}
+  .tspec{display:flex;align-items:baseline;gap:12px;padding:5px 0;border-bottom:1px solid rgba(127,127,140,.12)}
+  .tmeta{font-size:10.5px;opacity:.5;margin-left:auto;font-family:monospace}
+  .dotstate{display:inline-flex;align-items:center;gap:7px;font-size:12px;margin:0 14px 8px 0}
+  .d{width:9px;height:9px;border-radius:50%}
+  .ba{display:flex;gap:10px;align-items:center}
+  .chip{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600}
+</style>
+
+<h2>Direction C — refined foundation</h2>
+<p class="subtitle">The system every screen inherits. Sign off here and the screens come fast. Shown in dark mode; all of it has a light-mode twin.</p>
+
+<div class="fcard" style="border-color:rgba(90,120,255,.35)">
+  <span class="label">The headline HIG fix — accent color</span>
+  <div class="ba" style="margin-top:10px">
+    <div>
+      <div style="font-size:11px;opacity:.55;margin-bottom:5px">Now — hardcoded indigo everywhere</div>
+      <span class="chip" style="background:#5B6EF5;color:#fff">Summarize</span>
+      <div style="font-size:11px;opacity:.5;margin-top:6px">Ignores the user's Mac accent setting</div>
+    </div>
+    <div style="font-size:22px;opacity:.4">→</div>
+    <div>
+      <div style="font-size:11px;opacity:.55;margin-bottom:5px">After — honors System Settings ▸ Accent</div>
+      <span class="chip" style="background:#0a84ff;color:#fff">Summarize</span>
+      <span class="chip" style="background:#ff375f;color:#fff">Summarize</span>
+      <span class="chip" style="background:#30d158;color:#fff">Summarize</span>
+      <div style="font-size:11px;opacity:.5;margin-top:6px">Adapts to whatever the user picked — pink, green, graphite…</div>
+    </div>
+  </div>
+</div>
+
+<div class="frow">
+  <div class="fcard">
+    <span class="label">Surface layers (depth via material, not lines)</span>
+    <div style="margin-top:10px">
+      <div class="layer" style="background:#161618;color:#999;border:1px solid #2a2a2e">L0 · Window base</div>
+      <div class="layer" style="background:rgba(255,255,255,.05);color:#bbb">L1 · Sidebar — vibrancy / translucent</div>
+      <div class="layer" style="background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));color:#ddd;border:1px solid rgba(255,255,255,.09)">L2 · Card</div>
+      <div class="layer" style="background:rgba(255,255,255,.11);color:#eee;border:1px solid rgba(255,255,255,.12)">L3 · Sheet / popover — regularMaterial</div>
+    </div>
+  </div>
+  <div class="fcard">
+    <span class="label">Calm state colors — system semantic, desaturated</span>
+    <div style="margin-top:12px">
+      <span class="dotstate"><span class="d" style="background:#ff453a;box-shadow:0 0 7px #ff453a"></span>Recording (soft glow)</span>
+      <span class="dotstate"><span class="d" style="background:#30d158"></span>Live / done</span><br>
+      <span class="dotstate"><span class="d" style="background:#bf5af2"></span>Processing</span>
+      <span class="dotstate"><span class="d" style="background:#ff9f0a"></span>Warning</span><br>
+      <span class="dotstate"><span class="d" style="background:#8e8e93"></span>Idle / upcoming</span>
+    </div>
+    <p style="font-size:11px;opacity:.55;margin-top:10px;margin-bottom:0">Uses Apple's semantic colors (red/green/orange…) so they adapt to appearance &amp; Increased Contrast automatically. Color appears <b>only</b> for state — never decoration.</p>
+  </div>
+</div>
+
+<div class="frow">
+  <div class="fcard">
+    <span class="label">Type scale (SF Pro — generous, calm)</span>
+    <div style="margin-top:8px">
+      <div class="tspec"><span style="font-size:22px;font-weight:600;letter-spacing:-.01em">Weekly Sync</span><span class="tmeta">22 / semibold</span></div>
+      <div class="tspec"><span style="font-size:17px;font-weight:600">Section title</span><span class="tmeta">17 / semibold</span></div>
+      <div class="tspec"><span style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;opacity:.55">Summary</span><span class="tmeta">11 / label</span></div>
+      <div class="tspec"><span style="font-size:13px;line-height:1.6">Body &amp; transcript text, set at 1.6 line-height for comfortable reading.</span><span class="tmeta">13 / 1.6</span></div>
+      <div class="tspec" style="border:none"><span style="font-size:12px;opacity:.5">Metadata · timestamps</span><span class="tmeta">12 / secondary</span></div>
+    </div>
+  </div>
+  <div class="fcard">
+    <span class="label">Materials, radii &amp; motion</span>
+    <ul style="font-size:12.5px;line-height:1.75;margin:10px 0 0;padding-left:18px;opacity:.85">
+      <li>Sidebar &amp; toolbar: <b>vibrancy materials</b>, unified titlebar</li>
+      <li>Sheets/popovers: <b>regularMaterial</b> with soft shadow</li>
+      <li>Radii — cards <b>12</b>, controls <b>8</b>, pills <b>20</b> (softer than today's 8)</li>
+      <li>Depth — 1px hairline + faint shadow; <b>glow reserved for live state</b></li>
+      <li>Motion — keep your spring tokens; add subtle transitions on state change</li>
+      <li>Spacing — bump content padding up a step for more air</li>
+    </ul>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:8px">Look right? Tell me what to tweak, or say go and I'll start mocking the actual screens in this system — sidebar/dashboard first, then the recording &amp; recorded-meeting views.</p>

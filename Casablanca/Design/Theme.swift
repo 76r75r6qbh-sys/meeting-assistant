@@ -35,19 +35,18 @@ extension Color {
     static let borderDefault = Color(nsColor: .tertiaryLabelColor).opacity(0.3)
     static let borderFocus = Color.accentColor
 
-    // Accent
-    static let accentPrimary = Color(red: 0.357, green: 0.431, blue: 0.961)     // #5B6EF5
-    static let accentPrimaryHover = Color(red: 0.290, green: 0.361, blue: 0.902) // #4A5CE6
-    static let accentSecondary = Color(red: 0.545, green: 0.361, blue: 0.965)    // #8B5CF6
-    static let accentSuccess = Color(red: 0.204, green: 0.827, blue: 0.600)      // #34D399
-    static let accentWarning = Color(red: 0.984, green: 0.749, blue: 0.141)      // #FBBF24
-    static let accentDanger = Color(red: 0.937, green: 0.267, blue: 0.267)       // #EF4444
+    // Accent — honor the user's System Settings accent color (HIG)
+    static let accentPrimary = Color.accentColor
+    static let accentSecondary = Color(nsColor: .systemPurple)  // AI / processing tint
+    static let accentSuccess = Color(nsColor: .systemGreen)
+    static let accentWarning = Color(nsColor: .systemOrange)
+    static let accentDanger  = Color(nsColor: .systemRed)
 
-    // State
-    static let stateRecording = accentDanger
+    // State (semantic; adapt to appearance & Increased Contrast)
+    static let stateRecording  = accentDanger
     static let stateProcessing = accentSecondary
-    static let stateLive = accentSuccess
-    static let stateIdle = Color(nsColor: .tertiaryLabelColor)
+    static let stateLive       = accentSuccess
+    static let stateIdle       = Color(nsColor: .tertiaryLabelColor)
     static let stateAIGenerated = accentSecondary.opacity(0.15)
 }
 
@@ -59,8 +58,26 @@ struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(CasaSpace.md)
-            .background(Color.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
+            .background {
+                // Layered material: base fill + a gentle top-down highlight for depth.
+                // The base token keeps the fill appearance-correct in light & dark;
+                // the white-opacity gradient adds a soft raised-edge highlight that
+                // reads as depth in dark mode and stays subtle in light mode.
+                Color.backgroundTertiary
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.06), Color.white.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.xl))
+            // 1px hairline border, appearance-correct in both light and dark.
+            .overlay(
+                RoundedRectangle(cornerRadius: CasaRadius.xl)
+                    .strokeBorder(Color.borderSubtle, lineWidth: 1)
+            )
             .overlay(alignment: .leading) {
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: 2)

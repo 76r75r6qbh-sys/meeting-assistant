@@ -152,7 +152,34 @@ final class OMLXProviderTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Data("not json".utf8)) }
         let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
         await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
-            guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .malformedResponse)
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, false)
+        }
+    }
+
+    // MARK: - Transient classification
+
+    func testGenerate503IsTransient() async {
+        MockURLProtocol.requestHandler = { _ in
+            (HTTPURLResponse(url: URL(string: "http://x/v1/chat/completions")!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+             Data("unavailable".utf8))
+        }
+        let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .httpStatus(503))
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, true)
+        }
+    }
+
+    func testGenerateCannotConnectIsTransient() async {
+        MockURLProtocol.requestHandler = { _ in throw URLError(.cannotConnectToHost) }
+        let provider = OMLXProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .network(.cannotConnectToHost))
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, true)
         }
     }
 

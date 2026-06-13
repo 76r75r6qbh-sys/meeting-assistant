@@ -47,6 +47,21 @@ enum AppPreferences {
         defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
     }
 
+    /// When `true`, the finished recording's WAV mixdown is preserved as-is and
+    /// no AAC/m4a compression runs. Default `false`: after transcription
+    /// succeeds, the WAV is re-encoded to AAC/m4a and the original WAV deleted.
+    static func keepOriginalWAV(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.keepOriginalWAV)
+    }
+
+    static func hasCompletedOnboarding(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding)
+    }
+
+    static func setHasCompletedOnboarding(_ value: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: AppPreferenceKey.hasCompletedOnboarding)
+    }
+
     /// One-shot migration: if the legacy `autoExportNotesToObsidian` key has a value but the new
     /// `autoExportEnabled` key has none, seed the new key from the legacy value. The legacy key is
     /// preserved (do not delete user data). Idempotent.

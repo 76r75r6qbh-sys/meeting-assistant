@@ -1,0 +1,70 @@
+<style>
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea;position:relative}
+  .tbar{display:flex;align-items:center;gap:10px;padding:11px 16px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tt{font-size:13px;font-weight:600;margin-left:6px}
+  .recbar{display:flex;align-items:center;gap:13px;padding:12px 18px;background:linear-gradient(90deg,rgba(255,69,58,.14),rgba(255,69,58,.04));border-bottom:1px solid rgba(255,69,58,.22)}
+  .recdot{width:11px;height:11px;border-radius:50%;background:#ff453a;box-shadow:0 0 10px #ff453a;animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.45}}
+  .recstate{font-size:13px;font-weight:600;color:#ff8a80}
+  .timer{font-size:15px;font-variant-numeric:tabular-nums;font-family:"SF Mono",monospace;font-weight:600}
+  .chip{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 10px;font-size:12px}
+  .chip .cv{opacity:.65}
+  .rctrl{margin-left:auto;display:flex;gap:8px}
+  .rbtn{padding:6px 14px;border-radius:8px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .pause{background:rgba(255,255,255,.12);color:#e8e8ea}.stop{background:#ff453a;color:#fff}
+  /* proper icons (SF Symbols pause.fill / stop.fill in app) */
+  .picon{display:inline-flex;gap:3px;align-items:center}
+  .picon i{width:3px;height:12px;background:currentColor;border-radius:1.5px;display:block}
+  .sicon{width:11px;height:11px;background:currentColor;border-radius:2.5px;display:inline-block}
+  .filler{height:150px;display:flex;align-items:center;justify-content:center;font-size:12px;opacity:.25}
+  .pop{position:absolute;top:118px;left:18px;width:288px;background:rgba(46,46,50,.92);backdrop-filter:blur(40px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:13px;box-shadow:0 24px 60px rgba(0,0,0,.55);padding:14px;z-index:5}
+  .pop::before{content:"";position:absolute;top:-7px;left:30px;width:13px;height:13px;background:rgba(46,46,50,.92);border-left:1px solid rgba(255,255,255,.12);border-top:1px solid rgba(255,255,255,.12);transform:rotate(45deg)}
+  .plbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.45;font-weight:700;margin:4px 0 7px}
+  .opt{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;font-size:13px}
+  .opt.sel{background:rgba(10,132,255,.25)}
+  .opt .ck{margin-left:auto;color:#4d9bff}
+  .metermini{display:flex;align-items:flex-end;gap:2px;height:14px;margin-left:auto}
+  .metermini i{width:3px;border-radius:1px;background:#30d158}
+  .tog{margin-left:auto;width:34px;height:20px;border-radius:11px;background:#0a84ff;position:relative}
+  .tog::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+  .div{height:1px;background:rgba(255,255,255,.08);margin:11px 0}
+  .lnk{font-size:11.5px;color:#4d9bff;display:flex;align-items:center;gap:5px;padding:3px 9px}
+  .fixnote{background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.3);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:14px;color:#7ee2a8}
+</style>
+
+<h2>Recording controls — proper icons</h2>
+<div class="fixnote">✓ Pause is now a real pause glyph (SF Symbol <code>pause.fill</code>), Stop uses <code>stop.fill</code> — no more text characters.</div>
+
+<div class="win">
+  <div class="tbar">
+    <div class="tl"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div class="tt">Daily standup — Team Link</div>
+  </div>
+  <div class="recbar">
+    <span class="recdot"></span><span class="recstate">Recording</span><span class="timer">00:12:34</span>
+    <div class="chip" style="border-color:#4d9bff;box-shadow:0 0 0 3px rgba(10,132,255,.22)">🎙 <span class="cv">MacBook Pro Mic · EN</span> ⌄</div>
+    <div class="rctrl">
+      <div class="rbtn pause"><span class="picon"><i></i><i></i></span> Pause</div>
+      <div class="rbtn stop"><span class="sicon"></span> Stop &amp; Process</div>
+    </div>
+  </div>
+  <div class="filler">notes…</div>
+
+  <div class="pop">
+    <div class="plbl">Input device</div>
+    <div class="opt sel">🎙 MacBook Pro Microphone <span class="metermini"><i style="height:40%"></i><i style="height:70%"></i><i style="height:55%"></i><i style="height:85%"></i></span></div>
+    <div class="opt">🎧 AirPods Pro</div>
+    <div class="opt">🔌 External USB Mic</div>
+    <div class="opt" style="margin-top:6px">🖥 Also capture system audio <span class="tog"></span></div>
+    <div class="div"></div>
+    <div class="plbl">Transcription language</div>
+    <div class="opt sel">🇬🇧 English <span class="ck">✓</span></div>
+    <div class="opt">🇳🇱 Nederlands</div>
+    <div class="opt" style="opacity:.6">＋ Other…</div>
+    <div class="div"></div>
+    <div class="lnk">⚙︎ Recording defaults in Settings…</div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">When paused, the same button becomes a <b>play/resume</b> glyph (<code>play.fill</code>) and the state reads "Paused". Say next for Settings + first-run onboarding.</p>

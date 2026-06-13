@@ -5,6 +5,9 @@ struct RecordedMeetingView: View {
     @Bindable var meeting: Meeting
     let onRecordAgain: () -> Void
     let onTranscribe: () -> Void
+    /// Navigate to another meeting (used by the recurring-series prev/next links
+    /// in the inspector). Optional so previews/tests can omit it.
+    var onSelectMeeting: ((Meeting) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
@@ -12,21 +15,44 @@ struct RecordedMeetingView: View {
     @Environment(AppModel.self) private var appModel
     private var summarizationService: SummarizationService { appModel.summarizationService }
     private var terminologyService: TerminologyService { appModel.terminologyService }
+    private var transcriptionService: TranscriptionService { appModel.transcriptionService }
+    private var exportStatusCenter: ExportStatusCenter { appModel.exportStatusCenter }
+    @State private var didTriggerAutomaticSummary = false
+    @State private var selectedTab: DetailTab = .summary
+    @State private var showInspector = true
+    // Owned by this long-lived view so they survive tab switches: the notes
+    // edit toggle persists, and a pending debounced save is not cancelled when
+    // the user leaves the Notes tab (which tears down MeetingNotesTab).
     @State private var isEditingNotes = false
     @State private var saveTask: Task<Void, Never>?
-    @State private var didTriggerAutomaticSummary = false
-    @State private var pendingReview: PendingTodoReview?
-    @State private var pendingTodoTexts: [String] = []
+    // In-memory chat, owned by this detail view so it survives tab switches and
+    // resets when the user navigates to a different meeting (keyed internally by
+    // meeting id). No persistence in v1.
+    @State private var chatService = MeetingChatService()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private enum DetailTab: String, CaseIterable, Identifiable {
+        case summary = "Summary"
+        case transcript = "Transcript"
+        case notes = "Notes"
+        case ask = "Ask"
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                contentLayout(for: proxy.size.width)
-                    .padding(CasaSpace.xl)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
+        ScrollView {
+            readingColumn
+                .padding(CasaSpace.xl)
+                .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Native trailing inspector (AppKit-driven resize, HIG-compliant).
+        .inspector(isPresented: $showInspector) {
+            MeetingDetailInspector(meeting: meeting, canExport: canExport, onSelectMeeting: onSelectMeeting)
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
+        }
         .navigationTitle(meeting.title)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -34,21 +60,14 @@ struct RecordedMeetingView: View {
                     toolbarButton(for: primaryToolbarAction, isPrimary: true)
                 }
 
-                if primaryToolbarAction != .export, canExport {
-                    toolbarButton(for: .export, isPrimary: false)
+                Button {
+                    withAnimation(reduceMotion ? nil : CasaAnimation.fast) { showInspector.toggle() }
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.trailing")
                 }
+                .help(showInspector ? "Hide inspector" : "Show inspector")
 
-                Button(action: onRecordAgain) {
-                    Label("Record Again", systemImage: "record.circle")
-                }
-
-                if let recordingURL {
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([recordingURL])
-                    } label: {
-                        Label("Show in Finder", systemImage: "folder")
-                    }
-                }
+                secondaryActionsMenu
             }
         }
         .task(id: meeting.id) {
@@ -62,52 +81,67 @@ struct RecordedMeetingView: View {
         } message: {
             Text(summarizationService.errorMessage ?? "Unable to summarize the meeting.")
         }
-        .sheet(item: $pendingReview) { review in
-            TodoReviewSheet(
-                meetingTitle: meeting.title,
-                summary: review.summary,
-                todoTexts: $pendingTodoTexts,
-                onSave: {
-                    saveTodos(texts: pendingTodoTexts)
-                    pendingReview = nil
-                },
-                onDiscard: {
-                    pendingReview = nil
-                    save()
-                }
-            )
-            .interactiveDismissDisabled()
-        }
     }
 
-    @ViewBuilder
-    private func contentLayout(for width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+    // MARK: - Reading column
+
+    private var readingColumn: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xl) {
             infoBar
 
-            if shouldShowPipelineBanner {
-                pipelineBanner
+            Picker("View", selection: $selectedTab) {
+                ForEach(DetailTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            if shouldShowPipelineCard {
+                ProcessingStatusCard(
+                    presentation: pipelinePresentation,
+                    transcriptionProgress: transcriptionService.progress,
+                    summarizationStartedAt: summarizationService.summarizationStartedAt,
+                    onCancel: cancelActiveStage,
+                    onRetry: retryFailedStage,
+                    onDismissError: dismissPipelineError,
+                    onDismissWarning: { summarizationService.clearWarning() }
+                )
             }
 
-            if usesTwoColumnLayout(for: width) {
-                HStack(alignment: .top, spacing: CasaSpace.xl) {
-                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                        summaryCard
-                        transcriptCard
+            switch selectedTab {
+            case .summary:
+                MeetingSummaryTab(
+                    meeting: meeting,
+                    isSummarizing: isSummarizingThisMeeting,
+                    statusMessage: summarizationService.statusMessage,
+                    canSummarize: canSummarize,
+                    onSummarize: {
+                        summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
                     }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                    VStack(alignment: .leading, spacing: CasaSpace.xxl) {
-                        freeformNotesCard
-                    }
-                    .frame(width: notesColumnWidth(for: width), alignment: .topLeading)
-                }
-                actionItemsCard
-            } else {
-                summaryCard
-                transcriptCard
-                freeformNotesCard
-                actionItemsCard
+                )
+            case .transcript:
+                MeetingTranscriptTab(
+                    meeting: meeting,
+                    terminologyService: terminologyService,
+                    onTranscribe: onTranscribe,
+                    onSave: save
+                )
+            case .notes:
+                MeetingNotesTab(
+                    meeting: meeting,
+                    isEditingNotes: $isEditingNotes,
+                    onNotesEdited: debouncedSave
+                )
+            case .ask:
+                MeetingChatTab(
+                    meeting: meeting,
+                    chatService: chatService,
+                    hasGroundingContent: hasGroundingContent,
+                    // The local LLM serializes requests — a chat during any
+                    // background summary would queue and risk the 120s timeout.
+                    isSummaryInProgress: summarizationService.summarizingMeetingID != nil
+                )
             }
 
             Spacer(minLength: 0)
@@ -152,234 +186,71 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private var pipelineBanner: some View {
-        GroupBox {
-            HStack(spacing: CasaSpace.sm) {
-                if summarizationService.isSummarizing || terminologyService.isCorrecting {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(Color.textSecondary)
-                }
+    /// Pure presentation driving the ProcessingStatusCard, built fresh each render
+    /// from the live services + this meeting's state.
+    private var pipelinePresentation: MeetingPipelinePresentation {
+        MeetingPipelinePresentation(
+            isThisMeetingTranscribing: isTranscribingThisMeeting,
+            transcriptionProgress: transcriptionService.progress,
+            isSummarizingThisMeeting: isSummarizingThisMeeting,
+            summarizationPhase: summarizationService.phase,
+            summarizationStartedAt: summarizationService.summarizationStartedAt,
+            summarizationError: summarizationService.errorMessage,
+            summarizationWarning: summarizationService.warningMessage,
+            autoExportFailure: exportStatusCenter.failure(for: meeting.id),
+            meetingStatus: meeting.status,
+            hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            hasSummary: meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            autoSummarize: autoSummarizeAfterTranscription,
+            autoExport: autoExportEnabled
+        )
+    }
 
-                Text(pipelineStatusText)
-                    .font(.body)
-                    .foregroundStyle(Color.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    /// True while this meeting is the one actively transcribing. Transcription is
+    /// app-wide and ordinarily runs in TranscriptionView, but the meeting carries
+    /// `.processing` for its duration, so we scope by that + the service flag.
+    private var isTranscribingThisMeeting: Bool {
+        transcriptionService.isTranscribing && meeting.status == .processing
+    }
+
+    private func cancelActiveStage() {
+        switch pipelinePresentation.stage {
+        case .transcribing:
+            transcriptionService.cancel()
+        case .summarizing:
+            summarizationService.cancelBackgroundWork()
+        default:
+            break
         }
     }
 
-    private var summaryCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Summary", systemImage: "sparkles")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
-
-                    Spacer()
-
-                    if let summary = meeting.summary, !summary.isEmpty {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(summary, forType: .string)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                    }
-                }
-
-                if summarizationService.isSummarizing {
-                    HStack(spacing: CasaSpace.sm) {
-                        ProgressView()
-                            .controlSize(.small)
-
-                        Text(summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage)
-                            .font(.body)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                } else if let summary = meeting.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    renderedMarkdownSummary(summary)
-                } else {
-                    ContentUnavailableView {
-                        Label("No Summary Yet", systemImage: "sparkles")
-                    } description: {
-                        Text("Generate a structured summary from the transcript and notes.")
-                    } actions: {
-                        if canSummarize {
-                            Button("Summarize") {
-                                Task {
-                                    await summarizeMeeting()
-                                }
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
-                        }
-                    }
-                }
+    private func retryFailedStage() {
+        guard case .failed(let stage, _) = pipelinePresentation.stage else { return }
+        switch stage {
+        case .transcription:
+            onTranscribe()
+        case .summarization:
+            summarizationService.clearError()
+            summarizationService.clearWarning()
+            summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
+        case .export:
+            exportStatusCenter.clearFailure(for: meeting.id)
+            Task { @MainActor in
+                await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var transcriptCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Transcript", systemImage: "doc.text")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
-
-                    Spacer()
-
-                    if let transcript = meeting.transcript, !transcript.isEmpty {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(transcript, forType: .string)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                    }
-
-                    if canReapplyTerminology {
-                        Button {
-                            Task { await reapplyTerminology() }
-                        } label: {
-                            Label("Re-apply terminology", systemImage: "wand.and.sparkles")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                        .disabled(terminologyService.isCorrecting)
-                    }
-
-                    if meeting.rawTranscript != nil {
-                        Button {
-                            restoreOriginalTranscript()
-                        } label: {
-                            Label("Restore original", systemImage: "arrow.uturn.backward")
-                                .font(.caption)
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                        .disabled(terminologyService.isCorrecting)
-                        .help("Replace the displayed transcript with the unmodified text from the recording, discarding any terminology corrections.")
-                    }
-                }
-
-                if let warning = terminologyService.warningMessage {
-                    HStack(alignment: .top, spacing: CasaSpace.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.accentWarning)
-                        Text(warning)
-                            .font(.caption)
-                            .foregroundStyle(Color.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button {
-                            terminologyService.clearWarning()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(Color.textTertiary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(CasaSpace.sm)
-                    .background(Color.accentWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                }
-
-                if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ScrollView {
-                        Text(transcript)
-                            .font(.body)
-                            .foregroundStyle(Color.textSecondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .lineSpacing(4)
-                    }
-                    .frame(maxHeight: 280)
-                } else {
-                    ContentUnavailableView {
-                        Label("No Transcript Yet", systemImage: "waveform")
-                    } description: {
-                        Text("Transcribe the saved recording to review searchable text.")
-                    } actions: {
-                        if recordingURL != nil {
-                            Button("Transcribe") {
-                                onTranscribe()
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var freeformNotesCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: CasaSpace.md) {
-                HStack {
-                    Label("Notes", systemImage: "pencil.line")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
-
-                    Spacer()
-
-                    Button {
-                        isEditingNotes.toggle()
-                    } label: {
-                        Label(
-                            isEditingNotes ? "Done" : "Edit",
-                            systemImage: isEditingNotes ? "checkmark" : "pencil"
-                        )
-                        .font(.caption)
-                    }
-                    .buttonStyle(GhostButtonStyle())
-                }
-
-                if isEditingNotes {
-                    VStack(spacing: 0) {
-                        ToastMarkdownEditor(
-                            text: $meeting.userNotes,
-                            placeholder: "Capture decisions, follow-ups, and context..."
-                        )
-                        .frame(minHeight: 160)
-                        .onChange(of: meeting.userNotes) {
-                            debouncedSave()
-                        }
-                    }
-                    .padding(CasaSpace.sm)
-                    .background(Color.backgroundHover)
-                    .clipShape(RoundedRectangle(cornerRadius: CasaRadius.md))
-                } else if !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(meeting.userNotes)
-                        .font(.body)
-                        .foregroundStyle(Color.textSecondary)
-                        .textSelection(.enabled)
-                } else {
-                    ContentUnavailableView {
-                        Label("No Freeform Notes Yet", systemImage: "text.alignleft")
-                    } description: {
-                        Text("Use freeform notes for ideas, follow-ups, and context that do not need timestamps.")
-                    } actions: {
-                        Button("Edit Notes") {
-                            isEditingNotes = true
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                    }
-                }
-
-                if !meeting.timestampedNotes.isEmpty {
-                    Divider()
-
-                    TimestampedNotesHistorySection(notes: meeting.timestampedNotes)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func dismissPipelineError() {
+        guard case .failed(let stage, _) = pipelinePresentation.stage else { return }
+        switch stage {
+        case .transcription:
+            break
+        case .summarization:
+            summarizationService.clearError()
+            summarizationService.clearWarning()
+        case .export:
+            exportStatusCenter.clearFailure(for: meeting.id)
         }
     }
 
@@ -392,11 +263,9 @@ struct RecordedMeetingView: View {
             }
         case .summarize:
             Button {
-                Task {
-                    await summarizeMeeting()
-                }
+                summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
             } label: {
-                Label("Summarize", systemImage: summarizationService.isSummarizing ? "hourglass" : "sparkles")
+                Label("Summarize", systemImage: isSummarizingThisMeeting ? "hourglass" : "sparkles")
             }
             .disabled(!canSummarize || summarizationService.isSummarizing)
         case .export:
@@ -410,11 +279,19 @@ struct RecordedMeetingView: View {
     }
 
     private var hasNotes: Bool {
-        !meeting.timestampedNotes.isEmpty || !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var canSummarize: Bool {
         meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasNotes
+    }
+
+    /// Whether there's anything to ground a chat answer on — a transcript or a
+    /// summary. (Notes alone aren't enough signal for grounded Q&A; the summary
+    /// captures notes anyway.)
+    private var hasGroundingContent: Bool {
+        meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private var canExport: Bool {
@@ -428,12 +305,21 @@ struct RecordedMeetingView: View {
         return URL(fileURLWithPath: path)
     }
 
-    private var shouldShowPipelineBanner: Bool {
-        terminologyService.isCorrecting
-            || summarizationService.isSummarizing
-            || (autoSummarizeAfterTranscription
-                && meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                && meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+    /// True only when the shared summarization service is processing THIS
+    /// meeting — the service is app-wide, so other meetings' detail views must
+    /// not show this one's "generating…" state.
+    private var isSummarizingThisMeeting: Bool {
+        summarizationService.isSummarizing
+            && summarizationService.summarizingMeetingID == meeting.id
+    }
+
+    /// Show the pipeline card whenever a stage is active, there's an error to
+    /// surface (incl. auto-export failures), or there's a non-fatal warning to
+    /// show (a success-with-caveat). Otherwise `.done`/`.idle` hide it.
+    private var shouldShowPipelineCard: Bool {
+        pipelinePresentation.isActive
+            || pipelinePresentation.hasError
+            || pipelinePresentation.warning != nil
     }
 
     private var canReapplyTerminology: Bool {
@@ -443,50 +329,14 @@ struct RecordedMeetingView: View {
         return !TerminologyService.parse(raw).isEmpty
     }
 
-    private var pipelineStatusText: String {
-        if terminologyService.isCorrecting {
-            return "Correcting terminology..."
-        }
-
-        if summarizationService.isSummarizing {
-            return summarizationService.statusMessage.isEmpty ? "Generating summary..." : summarizationService.statusMessage
-        }
-
-        if autoSummarizeAfterTranscription && autoExportEnabled {
-            return "Casablanca is moving this meeting through summary and export automatically."
-        }
-
-        if autoSummarizeAfterTranscription {
-            return "Casablanca will generate the summary automatically."
-        }
-
-        return "The next recommended step is ready in the toolbar."
-    }
-
     private var primaryToolbarAction: ReviewPrimaryAction? {
-        if meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-           recordingURL != nil {
-            return .transcribe
-        }
-
-        if meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-           canSummarize {
-            return .summarize
-        }
-
-        if canExport {
-            return .export
-        }
-
-        return nil
-    }
-
-    private func usesTwoColumnLayout(for width: CGFloat) -> Bool {
-        width >= 1040
-    }
-
-    private func notesColumnWidth(for width: CGFloat) -> CGFloat {
-        min(max(width * 0.34, 320), 420)
+        reviewPrimaryAction(
+            hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            hasRecording: recordingURL != nil,
+            hasSummary: meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            canSummarize: canSummarize,
+            canExport: canExport
+        )
     }
 
     private var summaryErrorBinding: Binding<Bool> {
@@ -500,25 +350,6 @@ struct RecordedMeetingView: View {
         )
     }
 
-    private func summarizeMeeting() async {
-        do {
-            let parsed = try await summarizationService.summarize(meeting: meeting)
-            meeting.summary = parsed.summary
-            if !parsed.todoTexts.isEmpty {
-                pendingTodoTexts = parsed.todoTexts
-                pendingReview = PendingTodoReview(
-                    meetingID: meeting.id,
-                    summary: parsed.summary,
-                    todoTexts: parsed.todoTexts
-                )
-            } else {
-                save()
-            }
-        } catch {
-            summarizationService.errorMessage = error.localizedDescription
-        }
-    }
-
     private func reapplyTerminology() async {
         guard let raw = meeting.rawTranscript else { return }
         let entries = TerminologyService.parse(
@@ -529,13 +360,6 @@ struct RecordedMeetingView: View {
         let corrected = await terminologyService.correct(raw, entries: entries)
         guard meeting.modelContext != nil else { return }
         meeting.transcript = corrected
-        save()
-    }
-
-    private func restoreOriginalTranscript() {
-        guard let raw = meeting.rawTranscript else { return }
-        meeting.transcript = raw
-        terminologyService.clearWarning()
         save()
     }
 
@@ -575,54 +399,57 @@ struct RecordedMeetingView: View {
         }
     }
 
-    private func saveTodos(texts: [String]) {
-        for text in texts where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? ObsidianTodoSyncService.createMeetingTodo(
-                text: text,
-                meeting: meeting,
-                in: modelContext
-            )
-        }
-    }
+    // MARK: - Secondary actions menu
 
-    @ViewBuilder
-    private var actionItemsCard: some View {
-        if !meeting.todos.isEmpty {
-            GroupBox {
-                VStack(alignment: .leading, spacing: CasaSpace.md) {
-                    Label("Action Items", systemImage: "checklist")
-                        .font(.headline)
-                        .symbolRenderingMode(.hierarchical)
-
-                    ForEach(meeting.todos.sorted(by: { $0.createdAt < $1.createdAt })) { todo in
-                        HStack(spacing: CasaSpace.sm) {
-                            Button {
-                                try? ObsidianTodoSyncService.setCompleted(
-                                    !todo.isCompleted,
-                                    for: todo,
-                                    in: modelContext
-                                )
-                            } label: {
-                                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)
-                            }
-                            .buttonStyle(.borderless)
-
-                            Text(todo.text)
-                                .strikethrough(todo.isCompleted)
-                                .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
-                        }
-                    }
+    private var secondaryActionsMenu: some View {
+        Menu {
+            if primaryToolbarAction != .export, canExport {
+                Button {
+                    exportMeeting()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            if meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false, recordingURL != nil {
+                Button {
+                    onTranscribe()
+                } label: {
+                    Label("Re-transcribe", systemImage: "waveform")
+                }
+            }
+
+            if canReapplyTerminology {
+                Button {
+                    Task { await reapplyTerminology() }
+                } label: {
+                    Label("Re-apply terminology", systemImage: "wand.and.sparkles")
+                }
+                .disabled(terminologyService.isCorrecting)
+            }
+
+            Button(action: onRecordAgain) {
+                Label("Record Again", systemImage: "record.circle")
+            }
+
+            if let recordingURL {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([recordingURL])
+                } label: {
+                    Label("Show in Finder", systemImage: "folder")
+                }
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
         }
+        .help("More actions")
+        .accessibilityLabel("More actions")
     }
 
     private func save() {
         try? modelContext.save()
         Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting)
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
         }
     }
 
@@ -645,70 +472,8 @@ struct RecordedMeetingView: View {
         }
 
         didTriggerAutomaticSummary = true
-        await summarizeMeeting()
-    }
-
-    private func presentExportAlert(title: String, message: String, exportedURLs: [URL]) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-
-        if exportedURLs.isEmpty {
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        alert.addButton(withTitle: "Show in Finder")
-        alert.addButton(withTitle: "OK")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.activateFileViewerSelecting(exportedURLs)
-        }
-    }
-
-    @ViewBuilder
-    private func renderedMarkdownSummary(_ summary: String) -> some View {
-        let rendered = MarkdownConverter.markdownToAttributedString(
-            summary,
-            baseFont: .systemFont(ofSize: NSFont.systemFontSize)
-        )
-
-        if !rendered.string.isEmpty {
-            let attributed = AttributedString(rendered)
-            Text(attributed)
-                .foregroundStyle(Color.textPrimary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(summary)
-                .font(.body)
-                .foregroundStyle(Color.textPrimary)
-                .textSelection(.enabled)
-                .lineSpacing(4)
-        }
-    }
-}
-
-private enum ReviewPrimaryAction: Equatable {
-    case transcribe
-    case summarize
-    case export
-}
-
-private extension TimeInterval {
-    var formattedRecordingDuration: String {
-        let totalSeconds = max(Int(rounded()), 0)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours > 0 {
-            return String(format: "%dh %02dm %02ds", hours, minutes, seconds)
-        }
-        if minutes > 0 {
-            return String(format: "%dm %02ds", minutes, seconds)
-        }
-        return "\(seconds)s"
+        // Runs in a service-owned background task — keeps going if the user
+        // leaves this screen, and silently saves extracted to-dos on completion.
+        summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
     }
 }

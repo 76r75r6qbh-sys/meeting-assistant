@@ -26,6 +26,21 @@ enum MeetingPrepService {
         return nil
     }
 
+    static func writePrep(
+        _ markdown: String,
+        for meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) throws {
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian,
+           let url = prepURL(for: meeting, userDefaults: userDefaults) {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+        } else {
+            meeting.localPrepNotes = markdown
+        }
+    }
+
     static func hasPrep(
         for meeting: Meeting,
         userDefaults: UserDefaults = .standard,

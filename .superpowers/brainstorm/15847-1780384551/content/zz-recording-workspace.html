@@ -1,0 +1,90 @@
+<style>
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea}
+  .tbar{display:flex;align-items:center;gap:10px;padding:11px 16px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tt{font-size:13px;font-weight:600;margin-left:6px}
+  .tbtn{padding:5px 11px;border-radius:7px;background:rgba(255,255,255,.08);font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px}
+  .recbar{display:flex;align-items:center;gap:14px;padding:12px 18px;background:linear-gradient(90deg,rgba(255,69,58,.14),rgba(255,69,58,.04));border-bottom:1px solid rgba(255,69,58,.22)}
+  .recdot{width:11px;height:11px;border-radius:50%;background:#ff453a;box-shadow:0 0 10px #ff453a;animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.45}}
+  .recstate{font-size:13px;font-weight:600;color:#ff8a80}
+  .timer{font-size:15px;font-variant-numeric:tabular-nums;font-family:"SF Mono",monospace;font-weight:600;letter-spacing:.02em}
+  .meter{display:flex;align-items:flex-end;gap:2px;height:18px}
+  .meter i{width:3px;border-radius:1px;background:#ff453a;opacity:.85}
+  .rctrl{margin-left:auto;display:flex;gap:8px}
+  .rbtn{padding:6px 14px;border-radius:8px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .pause{background:rgba(255,255,255,.12);color:#e8e8ea}
+  .stop{background:#ff453a;color:#fff}
+  .body{display:flex;min-height:380px}
+  .main{flex:1;padding:24px 30px}
+  .notes{font-size:14px;line-height:1.7}
+  .notes p{margin:0 0 12px}
+  .notes b{font-weight:600}
+  .notes ul{margin:0 0 12px;padding-left:20px}
+  .notes li{margin-bottom:5px}
+  .cursorline{display:inline-flex;align-items:center}
+  .cbar{width:2px;height:19px;background:#0a84ff;animation:blink 1.1s step-end infinite;display:inline-block;vertical-align:middle}
+  @keyframes blink{50%{opacity:0}}
+  .hint{font-size:11.5px;opacity:.4;margin-top:18px}
+  kbd{background:rgba(255,255,255,.13);border-radius:4px;padding:1px 5px;font-family:monospace;font-size:10px}
+  .insp{width:248px;background:rgba(255,255,255,.04);border-left:1px solid rgba(255,255,255,.06);padding:16px 16px}
+  .ilbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.42;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .prep{font-size:12.5px;line-height:1.6;opacity:.78}
+  .prep b{opacity:1}
+  .fixnote{background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.3);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:14px;color:#7ee2a8}
+</style>
+
+<h2>Screen 4 — Live recording workspace <span style="font-size:14px;opacity:.5;font-weight:400">(v2 — timestamped notes removed)</span></h2>
+<div class="fixnote">✓ No mode toggle, no time gutter — just one freeform note surface. Calmer and one less concept to learn.</div>
+
+<div class="win">
+  <div class="tbar">
+    <div class="tl"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <div class="tt">Daily standup — Team Link</div>
+    <div style="margin-left:auto"></div>
+    <div class="tbtn">◐ Focus</div>
+    <div class="tbtn">▣ Prep</div>
+  </div>
+
+  <div class="recbar">
+    <span class="recdot"></span>
+    <span class="recstate">Recording</span>
+    <span class="timer">00:12:34</span>
+    <div class="meter"><i style="height:30%"></i><i style="height:60%"></i><i style="height:45%"></i><i style="height:80%"></i><i style="height:55%"></i><i style="height:70%"></i><i style="height:40%"></i></div>
+    <div class="rctrl">
+      <div class="rbtn pause">❚❚ Pause</div>
+      <div class="rbtn stop">■ Stop &amp; Process</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="main">
+      <div class="notes">
+        <p>Kim raised the partner timeline — wants BgZ status before the PM-PM at 14:00.</p>
+        <p><b>Decision:</b> move connectathon prep into sprint 2026.3.4.</p>
+        <p>Blockers</p>
+        <ul>
+          <li>Test environment from Orchestra — Manon to get a date</li>
+          <li>FHIR mapping spec still open<span class="cursorline"> <span class="cbar"></span></span></li>
+        </ul>
+      </div>
+      <div class="hint">Markdown notes · autosaves · <kbd>⌘P</kbd> pause · <kbd>⌘⏎</kbd> stop &amp; process</div>
+    </div>
+
+    <div class="insp">
+      <div class="ilbl">◳ Prep notes</div>
+      <div class="prep">
+        <b>Goal:</b> align on BgZ kickoff follow-through.<br><br>
+        <b>Agenda</b>
+        <ul style="margin:4px 0 0;padding-left:16px">
+          <li>FHIR mapping ownership</li>
+          <li>Connectathon date</li>
+          <li>Test env from Orchestra</li>
+        </ul>
+        <br><b>Ask Kim:</b> partner timeline expectations.
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">Implementation note for the spec: removing timestamped notes means dropping the <code>Timestamped/Freeform</code> picker &amp; <code>TimestampedNotesHistorySection</code>, the <code>timestampedNotes</code> field + <code>TimestampedNote</code> model, and the <code>{{timestamped_notes}}</code> token in the summary prompt. The detail view's "Notes" tab then just shows your freeform notes. Say next for Settings + first-run onboarding.</p>

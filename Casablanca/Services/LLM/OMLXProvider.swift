@@ -5,12 +5,14 @@ struct OMLXProvider: LLMProvider {
     let model: String
     let urlSession: URLSession
     let apiKey: String
+    let enableThinking: Bool
 
-    init(endpoint: String, model: String, urlSession: URLSession, apiKey: String = "") {
+    init(endpoint: String, model: String, urlSession: URLSession, apiKey: String = "", enableThinking: Bool = true) {
         self.endpoint = endpoint
         self.model = model
         self.urlSession = urlSession
         self.apiKey = apiKey
+        self.enableThinking = enableThinking
     }
 
     var displayName: String { "oMLX" }
@@ -22,7 +24,17 @@ struct OMLXProvider: LLMProvider {
         let messages: [Message]
         let stream: Bool
         let temperature: Double?
+        let maxTokens: Int?
+        /// Passed through to the server's chat-template renderer. Used to set
+        /// `enable_thinking: false` for reasoning models (Qwen3.x etc.).
+        let chatTemplateKwargs: [String: Bool]?
         struct Message: Encodable { let role: String; let content: String }
+
+        enum CodingKeys: String, CodingKey {
+            case model, messages, stream, temperature
+            case maxTokens = "max_tokens"
+            case chatTemplateKwargs = "chat_template_kwargs"
+        }
     }
 
     private struct ChatResponse: Decodable {
@@ -62,6 +74,7 @@ struct OMLXProvider: LLMProvider {
     func generate(
         prompt: String,
         temperature: Double?,
+        maxTokens: Int? = nil,
         timeout: TimeInterval,
         truncated: ((Bool) -> Void)?
     ) async throws -> String {
@@ -81,7 +94,9 @@ struct OMLXProvider: LLMProvider {
                 model: model,
                 messages: [.init(role: "user", content: prompt)],
                 stream: false,
-                temperature: temperature
+                temperature: temperature,
+                maxTokens: maxTokens,
+                chatTemplateKwargs: enableThinking ? nil : ["enable_thinking": false]
             )
         )
 
@@ -91,17 +106,23 @@ struct OMLXProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .network((error as? URLError)?.code),
                 message: "Could not reach \(displayName): \(error.localizedDescription)"
             )
         }
 
         guard let http = response as? HTTPURLResponse else {
-            throw LLMProviderError.requestFailed(provider: displayName, message: "\(displayName) returned an invalid response.")
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                kind: .malformedResponse,
+                message: "\(displayName) returned an invalid response."
+            )
         }
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .httpStatus(http.statusCode),
                 message: body.isEmpty
                     ? "\(displayName) request failed with status \(http.statusCode)."
                     : "\(displayName) request failed: \(body)"
@@ -114,12 +135,17 @@ struct OMLXProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .malformedResponse,
                 message: "\(displayName) returned a malformed response: \(error.localizedDescription)"
             )
         }
 
         if let err = payload.error?.message, !err.isEmpty {
-            throw LLMProviderError.requestFailed(provider: displayName, message: "\(displayName) returned an error: \(err)")
+            throw LLMProviderError.requestFailed(
+                provider: displayName,
+                kind: .backendError,
+                message: "\(displayName) returned an error: \(err)"
+            )
         }
 
         guard let first = payload.choices?.first,
@@ -148,15 +174,17 @@ struct OMLXProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .network((error as? URLError)?.code),
                 message: "Could not reach \(displayName): \(error.localizedDescription)"
             )
         }
 
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let status = (response as? HTTPURLResponse).map { "\($0.statusCode)" } ?? "unknown"
+            let status = (response as? HTTPURLResponse)?.statusCode
             throw LLMProviderError.requestFailed(
                 provider: displayName,
-                message: "\(displayName) model lookup failed with status \(status)."
+                kind: status.map { .httpStatus($0) } ?? .malformedResponse,
+                message: "\(displayName) model lookup failed with status \(status.map(String.init) ?? "unknown")."
             )
         }
 
@@ -166,6 +194,7 @@ struct OMLXProvider: LLMProvider {
         } catch {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
+                kind: .malformedResponse,
                 message: "\(displayName) model lookup returned a malformed response: \(error.localizedDescription)"
             )
         }

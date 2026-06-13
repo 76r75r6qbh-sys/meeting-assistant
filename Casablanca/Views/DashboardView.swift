@@ -4,14 +4,14 @@ import SwiftUI
 struct DashboardView: View {
     @Bindable var viewModel: MeetingListViewModel
     @State private var selectedDay: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if !viewModel.calendarAuthorized {
                 calendarAccessView
             } else if viewModel.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                loadingSkeleton
             } else if !viewModel.hasEvents {
                 emptyStateView
             } else {
@@ -42,18 +42,126 @@ struct DashboardView: View {
         }
     }
 
+    /// Placeholder hero + meeting rows shown while the calendar is loading, so
+    /// the dashboard keeps its shape instead of flashing a bare spinner.
+    private var loadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            // Hero placeholder
+            HStack(alignment: .center, spacing: CasaSpace.lg) {
+                VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                    Text("Up next placeholder")
+                        .font(.title2.weight(.bold))
+                    Text("Meeting title placeholder line here")
+                        .font(.body)
+                }
+                Spacer()
+            }
+            .padding(CasaSpace.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
+
+            // Meeting row placeholders
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                        Text("Meeting title placeholder row")
+                            .font(.headline)
+                        Text("10:00 – 11:00 placeholder subtitle")
+                            .font(.caption)
+                    }
+                    .padding(CasaSpace.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardStyle()
+                }
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .casaSkeleton(true)
+        .accessibilityLabel("Loading your calendar")
+    }
+
     private var meetingListView: some View {
         VStack(alignment: .leading, spacing: CasaSpace.xxl) {
             dayNavigator
 
+            if let event = viewModel.actionableEventToday(),
+               let hero = viewModel.heroPresentation() {
+                heroCard(presentation: hero, event: event)
+            }
+
             if let activeDay = selectedDay,
                let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: activeDay) }) {
                 dayPage(date: group.date, events: group.events)
-                    .animation(CasaAnimation.standard, value: activeDay)
+                    .animation(reduceMotion ? nil : CasaAnimation.standard, value: activeDay)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(CasaSpace.xl)
+    }
+
+    @ViewBuilder
+    private func heroCard(presentation: DashboardHeroPresentation, event: EKEvent) -> some View {
+        HStack(alignment: .center, spacing: CasaSpace.lg) {
+            VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                HStack(spacing: CasaSpace.xs) {
+                    Circle()
+                        .fill(presentation.isLive ? Color.stateLive : Color.accentColor)
+                        .frame(width: 6, height: 6)
+
+                    Text(presentation.eyebrow)
+                        .font(.caption2.weight(.bold))
+                        .textCase(.uppercase)
+                        .kerning(0.6)
+                        .foregroundStyle(Color.accentColor)
+                }
+
+                Text(presentation.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Text(presentation.detailLine)
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Spacer(minLength: CasaSpace.sm)
+
+            HStack(spacing: CasaSpace.sm) {
+                Button {
+                    viewModel.beginPrepare(for: event)
+                } label: {
+                    Label("Prepare", systemImage: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
+                    viewModel.beginNotes(for: event)
+                } label: {
+                    Label("Take Notes", systemImage: "pencil.line")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
+                    viewModel.beginRecording(for: event)
+                } label: {
+                    Label("Start Recording", systemImage: "record.circle")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .padding(CasaSpace.lg)
+        .background(
+            Color.accentColor.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: CasaRadius.xl)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: CasaRadius.xl)
+                .strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(presentation.eyebrow). \(presentation.title)")
     }
 
     private var groupedEvents: [(date: Date, events: [EKEvent])] {
@@ -73,6 +181,8 @@ struct DashboardView: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(previousDay == nil)
+            .help("Previous day")
+            .accessibilityLabel("Previous day")
 
             VStack(alignment: .leading, spacing: CasaSpace.xxs) {
                 Text(selectedDayTitle)
@@ -93,6 +203,8 @@ struct DashboardView: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .disabled(nextDay == nil)
+            .help("Next day")
+            .accessibilityLabel("Next day")
         }
     }
 
@@ -112,6 +224,9 @@ struct DashboardView: View {
                         },
                         onViewDetails: {
                             viewModel.openMeetingDetails(for: event)
+                        },
+                        onPrepare: {
+                            viewModel.beginPrepare(for: event)
                         }
                     )
                     .transition(.opacity.combined(with: .move(edge: .bottom)))

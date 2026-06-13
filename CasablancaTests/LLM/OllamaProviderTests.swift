@@ -108,7 +108,7 @@ final class OllamaProviderTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.encode(["error": "boom"])) }
         let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
         await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
-            guard case LLMProviderError.requestFailed(_, let msg) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            guard case LLMProviderError.requestFailed(_, _, let msg) = error else { return XCTFail("expected requestFailed, got \(error)") }
             XCTAssertTrue(msg.contains("boom"))
         }
     }
@@ -118,6 +118,56 @@ final class OllamaProviderTests: XCTestCase {
         let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
         await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
             guard case LLMProviderError.requestFailed = error else { return XCTFail("expected requestFailed, got \(error)") }
+            // Malformed bodies are not retryable.
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, false)
+        }
+    }
+
+    // MARK: - Transient classification
+
+    func testGenerate500IsTransient() async {
+        MockURLProtocol.requestHandler = { _ in
+            (HTTPURLResponse(url: URL(string: "http://x/api/generate")!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+             Data("server error".utf8))
+        }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .httpStatus(500))
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, true)
+        }
+    }
+
+    func testGenerate400IsNotTransient() async {
+        MockURLProtocol.requestHandler = { _ in
+            (HTTPURLResponse(url: URL(string: "http://x/api/generate")!, statusCode: 400, httpVersion: nil, headerFields: nil)!,
+             Data("bad request".utf8))
+        }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .httpStatus(400))
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, false)
+        }
+    }
+
+    func testGenerateTimeoutIsTransient() async {
+        MockURLProtocol.requestHandler = { _ in throw URLError(.timedOut) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .network(.timedOut))
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, true)
+        }
+    }
+
+    func testGenerateBackendErrorIsNotTransient() async {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.encode(["error": "boom"])) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        await XCTAssertThrowsErrorAsync(try await provider.generate(prompt: "p", temperature: nil, timeout: 10, truncated: nil)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else { return XCTFail("expected requestFailed, got \(error)") }
+            XCTAssertEqual(kind, .backendError)
+            XCTAssertEqual((error as? LLMProviderError)?.isTransient, false)
         }
     }
 

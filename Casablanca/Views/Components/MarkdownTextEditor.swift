@@ -176,6 +176,279 @@ struct ToastMarkdownEditor: NSViewRepresentable {
     }
 }
 
+// MARK: - Editor appearance preferences
+
+/// Reading text size for freeform markdown editors. Persisted as a raw string
+/// via `@AppStorage(AppPreferenceKey.notesTextSize)`.
+enum NotesTextSize: String, CaseIterable, Identifiable {
+    case small
+    case medium
+    case large
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
+    var pointSize: CGFloat {
+        switch self {
+        case .small: return 13
+        case .medium: return 15
+        case .large: return 18
+        }
+    }
+}
+
+/// Reading measure (max content width) for freeform markdown editors.
+enum NotesReadingWidth: String, CaseIterable, Identifiable {
+    case comfortable
+    case full
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .comfortable: return "Comfortable"
+        case .full: return "Full"
+        }
+    }
+
+    /// `nil` means "fill the available width".
+    var maxWidth: CGFloat? {
+        switch self {
+        case .comfortable: return 680
+        case .full: return nil
+        }
+    }
+}
+
+// MARK: - Formatting toolbar
+
+/// A lightweight markdown formatting toolbar that wraps/inserts markdown syntax
+/// into the bound text. Reusable across the prep editor and notes editor.
+struct MarkdownFormattingToolbar: View {
+    @Binding var text: String
+
+    /// When set, each button routes through this closure instead of mutating the
+    /// `text` binding directly. PrepEditorView supplies this when the native
+    /// editor is active so formatting wraps the *selection* rather than appending
+    /// markers at the document end. When `nil`, the legacy string-binding
+    /// (Toast-path) behavior is preserved exactly.
+    var onCommand: ((MarkdownSelectionSyntax) -> Void)?
+
+    init(text: Binding<String>, onCommand: ((MarkdownSelectionSyntax) -> Void)? = nil) {
+        self._text = text
+        self.onCommand = onCommand
+    }
+
+    /// The toolbar's logical buttons. Drives both the selection-aware syntax
+    /// mapping and the legacy string transform from one place so the two paths
+    /// can't drift, and so the wiring is unit-testable without a live view.
+    enum ToolbarButton: CaseIterable {
+        case bold, italic, heading, bulletList, checklist, code, link
+
+        var label: String {
+            switch self {
+            case .bold: return "Bold"
+            case .italic: return "Italic"
+            case .heading: return "Heading"
+            case .bulletList: return "Bullet List"
+            case .checklist: return "Checklist"
+            case .code: return "Code"
+            case .link: return "Link"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .bold: return "bold"
+            case .italic: return "italic"
+            case .heading: return "textformat.size"
+            case .bulletList: return "list.bullet"
+            case .checklist: return "checklist"
+            case .code: return "chevron.left.forwardslash.chevron.right"
+            case .link: return "link"
+            }
+        }
+    }
+
+    /// Selection-aware syntax a button maps to (used when `onCommand` is set).
+    static func syntax(for button: ToolbarButton) -> MarkdownSelectionSyntax {
+        switch button {
+        case .bold: return .bold
+        case .italic: return .italic
+        case .heading: return .heading
+        case .bulletList: return .list
+        case .checklist: return .checklist
+        case .code: return .code
+        case .link: return .link
+        }
+    }
+
+    /// Apply a button's legacy string transform to the (append-at-end) binding.
+    /// Preserves the exact pre-existing Toast-path behavior.
+    static func legacyTransform(_ button: ToolbarButton, text: inout String) {
+        switch button {
+        case .bold: MarkdownEditing.wrap(&text, with: "**")
+        case .italic: MarkdownEditing.wrap(&text, with: "_")
+        case .heading: MarkdownEditing.prefixLine(&text, with: "## ")
+        case .bulletList: MarkdownEditing.prefixLine(&text, with: "- ")
+        case .checklist: MarkdownEditing.prefixLine(&text, with: "- [ ] ")
+        case .code: MarkdownEditing.wrap(&text, with: "`")
+        case .link: MarkdownEditing.insertLink(&text)
+        }
+    }
+
+    /// Route a button: prefer the selection-aware command when present, otherwise
+    /// fall back to the legacy string-binding transform.
+    static func dispatch(
+        _ button: ToolbarButton,
+        text: inout String,
+        onCommand: ((MarkdownSelectionSyntax) -> Void)?
+    ) {
+        if let onCommand {
+            onCommand(syntax(for: button))
+        } else {
+            legacyTransform(button, text: &text)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: CasaSpace.xxs) {
+            button(.bold).keyboardShortcut("b", modifiers: .command)
+            button(.italic).keyboardShortcut("i", modifiers: .command)
+
+            separator
+
+            button(.heading)
+            button(.bulletList)
+            button(.checklist)
+
+            separator
+
+            button(.code)
+            button(.link)
+        }
+    }
+
+    private func button(_ kind: ToolbarButton) -> some View {
+        formatButton(kind.label, systemImage: kind.systemImage) {
+            if let onCommand {
+                onCommand(Self.syntax(for: kind))
+            } else {
+                Self.legacyTransform(kind, text: &text)
+            }
+        }
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.borderSubtle)
+            .frame(width: 1, height: 16)
+            .padding(.horizontal, CasaSpace.xs)
+    }
+
+    private func formatButton(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The "Aa" appearance popover: text size (3 steps) + reading width.
+struct MarkdownAppearanceControl: View {
+    @AppStorage(AppPreferenceKey.notesTextSize) private var textSizeRaw = NotesTextSize.medium.rawValue
+    @AppStorage(AppPreferenceKey.notesReadingWidth) private var readingWidthRaw = NotesReadingWidth.comfortable.rawValue
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "textformat.size")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .help("Text size and reading width")
+        .accessibilityLabel("Appearance")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                Text("Text size")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .textCase(.uppercase)
+
+                Picker("Text size", selection: $textSizeRaw) {
+                    ForEach(NotesTextSize.allCases) { size in
+                        Text(size.label).tag(size.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Divider()
+
+                Text("Reading width")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .textCase(.uppercase)
+
+                Picker("Reading width", selection: $readingWidthRaw) {
+                    ForEach(NotesReadingWidth.allCases) { width in
+                        Text(width.label).tag(width.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .padding(CasaSpace.md)
+            .frame(width: 240)
+        }
+    }
+}
+
+// MARK: - Markdown editing helpers
+
+/// Pure string transforms used by the formatting toolbar. Because the
+/// `ToastMarkdownEditor` binding round-trips through the web view, these
+/// operate on the whole text rather than a selection range. Bold/italic/code
+/// append a wrapped empty token at the end (cursor lands inside on next sync);
+/// heading/list prefixes are appended on a new line. Kept deliberately simple.
+enum MarkdownEditing {
+    static func wrap(_ text: inout String, with token: String) {
+        text += "\(token)\(token)"
+    }
+
+    static func prefixLine(_ text: inout String, with prefix: String) {
+        if text.isEmpty {
+            text = prefix
+        } else if text.hasSuffix("\n") {
+            text += prefix
+        } else {
+            text += "\n\(prefix)"
+        }
+    }
+
+    static func insertLink(_ text: inout String) {
+        text += "[](url)"
+    }
+}
+
 struct ToastMarkdownViewer: NSViewRepresentable {
     let markdown: String
 

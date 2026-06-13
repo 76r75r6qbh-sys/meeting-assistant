@@ -52,6 +52,38 @@ enum CasaLayout {
     static let toolbarHeight: CGFloat = 52
     static let contentMaxWidth: CGFloat = 720
     static let inspectorWidth: CGFloat = 280
+    static let prepInspectorMin: CGFloat = 220
+    static let prepInspectorMaxFraction: CGFloat = 0.5   // 50% of window width
+    static let prepInspectorDefault: CGFloat = 300
     static let windowDefaultWidth: CGFloat = 1080
     static let windowDefaultHeight: CGFloat = 720
+    static let popoverWidth: CGFloat = 288
+
+    // Modal / sheet widths — standard tiers so sheets don't carry magic numbers.
+    static let modalWidthSmall: CGFloat = 460
+    static let modalWidthMedium: CGFloat = 520
+    static let modalWidthLarge: CGFloat = 560
+    static let modalWidthXL: CGFloat = 600
+}
+
+// MARK: - Reduce-Motion-Aware Animation
+
+extension View {
+    /// Applies `animation` to changes of `value`, but honors Reduce Motion: when
+    /// the system "Reduce Motion" accessibility setting is on, the animation is
+    /// dropped (`nil`) so the change is instantaneous. Use this instead of a bare
+    /// `.animation(_:value:)` for any non-essential motion.
+    func casaAnimation<V: Equatable>(_ animation: Animation?, value: V) -> some View {
+        modifier(CasaAnimationModifier(animation: animation, value: value))
+    }
+}
+
+private struct CasaAnimationModifier<V: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let animation: Animation?
+    let value: V
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : animation, value: value)
+    }
 }

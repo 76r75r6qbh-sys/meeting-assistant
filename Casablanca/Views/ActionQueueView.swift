@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ActionQueueView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var filter: ActionQueueFilter = .pending
     @State private var selectedItemID: String?
 
@@ -80,6 +81,7 @@ struct ActionQueueView: View {
                     .contextMenu { contextMenu(for: item) }
             }
             .listStyle(.inset)
+            .animation(reduceMotion ? nil : CasaAnimation.fast, value: filtered.map(\.id))
         }
     }
 
@@ -94,7 +96,7 @@ struct ActionQueueView: View {
                 Button("Mark Done") { model.complete(id: item.id) }
             }
             Button("Defer") { model.postpone(id: item.id) }
-        case .approved, .declined, .completed, .deferred, .followUp, .awaitingContext:
+        case .approved, .declined, .completed, .deferred, .followUp, .awaitingContext, .unknown:
             if item.kind == .task, item.status != .completed {
                 Button("Mark Done") { model.complete(id: item.id) }
             }
@@ -192,6 +194,7 @@ private struct ActionQueueRow: View {
         case .high: return Color.accentDanger
         case .medium: return Color.accentWarning
         case .low: return Color.textTertiary
+        case .unknown: return Color.textTertiary
         }
     }
 
@@ -224,6 +227,7 @@ enum ActionQueuePresentation {
         case .awaitingContext: return "Awaiting"
         case .deferred: return "Deferred"
         case .completed: return "Done"
+        case .unknown: return "Unknown"
         }
     }
 
@@ -237,6 +241,7 @@ enum ActionQueuePresentation {
         case .awaitingContext: return Color.textSecondary
         case .deferred: return Color.textTertiary
         case .completed: return Color.accentSuccess
+        case .unknown: return Color.textTertiary
         }
     }
 }
@@ -352,7 +357,7 @@ private struct ActionQueueDetailSheet: View {
             Divider()
             actionBar
         }
-        .frame(width: 600)
+        .frame(width: CasaLayout.modalWidthXL)
         .frame(minHeight: 420)
         .overlay(alignment: .topTrailing) { closeButton }
     }
@@ -450,7 +455,7 @@ private struct ActionQueueDetailSheet: View {
         switch item.draftType {
         case .jira: return "Proposed comment"
         case .teams: return "Proposed message"
-        case .email, .other, .none: return "Proposed reply"
+        case .email, .other, .unknown, .none: return "Proposed reply"
         }
     }
 

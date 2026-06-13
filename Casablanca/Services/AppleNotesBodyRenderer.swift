@@ -46,14 +46,6 @@ enum AppleNotesBodyRenderer {
             sections.append(markdownToHTML(userNotes))
         }
 
-        if !meeting.timestampedNotes.isEmpty {
-            sections.append("<h2>Timestamped Notes</h2>")
-            let items = meeting.timestampedNotes.map { note in
-                "<li>[\(escape(note.formattedTimestamp))] \(escape(stripWikilinks(note.text)))</li>"
-            }.joined()
-            sections.append("<ul>\(items)</ul>")
-        }
-
         sections.append(markerParagraph(meetingId: meeting.id, kind: .notes))
         return wrap(sections.joined())
     }

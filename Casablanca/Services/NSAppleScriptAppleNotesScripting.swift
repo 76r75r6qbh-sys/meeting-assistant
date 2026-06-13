@@ -10,8 +10,52 @@ import AppKit
 actor NSAppleScriptAppleNotesScripting: AppleNotesScripting {
     private let timeout: TimeInterval
 
+    /// Synchronous execution seam, invoked on the detached worker thread. Defaults to the real
+    /// `NSAppleScript` path; tests inject a slow/blocking closure to exercise the timeout and
+    /// single-flight guard deterministically without driving Notes.app.
+    private let executeScript: (String) -> Result<String, AppleNotesExportError>
+
+    /// Single-flight guard. Set `true` on the actor just before the worker thread is spawned and
+    /// cleared ONLY by the worker thread's completion (hopping back onto the actor via
+    /// `markScriptFinished`). The timeout watchdog deliberately does NOT touch this flag: when a
+    /// script times out, its detached thread is still running `executeAndReturnError` and still
+    /// driving Notes.app, so the flag must stay raised until that leaked script genuinely returns.
+    /// A new `run(_:)` that arrives while the flag is raised fails fast with `.busy` instead of
+    /// spawning a second concurrent script (Notes scripting is not reentrant-safe).
+    private var scriptInFlight = false
+
     init(timeout: TimeInterval = 30) {
         self.timeout = timeout
+        self.executeScript = NSAppleScriptAppleNotesScripting.executeWithNSAppleScript
+    }
+
+    /// Testing initializer that injects a custom synchronous execution seam.
+    init(timeout: TimeInterval, executeScript: @escaping (String) -> Result<String, AppleNotesExportError>) {
+        self.timeout = timeout
+        self.executeScript = executeScript
+    }
+
+    /// Real production execution path: compile and run the script via `NSAppleScript`.
+    /// Synchronous and uncancellable; runs on the detached worker thread.
+    private static func executeWithNSAppleScript(_ source: String) -> Result<String, AppleNotesExportError> {
+        var errorInfo: NSDictionary?
+        guard let script = NSAppleScript(source: source) else {
+            return .failure(.unexpectedResponse("could not compile script"))
+        }
+        let descriptor = script.executeAndReturnError(&errorInfo)
+        if let errorInfo = errorInfo {
+            let code = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
+            let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? ""
+            return .failure(.from(appleScriptErrorCode: code, message: message))
+        }
+        return .success(descriptor.stringValue ?? "")
+    }
+
+    /// Clears the single-flight flag. Called from the worker thread's completion path by hopping
+    /// back onto the actor, so the flag is always mutated under actor isolation. Owned solely by
+    /// the worker completion — the timeout path never calls this.
+    private func markScriptFinished() {
+        scriptInFlight = false
     }
 
     func ensureFolder(named name: String) async throws -> AppleNotesFolderRef {
@@ -133,35 +177,42 @@ actor NSAppleScriptAppleNotesScripting: AppleNotesScripting {
     }
 
     private func run(_ source: String) async throws -> String {
+        // Single-flight guard: a previous script may have timed out (resuming its caller) while its
+        // detached worker thread is still executing and driving Notes.app. Refuse to spawn a second
+        // concurrent script — Notes scripting is not reentrant-safe.
+        guard !scriptInFlight else {
+            Log.export.error("Apple Notes script rejected: a previous script is still in flight (likely leaked after timeout)")
+            throw AppleNotesExportError.busy
+        }
+        scriptInFlight = true
+
         let timeoutSeconds = timeout
+        let execute = executeScript
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let state = ResumeState()
 
-            // Run NSAppleScript on a detached thread; it's synchronous and uncancellable.
+            // Run the script on a detached thread; it's synchronous and uncancellable.
             Thread.detachNewThread {
-                var errorInfo: NSDictionary?
-                guard let script = NSAppleScript(source: source) else {
+                let outcome = execute(source)
+                // Clear the in-flight flag ONLY here, from the worker completion. Even if the
+                // timeout already resumed the caller, the flag stays raised until this point —
+                // the moment the (possibly leaked) script genuinely returns. Hop back onto the
+                // actor so the flag is mutated under isolation.
+                Task { await self.markScriptFinished() }
+                switch outcome {
+                case .success(let result):
                     state.resumeOnce {
-                        continuation.resume(throwing: AppleNotesExportError.unexpectedResponse("could not compile script"))
+                        continuation.resume(returning: result)
                     }
-                    return
-                }
-                let descriptor = script.executeAndReturnError(&errorInfo)
-                if let errorInfo = errorInfo {
-                    let code = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
-                    let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? ""
+                case .failure(let error):
                     state.resumeOnce {
-                        continuation.resume(throwing: AppleNotesExportError.from(appleScriptErrorCode: code, message: message))
+                        continuation.resume(throwing: error)
                     }
-                    return
-                }
-                let result = descriptor.stringValue ?? ""
-                state.resumeOnce {
-                    continuation.resume(returning: result)
                 }
             }
 
             // Timeout watchdog on a separate dispatch queue so the script thread can't starve it.
+            // It only resumes the continuation; it deliberately does NOT touch `scriptInFlight`.
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeoutSeconds) {
                 state.resumeOnce {
                     continuation.resume(throwing: AppleNotesExportError.timedOut)

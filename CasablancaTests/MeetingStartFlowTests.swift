@@ -1,4 +1,5 @@
 import CoreAudio
+import EventKit
 import SwiftData
 import XCTest
 @testable import Casablanca
@@ -16,11 +17,11 @@ final class MeetingStartFlowTests: XCTestCase {
         XCTAssertEqual(MeetingStatus.pausedRecording.detailPresentation, .workspace)
     }
 
-    func testUpcomingMeetingsShowRecordingAndNotesButtons() {
+    func testUpcomingMeetingsShowPrepareNotesAndRecordingButtons() {
         let layout = MeetingEntryActionLayout(isPast: false)
 
-        XCTAssertEqual(layout.visibleActions, [.startRecording, .takeNotes])
-        XCTAssertEqual(layout.contextMenuActions, [.startRecording, .takeNotes, .viewDetails])
+        XCTAssertEqual(layout.visibleActions, [.prepare, .takeNotes, .startRecording])
+        XCTAssertEqual(layout.contextMenuActions, [.prepare, .startRecording, .takeNotes, .viewDetails])
     }
 
     func testPastMeetingsKeepDetailsPrimary() {
@@ -94,10 +95,6 @@ final class MeetingStartFlowTests: XCTestCase {
 
 @MainActor
 final class MeetingWorkspacePresentationTests: XCTestCase {
-    func testMeetingNotesModeDefaultsToFreeform() {
-        XCTAssertEqual(MeetingNotesMode.defaultForWorkspaceEntry, .freeform)
-    }
-
     func testNotesOnlyWorkspaceShowsStartRecordingButton() {
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .notesOnly)
         let presentation = MeetingWorkspacePresentation(
@@ -111,7 +108,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
 
         XCTAssertFalse(presentation.showsRecordingChrome)
         XCTAssertTrue(presentation.showsStartRecordingButton)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.backButtonDisabled)
     }
 
@@ -148,7 +144,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(presentation.showsExpandedRecordingChrome)
         XCTAssertFalse(presentation.showsCompactRecordingControls)
         XCTAssertFalse(presentation.showsStartRecordingButton)
-        XCTAssertTrue(presentation.showsTimestampedTools)
         XCTAssertTrue(presentation.backButtonDisabled)
     }
 
@@ -181,7 +176,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
 
         XCTAssertTrue(presentation.showsRecordingChrome)
         XCTAssertTrue(presentation.showsExpandedRecordingChrome)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
     }
 
@@ -197,7 +191,6 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         )
 
         XCTAssertTrue(presentation.showsRecordingChrome)
-        XCTAssertFalse(presentation.showsTimestampedTools)
         XCTAssertFalse(presentation.showsStartRecordingButton)
         XCTAssertFalse(presentation.showsPauseRecordingButton)
         XCTAssertTrue(presentation.showsResumeRecordingButton)
@@ -252,7 +245,7 @@ final class MeetingWorkspacePresentationTests: XCTestCase {
         )
 
         XCTAssertTrue(presentation.showsBlockingOverlay)
-        XCTAssertEqual(presentation.blockingOverlayTitle, "Recording finaliseren...")
+        XCTAssertEqual(presentation.blockingOverlayTitle, "Finalizing recording…")
         XCTAssertTrue(presentation.backButtonDisabled)
     }
 
@@ -446,6 +439,61 @@ final class MeetingDeletionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DashboardHeroPresentationTests: XCTestCase {
+    private func makeEvent(start: Date, end: Date, title: String) -> EKEvent {
+        let event = EKEvent(eventStore: EKEventStore())
+        event.title = title
+        event.startDate = start
+        event.endDate = end
+        return event
+    }
+
+    func testLiveMeetingShowsLiveNowEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(-300),
+                              end: now.addingTimeInterval(600),
+                              title: "Daily standup")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertTrue(presentation.isLive)
+        XCTAssertEqual(presentation.eyebrow, "Live now")
+        XCTAssertNil(presentation.minutesUntilStart)
+    }
+
+    func testUpcomingMeetingShowsCountdownEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(25 * 60),
+                              end: now.addingTimeInterval(40 * 60),
+                              title: "PM-PM")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertFalse(presentation.isLive)
+        XCTAssertEqual(presentation.minutesUntilStart, 25)
+        XCTAssertEqual(presentation.eyebrow, "Up next · in 25 min")
+    }
+
+    func testImminentMeetingShowsStartingSoonEyebrow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now.addingTimeInterval(30),
+                              end: now.addingTimeInterval(900),
+                              title: "Refinement")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertEqual(presentation.minutesUntilStart, 0)
+        XCTAssertEqual(presentation.eyebrow, "Starting soon")
+    }
+
+    func testDetailLineFallsBackToTimeRangeWithoutParticipants() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let event = makeEvent(start: now, end: now.addingTimeInterval(900), title: "Sync")
+        let presentation = DashboardHeroPresentation(event: event, referenceDate: now)
+
+        XCTAssertEqual(presentation.detailLine, presentation.timeRange)
+        XCTAssertEqual(presentation.participantCount, 0)
+    }
+}
+
 final class SidebarMeetingRowActionTests: XCTestCase {
     func testRecentMeetingRowsExposeDeleteAction() {
         let actions = SidebarMeetingRowActions(section: .recent)
@@ -453,10 +501,11 @@ final class SidebarMeetingRowActionTests: XCTestCase {
         XCTAssertEqual(actions.contextMenuActions, [.deleteMeeting])
     }
 
-    func testUpcomingSectionRowsDoNotExposeDeleteAction() {
+    func testUpcomingSectionRowsExposePrepareNotDelete() {
         let actions = SidebarMeetingRowActions(section: .upcoming)
 
-        XCTAssertTrue(actions.contextMenuActions.isEmpty)
+        XCTAssertEqual(actions.contextMenuActions, [.prepare])
+        XCTAssertFalse(actions.contextMenuActions.contains(.deleteMeeting))
     }
 }
 

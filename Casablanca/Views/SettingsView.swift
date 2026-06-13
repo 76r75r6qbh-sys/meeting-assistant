@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import SwiftData
 
@@ -10,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
     @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+    @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
     @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
@@ -19,15 +21,21 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.summaryThinkingEnabled) private var summaryThinkingEnabled = false
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
+    @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.meetingStartNotificationsEnabled) private var meetingStartNotificationsEnabled = true
+    @AppStorage(AppPreferenceKey.meetingStartNotificationLeadTime) private var meetingStartLeadTimeRaw = MeetingStartLeadTime.atStart.rawValue
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
     @State private var presentedSheet: SettingsSheet?
+    @State private var notificationsDenied = false
 
     private enum SettingsSheet: Identifiable {
         case summaryPrompt
@@ -78,6 +86,11 @@ struct SettingsView: View {
             aiSettings
                 .tabItem {
                     Label("AI", systemImage: "sparkles")
+                }
+
+            recordingSettings
+                .tabItem {
+                    Label("Recording", systemImage: "mic")
                 }
 
             UpdatesSettingsView(updateService: appModel.updateService)
@@ -178,31 +191,23 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Recording") {
-                HStack(spacing: CasaSpace.md) {
-                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
-                        ForEach(recordingInputOptions, id: \.id) { option in
-                            Text(option.label).tag(option.id)
-                        }
-                    }
-
-                    Button("Refresh Devices") {
-                        refreshRecordingInputDevices()
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                }
-
-                Text(systemDefaultInputDeviceDescription)
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
             Section("Automation") {
                 Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
 
                 Toggle("Automatically export notes after recording", isOn: $autoExportEnabled)
 
                 Text("Automations run in sequence after recording: transcription, summary generation, then export to the selected destination when enabled.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Setup") {
+                Button("Show Setup Guide Again") {
+                    hasCompletedOnboarding = false
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("Re-run the first-run onboarding to revisit vault, permissions and language model setup.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -217,8 +222,8 @@ struct SettingsView: View {
                     do {
                         try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
                     } catch {
-                        // Best-effort refresh — surface non-blocking error in console only.
-                        print("Storage transition refresh failed:", error.localizedDescription)
+                        // Best-effort refresh — surface non-blocking error in the log only.
+                        Log.persistence.error("Storage transition refresh failed: \(error.localizedDescription)")
                     }
                 }
             }
@@ -227,28 +232,6 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         Form {
-            Section("Transcription") {
-                Picker("Default language", selection: $defaultTranscriptionLanguage) {
-                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
-                        Text(lang.name).tag(lang.id)
-                    }
-                }
-
-                Text("Can be overridden per meeting before transcribing")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-
-                Picker("Local Whisper model", selection: $whisperModel) {
-                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
-
-                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
             Section("Local LLM (Summarization)") {
                 Picker("Provider", selection: $llmProviderRaw) {
                     Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
@@ -322,6 +305,11 @@ struct SettingsView: View {
             }
 
             Section("Summary Prompt") {
+                Toggle("Allow model thinking", isOn: $summaryThinkingEnabled)
+                Text("Reasoning models think before answering. Off (recommended) gives faster, more concise summaries; on allows extended reasoning (slower, larger output budget).")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
                 Button("Customize Prompt...") {
                     presentedSheet = .summaryPrompt
                 }
@@ -331,7 +319,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
 
-                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -363,6 +351,112 @@ struct SettingsView: View {
                 terminologyListSheet
             }
         }
+    }
+
+    private var recordingSettings: some View {
+        Form {
+            Section("Input Device") {
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
+                        ForEach(recordingInputOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+
+                    Button("Refresh Devices") {
+                        refreshRecordingInputDevices()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Storage") {
+                Toggle("Keep original WAV", isOn: $keepOriginalWAV)
+
+                Text("When off (default), finished recordings are compressed to AAC/m4a after transcription and the original WAV is deleted (~8x smaller, no audible loss for speech). Turn on to keep the uncompressed WAV instead.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Transcription") {
+                Picker("Default language", selection: $defaultTranscriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
+                        Text(lang.name).tag(lang.id)
+                    }
+                }
+
+                Text("Can be overridden per meeting before transcribing")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Picker("Local Whisper model", selection: $whisperModel) {
+                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+
+                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Notifications") {
+                Toggle("Notify me to start recording at meeting time", isOn: $meetingStartNotificationsEnabled)
+
+                Picker("Notify", selection: $meetingStartLeadTimeRaw) {
+                    ForEach(MeetingStartLeadTime.allCases) { lead in
+                        Text(lead.displayName).tag(lead.rawValue)
+                    }
+                }
+                .disabled(!meetingStartNotificationsEnabled)
+
+                Text("Shows a notification with a “Start Recording” button at each upcoming meeting's start time, so you can begin recording with one click. Tapping it does nothing if a recording is already running.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if meetingStartNotificationsEnabled, notificationsDenied {
+                    Label(
+                        "Notifications are disabled in System Settings — enable them for Casablanca to receive these prompts.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Editor") {
+                Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
+
+                Text("Replaces the web-based notes editor with a native macOS text view: live markdown highlighting, native undo, ⌘F find, and dictation. Restart not required — open a meeting's notes to try it.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: meetingStartNotificationsEnabled) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+            Task { await refreshNotificationAuthorizationStatus() }
+        }
+        .onChange(of: meetingStartLeadTimeRaw) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+        }
+        .task {
+            await refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    /// Reflect the current system notification authorization in the Settings hint.
+    /// Only `.denied` surfaces the warning; `.notDetermined` stays quiet (the
+    /// prompt fires lazily) and `.authorized`/`.provisional` need no caption.
+    private func refreshNotificationAuthorizationStatus() async {
+        let status = await NotificationAuthorization.shared.currentStatus()
+        notificationsDenied = status == .denied
     }
 
     private var modelOptions: [String] {
@@ -445,7 +539,7 @@ struct SettingsView: View {
                 .font(.system(.body, design: .monospaced))
                 .frame(height: 240)
 
-            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}, {{timestamped_notes}} (`{{timestamped_notes}}` is optional).")
+            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
                 .font(.caption)
                 .foregroundStyle(Color.textTertiary)
 
@@ -520,7 +614,7 @@ struct SettingsView: View {
             .padding(.horizontal, CasaSpace.xl)
             .padding(.vertical, CasaSpace.sm)
         }
-        .frame(width: 560)
+        .frame(width: CasaLayout.modalWidthLarge)
         .fixedSize(horizontal: false, vertical: true)
         .background(KeyboardDismissCatcher { presentedSheet = nil })
     }

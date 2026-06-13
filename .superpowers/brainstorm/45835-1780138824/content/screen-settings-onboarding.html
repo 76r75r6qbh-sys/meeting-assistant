@@ -1,0 +1,87 @@
+<style>
+  .stage{display:flex;gap:18px;flex-wrap:wrap}
+  .win{border-radius:13px;overflow:hidden;border:1px solid rgba(0,0,0,.4);box-shadow:0 24px 60px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:#161618;color:#e8e8ea}
+  .tl{display:flex;gap:7px}.dot{width:11px;height:11px;border-radius:50%}.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  /* Settings window */
+  .swin{width:430px}
+  .stoolbar{display:flex;gap:6px;padding:9px 12px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06);align-items:center}
+  .stab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 12px;border-radius:8px;font-size:11px;opacity:.6}
+  .stab .si{font-size:16px}
+  .stab.on{background:rgba(255,255,255,.1);opacity:1}
+  .sbody{padding:18px 20px}
+  .grp{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:11px;overflow:hidden;margin-bottom:14px}
+  .grow{display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .grow:last-child{border-bottom:none}
+  .gval{margin-left:auto;opacity:.55;font-size:12.5px;display:flex;align-items:center;gap:5px}
+  .grouplbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.42;font-weight:700;margin:0 0 7px 4px}
+  .tog{width:34px;height:20px;border-radius:11px;background:#30d158;position:relative;margin-left:auto}
+  .tog::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+  .tog.off{background:rgba(255,255,255,.18)}.tog.off::after{right:auto;left:2px}
+  /* Onboarding window */
+  .owin{width:430px}
+  .ohead{height:120px;background:linear-gradient(135deg,#0a84ff,#5e5ce6);display:flex;align-items:center;justify-content:center;font-size:44px}
+  .obody{padding:22px 24px}
+  .ostep{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#4d9bff;font-weight:700;margin-bottom:8px}
+  .obody h3{font-size:20px;margin:0 0 6px;font-weight:700}
+  .obody p{font-size:13px;opacity:.65;line-height:1.55;margin:0 0 18px}
+  .perm{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid rgba(255,255,255,.08);border-radius:10px;margin-bottom:8px;font-size:13px}
+  .pic{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;font-size:15px}
+  .pstat{margin-left:auto;font-size:12px}
+  .ok{color:#30d158}.todo{color:#4d9bff;font-weight:600}
+  .dots{display:flex;gap:6px;justify-content:center;margin:18px 0 16px}
+  .pd{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2)}.pd.on{background:#0a84ff;width:20px;border-radius:4px}
+  .obtn{width:100%;padding:10px;border-radius:9px;background:#0a84ff;color:#fff;font-size:13.5px;font-weight:600;text-align:center}
+  .cap{font-size:13px;font-weight:700;opacity:.6;margin-bottom:10px;width:100%}
+</style>
+
+<h2>Screen 5 — Settings &amp; first-run onboarding</h2>
+<p class="subtitle">Settings grouped like System Settings (inset rounded groups, not long flat forms). A first-run flow gets vault, LLM &amp; permissions set up in under a minute.</p>
+
+<div class="stage">
+  <!-- SETTINGS -->
+  <div style="flex:1;min-width:380px">
+    <div class="cap">Settings — grouped &amp; calm</div>
+    <div class="win swin">
+      <div class="stoolbar">
+        <div class="stab"><span class="si">⚙</span>General</div>
+        <div class="stab on"><span class="si">✦</span>AI</div>
+        <div class="stab"><span class="si">🎙</span>Recording</div>
+        <div class="stab"><span class="si">↑</span>Updates</div>
+      </div>
+      <div class="sbody">
+        <div class="grouplbl">Language model</div>
+        <div class="grp">
+          <div class="grow">Provider <span class="gval">Ollama ⌄</span></div>
+          <div class="grow">Endpoint <span class="gval">localhost:11434</span></div>
+          <div class="grow">Model <span class="gval">llama3.1:8b ⌄</span></div>
+        </div>
+        <div class="grouplbl">Summaries</div>
+        <div class="grp">
+          <div class="grow">Auto-summarize after recording <span class="tog"></span></div>
+          <div class="grow">Terminology corrections <span class="tog"></span></div>
+          <div class="grow">Edit summary prompt <span class="gval">›</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ONBOARDING -->
+  <div style="flex:1;min-width:380px">
+    <div class="cap">First run — quick setup</div>
+    <div class="win owin">
+      <div class="ohead">🎙️</div>
+      <div class="obody">
+        <div class="ostep">Step 3 of 4 · Permissions</div>
+        <h3>Let Casablanca hear your meetings</h3>
+        <p>Everything stays on your Mac — recording, transcription and summaries run locally.</p>
+        <div class="perm"><span class="pic">🎙</span>Microphone<span class="pstat ok">✓ Granted</span></div>
+        <div class="perm"><span class="pic">🖥</span>System audio<span class="pstat todo">Grant →</span></div>
+        <div class="perm"><span class="pic">📅</span>Calendar<span class="pstat ok">✓ Granted</span></div>
+        <div class="dots"><span class="pd"></span><span class="pd"></span><span class="pd on"></span><span class="pd"></span></div>
+        <div class="obtn">Continue</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px"><b>Settings:</b> a new dedicated <b>Recording</b> tab (device, system audio, language, Whisper model) splits it out from General/AI; everything sits in inset rounded groups with labels — scannable, System-Settings-like. <b>Onboarding:</b> 4 quick steps — Welcome → Vault/export destination → Permissions (mic / system audio / calendar with live status) → LLM check ("we found Ollama running ✓"). Skippable, re-runnable from Settings. That's the full set — tell me to wrap it into the spec, or tweak.</p>

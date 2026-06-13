@@ -127,7 +127,20 @@ final class TranscriptionService {
         }
         transcriptionTask = task
 
-        return try await task.value
+        let result = try await task.value
+        // Free the Whisper model from memory now that transcription is done.
+        // Summarization usually runs immediately after and a local LLM (oMLX/
+        // Ollama) needs several GB free; keeping the Whisper model resident can
+        // push the machine over the LLM's memory guard and fail the request.
+        unloadModel()
+        return result
+    }
+
+    /// Releases the cached Whisper model so its memory returns to the OS.
+    /// The next transcription reloads it on demand.
+    func unloadModel() {
+        whisperKit = nil
+        loadedWhisperModelID = nil
     }
 
     func cancel() {
