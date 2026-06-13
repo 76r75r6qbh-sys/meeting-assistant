@@ -29,4 +29,18 @@ final class MeetingSearchIndexTests: XCTestCase {
         XCTAssertTrue(MeetingSearchIndex.search("", in: [m]).isEmpty)
         XCTAssertTrue(MeetingSearchIndex.search("   ", in: [m]).isEmpty)
     }
+
+    func test_matchesTag() {
+        let m = Meeting(title: "Weekly", date: .now)
+        m.setTags(["wegiz", "orchestra"])
+        let results = MeetingSearchIndex.search("orch", in: [m])
+        XCTAssertTrue(results.contains { $0.kind == .tag && $0.meeting.id == m.id })
+    }
+
+    func test_tagMatchYieldsSingleResultPerMeeting() {
+        let m = Meeting(title: "Weekly", date: .now)
+        m.setTags(["wegiz-a", "wegiz-b"]) // both contain "wegiz"
+        let tagResults = MeetingSearchIndex.search("wegiz", in: [m]).filter { $0.kind == .tag }
+        XCTAssertEqual(tagResults.count, 1)
+    }
 }

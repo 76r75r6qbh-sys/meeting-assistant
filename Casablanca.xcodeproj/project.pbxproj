@@ -49,6 +49,7 @@
 		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* Permissions.swift */; };
 		A10011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10011 /* Assets.xcassets */; };
 		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
+		A10712 /* TagChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10712 /* TagChip.swift */; };
 		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
 		A10200 /* MeetingWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* MeetingWorkspacePresentation.swift */; };
@@ -114,6 +115,7 @@
 		A10101 /* MeetingTimeBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* MeetingTimeBucketTests.swift */; };
 		A10102 /* MeetingSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102 /* MeetingSearchIndex.swift */; };
 		A10103 /* MeetingSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MeetingSearchIndexTests.swift */; };
+		A10713 /* MeetingTagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10713 /* MeetingTagsTests.swift */; };
 		A10108 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10108 /* PersistenceController.swift */; };
 		A10105 /* PersistenceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* PersistenceControllerTests.swift */; };
 		A10106 /* ExternalStorageSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* ExternalStorageSpikeTests.swift */; };
@@ -238,6 +240,7 @@
 		B10010 /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
 		B10011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10012 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B10712 /* TagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagChip.swift; sourceTree = "<group>"; };
 		B10500 /* GlobalSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchView.swift; sourceTree = "<group>"; };
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
 		B10200 /* MeetingWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingWorkspacePresentation.swift; sourceTree = "<group>"; };
@@ -303,6 +306,7 @@
 		B10101 /* MeetingTimeBucketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucketTests.swift; sourceTree = "<group>"; };
 		B10102 /* MeetingSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndex.swift; sourceTree = "<group>"; };
 		B10103 /* MeetingSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndexTests.swift; sourceTree = "<group>"; };
+		B10713 /* MeetingTagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTagsTests.swift; sourceTree = "<group>"; };
 		B10108 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
 		B10105 /* PersistenceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceControllerTests.swift; sourceTree = "<group>"; };
 		B10106 /* ExternalStorageSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalStorageSpikeTests.swift; sourceTree = "<group>"; };
@@ -565,6 +569,7 @@
 				B10006 /* DashboardView.swift */,
 				B10070 /* PrepEditorView.swift */,
 				B10012 /* SidebarView.swift */,
+				B10712 /* TagChip.swift */,
 				B10500 /* GlobalSearchView.swift */,
 				B10013 /* NotesEditorView.swift */,
 				E10200 /* NotesEditor */,
@@ -677,6 +682,7 @@
 				B10111 /* SidebarMeetingsProviderTests.swift */,
 				B10113 /* GlobalSearchViewModelTests.swift */,
 				B10103 /* MeetingSearchIndexTests.swift */,
+				B10713 /* MeetingTagsTests.swift */,
 				B10105 /* PersistenceControllerTests.swift */,
 				B10106 /* ExternalStorageSpikeTests.swift */,
 				B10033 /* MarkdownEditorBundleTests.swift */,
@@ -853,6 +859,7 @@
 				A10009 /* Theme.swift in Sources */,
 				A10010 /* Permissions.swift in Sources */,
 				A10012 /* SidebarView.swift in Sources */,
+				A10712 /* TagChip.swift in Sources */,
 				A10500 /* GlobalSearchView.swift in Sources */,
 				A10013 /* NotesEditorView.swift in Sources */,
 				A10200 /* MeetingWorkspacePresentation.swift in Sources */,
@@ -962,6 +969,7 @@
 				A10111 /* SidebarMeetingsProviderTests.swift in Sources */,
 				A10113 /* GlobalSearchViewModelTests.swift in Sources */,
 				A10103 /* MeetingSearchIndexTests.swift in Sources */,
+				A10713 /* MeetingTagsTests.swift in Sources */,
 				A10105 /* PersistenceControllerTests.swift in Sources */,
 				A10106 /* ExternalStorageSpikeTests.swift in Sources */,
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,

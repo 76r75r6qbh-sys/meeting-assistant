@@ -122,6 +122,9 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            tagFilterBar
+        }
         // Push the sidebar's title search down into the provider's SQLite fetch.
         .onChange(of: viewModel.meetingSearchText) { _, new in
             meetingsProvider.searchText = new
@@ -143,6 +146,42 @@ struct SidebarView: View {
         // Sync ViewModel → @State when code sets selection (e.g. beginRecording)
         .onChange(of: viewModel.sidebarSelection) { _, new in
             if selection != new { selection = new }
+        }
+    }
+
+    /// Horizontal, scrollable row of tag-filter chips shown above the meeting
+    /// list. Only appears when meetings in the window carry tags. OR semantics:
+    /// selecting multiple chips shows meetings with ANY of them.
+    @ViewBuilder
+    private var tagFilterBar: some View {
+        let tags = meetingsProvider.distinctTags
+        if !tags.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: CasaSpace.xs) {
+                    if !meetingsProvider.selectedTags.isEmpty {
+                        Button {
+                            meetingsProvider.clearTagFilter()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.textTertiary)
+                        .accessibilityLabel("Clear tag filter")
+                    }
+                    ForEach(tags, id: \.self) { tag in
+                        TagChip(
+                            text: tag,
+                            isSelected: meetingsProvider.selectedTags.contains(tag),
+                            onTap: { meetingsProvider.toggleTag(tag) }
+                        )
+                    }
+                }
+                .padding(.horizontal, CasaSpace.sm)
+                .padding(.vertical, CasaSpace.xs)
+            }
+            .background(.bar)
+            .casaAnimation(CasaAnimation.fast, value: meetingsProvider.selectedTags)
         }
     }
 
@@ -169,7 +208,7 @@ struct SidebarView: View {
     }
 
     private var recentMeetings: [Meeting] {
-        viewModel.filteredRecentMeetings(from: meetingsProvider.meetings)
+        viewModel.filteredRecentMeetings(from: meetingsProvider.tagFilteredMeetings)
     }
 
     /// Groups the already-filtered, reverse-chronological `recentMeetings` into the
@@ -188,7 +227,7 @@ struct SidebarView: View {
     }
 
     private var upcomingMeetings: [Meeting] {
-        viewModel.filteredUpcomingMeetings(from: meetingsProvider.meetings)
+        viewModel.filteredUpcomingMeetings(from: meetingsProvider.tagFilteredMeetings)
     }
 
     private var deletionErrorBinding: Binding<Bool> {
@@ -285,6 +324,10 @@ struct SidebarMeetingRow: View {
                 Text(formattedDate)
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+
+                if !meeting.tags.isEmpty {
+                    TagChipStrip(tags: meeting.tags)
+                }
             }
 
             Spacer()

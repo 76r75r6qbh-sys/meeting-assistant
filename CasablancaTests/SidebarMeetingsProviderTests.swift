@@ -154,4 +154,61 @@ final class SidebarMeetingsProviderTests: XCTestCase {
         XCTAssertEqual(grouped[.today]?.count, 1)
         XCTAssertEqual(grouped[.earlier]?.count, 1)
     }
+
+    // MARK: - Tag filtering (pure, in-memory — NOT a #Predicate)
+
+    private func tagged(_ title: String, _ tags: [String]) -> Meeting {
+        let m = Meeting(title: title, date: .now)
+        m.setTags(tags)
+        return m
+    }
+
+    func testFilterByTags_emptySelectionPassesEverything() {
+        let meetings = [tagged("A", ["wegiz"]), tagged("B", [])]
+        let result = SidebarMeetingsProvider.filterByTags(meetings, selectedTags: [])
+        XCTAssertEqual(result.count, 2)
+    }
+
+    func testFilterByTags_singleTagMatches() {
+        let a = tagged("A", ["wegiz"])
+        let b = tagged("B", ["orchestra"])
+        let result = SidebarMeetingsProvider.filterByTags([a, b], selectedTags: ["wegiz"])
+        XCTAssertEqual(result.map(\.id), [a.id])
+    }
+
+    func testFilterByTags_isOR_acrossMultipleSelectedTags() {
+        let a = tagged("A", ["wegiz"])
+        let b = tagged("B", ["orchestra"])
+        let c = tagged("C", ["ai"])
+        // OR semantics: a meeting with ANY of the selected tags passes.
+        let result = SidebarMeetingsProvider.filterByTags(
+            [a, b, c], selectedTags: ["wegiz", "orchestra"]
+        )
+        XCTAssertEqual(Set(result.map(\.id)), Set([a.id, b.id]))
+    }
+
+    func testDistinctTags_dedupesAndSorts() {
+        let meetings = [
+            tagged("A", ["wegiz", "ai"]),
+            tagged("B", ["orchestra", "wegiz"]),
+        ]
+        XCTAssertEqual(SidebarMeetingsProvider.distinctTags(in: meetings), ["ai", "orchestra", "wegiz"])
+    }
+
+    func testToggleTagNormalizesAndIsInMemory() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let m = tagged("Wegiz sync", ["wegiz"])
+        context.insert(m)
+        try context.save()
+
+        let provider = SidebarMeetingsProvider(modelContext: context)
+        provider.toggleTag("  WEGIZ ") // raw input is normalized before compare
+        XCTAssertEqual(provider.selectedTags, ["wegiz"])
+        XCTAssertEqual(provider.tagFilteredMeetings.map(\.id), [m.id])
+
+        provider.toggleTag("wegiz")
+        XCTAssertTrue(provider.selectedTags.isEmpty)
+        XCTAssertEqual(provider.tagFilteredMeetings.count, 1, "Empty filter passes everything")
+    }
 }

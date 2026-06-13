@@ -183,6 +183,9 @@ struct GlobalSearchView: View {
                         .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.textSecondary)
                         .lineLimit(2)
                 }
+                if !row.tags.isEmpty {
+                    TagChipStrip(tags: row.tags)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -271,6 +274,7 @@ struct GlobalSearchView: View {
         let summaryResults = searchResults.filter { $0.kind == .summary }
         let transcriptResults = searchResults.filter { $0.kind == .transcript }
         let notesResults = searchResults.filter { $0.kind == .notes }
+        let tagResults = searchResults.filter { $0.kind == .tag }
 
         var built: [ResultGroup] = []
         var cursor = 0
@@ -292,6 +296,7 @@ struct GlobalSearchView: View {
         makeGroup("In summaries", summaryResults.map { .snippetMeeting($0.meeting, kind: .summary, snippet: $0.snippet) })
         makeGroup("In transcripts", transcriptResults.map { .snippetMeeting($0.meeting, kind: .transcript, snippet: $0.snippet) })
         makeGroup("Notes", notesResults.map { .snippetMeeting($0.meeting, kind: .notes, snippet: $0.snippet) })
+        makeGroup("Tagged", tagResults.map { .snippetMeeting($0.meeting, kind: .tag, snippet: nil) })
         makeGroup("Approvals", searchViewModel.approvalItems.map { .approval($0) })
 
         return built
@@ -355,6 +360,7 @@ private struct ResultRow: Identifiable {
             case .summary: return "sparkles"
             case .transcript: return "text.alignleft"
             case .notes: return "note.text"
+            case .tag: return "tag"
             default: return "doc"
             }
         case .approval: return "tray.full"
@@ -394,6 +400,19 @@ private struct ResultRow: Identifiable {
         return nil
     }
 
+    /// Tags to show as small chips on a result row, so the project grouping is
+    /// visible in search just like in the sidebar.
+    var tags: [String] {
+        switch payload {
+        case .meeting(let meeting), .snippetMeeting(let meeting, _, _):
+            return meeting.tags
+        case .person(_, _, let meeting):
+            return meeting?.tags ?? []
+        case .approval:
+            return []
+        }
+    }
+
     private static func kindLabel(_ kind: ResultKind) -> String {
         switch kind {
         case .summary: return "summary"
@@ -401,6 +420,7 @@ private struct ResultRow: Identifiable {
         case .notes: return "notes"
         case .title: return "title"
         case .person: return "person"
+        case .tag: return "tag"
         }
     }
 

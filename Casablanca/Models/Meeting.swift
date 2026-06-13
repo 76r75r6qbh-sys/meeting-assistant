@@ -92,6 +92,12 @@ final class Meeting {
     var recordingFileURL: String?
     var recordingDuration: Double?
     var transcriptionLanguage: String = "en-US"
+    /// Project/grouping labels. Stored NORMALIZED (lowercased, trimmed, deduped,
+    /// no empties) via ``Meeting/normalizeTags(_:)`` so add + filter + search can't
+    /// drift. Default `[]` keeps this an additive, lightweight SwiftData migration.
+    /// NOTE: this is a Codable array blob — `#Predicate` CANNOT query it; all tag
+    /// filtering/search must run IN MEMORY (proven in Phase 3).
+    var tags: [String] = []
     var appleNotesSummaryNoteID: String?
     var appleNotesRawNotesNoteID: String?
     var localPrepNotes: String = ""
@@ -173,5 +179,50 @@ final class Meeting {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HHmmss"
         return "\(formatter.string(from: date)) \(sanitizedTitle)"
+    }
+
+    // MARK: - Tags
+
+    /// The single source of truth for how a raw tag string becomes its canonical
+    /// stored form: lowercased + whitespace-trimmed. Returns `nil` for empties so
+    /// callers can drop them. Used by BOTH the editor (when adding) and the
+    /// filter/search (when comparing) so the two can never diverge.
+    static func normalizeTag(_ raw: String) -> String? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    /// Normalize a collection of raw tags: trim + lowercase each, drop empties,
+    /// and dedupe while preserving first-seen order.
+    static func normalizeTags(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in raw {
+            guard let tag = normalizeTag(value) else { continue }
+            if seen.insert(tag).inserted {
+                out.append(tag)
+            }
+        }
+        return out
+    }
+
+    /// Set `tags` to the normalized form of `raw`. Convenience so call sites don't
+    /// forget to normalize before assigning.
+    func setTags(_ raw: [String]) {
+        tags = Meeting.normalizeTags(raw)
+    }
+
+    /// Add a single raw tag (normalized) if not already present. Returns true if
+    /// it was added.
+    @discardableResult
+    func addTag(_ raw: String) -> Bool {
+        guard let tag = Meeting.normalizeTag(raw) else { return false }
+        guard !tags.contains(tag) else { return false }
+        tags.append(tag)
+        return true
+    }
+
+    func removeTag(_ tag: String) {
+        tags.removeAll { $0 == tag }
     }
 }

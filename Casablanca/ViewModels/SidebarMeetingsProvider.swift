@@ -33,6 +33,15 @@ final class SidebarMeetingsProvider {
     /// meetings beyond the window. Drives the "Show earlier meetings" affordance.
     private(set) var hasMore = false
 
+    /// Tags the user has selected in the sidebar filter bar. Semantics: **OR** —
+    /// a meeting is shown if it carries ANY selected tag. OR (not AND) is chosen
+    /// because the common need is "show me anything in project X or Y"; AND would
+    /// require a meeting to be tagged with every selected project at once, which
+    /// is rarely what's wanted. Empty set = no filtering (all meetings pass).
+    ///
+    /// Stored normalized so they compare directly against `Meeting.tags`.
+    var selectedTags: Set<String> = []
+
     /// Title filter pushed down into the SQLite fetch (not filtered in Swift).
     var searchText: String = "" {
         didSet {
@@ -78,7 +87,7 @@ final class SidebarMeetingsProvider {
         // Eagerly load ONLY the fields the sidebar row reads. Transcripts and
         // other large columns are deliberately excluded — they fault in lazily
         // if ever touched, but the sidebar never touches them.
-        descriptor.propertiesToFetch = [\.id, \.title, \.date, \.status]
+        descriptor.propertiesToFetch = [\.id, \.title, \.date, \.status, \.tags]
 
         do {
             let results = try modelContext.fetch(descriptor)
@@ -89,6 +98,56 @@ final class SidebarMeetingsProvider {
             meetings = []
             hasMore = false
         }
+    }
+
+    // MARK: - Tag filtering (in-memory — #Predicate can't query the array blob)
+
+    /// The distinct set of tags across the current window, sorted alphabetically,
+    /// for the filter bar. Gathered IN MEMORY (there is no SQL DISTINCT over an
+    /// array-of-String column). Tags are already normalized at write time.
+    var distinctTags: [String] {
+        Self.distinctTags(in: meetings)
+    }
+
+    /// Pure, testable: the alphabetically-sorted distinct tags across `meetings`.
+    static func distinctTags(in meetings: [Meeting]) -> [String] {
+        var seen = Set<String>()
+        for meeting in meetings {
+            for tag in meeting.tags { seen.insert(tag) }
+        }
+        return seen.sorted()
+    }
+
+    /// Pure, testable filter used by the sidebar. Returns meetings carrying ANY of
+    /// `selectedTags` (OR). Empty selection passes everything through unchanged.
+    /// This runs IN MEMORY over the windowed set — NOT a `#Predicate`, because
+    /// SwiftData cannot query the Codable `tags` array blob.
+    static func filterByTags(_ meetings: [Meeting], selectedTags: Set<String>) -> [Meeting] {
+        guard !selectedTags.isEmpty else { return meetings }
+        return meetings.filter { meeting in
+            !selectedTags.isDisjoint(with: meeting.tags)
+        }
+    }
+
+    /// The windowed meetings narrowed to the current tag selection. The view uses
+    /// this as the source for its upcoming/recent split + bucketing.
+    var tagFilteredMeetings: [Meeting] {
+        Self.filterByTags(meetings, selectedTags: selectedTags)
+    }
+
+    /// Toggle a tag in the filter selection. Tags are normalized so a chip's value
+    /// compares directly against stored tags.
+    func toggleTag(_ tag: String) {
+        guard let normalized = Meeting.normalizeTag(tag) else { return }
+        if selectedTags.contains(normalized) {
+            selectedTags.remove(normalized)
+        } else {
+            selectedTags.insert(normalized)
+        }
+    }
+
+    func clearTagFilter() {
+        selectedTags.removeAll()
     }
 
     /// Title-only predicate pushed into the DB. `localizedStandardContains`

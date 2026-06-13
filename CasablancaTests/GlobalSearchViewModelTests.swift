@@ -150,6 +150,24 @@ final class GlobalSearchViewModelTests: XCTestCase {
         )
     }
 
+    func testTagMatchFoundViaTier2() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let meeting = Meeting(title: "Weekly sync", date: .now)
+        meeting.setTags(["wegiz", "orchestra"])
+        context.insert(meeting)
+        try context.save()
+
+        let vm = makeViewModel(context)
+        await vm.search("orchestra")?.value
+
+        XCTAssertTrue(
+            vm.results.contains { $0.meeting.id == meeting.id && $0.kind == .tag },
+            "Tag match must be found by the Tier 2 in-memory scan (array field)"
+        )
+    }
+
     // MARK: - Dedup & ranking
 
     func testDedupAcrossTiers() async throws {

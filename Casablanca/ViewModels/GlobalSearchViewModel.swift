@@ -228,7 +228,7 @@ final class GlobalSearchViewModel {
         }
 
         return MeetingSearchIndex.search(query, in: recent)
-            .filter { $0.kind == .transcript || $0.kind == .person }
+            .filter { $0.kind == .transcript || $0.kind == .person || $0.kind == .tag }
     }
 
     // MARK: - Merge / dedup / rank
@@ -259,6 +259,7 @@ final class GlobalSearchViewModel {
         case .notes: return 2
         case .transcript: return 3
         case .person: return 4
+        case .tag: return 5
         }
     }
 

@@ -65,7 +65,7 @@ enum ObsidianMeetingExporter {
         title: \(yamlEscaped(meeting.obsidianFileName))
         meeting_title: \(yamlEscaped(meeting.title))
         meeting_date: \(yamlEscaped(isoTimestamp(meeting.date)))
-        casablanca_type: "meeting-summary"
+        casablanca_type: "meeting-summary"\(tagsFrontmatterLine(for: meeting))
         raw_notes: \(yamlEscaped(notesLink))
         ---
 
@@ -96,7 +96,7 @@ enum ObsidianMeetingExporter {
         title: \(yamlEscaped("\(meeting.obsidianFileName) - Notes"))
         meeting_title: \(yamlEscaped(meeting.title))
         meeting_date: \(yamlEscaped(isoTimestamp(meeting.date)))
-        casablanca_type: "raw-notes"
+        casablanca_type: "raw-notes"\(tagsFrontmatterLine(for: meeting))
         summary_note: \(yamlEscaped(summaryLink))
         ---
 
@@ -149,6 +149,19 @@ enum ObsidianMeetingExporter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)
+    }
+
+    /// A leading-newline `tags:` YAML block-sequence line for the frontmatter, or
+    /// empty string when the meeting has no tags (so the key is omitted entirely).
+    /// Tags are normalized (lowercase, trimmed) at write time, but we still quote
+    /// each value so any spaces stay valid YAML and Obsidian's tag parser is happy.
+    /// Emitted as a `casablanca-` prefix-free flow list under `tags:` so Obsidian's
+    /// native tag system picks them up.
+    static func tagsFrontmatterLine(for meeting: Meeting) -> String {
+        let tags = Meeting.normalizeTags(meeting.tags)
+        guard !tags.isEmpty else { return "" }
+        let items = tags.map { "\n  - \(yamlEscaped($0))" }.joined()
+        return "\ntags:\(items)"
     }
 
     private static func yamlEscaped(_ value: String) -> String {

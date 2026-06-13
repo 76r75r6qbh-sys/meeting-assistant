@@ -1,8 +1,14 @@
 import SwiftUI
+import SwiftData
 
 struct MeetingDetailInspector: View {
     let meeting: Meeting
     let canExport: Bool
+
+    @Environment(\.modelContext) private var modelContext
+    @State private var tagDraft: String = ""
+    /// All distinct tags across the store, gathered in memory for autocomplete.
+    @State private var allKnownTags: [String] = []
 
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
@@ -14,6 +20,8 @@ struct MeetingDetailInspector: View {
             VStack(alignment: .leading, spacing: CasaSpace.xl) {
                 recordingInspectorSection
 
+                tagsInspectorSection
+
                 if !meeting.participants.isEmpty {
                     participantsInspectorSection
                 }
@@ -24,6 +32,91 @@ struct MeetingDetailInspector: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.backgroundSecondary)
+        .onAppear(perform: refreshKnownTags)
+    }
+
+    // MARK: - Tags
+
+    @ViewBuilder
+    private var tagsInspectorSection: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            inspectorLabel("Tags")
+
+            if !meeting.tags.isEmpty {
+                FlowLayout(spacing: CasaSpace.xs) {
+                    ForEach(meeting.tags, id: \.self) { tag in
+                        TagChip(text: tag, onRemove: { removeTag(tag) })
+                    }
+                }
+                .casaAnimation(CasaAnimation.fast, value: meeting.tags)
+            }
+
+            TextField("Add tag…", text: $tagDraft)
+                .textFieldStyle(.roundedBorder)
+                .font(.subheadline)
+                .onSubmit(commitDraft)
+                .onChange(of: tagDraft) { _, new in
+                    // Comma commits the tag-so-far (token-field behaviour).
+                    if new.contains(",") {
+                        let parts = new.split(separator: ",", omittingEmptySubsequences: false)
+                        for part in parts.dropLast() { addTag(String(part)) }
+                        tagDraft = String(parts.last ?? "")
+                    }
+                }
+
+            if !tagSuggestions.isEmpty {
+                FlowLayout(spacing: CasaSpace.xs) {
+                    ForEach(tagSuggestions, id: \.self) { suggestion in
+                        TagChip(text: suggestion, onTap: { addTag(suggestion) })
+                    }
+                }
+            }
+        }
+    }
+
+    /// Existing tags (across the store) that match the current draft and aren't
+    /// already on this meeting. Empty draft surfaces a few not-yet-applied tags.
+    private var tagSuggestions: [String] {
+        let draft = Meeting.normalizeTag(tagDraft)
+        let applied = Set(meeting.tags)
+        let candidates = allKnownTags.filter { !applied.contains($0) }
+        guard let draft else { return Array(candidates.prefix(6)) }
+        return candidates.filter { $0.contains(draft) }.prefix(6).map { $0 }
+    }
+
+    private func commitDraft() {
+        addTag(tagDraft)
+        tagDraft = ""
+    }
+
+    private func addTag(_ raw: String) {
+        guard meeting.addTag(raw) else { return }
+        meeting.setTags(meeting.tags) // re-normalize/dedupe defensively
+        persist()
+        refreshKnownTags()
+    }
+
+    private func removeTag(_ tag: String) {
+        meeting.removeTag(tag)
+        persist()
+    }
+
+    private func persist() {
+        do { try modelContext.save() } catch {
+            Log.persistence.error("Failed to save meeting tags: \(error.localizedDescription)")
+        }
+    }
+
+    /// Gather the distinct tag set across the store IN MEMORY (no SQL DISTINCT
+    /// over an array column). Bounded fetch keeps this cheap.
+    private func refreshKnownTags() {
+        var descriptor = FetchDescriptor<Meeting>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        descriptor.fetchLimit = 500
+        descriptor.propertiesToFetch = [\.tags]
+        let meetings = (try? modelContext.fetch(descriptor)) ?? []
+        allKnownTags = SidebarMeetingsProvider.distinctTags(in: meetings)
     }
 
     @ViewBuilder

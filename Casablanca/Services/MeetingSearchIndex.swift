@@ -7,6 +7,7 @@ enum ResultKind {
     case transcript
     case notes
     case person
+    case tag
 }
 
 /// A single match produced by ``MeetingSearchIndex/search(_:in:)``.
@@ -75,6 +76,18 @@ enum MeetingSearchIndex {
                     kind: .person,
                     snippet: nil,
                     person: participant
+                ))
+            }
+
+            // Tags are a Codable array blob — only matchable in memory (like
+            // participants). One `.tag` result per meeting that has a matching
+            // tag (deduped at the merge layer by (id, kind)).
+            if meeting.tags.contains(where: { $0.contains(needle) }) {
+                results.append(SearchResult(
+                    meeting: meeting,
+                    kind: .tag,
+                    snippet: nil,
+                    person: nil
                 ))
             }
         }
