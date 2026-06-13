@@ -167,11 +167,14 @@ final class AppModel {
     let actionQueueModel = ActionQueueModel()
     let updateService: UpdateService
     let applicationsLocationCheck: ApplicationsLocationCheck
+    let notificationCoordinator = AppNotificationCoordinator()
+    let meetingStartNotifier: MeetingStartNotifier
     private let housekeeping: UpdateLaunchHousekeeping
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init() {
         meetingListViewModel = MeetingListViewModel(calendarService: calendarService)
+        meetingStartNotifier = MeetingStartNotifier(calendarService: calendarService)
 
         let paths = UpdatePaths.default
         housekeeping = UpdateLaunchHousekeeping(paths: paths)
@@ -223,6 +226,7 @@ final class AppModel {
     func bootstrap(modelContext: ModelContext? = nil) async {
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
+        installMeetingStartNotifications()
 
         // One-shot recovery: meetings left mid-pipeline (`.processing`) by a
         // crash/force-quit would otherwise spin forever. Nothing is running at
@@ -241,6 +245,9 @@ final class AppModel {
             await calendarService.fetchUpcomingEvents()
             calendarService.startMonitoringIfAuthorized()
         }
+        // Schedule prompts for whatever is already loaded (fetchUpcomingEvents
+        // also fires onEventsRefreshed, but cover the no-access / cached path).
+        meetingStartNotifier.reschedule()
         await applicationsLocationCheck.runOnceIfNeeded()
         updateService.startScheduling()
     }
@@ -276,6 +283,37 @@ final class AppModel {
             try? modelContext.save()
             Log.persistence.notice("Recovered \(recovered) stale .processing meeting(s) on launch.")
         }
+    }
+
+    /// Install the shared notification delegate + category and wire the calendar
+    /// refresh hook so meeting-start prompts re-schedule on every settled change.
+    private func installMeetingStartNotifications() {
+        notificationCoordinator.onStartRecording = { [weak self] eventIdentifier in
+            self?.startRecordingFromNotification(eventIdentifier: eventIdentifier)
+        }
+        notificationCoordinator.install()
+
+        calendarService.onEventsRefreshed = { [weak meetingStartNotifier] in
+            meetingStartNotifier?.reschedule()
+        }
+    }
+
+    /// Handle the "Start Recording" notification action: re-resolve the event,
+    /// suppress if a recording is already active (or already recording this
+    /// meeting), otherwise begin recording and cancel the now-redundant prompt.
+    private func startRecordingFromNotification(eventIdentifier: String) {
+        // Suppression: never start a second recording over an active one.
+        guard !recordingService.isRecording else {
+            Log.recording.notice("Ignoring start-recording notification: a recording is already active.")
+            return
+        }
+        guard let event = calendarService.event(withIdentifier: eventIdentifier) else {
+            Log.recording.error("Start-recording notification could not resolve event \(eventIdentifier, privacy: .public).")
+            return
+        }
+        meetingListViewModel.beginRecording(for: event)
+        // Don't fire the prompt again for this meeting.
+        meetingStartNotifier.cancel(eventIdentifier: eventIdentifier)
     }
 
     private func registerSentinelCleanup() {

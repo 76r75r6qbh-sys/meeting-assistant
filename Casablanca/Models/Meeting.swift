@@ -33,6 +33,8 @@ enum AppPreferenceKey {
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let keepOriginalWAV = "keepOriginalWAV"
     static let useNativeMarkdownEditor = "useNativeMarkdownEditor"
+    static let meetingStartNotificationsEnabled = "meetingStartNotificationsEnabled"
+    static let meetingStartNotificationLeadTime = "meetingStartNotificationLeadTime"
 }
 
 enum AppPreferenceValue {

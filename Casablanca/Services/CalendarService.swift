@@ -26,6 +26,11 @@ final class CalendarService {
     /// Cheap insurance against missed change notifications (e.g. across sleep).
     @ObservationIgnored private let fallbackInterval: TimeInterval
 
+    /// Called after each successful refresh once `events` has been updated, so
+    /// dependents (e.g. `MeetingStartNotifier`) can react to a settled change
+    /// without polling. Set by `AppModel` at bootstrap.
+    @ObservationIgnored var onEventsRefreshed: (() -> Void)?
+
     init(debounceInterval: Duration = .seconds(2), fallbackInterval: TimeInterval = 15 * 60) {
         self.debounceInterval = debounceInterval
         self.fallbackInterval = fallbackInterval
@@ -67,6 +72,7 @@ final class CalendarService {
 
         events = fetchedEvents
         isLoading = false
+        onEventsRefreshed?()
     }
 
     /// Begin event-driven refresh when access was already granted on a previous
@@ -75,6 +81,17 @@ final class CalendarService {
     func startMonitoringIfAuthorized() {
         guard authorizationStatus == .fullAccess else { return }
         startObservingChanges()
+    }
+
+    /// Re-resolve an `EKEvent` from a stored identifier. Prefers the currently
+    /// loaded `events` (cheap, no store hit), falling back to the EventKit store
+    /// for events outside the loaded window.
+    func event(withIdentifier identifier: String) -> EKEvent? {
+        if let cached = events.first(where: { $0.eventIdentifier == identifier }) {
+            return cached
+        }
+        guard authorizationStatus == .fullAccess else { return nil }
+        return store.event(withIdentifier: identifier)
     }
 
     func eventsGroupedByDay() -> [(date: Date, events: [EKEvent])] {

@@ -27,6 +27,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
     @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.meetingStartNotificationsEnabled) private var meetingStartNotificationsEnabled = true
+    @AppStorage(AppPreferenceKey.meetingStartNotificationLeadTime) private var meetingStartLeadTimeRaw = MeetingStartLeadTime.atStart.rawValue
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
@@ -401,6 +403,22 @@ struct SettingsView: View {
                     .foregroundStyle(Color.textTertiary)
             }
 
+            Section("Notifications") {
+                Toggle("Notify me to start recording at meeting time", isOn: $meetingStartNotificationsEnabled)
+
+                Picker("Notify", selection: $meetingStartLeadTimeRaw) {
+                    ForEach(MeetingStartLeadTime.allCases) { lead in
+                        Text(lead.displayName).tag(lead.rawValue)
+                    }
+                }
+                .disabled(!meetingStartNotificationsEnabled)
+
+                Text("Shows a notification with a “Start Recording” button at each upcoming meeting's start time, so you can begin recording with one click. Tapping it does nothing if a recording is already running.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Editor") {
                 Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
 
@@ -410,6 +428,12 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: meetingStartNotificationsEnabled) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+        }
+        .onChange(of: meetingStartLeadTimeRaw) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+        }
     }
 
     private var modelOptions: [String] {

@@ -150,6 +150,9 @@
 		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
 		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
+		A10071 /* AppNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071 /* AppNotificationCoordinator.swift */; };
+		A10072 /* MeetingStartNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072 /* MeetingStartNotifier.swift */; };
+		A10073 /* MeetingStartNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073 /* MeetingStartNotifierTests.swift */; };
 		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
 		A10054 /* AppPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* AppPreferencesTests.swift */; };
 		A10055 /* AppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* AppleNotesScripting.swift */; };
@@ -346,6 +349,9 @@
 		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
 		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
 		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
+		B10071 /* AppNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotificationCoordinator.swift; sourceTree = "<group>"; };
+		B10072 /* MeetingStartNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifier.swift; sourceTree = "<group>"; };
+		B10073 /* MeetingStartNotifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifierTests.swift; sourceTree = "<group>"; };
 		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		B10054 /* AppPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesTests.swift; sourceTree = "<group>"; };
 		B10055 /* AppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScripting.swift; sourceTree = "<group>"; };
@@ -550,6 +556,8 @@
 				B10048 /* RecordingInterruptionMonitor.swift */,
 				B10050 /* RecordingInterruptionCoordinator.swift */,
 				B10052 /* RecordingNotificationCenter.swift */,
+				B10071 /* AppNotificationCoordinator.swift */,
+				B10072 /* MeetingStartNotifier.swift */,
 				B10055 /* AppleNotesScripting.swift */,
 				B10058 /* AppleNotesBodyRenderer.swift */,
 				B10060 /* AppleNotesExportError.swift */,
@@ -716,6 +724,7 @@
 				B10703 /* PCMTrackWriterTests.swift */,
 				B10704 /* RecordingCompressorTests.swift */,
 				B10051 /* RecordingInterruptionCoordinatorTests.swift */,
+				B10073 /* MeetingStartNotifierTests.swift */,
 				B10054 /* AppPreferencesTests.swift */,
 				B10057 /* AppleNotesScriptingFakeTests.swift */,
 				B10059 /* AppleNotesBodyRendererTests.swift */,
@@ -940,6 +949,8 @@
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
+				A10071 /* AppNotificationCoordinator.swift in Sources */,
+				A10072 /* MeetingStartNotifier.swift in Sources */,
 				A10053 /* AppPreferences.swift in Sources */,
 				A10055 /* AppleNotesScripting.swift in Sources */,
 				A10058 /* AppleNotesBodyRenderer.swift in Sources */,
@@ -1009,6 +1020,7 @@
 				A10703 /* PCMTrackWriterTests.swift in Sources */,
 				A10704 /* RecordingCompressorTests.swift in Sources */,
 				A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */,
+				A10073 /* MeetingStartNotifierTests.swift in Sources */,
 				A10054 /* AppPreferencesTests.swift in Sources */,
 				A10056 /* InMemoryAppleNotesScripting.swift in Sources */,
 				A10057 /* AppleNotesScriptingFakeTests.swift in Sources */,
