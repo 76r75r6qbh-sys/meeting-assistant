@@ -4,17 +4,21 @@ import UserNotifications
 @MainActor
 final class RecordingNotificationCenter: RecordingInterruptionNotifying {
     private let center: UNUserNotificationCenter
-    private var didRequestAuthorization = false
-    private var isAuthorized = false
+    private let authorization: NotificationAuthorization
 
-    init(center: UNUserNotificationCenter = .current()) {
+    init(
+        center: UNUserNotificationCenter = .current(),
+        authorization: NotificationAuthorization = .shared
+    ) {
         self.center = center
+        self.authorization = authorization
     }
 
     func post(title: String, body: String) {
         Task { @MainActor in
-            await ensureAuthorization()
-            guard isAuthorized else { return }
+            // Route through the shared, idempotent gate so the system prompt is
+            // requested at most once and never races the auto-record path.
+            guard await authorization.ensureAuthorized() else { return }
 
             let content = UNMutableNotificationContent()
             content.title = title
@@ -28,12 +32,5 @@ final class RecordingNotificationCenter: RecordingInterruptionNotifying {
             )
             try? await center.add(request)
         }
-    }
-
-    private func ensureAuthorization() async {
-        if didRequestAuthorization { return }
-        didRequestAuthorization = true
-        let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-        isAuthorized = granted
     }
 }

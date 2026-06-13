@@ -151,6 +151,7 @@
 		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
 		A10071 /* AppNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071 /* AppNotificationCoordinator.swift */; };
+		A10090 /* NotificationAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* NotificationAuthorization.swift */; };
 		A10072 /* MeetingStartNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072 /* MeetingStartNotifier.swift */; };
 		A10073 /* MeetingStartNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073 /* MeetingStartNotifierTests.swift */; };
 		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
@@ -350,6 +351,7 @@
 		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
 		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
 		B10071 /* AppNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotificationCoordinator.swift; sourceTree = "<group>"; };
+		B10090 /* NotificationAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAuthorization.swift; sourceTree = "<group>"; };
 		B10072 /* MeetingStartNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifier.swift; sourceTree = "<group>"; };
 		B10073 /* MeetingStartNotifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifierTests.swift; sourceTree = "<group>"; };
 		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
@@ -556,6 +558,7 @@
 				B10048 /* RecordingInterruptionMonitor.swift */,
 				B10050 /* RecordingInterruptionCoordinator.swift */,
 				B10052 /* RecordingNotificationCenter.swift */,
+				B10090 /* NotificationAuthorization.swift */,
 				B10071 /* AppNotificationCoordinator.swift */,
 				B10072 /* MeetingStartNotifier.swift */,
 				B10055 /* AppleNotesScripting.swift */,
@@ -949,6 +952,7 @@
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
+				A10090 /* NotificationAuthorization.swift in Sources */,
 				A10071 /* AppNotificationCoordinator.swift in Sources */,
 				A10072 /* MeetingStartNotifier.swift in Sources */,
 				A10053 /* AppPreferences.swift in Sources */,

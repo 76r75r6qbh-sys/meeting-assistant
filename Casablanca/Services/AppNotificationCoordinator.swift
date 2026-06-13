@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import OSLog
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// The single, process-wide `UNUserNotificationCenterDelegate`. It owns the
 /// app's notification categories and routes actionable-notification responses.
@@ -16,10 +16,12 @@ import UserNotifications
 ///     action; any other category/action is just completed (no routing).
 @MainActor
 final class AppNotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
-    static let meetingStartCategoryID = "MEETING_START"
-    static let startRecordingActionID = "START_RECORDING"
-    static let dismissActionID = "DISMISS"
-    static let eventIdentifierKey = "eventIdentifier"
+    // Immutable Sendable Strings referenced from the nonisolated delegate methods,
+    // so mark them nonisolated to satisfy Swift 6 actor-isolation checking.
+    nonisolated static let meetingStartCategoryID = "MEETING_START"
+    nonisolated static let startRecordingActionID = "START_RECORDING"
+    nonisolated static let dismissActionID = "DISMISS"
+    nonisolated static let eventIdentifierKey = "eventIdentifier"
 
     /// Invoked with the EKEvent identifier when the user taps "Start Recording".
     /// Wired from `AppModel` to resolve the event and begin recording.
@@ -98,10 +100,22 @@ final class AppNotificationCoordinator: NSObject, UNUserNotificationCenterDelega
             return
         }
 
+        // Confine the completion handler in an `@unchecked Sendable` box so it can
+        // cross the MainActor hop without tripping the Swift 6 `sending` data-race
+        // check. The box is created here and invoked exactly once, on the MainActor.
+        let completion = CompletionBox(completionHandler)
         Task { @MainActor in
             NSApp.activate(ignoringOtherApps: true)
             self.onStartRecording?(eventIdentifier)
-            completionHandler()
+            completion.invoke()
         }
     }
+}
+
+/// Confines a `UNUserNotificationCenter` completion handler so it can be carried
+/// across an actor hop. The handler is only ever invoked once, on the MainActor.
+private final class CompletionBox: @unchecked Sendable {
+    private let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    func invoke() { handler() }
 }

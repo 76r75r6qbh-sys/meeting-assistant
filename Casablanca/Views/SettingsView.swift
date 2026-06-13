@@ -35,6 +35,7 @@ struct SettingsView: View {
     @State private var availableInputDevices: [AudioInputDevice] = []
     @State private var systemDefaultInputDeviceName = ""
     @State private var presentedSheet: SettingsSheet?
+    @State private var notificationsDenied = false
 
     private enum SettingsSheet: Identifiable {
         case summaryPrompt
@@ -417,6 +418,16 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if meetingStartNotificationsEnabled, notificationsDenied {
+                    Label(
+                        "Notifications are disabled in System Settings — enable them for Casablanca to receive these prompts.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Editor") {
@@ -430,10 +441,22 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .onChange(of: meetingStartNotificationsEnabled) { _, _ in
             appModel.meetingStartNotifier.reschedule()
+            Task { await refreshNotificationAuthorizationStatus() }
         }
         .onChange(of: meetingStartLeadTimeRaw) { _, _ in
             appModel.meetingStartNotifier.reschedule()
         }
+        .task {
+            await refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    /// Reflect the current system notification authorization in the Settings hint.
+    /// Only `.denied` surfaces the warning; `.notDetermined` stays quiet (the
+    /// prompt fires lazily) and `.authorized`/`.provisional` need no caption.
+    private func refreshNotificationAuthorizationStatus() async {
+        let status = await NotificationAuthorization.shared.currentStatus()
+        notificationsDenied = status == .denied
     }
 
     private var modelOptions: [String] {

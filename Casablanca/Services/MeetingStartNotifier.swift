@@ -1,7 +1,7 @@
 import EventKit
 import Foundation
 import OSLog
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Lead time before a meeting's start at which to fire the "Start Recording"
 /// prompt. Persisted as its raw string via `@AppStorage`.
@@ -114,21 +114,26 @@ enum MeetingStartScheduleDecision {
 @MainActor
 final class MeetingStartNotifier {
     /// Only schedule for meetings within this window to avoid scheduling hundreds.
-    static let defaultHorizon: TimeInterval = 24 * 60 * 60
+    nonisolated static let defaultHorizon: TimeInterval = 24 * 60 * 60
 
     private let calendarService: CalendarService
     private let center: UNUserNotificationCenter
+    private let authorization: NotificationAuthorization
     private let horizon: TimeInterval
     private let now: () -> Date
+    /// Guards against repeatedly kicking off authorization on every reschedule.
+    private var didRequestAuthorization = false
 
     init(
         calendarService: CalendarService,
         center: UNUserNotificationCenter = .current(),
+        authorization: NotificationAuthorization = .shared,
         horizon: TimeInterval = MeetingStartNotifier.defaultHorizon,
         now: @escaping () -> Date = Date.init
     ) {
         self.calendarService = calendarService
         self.center = center
+        self.authorization = authorization
         self.horizon = horizon
         self.now = now
     }
@@ -148,6 +153,21 @@ final class MeetingStartNotifier {
     /// schedule the current set. Stable per-event identifiers mean adding a
     /// request with the same id replaces the old one.
     func reschedule() {
+        // The auto-record feature owns its own authorization. Request it the first
+        // time we reschedule while the feature is enabled — otherwise a fresh
+        // install that has never hit a recording interruption would silently drop
+        // every scheduled meeting-start notification. Only prompt when ENABLED, so
+        // users who turned the toggle off are never asked. Fire-and-forget: don't
+        // block launch on the async grant; scheduling a request before grant is
+        // harmless, and we reschedule once the grant resolves so it takes effect.
+        if isEnabled, !didRequestAuthorization {
+            didRequestAuthorization = true
+            Task { @MainActor [weak self] in
+                let granted = await self?.authorization.ensureAuthorized() ?? false
+                if granted { self?.reschedule() }
+            }
+        }
+
         let desired = MeetingStartScheduleDecision.notifications(
             for: calendarService.events.map {
                 (identifier: $0.eventIdentifier ?? "", title: $0.title ?? "Untitled Meeting", startDate: $0.startDate)
