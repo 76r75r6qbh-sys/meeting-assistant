@@ -234,6 +234,11 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         }
     }
 
+    // Mirrors the real conformer (`AudioRecordingService`), which is `@MainActor`.
+    // The coordinator invokes these methods from `Task { @MainActor … }` closures, so
+    // without this annotation the recorded-call array would be mutated off the main actor
+    // and concurrent interrupts could race on `calls.append` → heap corruption.
+    @MainActor
     private final class FakeRecordingService: RecordingInterruptionServicing {
         enum Call: Equatable {
             case handleSystemInterrupt(RecordingInterruptionReason)
