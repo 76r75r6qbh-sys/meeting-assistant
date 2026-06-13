@@ -95,6 +95,13 @@
 		A10216 /* ExportStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10216 /* ExportStatusCenter.swift */; };
 		A10217 /* ProcessingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10217 /* ProcessingStatusCard.swift */; };
 		A10218 /* MeetingPipelineStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10218 /* MeetingPipelineStateTests.swift */; };
+		A10220 /* SkeletonModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10220 /* SkeletonModifier.swift */; };
+		A10221 /* ToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10221 /* ToastCenter.swift */; };
+		A10222 /* StringHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10222 /* StringHighlighting.swift */; };
+		A10223 /* TranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10223 /* TranscriptPresentation.swift */; };
+		A10224 /* TranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10224 /* TranscriptPresentationTests.swift */; };
+		A10225 /* StringHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10225 /* StringHighlightingTests.swift */; };
+		A10226 /* MeetingSoftDeleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10226 /* MeetingSoftDeleteTests.swift */; };
 		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
 		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
 		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
@@ -275,6 +282,13 @@
 		B10216 /* ExportStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportStatusCenter.swift; sourceTree = "<group>"; };
 		B10217 /* ProcessingStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingStatusCard.swift; sourceTree = "<group>"; };
 		B10218 /* MeetingPipelineStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineStateTests.swift; sourceTree = "<group>"; };
+		B10220 /* SkeletonModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonModifier.swift; sourceTree = "<group>"; };
+		B10221 /* ToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastCenter.swift; sourceTree = "<group>"; };
+		B10222 /* StringHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlighting.swift; sourceTree = "<group>"; };
+		B10223 /* TranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentation.swift; sourceTree = "<group>"; };
+		B10224 /* TranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentationTests.swift; sourceTree = "<group>"; };
+		B10225 /* StringHighlightingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlightingTests.swift; sourceTree = "<group>"; };
+		B10226 /* MeetingSoftDeleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSoftDeleteTests.swift; sourceTree = "<group>"; };
 		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
@@ -504,6 +518,7 @@
 				B10040 /* ObsidianTodoMarkdown.swift */,
 				B10042 /* ObsidianTodoSyncService.swift */,
 				B10027 /* SummaryResponseParser.swift */,
+				B10223 /* TranscriptPresentation.swift */,
 				B10100 /* MeetingTimeBucket.swift */,
 				B10102 /* MeetingSearchIndex.swift */,
 				B10047 /* RecordingResumeSessionStore.swift */,
@@ -579,6 +594,7 @@
 				B10032 /* MarkdownConverter.swift */,
 				B10600 /* Logging.swift */,
 				6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */,
+				B10222 /* StringHighlighting.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -612,6 +628,8 @@
 				B10207 /* BlockingProgressOverlay.swift */,
 				B10209 /* ExportAlertPresenter.swift */,
 				B10217 /* ProcessingStatusCard.swift */,
+				B10220 /* SkeletonModifier.swift */,
+				B10221 /* ToastCenter.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -681,6 +699,9 @@
 				CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */,
 				B10210 /* MeetingDetailPresentationTests.swift */,
 				B10218 /* MeetingPipelineStateTests.swift */,
+				B10224 /* TranscriptPresentationTests.swift */,
+				B10225 /* StringHighlightingTests.swift */,
+				B10226 /* MeetingSoftDeleteTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -835,6 +856,10 @@
 				A10212 /* MeetingSummaryTab.swift in Sources */,
 				A10213 /* MeetingTranscriptTab.swift in Sources */,
 				A10214 /* MeetingNotesTab.swift in Sources */,
+				A10220 /* SkeletonModifier.swift in Sources */,
+				A10221 /* ToastCenter.swift in Sources */,
+				A10222 /* StringHighlighting.swift in Sources */,
+				A10223 /* TranscriptPresentation.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
 				A10610 /* RecordingTypes.swift in Sources */,
 				A10611 /* AudioRecordingService.swift in Sources */,
@@ -968,6 +993,9 @@
 				CA1EAD0000000000000000C1 /* CalendarServiceTests.swift in Sources */,
 				A10210 /* MeetingDetailPresentationTests.swift in Sources */,
 				A10218 /* MeetingPipelineStateTests.swift in Sources */,
+				A10224 /* TranscriptPresentationTests.swift in Sources */,
+				A10225 /* StringHighlightingTests.swift in Sources */,
+				A10226 /* MeetingSoftDeleteTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
