@@ -60,14 +60,26 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
     func start() async throws {
         try await Self.ensureMicrophonePermission()
-        try Self.ensureScreenCapturePermission()
+        // System audio (via ScreenCaptureKit) needs Screen Recording permission.
+        // It is optional: when system audio is disabled we record microphone-only
+        // and must NOT block on a missing/denied screen-recording grant.
+        if initialSystemAudioEnabled {
+            try Self.ensureScreenCapturePermission()
+        }
         try configure()
         // `configure()` has already started the microphone engine, so the
         // engine-is-live invariant the original gated on (`didStartEngine`) now
         // holds. Open the system-audio gate before starting the stream so no
         // samples are dropped once it begins delivering.
-        systemAudioUnit?.beginAcceptingInput()
-        try await systemAudioUnit?.start()
+        //
+        // When system audio is disabled we skip the ScreenCaptureKit stream
+        // entirely: it requires Screen Recording permission, and starting it
+        // would fail for a microphone-only recording. The mix-down later sees
+        // zero system-audio frames and renders microphone-only.
+        if initialSystemAudioEnabled {
+            systemAudioUnit?.beginAcceptingInput()
+            try await systemAudioUnit?.start()
+        }
     }
 
     func stop() async throws -> RecordingResult {

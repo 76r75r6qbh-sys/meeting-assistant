@@ -240,6 +240,13 @@ struct OnboardingView: View {
 
     // MARK: Step 3 — Permissions
 
+    private var captureStatus: OnboardingCaptureStatus {
+        OnboardingCaptureStatus(
+            microphoneGranted: appModel.permissionsManager.microphoneAuthorized,
+            screenCaptureGranted: appModel.permissionsManager.screenCaptureAuthorized
+        )
+    }
+
     private var permissionsStep: some View {
         VStack(alignment: .leading, spacing: CasaSpace.lg) {
             stepHeader(
@@ -252,24 +259,29 @@ struct OnboardingView: View {
                 permissionRow(
                     symbol: "mic.fill",
                     title: "Microphone",
+                    subtitle: "Captures your own voice — required to record.",
                     granted: appModel.permissionsManager.microphoneAuthorized,
                     action: { Task { await grantMicrophone() } }
                 )
                 permissionRow(
                     symbol: "display",
-                    title: "System audio",
+                    title: "Screen Recording (system audio)",
+                    subtitle: "Captures the other participants' audio. Optional — skip for mic-only.",
                     granted: appModel.permissionsManager.screenCaptureAuthorized,
                     action: { grantScreenCapture() }
                 )
                 permissionRow(
                     symbol: "calendar",
                     title: "Calendar",
+                    subtitle: "Shows upcoming meetings. Optional.",
                     granted: appModel.permissionsManager.calendarAuthorized,
                     action: { Task { await grantCalendar() } }
                 )
             }
 
-            Text("System audio uses macOS screen recording. After granting it you may need to restart Casablanca.")
+            captureStatusBanner
+
+            Text("Screen Recording uses macOS's permission of the same name. After granting it you may need to restart Casablanca.")
                 .font(.caption)
                 .foregroundStyle(Color.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -279,7 +291,29 @@ struct OnboardingView: View {
         }
     }
 
-    private func permissionRow(symbol: String, title: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    @ViewBuilder
+    private var captureStatusBanner: some View {
+        let status = captureStatus
+        HStack(alignment: .top, spacing: CasaSpace.sm) {
+            Image(systemName: status.symbol)
+                .foregroundStyle(status.tint)
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(status.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                Text(status.detail)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(CasaSpace.md)
+        .background(status.tint.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
+    }
+
+    private func permissionRow(symbol: String, title: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         HStack(spacing: CasaSpace.md) {
             Image(systemName: symbol)
                 .font(.body)
@@ -288,9 +322,15 @@ struct OnboardingView: View {
                 .background(Color.backgroundTertiary)
                 .clipShape(RoundedRectangle(cornerRadius: CasaRadius.lg))
 
-            Text(title)
-                .font(.callout)
-                .foregroundStyle(Color.textPrimary)
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(Color.textPrimary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer()
 

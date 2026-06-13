@@ -37,6 +37,46 @@ final class PermissionsBehaviorTests: XCTestCase {
     }
 }
 
+final class OnboardingCaptureStatusTests: XCTestCase {
+    func testWithoutMicrophoneCannotRecordAndWarns() {
+        let status = OnboardingCaptureStatus(microphoneGranted: false, screenCaptureGranted: false)
+
+        XCTAssertFalse(status.canRecord)
+        XCTAssertFalse(status.isMicrophoneOnly)
+        XCTAssertFalse(status.capturesAllParticipants)
+        XCTAssertEqual(status.symbol, "exclamationmark.triangle.fill")
+        XCTAssertEqual(status.title, "Microphone needed to record")
+    }
+
+    func testMicrophoneOnlyCanRecordButFlagsMissingOtherSide() {
+        let status = OnboardingCaptureStatus(microphoneGranted: true, screenCaptureGranted: false)
+
+        XCTAssertTrue(status.canRecord)
+        XCTAssertTrue(status.isMicrophoneOnly)
+        XCTAssertFalse(status.capturesAllParticipants)
+        XCTAssertEqual(status.title, "Microphone-only recording")
+        XCTAssertTrue(status.detail.contains("only your own microphone"))
+    }
+
+    func testMicrophoneAndScreenCaptureRecordsAllParticipants() {
+        let status = OnboardingCaptureStatus(microphoneGranted: true, screenCaptureGranted: true)
+
+        XCTAssertTrue(status.canRecord)
+        XCTAssertFalse(status.isMicrophoneOnly)
+        XCTAssertTrue(status.capturesAllParticipants)
+        XCTAssertEqual(status.symbol, "checkmark.circle.fill")
+        XCTAssertEqual(status.title, "Full capture ready")
+    }
+
+    func testScreenCaptureWithoutMicrophoneStillCannotRecord() {
+        // Screen Recording alone is not sufficient — microphone is the hard gate.
+        let status = OnboardingCaptureStatus(microphoneGranted: false, screenCaptureGranted: true)
+
+        XCTAssertFalse(status.canRecord)
+        XCTAssertFalse(status.capturesAllParticipants)
+    }
+}
+
 final class TemporaryRecordingPCMStorageTests: XCTestCase {
     func testRawPCMStorageRoundTripsFloatSamples() {
         let format = AVAudioFormat(
