@@ -19,6 +19,13 @@ struct PrepEditorView: View {
     @AppStorage(AppPreferenceKey.notesReadingWidth) private var readingWidthRaw = NotesReadingWidth.comfortable.rawValue
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
 
+    @Environment(\.modelContext) private var modelContext
+    /// The previous occurrence of this recurring series, if any (resolved on
+    /// appear). Drives the carry-over card.
+    @State private var previousMeeting: Meeting?
+    /// Set after the user carries over open items so the button reads as done and
+    /// can't double-append.
+    @State private var didCarryOver = false
     @State private var prepText = ""
     /// Handle to the active native editor's selection-aware formatting. Set by
     /// `NativeMarkdownEditor` when that editor is on screen; nil otherwise.
@@ -245,6 +252,10 @@ struct PrepEditorView: View {
 
     private var inspector: some View {
         VStack(alignment: .leading, spacing: CasaSpace.md) {
+            if let previousMeeting {
+                carryOverCard(previous: previousMeeting)
+            }
+
             if !meeting.participants.isEmpty {
                 inspectorLabel("Participants")
                 ParticipantAvatars(names: meeting.participants)
@@ -287,6 +298,81 @@ struct PrepEditorView: View {
             .foregroundStyle(Color.textTertiary)
     }
 
+    // MARK: - Carry-over card (previous occurrence)
+
+    @ViewBuilder
+    private func carryOverCard(previous: Meeting) -> some View {
+        let openCount = MeetingSeriesResolver.openTodos(of: previous).count
+        VStack(alignment: .leading, spacing: CasaSpace.xs) {
+            HStack(spacing: CasaSpace.xs) {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .symbolRenderingMode(.hierarchical)
+                Text("Previous meeting")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.textPrimary)
+            }
+
+            Text(previousOccurrenceDateLabel(previous))
+                .font(.caption2)
+                .foregroundStyle(Color.textSecondary)
+
+            if let excerpt = summaryExcerpt(previous) {
+                Text(excerpt)
+                    .font(.caption2)
+                    .foregroundStyle(Color.textTertiary)
+                    .lineLimit(3)
+            }
+
+            if openCount > 0 {
+                Text(openCount == 1 ? "1 open action item" : "\(openCount) open action items")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.top, CasaSpace.xxs)
+
+                Button {
+                    carryOverOpenItems(from: previous)
+                } label: {
+                    Label(didCarryOver ? "Carried over" : "Carry over open items",
+                          systemImage: didCarryOver ? "checkmark" : "text.append")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(didCarryOver)
+                .help("Append the open action items to your prep notes")
+            } else {
+                Text("No open action items")
+                    .font(.caption2)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(CasaSpace.sm)
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: CasaRadius.md))
+    }
+
+    private func previousOccurrenceDateLabel(_ previous: Meeting) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE d MMM"
+        return formatter.string(from: previous.date)
+    }
+
+    private func summaryExcerpt(_ previous: Meeting) -> String? {
+        guard let summary = previous.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !summary.isEmpty else { return nil }
+        let collapsed = summary.replacingOccurrences(of: "\n", with: " ")
+        if collapsed.count > 140 {
+            return String(collapsed.prefix(140)) + "…"
+        }
+        return collapsed
+    }
+
+    private func carryOverOpenItems(from previous: Meeting) {
+        guard let updated = MeetingSeriesResolver.appendingCarryOver(to: prepText, from: previous) else { return }
+        prepText = updated
+        didCarryOver = true
+    }
+
     // MARK: - Derived strings
 
     private var eyebrow: String {
@@ -326,6 +412,7 @@ struct PrepEditorView: View {
         let existing = MeetingPrepService.loadPrepMarkdown(for: meeting)
             ?? (meeting.localPrepNotes.isEmpty ? nil : meeting.localPrepNotes)
         prepText = existing ?? ""
+        previousMeeting = MeetingSeriesResolver.previousOccurrence(of: meeting, in: modelContext)
     }
 
     private func save() {

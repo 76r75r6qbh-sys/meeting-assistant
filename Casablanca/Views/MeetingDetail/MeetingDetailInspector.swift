@@ -4,11 +4,16 @@ import SwiftData
 struct MeetingDetailInspector: View {
     let meeting: Meeting
     let canExport: Bool
+    /// Navigate to another meeting (used by the recurring-series prev/next links).
+    /// When nil the series links are hidden.
+    var onSelectMeeting: ((Meeting) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
     @State private var tagDraft: String = ""
     /// All distinct tags across the store, gathered in memory for autocomplete.
     @State private var allKnownTags: [String] = []
+    @State private var previousOccurrence: Meeting?
+    @State private var nextOccurrence: Meeting?
 
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
@@ -18,6 +23,10 @@ struct MeetingDetailInspector: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CasaSpace.xl) {
+                if onSelectMeeting != nil && (previousOccurrence != nil || nextOccurrence != nil) {
+                    seriesInspectorSection
+                }
+
                 recordingInspectorSection
 
                 tagsInspectorSection
@@ -32,7 +41,67 @@ struct MeetingDetailInspector: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.backgroundSecondary)
-        .onAppear(perform: refreshKnownTags)
+        .onAppear {
+            refreshKnownTags()
+            refreshSeriesLinks()
+        }
+        .onChange(of: meeting.id) { _, _ in
+            refreshSeriesLinks()
+        }
+    }
+
+    // MARK: - Recurring series links
+
+    @ViewBuilder
+    private var seriesInspectorSection: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            inspectorLabel("Series")
+
+            if let previousOccurrence {
+                seriesLink(label: "Previous", meeting: previousOccurrence, systemImage: "chevron.backward")
+            }
+            if let nextOccurrence {
+                seriesLink(label: "Next", meeting: nextOccurrence, systemImage: "chevron.forward")
+            }
+        }
+    }
+
+    private func seriesLink(label: String, meeting: Meeting, systemImage: String) -> some View {
+        Button {
+            onSelectMeeting?(meeting)
+        } label: {
+            HStack(spacing: CasaSpace.sm) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.textTertiary)
+                    Text(seriesDateLabel(meeting.date))
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(CasaSpace.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: CasaRadius.md))
+        }
+        .buttonStyle(.plain)
+        .help("Go to the \(label.lowercased()) meeting in this series")
+    }
+
+    private func seriesDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE d MMM"
+        return formatter.string(from: date)
+    }
+
+    private func refreshSeriesLinks() {
+        guard onSelectMeeting != nil else { return }
+        previousOccurrence = MeetingSeriesResolver.previousOccurrence(of: meeting, in: modelContext)
+        nextOccurrence = MeetingSeriesResolver.nextOccurrence(of: meeting, in: modelContext)
     }
 
     // MARK: - Tags

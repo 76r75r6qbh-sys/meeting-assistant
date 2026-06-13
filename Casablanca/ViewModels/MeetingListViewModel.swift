@@ -155,13 +155,38 @@ final class MeetingListViewModel {
     }
 
     func findOrCreateMeeting(for event: EKEvent) -> Meeting? {
+        findOrCreateMeeting(
+            calendarEventID: event.eventIdentifier,
+            occurrenceStart: event.startDate ?? Date(),
+            title: event.title ?? "Untitled Meeting",
+            endDate: event.endDate,
+            participants: event.attendees?.compactMap { $0.name } ?? []
+        )
+    }
+
+    /// EKEvent-free core of ``findOrCreateMeeting(for:)`` so the
+    /// occurrence-disambiguation logic is unit-testable (EKEvent's
+    /// `eventIdentifier` is read-only and not KVC-settable in tests).
+    ///
+    /// EventKit's `eventIdentifier` is SHARED across every occurrence of a
+    /// recurring event, so `calendarEventID` alone matches the whole series —
+    /// matching on it alone would hand back occurrence 1's row when the user
+    /// opens occurrence 2, colliding their notes/transcript. We therefore
+    /// disambiguate by the occurrence's start date (`Meeting.date`, which stores
+    /// the occurrence's `event.startDate`).
+    func findOrCreateMeeting(
+        calendarEventID: String?,
+        occurrenceStart: Date,
+        title: String,
+        endDate: Date?,
+        participants: [String]
+    ) -> Meeting? {
         guard let modelContext else { return nil }
 
-        // Look for existing meeting linked to this calendar event
-        let eventID = event.eventIdentifier ?? ""
+        let eventID = calendarEventID ?? ""
         let descriptor = FetchDescriptor<Meeting>(
             predicate: #Predicate { meeting in
-                meeting.calendarEventID == eventID
+                meeting.calendarEventID == eventID && meeting.date == occurrenceStart
             }
         )
 
@@ -176,11 +201,11 @@ final class MeetingListViewModel {
 
         // Create new meeting from calendar event
         let meeting = Meeting(
-            title: event.title ?? "Untitled Meeting",
-            date: event.startDate,
-            endDate: event.endDate,
-            calendarEventID: event.eventIdentifier,
-            participants: event.attendees?.compactMap { $0.name } ?? []
+            title: title,
+            date: occurrenceStart,
+            endDate: endDate,
+            calendarEventID: calendarEventID,
+            participants: participants
         )
 
         modelContext.insert(meeting)

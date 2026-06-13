@@ -5,6 +5,9 @@ struct RecordedMeetingView: View {
     @Bindable var meeting: Meeting
     let onRecordAgain: () -> Void
     let onTranscribe: () -> Void
+    /// Navigate to another meeting (used by the recurring-series prev/next links
+    /// in the inspector). Optional so previews/tests can omit it.
+    var onSelectMeeting: ((Meeting) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
@@ -47,7 +50,7 @@ struct RecordedMeetingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Native trailing inspector (AppKit-driven resize, HIG-compliant).
         .inspector(isPresented: $showInspector) {
-            MeetingDetailInspector(meeting: meeting, canExport: canExport)
+            MeetingDetailInspector(meeting: meeting, canExport: canExport, onSelectMeeting: onSelectMeeting)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
         }
         .navigationTitle(meeting.title)

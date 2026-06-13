@@ -180,6 +180,9 @@ struct ContentView: View {
                         onTranscribe: {
                             meeting.status = .processing
                             try? modelContext.save()
+                        },
+                        onSelectMeeting: { target in
+                            viewModel.selectedMeeting = target
                         }
                     )
                 }
