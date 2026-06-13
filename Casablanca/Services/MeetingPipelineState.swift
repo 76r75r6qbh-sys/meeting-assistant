@@ -63,9 +63,21 @@ enum PipelineChipState: Equatable {
 struct MeetingPipelinePresentation {
     let stage: PipelineStage
 
+    /// A non-fatal notice from a stage that otherwise SUCCEEDED (e.g. the summary
+    /// was generated but creating its to-dos failed). Surfaced as a muted, NON-
+    /// destructive notice in the card — never a red failed chip and never a Retry.
+    /// Populated only when there is no real `errorMessage` (a real error takes
+    /// precedence and drives `.failed`).
+    let warning: String?
+
     /// Inputs captured for chip-state derivation and status text.
     let autoSummarize: Bool
     let autoExport: Bool
+
+    /// Whether the shared summarization service is LIVE for this meeting. A live
+    /// summary is genuinely-running even if `summarizationStartedAt` is briefly
+    /// nil, so this guards `isSummarizePending` against false positives.
+    private let isSummarizingThisMeeting: Bool
 
     /// `retrying` attempt info, surfaced from the summarization phase, so the UI
     /// can show "Retrying (2/3)…" without re-reading the service.
@@ -80,6 +92,7 @@ struct MeetingPipelinePresentation {
         summarizationPhase: SummarizationService.SummarizationPhase,
         summarizationStartedAt: Date?,
         summarizationError: String?,
+        summarizationWarning: String? = nil,
         // Export
         autoExportFailure: AutoExportFailure?,
         // Meeting state
@@ -92,12 +105,17 @@ struct MeetingPipelinePresentation {
     ) {
         self.autoSummarize = autoSummarize
         self.autoExport = autoExport
+        self.isSummarizingThisMeeting = isSummarizingThisMeeting
 
         if case .retrying(let attempt, let maxAttempts) = summarizationPhase, isSummarizingThisMeeting {
             self.retryAttempt = (attempt, maxAttempts)
         } else {
             self.retryAttempt = nil
         }
+
+        // A real error wins and becomes a `.failed` stage; a warning is only a
+        // success-with-caveat, so it never affects the stage — it rides alongside.
+        self.warning = (summarizationError == nil) ? summarizationWarning : nil
 
         self.stage = Self.deriveStage(
             isThisMeetingTranscribing: isThisMeetingTranscribing,
@@ -190,6 +208,19 @@ struct MeetingPipelinePresentation {
         return false
     }
 
+    /// True when summarization is ARMED but has not actually begun: the
+    /// auto-summarize-pending pseudo-stage (`.summarizing(startedAt: nil)`),
+    /// derived without any live summarization running. The card renders this as a
+    /// quiet "waiting" state (no spinner) so it doesn't masquerade as active work.
+    /// A genuinely running summary has `startedAt != nil`, so it is NOT pending.
+    var isSummarizePending: Bool {
+        if case .summarizing(let startedAt) = stage {
+            // Genuinely-running iff live OR a start time is set; otherwise pending.
+            return startedAt == nil && !isSummarizingThisMeeting
+        }
+        return false
+    }
+
     /// Index of the stage currently in flight (or failed), for chip rendering.
     private var activeKind: PipelineStageKind? {
         switch stage {
@@ -219,6 +250,9 @@ struct MeetingPipelinePresentation {
 
         // The active chip.
         if case .failed = stage { return .failed }
+        // Auto-summarize armed but not yet started reads as pending, not active —
+        // it isn't running, so it must not show the active (spinner) styling.
+        if isSummarizePending { return .pending }
         return .active
     }
 
@@ -230,6 +264,9 @@ struct MeetingPipelinePresentation {
         case .transcribing:
             return "Transcribing…"
         case .summarizing:
+            if isSummarizePending {
+                return "Waiting to summarize…"
+            }
             if let retry = retryAttempt {
                 return "Retrying (\(retry.attempt)/\(retry.maxAttempts))…"
             }

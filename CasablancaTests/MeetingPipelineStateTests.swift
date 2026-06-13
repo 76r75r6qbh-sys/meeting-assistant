@@ -11,6 +11,7 @@ final class MeetingPipelineStateTests: XCTestCase {
         summarizationPhase: SummarizationService.SummarizationPhase = .idle,
         summarizationStartedAt: Date? = nil,
         summarizationError: String? = nil,
+        summarizationWarning: String? = nil,
         autoExportFailure: AutoExportFailure? = nil,
         meetingStatus: MeetingStatus = .completed,
         hasTranscript: Bool = true,
@@ -25,6 +26,7 @@ final class MeetingPipelineStateTests: XCTestCase {
             summarizationPhase: summarizationPhase,
             summarizationStartedAt: summarizationStartedAt,
             summarizationError: summarizationError,
+            summarizationWarning: summarizationWarning,
             autoExportFailure: autoExportFailure,
             meetingStatus: meetingStatus,
             hasTranscript: hasTranscript,
@@ -109,6 +111,64 @@ final class MeetingPipelineStateTests: XCTestCase {
     func testAutoSummarizePendingShowsSummarizingNext() {
         let p = make(meetingStatus: .completed, hasTranscript: true, hasSummary: false, autoSummarize: true)
         XCTAssertEqual(p.stage, .summarizing(startedAt: nil))
+    }
+
+    // MARK: - Warning vs error (Fix 1)
+
+    func testWarningWithoutErrorIsNotAFailure() {
+        // A SUCCESSFUL summary with a to-do hiccup: warning set, no error.
+        let p = make(
+            summarizationWarning: "Summary generated, but creating its to-dos failed.",
+            hasSummary: true
+        )
+        // Stage stays a non-error terminal stage (.done) — NOT .failed.
+        XCTAssertEqual(p.stage, .done)
+        XCTAssertFalse(p.hasError)
+        // And the warning is surfaced as a non-error notice.
+        XCTAssertEqual(p.warning, "Summary generated, but creating its to-dos failed.")
+    }
+
+    func testErrorStillYieldsFailedAndSuppressesWarning() {
+        // A real error takes precedence: .failed stage, and no warning rides along.
+        let p = make(
+            summarizationError: "model unreachable",
+            summarizationWarning: "some caveat",
+            hasSummary: false
+        )
+        XCTAssertEqual(p.stage, .failed(stage: .summarization, message: "model unreachable"))
+        XCTAssertTrue(p.hasError)
+        XCTAssertNil(p.warning)
+    }
+
+    func testNoWarningWhenNoneSet() {
+        let p = make(hasSummary: true)
+        XCTAssertNil(p.warning)
+    }
+
+    // MARK: - Pending vs active summarize (Fix 2)
+
+    func testSummarizePendingIsNotActiveWork() {
+        // Auto-summarize armed but nothing started: pending, not running.
+        let p = make(meetingStatus: .completed, hasTranscript: true, hasSummary: false, autoSummarize: true)
+        XCTAssertTrue(p.isSummarizePending)
+        XCTAssertEqual(p.statusText, "Waiting to summarize…")
+        // The summarize chip must read pending (no spinner), not active.
+        XCTAssertEqual(p.chipState(for: .summarize), .pending)
+        XCTAssertEqual(p.chipState(for: .transcribe), .done)
+    }
+
+    func testSummarizeActiveIsNotPending() {
+        // A genuinely running summary (live + startedAt) is active, not pending.
+        let started = Date()
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .sending,
+            summarizationStartedAt: started,
+            hasSummary: false
+        )
+        XCTAssertFalse(p.isSummarizePending)
+        XCTAssertEqual(p.statusText, "Generating summary…")
+        XCTAssertEqual(p.chipState(for: .summarize), .active)
     }
 
     func testDoneWhenNothingPending() {

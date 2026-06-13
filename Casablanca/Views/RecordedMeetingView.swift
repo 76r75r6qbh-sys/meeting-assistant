@@ -95,7 +95,8 @@ struct RecordedMeetingView: View {
                     summarizationStartedAt: summarizationService.summarizationStartedAt,
                     onCancel: cancelActiveStage,
                     onRetry: retryFailedStage,
-                    onDismissError: dismissPipelineError
+                    onDismissError: dismissPipelineError,
+                    onDismissWarning: { summarizationService.clearWarning() }
                 )
             }
 
@@ -176,7 +177,8 @@ struct RecordedMeetingView: View {
             isSummarizingThisMeeting: isSummarizingThisMeeting,
             summarizationPhase: summarizationService.phase,
             summarizationStartedAt: summarizationService.summarizationStartedAt,
-            summarizationError: summarizationService.errorMessage ?? summarizationService.warningMessage,
+            summarizationError: summarizationService.errorMessage,
+            summarizationWarning: summarizationService.warningMessage,
             autoExportFailure: exportStatusCenter.failure(for: meeting.id),
             meetingStatus: meeting.status,
             hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
@@ -285,10 +287,13 @@ struct RecordedMeetingView: View {
             && summarizationService.summarizingMeetingID == meeting.id
     }
 
-    /// Show the pipeline card whenever a stage is active or there's an error to
-    /// surface (incl. auto-export failures). `.done`/`.idle` hide it.
+    /// Show the pipeline card whenever a stage is active, there's an error to
+    /// surface (incl. auto-export failures), or there's a non-fatal warning to
+    /// show (a success-with-caveat). Otherwise `.done`/`.idle` hide it.
     private var shouldShowPipelineCard: Bool {
-        pipelinePresentation.isActive || pipelinePresentation.hasError
+        pipelinePresentation.isActive
+            || pipelinePresentation.hasError
+            || pipelinePresentation.warning != nil
     }
 
     private var canReapplyTerminology: Bool {

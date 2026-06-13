@@ -18,6 +18,7 @@ struct ProcessingStatusCard: View {
     var onCancel: () -> Void = {}
     var onRetry: () -> Void = {}
     var onDismissError: () -> Void = {}
+    var onDismissWarning: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -31,6 +32,10 @@ struct ProcessingStatusCard: View {
 
             if case .failed = presentation.stage {
                 errorRow
+            }
+
+            if let warning = presentation.warning, !presentation.hasError {
+                warningRow(warning)
             }
         }
         .cardStyle()
@@ -79,17 +84,31 @@ struct ProcessingStatusCard: View {
                     .tint(Color.stateProcessing)
             }
         case .summarizing:
-            HStack(spacing: CasaSpace.sm) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(presentation.statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.textSecondary)
-                if let startedAt = summarizationStartedAt {
-                    elapsedLabel(since: startedAt)
+            if presentation.isSummarizePending {
+                // Armed but not started: a quiet "waiting" row with no spinner, so
+                // it doesn't masquerade as active work (and can't look "stuck").
+                HStack(spacing: CasaSpace.sm) {
+                    Image(systemName: "clock")
+                        .foregroundStyle(Color.textTertiary)
+                        .imageScale(.small)
+                    Text(presentation.statusText)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textTertiary)
+                    Spacer()
                 }
-                Spacer()
-                cancelButton
+            } else {
+                HStack(spacing: CasaSpace.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(presentation.statusText)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textSecondary)
+                    if let startedAt = summarizationStartedAt {
+                        elapsedLabel(since: startedAt)
+                    }
+                    Spacer()
+                    cancelButton
+                }
             }
         case .exporting:
             HStack(spacing: CasaSpace.sm) {
@@ -148,6 +167,29 @@ struct ProcessingStatusCard: View {
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
             Button("Dismiss", action: onDismissError)
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+        }
+        .padding(.top, CasaSpace.xs)
+    }
+
+    // MARK: - Warning row
+
+    /// A NON-destructive notice for a success-with-caveat (e.g. summary generated
+    /// but its to-dos failed). Muted/secondary styling — no red, no Retry — with a
+    /// Dismiss. Distinct from the error row so a successful stage never reads as a
+    /// failure.
+    private func warningRow(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(Color.textTertiary)
+                .symbolRenderingMode(.hierarchical)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Dismiss", action: onDismissWarning)
                 .controlSize(.small)
                 .buttonStyle(.bordered)
         }
