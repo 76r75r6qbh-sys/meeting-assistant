@@ -67,12 +67,10 @@ enum RecordingCompressor {
         }
 
         let asset = AVURLAsset(url: wavURL)
-        let tracks: [AVAssetTrack]
-        if #available(macOS 15, *) {
-            tracks = try await asset.loadTracks(withMediaType: .audio)
-        } else {
-            tracks = asset.tracks(withMediaType: .audio)
-        }
+        // `loadTracks(withMediaType:)` is available from macOS 12; our deployment
+        // target is macOS 14, so the deprecated synchronous `tracks(_:)` fallback
+        // is unnecessary and we can use the async loader unconditionally.
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard let audioTrack = tracks.first else {
             throw CompressionError.noAudioTrack
         }
@@ -84,7 +82,7 @@ enum RecordingCompressor {
             throw CompressionError.cannotCreateReader(error.localizedDescription)
         }
 
-        // Decode to canonical Float32 PCM; the writer's AAC encoder consumes this.
+        // Decode to 16-bit signed-integer PCM; the writer's AAC encoder consumes this.
         let readerOutput = AVAssetReaderTrackOutput(
             track: audioTrack,
             outputSettings: [
@@ -130,20 +128,26 @@ enum RecordingCompressor {
         writer.startSession(atSourceTime: .zero)
 
         let queue = DispatchQueue(label: "nl.medicore.casablanca.recording.compress")
+        // The reader/writer/output are not Sendable, but all access happens
+        // exclusively inside the `requestMediaDataWhenReady` block, which runs
+        // serially on `queue`; the continuation is resumed exactly once. Boxing
+        // them in an `@unchecked Sendable` holder confines the capture and
+        // silences the closure's Sendable diagnostics without weakening safety.
+        let pipeline = CompressionPipeline(reader: reader, writerInput: writerInput, readerOutput: readerOutput)
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writerInput.requestMediaDataWhenReady(on: queue) {
-                while writerInput.isReadyForMoreMediaData {
-                    guard reader.status == .reading,
-                          let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
-                        writerInput.markAsFinished()
+                while pipeline.writerInput.isReadyForMoreMediaData {
+                    guard pipeline.reader.status == .reading,
+                          let sampleBuffer = pipeline.readerOutput.copyNextSampleBuffer() else {
+                        pipeline.writerInput.markAsFinished()
                         continuation.resume()
                         return
                     }
-                    if !writerInput.append(sampleBuffer) {
+                    if !pipeline.writerInput.append(sampleBuffer) {
                         // Append failure: stop pulling; finish handling below
                         // inspects writer/reader status and reports the error.
-                        reader.cancelReading()
-                        writerInput.markAsFinished()
+                        pipeline.reader.cancelReading()
+                        pipeline.writerInput.markAsFinished()
                         continuation.resume()
                         return
                     }
@@ -168,5 +172,22 @@ enum RecordingCompressor {
         }
 
         return outputURL
+    }
+}
+
+/// Holds the non-Sendable AVFoundation reader/writer objects so they can be
+/// captured in the `@Sendable` `requestMediaDataWhenReady` closure.
+/// `@unchecked Sendable`: every access is confined to the dedicated serial
+/// compression queue that drives that closure, so the objects are never touched
+/// concurrently.
+private final class CompressionPipeline: @unchecked Sendable {
+    let reader: AVAssetReader
+    let writerInput: AVAssetWriterInput
+    let readerOutput: AVAssetReaderTrackOutput
+
+    init(reader: AVAssetReader, writerInput: AVAssetWriterInput, readerOutput: AVAssetReaderTrackOutput) {
+        self.reader = reader
+        self.writerInput = writerInput
+        self.readerOutput = readerOutput
     }
 }
