@@ -28,8 +28,12 @@ struct SidebarView: View {
     @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
     @State private var selection: SidebarDestination? = .dashboard
-    @State private var meetingPendingDeletion: Meeting?
     @State private var deletionErrorMessage: String?
+    /// Per-meeting grace-period tasks for soft-deletion. Cancelled on Undo.
+    @State private var pendingDeletionTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// How long the user has to undo a deletion before it becomes permanent.
+    private let deletionGracePeriod: Duration = .seconds(6)
 
     private var openTodoCount: Int { openTodos.count }
 
@@ -66,7 +70,7 @@ struct SidebarView: View {
                                 viewModel.beginPrepare(for: meeting)
                             },
                             onDeleteRequest: {
-                                meetingPendingDeletion = meeting
+                                requestDelete(meeting)
                             }
                         )
                         .tag(SidebarDestination.meeting(meeting.id))
@@ -94,7 +98,7 @@ struct SidebarView: View {
                                 section: .recent,
                                 pipeline: pipelinePresentation(for: meeting),
                                 onDeleteRequest: {
-                                    meetingPendingDeletion = meeting
+                                    requestDelete(meeting)
                                 }
                             )
                                 .tag(SidebarDestination.meeting(meeting.id))
@@ -124,27 +128,6 @@ struct SidebarView: View {
         }
         .onAppear {
             meetingsProvider.searchText = viewModel.meetingSearchText
-        }
-        .confirmationDialog(
-            meetingPendingDeletion.map { "Delete \"\($0.title)\"?" } ?? "Delete Meeting?",
-            isPresented: Binding(
-                get: { meetingPendingDeletion != nil },
-                set: { newValue in
-                    if !newValue {
-                        meetingPendingDeletion = nil
-                    }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete Meeting", role: .destructive) {
-                confirmDeleteMeeting()
-            }
-            Button("Cancel", role: .cancel) {
-                meetingPendingDeletion = nil
-            }
-        } message: {
-            Text("This removes the meeting, notes, transcript, summary, to-dos, and saved recording from Casablanca.")
         }
         .alert("Unable to Delete Meeting", isPresented: deletionErrorBinding) {
             Button("OK", role: .cancel) {
@@ -219,17 +202,43 @@ struct SidebarView: View {
         )
     }
 
-    private func confirmDeleteMeeting() {
-        guard let meeting = meetingPendingDeletion else { return }
+    /// Soft-deletes a meeting: hides it immediately, shows an Undo toast, and
+    /// schedules the real (file + model) delete after the grace period. Undo
+    /// cancels the pending delete and un-hides the meeting.
+    private func requestDelete(_ meeting: Meeting) {
+        let id = meeting.id
 
-        meetingPendingDeletion = nil
+        // Cancel any in-flight grace task for this meeting (re-delete edge case).
+        pendingDeletionTasks[id]?.cancel()
 
-        do {
-            try viewModel.deleteMeeting(meeting)
-            selection = viewModel.sidebarSelection
-        } catch {
-            deletionErrorMessage = error.localizedDescription
+        viewModel.beginSoftDelete(id)
+        selection = viewModel.sidebarSelection
+
+        appModel.toastCenter.show(
+            message: "Meeting deleted",
+            actionLabel: "Undo",
+            action: {
+                pendingDeletionTasks[id]?.cancel()
+                pendingDeletionTasks[id] = nil
+                viewModel.undoSoftDelete(id)
+            },
+            duration: 6
+        )
+
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: deletionGracePeriod)
+            guard !Task.isCancelled else { return }
+            pendingDeletionTasks[id] = nil
+            do {
+                try viewModel.commitSoftDelete(meeting)
+                selection = viewModel.sidebarSelection
+            } catch {
+                // Hard delete failed — un-hide and surface the error.
+                viewModel.undoSoftDelete(id)
+                deletionErrorMessage = error.localizedDescription
+            }
         }
+        pendingDeletionTasks[id] = task
     }
 }
 

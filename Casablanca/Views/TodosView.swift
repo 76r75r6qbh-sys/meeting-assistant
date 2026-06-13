@@ -1,4 +1,5 @@
 // Casablanca/Views/TodosView.swift
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -6,8 +7,10 @@ struct TodosView: View {
     @Bindable var viewModel: MeetingListViewModel
     @Query(sort: \TodoItem.createdAt, order: .reverse) private var allTodos: [TodoItem]
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
     @State private var filter: TodoFilter = .open
     @State private var newTodoText = ""
+    @State private var isRefreshing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum TodoFilter: String, CaseIterable {
@@ -18,6 +21,18 @@ struct TodosView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if isRefreshing {
+                HStack(spacing: CasaSpace.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Syncing with Obsidian\u{2026}")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                    Spacer()
+                }
+                .padding(.horizontal, CasaSpace.lg)
+                .padding(.vertical, CasaSpace.xs)
+            }
             content
             Divider()
             composerBar
@@ -26,7 +41,16 @@ struct TodosView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("To-Dos")
         .task {
-            try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+            isRefreshing = true
+            // Yield so the "Syncing…" caption paints before the (synchronous)
+            // file-backed refresh blocks the MainActor.
+            await Task.yield()
+            defer { isRefreshing = false }
+            do {
+                try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+            } catch {
+                appModel.toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
+            }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -67,7 +91,7 @@ struct TodosView: View {
 
     private var todoList: some View {
         List(filteredTodos) { todo in
-            TodoRow(todo: todo, reduceMotion: reduceMotion) {
+            TodoRow(todo: todo, reduceMotion: reduceMotion, toastCenter: appModel.toastCenter) {
                 if let meetingID = TodoRowPresentation(todo: todo).meetingID {
                     viewModel.sidebarSelection = .meeting(meetingID)
                 }
@@ -128,6 +152,8 @@ struct TodosView: View {
             }
             .buttonStyle(.plain)
             .disabled(newTodoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Add to-do")
+            .accessibilityLabel("Add to-do")
         }
         .padding(.horizontal, CasaSpace.lg)
         .padding(.vertical, CasaSpace.md)
@@ -168,6 +194,7 @@ struct TodoRowPresentation {
 private struct TodoRow: View {
     @Bindable var todo: TodoItem
     var reduceMotion: Bool = false
+    let toastCenter: ToastCenter
     let onNavigateToMeeting: () -> Void
     @Environment(\.modelContext) private var modelContext
 
@@ -178,20 +205,17 @@ private struct TodoRow: View {
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
             Button {
-                withAnimation(reduceMotion ? nil : CasaAnimation.fast) {
-                    try? ObsidianTodoSyncService.setCompleted(
-                        !todo.isCompleted,
-                        for: todo,
-                        in: modelContext
-                    )
-                }
+                toggle()
             } label: {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(todo.isCompleted ? Color.accentSuccess : Color.textTertiary)
                     .font(.title3)
                     .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: todo.isCompleted)
             }
             .buttonStyle(.borderless)
+            .help(todo.isCompleted ? "Mark as not done" : "Mark as done")
+            .accessibilityLabel(todo.isCompleted ? "Completed: \(todo.text)" : "Not completed: \(todo.text)")
 
             VStack(alignment: .leading, spacing: CasaSpace.xxs) {
                 Text(todo.text)
@@ -218,6 +242,21 @@ private struct TodoRow: View {
         .onTapGesture {
             guard presentation.canNavigateToMeeting else { return }
             onNavigateToMeeting()
+        }
+    }
+
+    private func toggle() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        withAnimation(reduceMotion ? nil : CasaAnimation.fast) {
+            do {
+                try ObsidianTodoSyncService.setCompleted(
+                    !todo.isCompleted,
+                    for: todo,
+                    in: modelContext
+                )
+            } catch {
+                toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
+            }
         }
     }
 }

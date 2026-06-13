@@ -18,6 +18,14 @@ final class MeetingListViewModel {
 
     var sidebarSelection: SidebarDestination? = .dashboard
 
+    /// Meetings that have been soft-deleted (hidden from the sidebar) but not yet
+    /// hard-deleted. During the grace period the meeting is filtered out of the
+    /// visible lists; on timeout it is really deleted (file + model), on Undo it
+    /// is un-hidden. This indirection lets us offer an "Undo" toast for a
+    /// deletion that physically removes the recording file (so NSUndoManager
+    /// can't restore it).
+    private(set) var pendingDeletionIDs: Set<UUID> = []
+
     /// When non-nil, the preparation editor is presented for this meeting.
     var prepMeeting: Meeting?
 
@@ -242,6 +250,49 @@ final class MeetingListViewModel {
         save()
     }
 
+    // MARK: - Soft-delete (undoable) state machine
+
+    /// True when `id` is currently hidden pending a real deletion.
+    func isPendingDeletion(_ id: UUID) -> Bool {
+        pendingDeletionIDs.contains(id)
+    }
+
+    /// Marks a meeting as soft-deleted: it's immediately hidden from the sidebar
+    /// (via `visibleMeetings(from:)`) but NOT yet removed from disk/model. If it
+    /// was the selected meeting, navigation falls back to the dashboard so the
+    /// detail pane doesn't show a now-hidden meeting.
+    func beginSoftDelete(_ id: UUID) {
+        pendingDeletionIDs.insert(id)
+        if sidebarSelection == .meeting(id) {
+            sidebarSelection = .dashboard
+        }
+    }
+
+    /// Cancels a pending soft-delete (the user tapped Undo). The meeting becomes
+    /// visible again. Returns true if `id` was actually pending.
+    @discardableResult
+    func undoSoftDelete(_ id: UUID) -> Bool {
+        pendingDeletionIDs.remove(id) != nil
+    }
+
+    /// Commits a pending soft-delete by performing the real hard delete (file +
+    /// model). No-ops if the id is no longer pending (e.g. the user already
+    /// undid it). Returns true if a hard delete was performed.
+    @discardableResult
+    func commitSoftDelete(_ meeting: Meeting) throws -> Bool {
+        guard pendingDeletionIDs.contains(meeting.id) else { return false }
+        pendingDeletionIDs.remove(meeting.id)
+        try deleteMeeting(meeting)
+        return true
+    }
+
+    /// Filters out meetings that are pending soft-deletion, so the sidebar hides
+    /// them during the undo grace period.
+    func visibleMeetings(from meetings: [Meeting]) -> [Meeting] {
+        guard !pendingDeletionIDs.isEmpty else { return meetings }
+        return meetings.filter { !pendingDeletionIDs.contains($0.id) }
+    }
+
     func deleteMeeting(_ meeting: Meeting) throws {
         guard let modelContext else { return }
 
@@ -332,7 +383,9 @@ final class MeetingListViewModel {
 
     private func filteredMeetings(from meetings: [Meeting], in section: SidebarMeetingSection) -> [Meeting] {
         let query = meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filteredMeetings = meetings.filter { sidebarSection(for: $0) == section }
+        // Hide soft-deleted meetings during their undo grace period.
+        let visible = visibleMeetings(from: meetings)
+        let filteredMeetings = visible.filter { sidebarSection(for: $0) == section }
 
         guard !query.isEmpty else {
             return sortMeetings(filteredMeetings, in: section)

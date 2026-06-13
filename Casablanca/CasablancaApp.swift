@@ -9,6 +9,7 @@ struct CasablancaApp: App {
 
     @State private var appModel: AppModel
     @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
+    @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var storeFailure: StoreFailure?
     private let sharedModelContainer: ModelContainer
 
@@ -130,6 +131,12 @@ struct CasablancaApp: App {
                     Task { await appModel.updateService.checkNow(trigger: .manual) }
                 }
             }
+            CommandGroup(after: .sidebar) {
+                Button("Toggle Focus Mode") {
+                    recordingWorkspaceFocusMode.toggle()
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
         }
 
         MenuBarExtra("Casablanca", systemImage: "record.circle") {
@@ -155,6 +162,7 @@ final class AppModel {
     let summarizationService = SummarizationService()
     let terminologyService = TerminologyService()
     let exportStatusCenter = ExportStatusCenter()
+    let toastCenter = ToastCenter()
     let meetingListViewModel: MeetingListViewModel
     let actionQueueModel = ActionQueueModel()
     let updateService: UpdateService
