@@ -141,7 +141,7 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertNil(item.draftType)
     }
 
-    func testUnknownEnumValuesFallBack() throws {
+    func testUnknownEnumValuesPreserveRawString() throws {
         try write("""
         {
           "version": 1,
@@ -159,10 +159,133 @@ final class ActionQueueStoreTests: XCTestCase {
         let defaults = makeDefaults(path: queueURL.path)
         let doc = try ActionQueueStore.load(userDefaults: defaults)
         let item = doc.items[0]
-        XCTAssertEqual(item.kind, .task)
-        XCTAssertEqual(item.draftType, .other)
-        XCTAssertEqual(item.priority, .medium)
-        XCTAssertEqual(item.status, .pending)
+        // Unknown values are preserved (not coerced to a known fallback).
+        XCTAssertEqual(item.kind, .unknown("mystery"))
+        XCTAssertEqual(item.draftType, .unknown("carrier-pigeon"))
+        XCTAssertEqual(item.priority, .unknown("urgent"))
+        XCTAssertEqual(item.status, .unknown("in_limbo"))
+        XCTAssertEqual(item.kind.rawValue, "mystery")
+        XCTAssertEqual(item.status.rawValue, "in_limbo")
+        XCTAssertTrue(doc.hadLenientFallback)
+    }
+
+    // MARK: - Data-preserving round-trip (Phase 2d)
+
+    func testUnknownEnumStatusRoundTripsThroughSave() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-1", "status": "some_new_value", "body": "keep me" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        // A no-op-ish mutation triggers a full rewrite of the document.
+        try ActionQueueStore.updateBody("keep me", for: "AQ-1", userDefaults: defaults)
+
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["status"] as? String, "some_new_value")
+
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items[0].status, .unknown("some_new_value"))
+    }
+
+    func testMalformedItemIsExcludedButRetainedAndReEmitted() throws {
+        // Second item is structurally broken: `id` is an object, not a string.
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-good", "title": "Good item", "status": "pending" },
+            { "id": { "nested": "broken" }, "title": "Broken item", "weird": [1, 2, 3] }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+
+        // Good item visible to the UI; broken one excluded but retained.
+        XCTAssertEqual(doc.items.count, 1)
+        XCTAssertEqual(doc.items[0].id, "AQ-good")
+        XCTAssertEqual(doc.unparsedItemCount, 1)
+        XCTAssertTrue(doc.hadLenientFallback)
+
+        // Save and confirm the broken item's original JSON is still present.
+        try ActionQueueStore.approve(id: "AQ-good", userDefaults: defaults)
+        let obj = try rawJSON()
+        let items = obj["items"] as! [[String: Any]]
+        XCTAssertEqual(items.count, 2)
+        let broken = items.first { $0["title"] as? String == "Broken item" }
+        XCTAssertNotNil(broken)
+        XCTAssertNotNil(broken?["weird"])
+        XCTAssertTrue(broken?["id"] is [String: Any])
+    }
+
+    func testApprovingGoodItemPreservesCoexistingBrokenItem() throws {
+        // Core data-loss scenario: approving a good item must NOT delete the
+        // broken item the agent wrote.
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-good", "title": "Good", "kind": "draft", "status": "pending", "body": "hi" },
+            { "id": 12345, "title": "Numeric id is broken" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        try ActionQueueStore.approve(id: "AQ-good", editedBody: "edited", userDefaults: defaults)
+
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items.count, 1)
+        XCTAssertEqual(doc.items[0].status, .approved)
+        XCTAssertEqual(doc.items[0].body, "edited")
+        XCTAssertEqual(doc.unparsedItemCount, 1)
+
+        let obj = try rawJSON()
+        let items = obj["items"] as! [[String: Any]]
+        XCTAssertEqual(items.count, 2)
+        let broken = items.first { $0["title"] as? String == "Numeric id is broken" }
+        XCTAssertNotNil(broken)
+        XCTAssertEqual((broken?["id"] as? NSNumber)?.intValue, 12345)
+    }
+
+    func testUnknownItemKeysArePreservedOnRewrite() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-1", "title": "Item", "status": "pending", "futureField": "keep me", "nested": { "a": 1 } }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
+
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["futureField"] as? String, "keep me")
+        XCTAssertEqual((raw["nested"] as? [String: Any])?["a"] as? Int, 1)
+        XCTAssertEqual(raw["status"] as? String, "approved")
+    }
+
+    func testUnknownTopLevelKeysArePreservedOnRewrite() throws {
+        try write("""
+        {
+          "version": 1,
+          "metadata": { "agent": "claude", "run": 42 },
+          "items": [
+            { "id": "AQ-1", "title": "Item", "status": "pending" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
+
+        let obj = try rawJSON()
+        let metadata = obj["metadata"] as? [String: Any]
+        XCTAssertEqual(metadata?["agent"] as? String, "claude")
+        XCTAssertEqual((metadata?["run"] as? NSNumber)?.intValue, 42)
     }
 
     // MARK: - Absent file

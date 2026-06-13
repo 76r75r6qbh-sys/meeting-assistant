@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Observable owner of the action queue for the UI. Reads the configured path
 /// from `UserDefaults.standard`, loads via `ActionQueueStore`, and watches the
@@ -9,6 +10,10 @@ import Foundation
 final class ActionQueueModel {
     private(set) var items: [ActionQueueItem] = []
     var loadError: String?
+    /// Non-fatal notice surfaced when the agent's file contained items that
+    /// couldn't be read (and were preserved verbatim) or unknown enum values.
+    /// The queue still loads and works; this just informs the user.
+    private(set) var loadWarning: String?
 
     @ObservationIgnored private var watchSource: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedFD: CInt = -1
@@ -33,9 +38,26 @@ final class ActionQueueModel {
             let doc = try ActionQueueStore.load(userDefaults: .standard)
             items = Self.sorted(doc.items)
             loadError = nil
+            loadWarning = Self.warning(for: doc)
         } catch {
             loadError = error.localizedDescription
         }
+    }
+
+    /// Build a non-fatal warning for items that couldn't be parsed or carried
+    /// unknown enum values, and log it. Returns `nil` when the load was clean.
+    private static func warning(for doc: ActionQueueDocument) -> String? {
+        guard doc.hadLenientFallback else { return nil }
+        let unparsed = doc.unparsedItemCount
+        let message: String
+        if unparsed > 0 {
+            let noun = unparsed == 1 ? "item" : "items"
+            message = "\(unparsed) \(noun) couldn't be read and were preserved."
+        } else {
+            message = "Some items had unrecognized values; they were preserved."
+        }
+        Log.actionQueue.warning("Lenient action-queue load: \(message, privacy: .public)")
+        return message
     }
 
     /// Pending first, then by priority (high → low), then by createdAt ascending.
