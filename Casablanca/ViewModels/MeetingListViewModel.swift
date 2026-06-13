@@ -3,6 +3,7 @@ import OSLog
 import SwiftData
 import SwiftUI
 
+@MainActor
 @Observable
 final class MeetingListViewModel {
     private let calendarService: CalendarService

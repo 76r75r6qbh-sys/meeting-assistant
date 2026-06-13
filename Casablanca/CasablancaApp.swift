@@ -177,6 +177,7 @@ final class AppModel {
         await permissionsManager.checkAll()
         if calendarService.authorizationStatus == .fullAccess {
             await calendarService.fetchUpcomingEvents()
+            calendarService.startMonitoringIfAuthorized()
         }
         await applicationsLocationCheck.runOnceIfNeeded()
         updateService.startScheduling()

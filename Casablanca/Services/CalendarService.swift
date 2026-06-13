@@ -2,6 +2,7 @@ import EventKit
 import OSLog
 import SwiftUI
 
+@MainActor
 @Observable
 final class CalendarService {
     private let store = EKEventStore()
@@ -10,21 +11,34 @@ final class CalendarService {
     var events: [EKEvent] = []
     var isLoading = false
 
-    private var refreshTimer: Timer?
+    /// Coalesces the bursts of `.EKEventStoreChanged` notifications EventKit
+    /// fires for a single edit before we refresh. Cancellable, so a newer
+    /// notification supersedes a pending refresh.
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    /// Token for the `.EKEventStoreChanged` observer so we can remove it on teardown.
+    @ObservationIgnored private var storeChangeObserver: (any NSObjectProtocol)?
+    /// Long-interval safety net for notifications missed across system sleep.
+    @ObservationIgnored private var fallbackTimer: Timer?
 
-    init() {
+    /// How long to coalesce `.EKEventStoreChanged` events before refreshing.
+    /// EventKit emits these in quick bursts for a single edit.
+    @ObservationIgnored private let debounceInterval: Duration
+    /// Cheap insurance against missed change notifications (e.g. across sleep).
+    @ObservationIgnored private let fallbackInterval: TimeInterval
+
+    init(debounceInterval: Duration = .seconds(2), fallbackInterval: TimeInterval = 15 * 60) {
+        self.debounceInterval = debounceInterval
+        self.fallbackInterval = fallbackInterval
         authorizationStatus = EKEventStore.authorizationStatus(for: .event)
     }
 
     func requestAccess() async -> Bool {
         do {
             let granted = try await store.requestFullAccessToEvents()
-            await MainActor.run {
-                authorizationStatus = EKEventStore.authorizationStatus(for: .event)
-            }
+            authorizationStatus = EKEventStore.authorizationStatus(for: .event)
             if granted {
                 await fetchUpcomingEvents()
-                startAutoRefresh()
+                startObservingChanges()
             }
             return granted
         } catch {
@@ -36,22 +50,31 @@ final class CalendarService {
     func fetchUpcomingEvents() async {
         guard authorizationStatus == .fullAccess else { return }
 
-        await MainActor.run { isLoading = true }
+        isLoading = true
 
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: Date())
         // Fetch today + next 7 days
-        guard let endDate = calendar.date(byAdding: .day, value: 7, to: startOfToday) else { return }
+        guard let endDate = calendar.date(byAdding: .day, value: 7, to: startOfToday) else {
+            isLoading = false
+            return
+        }
 
         let predicate = store.predicateForEvents(withStart: startOfToday, end: endDate, calendars: nil)
         let fetchedEvents = store.events(matching: predicate)
             .filter { !$0.isAllDay }
             .sorted { $0.startDate < $1.startDate }
 
-        await MainActor.run {
-            events = fetchedEvents
-            isLoading = false
-        }
+        events = fetchedEvents
+        isLoading = false
+    }
+
+    /// Begin event-driven refresh when access was already granted on a previous
+    /// launch (the `requestAccess()` grant path is not taken on those launches).
+    /// No-op without full access. Idempotent.
+    func startMonitoringIfAuthorized() {
+        guard authorizationStatus == .fullAccess else { return }
+        startObservingChanges()
     }
 
     func eventsGroupedByDay() -> [(date: Date, events: [EKEvent])] {
@@ -64,17 +87,59 @@ final class CalendarService {
             .map { (date: $0.key, events: $0.value) }
     }
 
-    private func startAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task {
-                await self.fetchUpcomingEvents()
-            }
+    /// Start event-driven refresh: observe `.EKEventStoreChanged` (debounced) and
+    /// arm a long-interval fallback timer. Idempotent — a prior observer/timer is
+    /// torn down first so a second `requestAccess()` can't double-subscribe.
+    private func startObservingChanges() {
+        stopObservingChanges()
+
+        // EKEventStoreChanged can arrive on any thread; the observer hops onto the
+        // MainActor (this class is @MainActor) before touching state.
+        storeChangeObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: store,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.scheduleDebouncedRefresh() }
         }
+
+        let timer = Timer.scheduledTimer(withTimeInterval: fallbackInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.fetchUpcomingEvents() }
+        }
+        fallbackTimer = timer
+    }
+
+    private func stopObservingChanges() {
+        if let storeChangeObserver {
+            NotificationCenter.default.removeObserver(storeChangeObserver)
+            self.storeChangeObserver = nil
+        }
+        debounceTask?.cancel()
+        debounceTask = nil
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+    }
+
+    /// Debounce the burst of `.EKEventStoreChanged` events, then refresh. A newer
+    /// notification cancels a pending refresh so we fetch once per settled change.
+    /// Returns the scheduled task so a test can `await` it deterministically.
+    @discardableResult
+    func scheduleDebouncedRefresh() -> Task<Void, Never> {
+        debounceTask?.cancel()
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: self.debounceInterval)
+            guard !Task.isCancelled else { return }
+            await self.fetchUpcomingEvents()
+        }
+        debounceTask = task
+        return task
     }
 
     deinit {
-        refreshTimer?.invalidate()
+        if let storeChangeObserver {
+            NotificationCenter.default.removeObserver(storeChangeObserver)
+        }
+        debounceTask?.cancel()
+        fallbackTimer?.invalidate()
     }
 }
