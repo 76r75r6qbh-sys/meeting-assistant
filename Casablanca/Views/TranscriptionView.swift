@@ -175,6 +175,10 @@ struct TranscriptionView: View {
             meeting.status = .completed
             save()
 
+            // Transcription has finished reading the WAV. Now (and only now) is
+            // it safe to compress the recording to AAC/m4a and reclaim disk.
+            await compressRecordingIfEnabled(wavURL: fileURL)
+
             _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
             await ExportService.exportAutomaticallyIfEnabled(meeting)
 
@@ -187,6 +191,37 @@ struct TranscriptionView: View {
         } catch {
             self.error = .transcriptionFailed(error.localizedDescription)
             didStart = false
+        }
+    }
+
+    /// Re-encodes the finished WAV mixdown to AAC/m4a and repoints the meeting
+    /// at the smaller file, deleting the WAV on success. Skipped entirely when
+    /// the user has opted to keep the original WAV. On any failure the WAV is
+    /// preserved and the meeting keeps pointing at it — the recording is never
+    /// lost.
+    private func compressRecordingIfEnabled(wavURL: URL) async {
+        guard !AppPreferences.keepOriginalWAV() else { return }
+        // Only compress lossless WAV input; never re-compress an already-m4a file.
+        guard wavURL.pathExtension.lowercased() == "wav" else { return }
+
+        do {
+            let m4aURL = try await RecordingCompressor.compress(wavURL: wavURL)
+
+            // The meeting may have been deleted mid-compression; if so, leave the
+            // newly written m4a to be cleaned up with the meeting's other files.
+            guard meeting.modelContext != nil else { return }
+
+            meeting.recordingFileURL = m4aURL.path
+            save()
+
+            // WAV is no longer referenced — reclaim its disk space.
+            bestEffort("delete WAV after compression", Log.recording) {
+                try FileManager.default.removeItem(at: wavURL)
+            }
+            Log.recording.info("Compressed recording to AAC/m4a; deleted original WAV.")
+        } catch {
+            // Keep the WAV and leave the meeting pointing at it.
+            Log.recording.error("Recording compression failed; keeping WAV: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -31,6 +31,7 @@ enum AppPreferenceKey {
     static let notesTodosExpanded = "notesTodosExpanded"
     static let summaryThinkingEnabled = "summaryThinkingEnabled"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let keepOriginalWAV = "keepOriginalWAV"
 }
 
 enum AppPreferenceValue {

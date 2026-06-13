@@ -47,6 +47,13 @@ enum AppPreferences {
         defaults.bool(forKey: AppPreferenceKey.autoExportEnabled)
     }
 
+    /// When `true`, the finished recording's WAV mixdown is preserved as-is and
+    /// no AAC/m4a compression runs. Default `false`: after transcription
+    /// succeeds, the WAV is re-encoded to AAC/m4a and the original WAV deleted.
+    static func keepOriginalWAV(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.keepOriginalWAV)
+    }
+
     static func hasCompletedOnboarding(in defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding)
     }

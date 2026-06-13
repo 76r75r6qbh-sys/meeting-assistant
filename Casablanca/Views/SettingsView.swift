@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
     @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+    @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
     @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
@@ -365,6 +366,14 @@ struct SettingsView: View {
                 }
 
                 Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Storage") {
+                Toggle("Keep original WAV", isOn: $keepOriginalWAV)
+
+                Text("When off (default), finished recordings are compressed to AAC/m4a after transcription and the original WAV is deleted (~8x smaller, no audible loss for speech). Turn on to keep the uncompressed WAV instead.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
