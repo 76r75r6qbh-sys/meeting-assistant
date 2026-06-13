@@ -29,7 +29,6 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
     private let levelAggregator: AudioLevelAggregator
 
-    private var outputFormat: AVAudioFormat?
     private var microphoneWriter: PCMTrackWriter?
     private var systemAudioWriter: PCMTrackWriter?
     private var microphoneUnit: MicrophoneCaptureUnit?
@@ -72,6 +71,9 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     }
 
     func stop() async throws -> RecordingResult {
+        // Teardown ordering is intentional and load-bearing: stop capture
+        // (removes the tap, halts new enqueues) → drain in-flight buffers →
+        // close writers. Reordering risks dropping or losing queued audio.
         try await systemAudioUnit?.stop()
         systemAudioUnit = nil
 
@@ -128,7 +130,6 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         ) else {
             throw RecordingError.failedToCreateAudioFile
         }
-        self.outputFormat = outputFormat
 
         guard FileManager.default.createFile(atPath: microphoneTempURL.path, contents: nil),
               FileManager.default.createFile(atPath: systemAudioTempURL.path, contents: nil),

@@ -5,7 +5,7 @@ import Foundation
 /// value the UI meter consumes.
 ///
 /// Phase 1c extraction from `RecordingSession`: the level fields and the
-/// `publishCombinedLevelLocked`/`normalizedLevel` logic moved here verbatim.
+/// `publishCombinedLevel`/`normalizedLevel` logic moved here verbatim.
 /// All mutable state is confined to a single serial queue (the caller never
 /// touches the fields directly), so this type is `@unchecked Sendable`: the
 /// queue provides the synchronization, not the compiler.
@@ -31,7 +31,7 @@ final class AudioLevelAggregator: @unchecked Sendable {
             guard let self else { return }
             self.latestMicrophoneLevel = level
             self.lastMicrophoneLevelAt = Date().timeIntervalSinceReferenceDate
-            self.publishCombinedLevelLocked()
+            self.publishCombinedLevel()
         }
     }
 
@@ -41,7 +41,7 @@ final class AudioLevelAggregator: @unchecked Sendable {
             guard let self else { return }
             self.latestSystemLevel = level
             self.lastSystemLevelAt = Date().timeIntervalSinceReferenceDate
-            self.publishCombinedLevelLocked()
+            self.publishCombinedLevel()
         }
     }
 
@@ -52,11 +52,11 @@ final class AudioLevelAggregator: @unchecked Sendable {
             guard let self else { return }
             self.latestSystemLevel = 0
             self.lastSystemLevelAt = 0
-            self.publishCombinedLevelLocked()
+            self.publishCombinedLevel()
         }
     }
 
-    private func publishCombinedLevelLocked() {
+    private func publishCombinedLevel() {
         let now = Date().timeIntervalSinceReferenceDate
         let activeMicrophoneLevel = now - lastMicrophoneLevelAt < 0.25 ? latestMicrophoneLevel : 0
         let activeSystemLevel = now - lastSystemLevelAt < 0.25 ? latestSystemLevel : 0
