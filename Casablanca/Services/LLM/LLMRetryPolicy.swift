@@ -44,12 +44,14 @@ struct LLMRetryPolicy {
             do {
                 return try await operation()
             } catch let error as LLMProviderError where error.isTransient && attempt < maxAttempts {
-                // Backoff before the next attempt; bail immediately if cancelled.
-                let delay = backoffDelay(forAttempt: attempt)
-                try await sleep(delay)
-                try Task.checkCancellation()
+                // Surface the "retrying" status BEFORE the wait, so the UI shows it
+                // during the backoff rather than only after it finishes.
                 attempt += 1
                 onAttempt(attempt)
+                let delay = backoffDelay(forAttempt: attempt - 1)
+                try await sleep(delay)
+                // Cancellation during the wait throws here, so the operation is not retried.
+                try Task.checkCancellation()
             }
             // Non-transient errors, or the final attempt's failure, propagate out
             // of the do/catch (no matching catch) and are rethrown to the caller.

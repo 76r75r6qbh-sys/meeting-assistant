@@ -108,7 +108,7 @@ final class SummarizationService {
         case .retrying(let attempt, let maxAttempts):
             return "\(providerDisplayName) request failed, retrying (\(attempt)/\(maxAttempts))..."
         case .parsing:
-            return "Summary generated"
+            return "Processing summary…"
         }
     }
 
