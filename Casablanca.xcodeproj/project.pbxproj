@@ -1164,7 +1164,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.8.2;
 				OTHER_CODE_SIGN_FLAGS = (
 					"-r",
 					"$(SRCROOT)/scripts/casablanca.req",
@@ -1202,7 +1202,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.8.2;
 				OTHER_CODE_SIGN_FLAGS = (
 					"-r",
 					"$(SRCROOT)/scripts/casablanca.req",
