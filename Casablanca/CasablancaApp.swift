@@ -62,7 +62,7 @@ struct CasablancaApp: App {
         WindowGroup(id: Self.mainWindowID) {
             ContentView(viewModel: appModel.meetingListViewModel)
                 .environment(appModel)
-                .frame(minWidth: 800, minHeight: 500)
+                .frame(minWidth: CasaLayout.windowMinWidth, minHeight: CasaLayout.windowMinHeight)
                 .task {
                     await appModel.bootstrap(modelContext: sharedModelContainer.mainContext)
                 }

@@ -57,6 +57,14 @@ enum CasaLayout {
     static let prepInspectorDefault: CGFloat = 300
     static let windowDefaultWidth: CGFloat = 1080
     static let windowDefaultHeight: CGFloat = 720
+    static let windowMinWidth: CGFloat = 480
+    static let windowMinHeight: CGFloat = 500
+    /// Below this window width the sidebar collapses to a controlled detail-only
+    /// layout instead of being silently dropped by NavigationSplitView.
+    static let layoutSidebarBreakpoint: CGFloat = 600
+    /// At/above this window width the meeting-detail trailing inspector is shown
+    /// by default; below it the inspector hides so the sidebar stays visible.
+    static let layoutInspectorBreakpoint: CGFloat = 880
     static let popoverWidth: CGFloat = 288
 
     // Modal / sheet widths — standard tiers so sheets don't carry magic numbers.
@@ -64,6 +72,22 @@ enum CasaLayout {
     static let modalWidthMedium: CGFloat = 520
     static let modalWidthLarge: CGFloat = 560
     static let modalWidthXL: CGFloat = 600
+}
+
+/// Responsive width tier for the main window, derived from its measured width.
+/// Drives both the sidebar column visibility and the meeting-detail inspector so
+/// that a narrow window hides the inspector (keeping the sidebar) and a very
+/// small window gracefully collapses the sidebar rather than dropping it.
+enum LayoutWidthClass {
+    case compact   // sidebar collapsed, inspector hidden
+    case regular   // sidebar shown, inspector hidden
+    case expanded  // sidebar shown, inspector shown
+
+    static func from(width: CGFloat) -> LayoutWidthClass {
+        if width < CasaLayout.layoutSidebarBreakpoint { return .compact }
+        if width < CasaLayout.layoutInspectorBreakpoint { return .regular }
+        return .expanded
+    }
 }
 
 // MARK: - Reduce-Motion-Aware Animation

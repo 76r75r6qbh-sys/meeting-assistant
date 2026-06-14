@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var sidebarMeetings: SidebarMeetingsProvider?
     @State private var searchViewModel: GlobalSearchViewModel?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var windowWidth: CGFloat = CasaLayout.windowDefaultWidth
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
@@ -23,6 +24,9 @@ struct ContentView: View {
         guard recordingWorkspaceFocusMode, case .meeting = detailRoute else { return false }
         return true
     }
+
+    /// Responsive tier derived from the live window width.
+    private var widthClass: LayoutWidthClass { .from(width: windowWidth) }
 
     var body: some View {
         // Force @Observable tracking in ContentView's own body context, not inside
@@ -41,6 +45,15 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
+        }
+        .background {
+            // Single source of truth for the window width that drives the
+            // responsive sidebar/inspector layout.
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
+                    windowWidth = width
+                }
+            }
         }
         .toastOverlay(appModel.toastCenter)
         .toolbar {
@@ -116,10 +129,22 @@ struct ContentView: View {
         .onChange(of: viewModel.sidebarSelection) { _, new in
             detailRoute = new
         }
-        .onChange(of: isFocusModeActive) { _, focused in
-            withAnimation(reduceMotion ? nil : CasaAnimation.standard) {
-                columnVisibility = focused ? .detailOnly : .automatic
-            }
+        .onChange(of: isFocusModeActive) { _, _ in
+            updateColumnVisibility()
+        }
+        .onChange(of: widthClass, initial: true) { _, _ in
+            updateColumnVisibility()
+        }
+    }
+
+    /// Drives the leading sidebar visibility from both focus mode and the
+    /// responsive width tier. Focus mode wins; otherwise a `.compact` window
+    /// collapses the sidebar gracefully instead of letting NavigationSplitView
+    /// silently drop it.
+    private func updateColumnVisibility() {
+        let collapse = isFocusModeActive || widthClass == .compact
+        withAnimation(reduceMotion ? nil : CasaAnimation.standard) {
+            columnVisibility = collapse ? .detailOnly : .automatic
         }
     }
 
@@ -174,6 +199,7 @@ struct ContentView: View {
                 case .completed:
                     RecordedMeetingView(
                         meeting: meeting,
+                        widthClass: widthClass,
                         onRecordAgain: {
                             viewModel.beginRecording(for: meeting)
                         },

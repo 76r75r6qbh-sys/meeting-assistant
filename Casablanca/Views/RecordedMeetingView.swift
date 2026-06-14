@@ -3,6 +3,9 @@ import SwiftUI
 
 struct RecordedMeetingView: View {
     @Bindable var meeting: Meeting
+    /// Responsive width tier of the window. Defaults to `.expanded` so previews
+    /// and tests keep the inspector visible without extra wiring.
+    var widthClass: LayoutWidthClass = .expanded
     let onRecordAgain: () -> Void
     let onTranscribe: () -> Void
     /// Navigate to another meeting (used by the recurring-series prev/next links
@@ -19,7 +22,9 @@ struct RecordedMeetingView: View {
     private var exportStatusCenter: ExportStatusCenter { appModel.exportStatusCenter }
     @State private var didTriggerAutomaticSummary = false
     @State private var selectedTab: DetailTab = .summary
-    @State private var showInspector = true
+    // Real initial value is owned by `.onChange(of: widthClass, initial: true)`,
+    // which opens the inspector only when the window is wide enough.
+    @State private var showInspector = false
     // Owned by this long-lived view so they survive tab switches: the notes
     // edit toggle persists, and a pending debounced save is not cancelled when
     // the user leaves the Notes tab (which tears down MeetingNotesTab).
@@ -52,6 +57,13 @@ struct RecordedMeetingView: View {
         .inspector(isPresented: $showInspector) {
             MeetingDetailInspector(meeting: meeting, canExport: canExport, onSelectMeeting: onSelectMeeting)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
+        }
+        // Show the inspector by default only when the window is wide enough.
+        // Re-evaluated on tier crossings, so a manual toggle within a tier sticks.
+        .onChange(of: widthClass, initial: true) { _, cls in
+            withAnimation(reduceMotion ? nil : CasaAnimation.fast) {
+                showInspector = (cls == .expanded)
+            }
         }
         .navigationTitle(meeting.title)
         .toolbar {

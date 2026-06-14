@@ -2,6 +2,12 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-06-14
+
+### Fixed
+
+- Opening a past meeting in a narrow window no longer makes the sidebar jump out of sight. The layout is now responsive: a narrow window hides the meeting inspector (keeping the sidebar visible), and only a very small window gracefully collapses the sidebar — instead of `NavigationSplitView` silently dropping it.
+
 ## [0.8.1] — 2026-06-14
 
 ### Fixed
