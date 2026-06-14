@@ -37,9 +37,24 @@ struct ActionCardView: View {
             }
         case .todo:
             TodoCard(item: item)
-        case .ticketDraft, .refinementPrep, .roadmapCommitment:
-            // TODO(T6): bespoke card — route to the legacy editor for now.
-            legacy
+        case .ticketDraft:
+            if let parsed = TicketDraftBody(parsing: item.body) {
+                TicketDraftCard(item: item, model: parsed, editedBody: $editedBody)
+            } else {
+                legacy
+            }
+        case .refinementPrep:
+            if let parsed = RefinementPrepBody(parsing: item.body) {
+                RefinementPrepCard(item: item, model: parsed, editedBody: $editedBody)
+            } else {
+                legacy
+            }
+        case .roadmapCommitment:
+            if let parsed = RoadmapCommitmentBody(parsing: item.body) {
+                RoadmapCommitmentCard(item: item, model: parsed, editedBody: $editedBody)
+            } else {
+                legacy
+            }
         case .unknown, .none:
             legacy
         }
