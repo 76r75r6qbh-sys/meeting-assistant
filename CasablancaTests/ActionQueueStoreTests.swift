@@ -460,6 +460,38 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertNotNil(doc.items[0].decidedAt)
     }
 
+    func testCompleteLocallySetsExecutionFields() throws {
+        let defaults = try seedSingle(status: .pending, kind: .task)
+        try ActionQueueStore.completeLocally(id: "AQ-1", userDefaults: defaults)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        let item = doc.items[0]
+        XCTAssertEqual(item.status, .completed)
+        XCTAssertNotNil(item.decidedAt)
+        XCTAssertNotNil(item.executedAt)
+        XCTAssertEqual(item.executionResult, "marked complete in Casablanca")
+
+        // The fields must actually be on disk.
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["status"] as? String, "completed")
+        XCTAssertEqual(raw["executionResult"] as? String, "marked complete in Casablanca")
+        XCTAssertNotNil(raw["executedAt"] as? String)
+    }
+
+    func testCompleteDoesNotSetExecutionResult() throws {
+        // The existing `complete(...)` path must NOT touch executionResult/executedAt.
+        let defaults = try seedSingle(status: .followUp, kind: .task)
+        try ActionQueueStore.complete(id: "AQ-1", userDefaults: defaults)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        let item = doc.items[0]
+        XCTAssertEqual(item.status, .completed)
+        XCTAssertNil(item.executionResult)
+        XCTAssertNil(item.executedAt)
+
+        let raw = try firstRawItem()
+        XCTAssertNil(raw["executionResult"])
+        XCTAssertNil(raw["executedAt"])
+    }
+
     func testRequestRevisionSetsStatusAndPrompt() throws {
         let defaults = try seedSingle()
         try ActionQueueStore.requestRevision(id: "AQ-1", prompt: "propose a call instead", userDefaults: defaults)

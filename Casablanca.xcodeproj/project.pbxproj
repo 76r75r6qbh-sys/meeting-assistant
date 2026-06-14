@@ -10,6 +10,7 @@
 		03AF1A0166ED6F1B10C3EC38 /* UpdatePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B8B5B1EC960D341635643A /* UpdatePaths.swift */; };
 		0ACF43EE2D7D8212148AB63B /* Casablanca-0.0.1-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */; };
 		0B4237F6139DC6A92CAF3E37 /* ActionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42DC02442B940A212DC35C19 /* ActionQueue.swift */; };
+		150C743C9FDF322CBF230DDD /* ActionQueueDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */; };
 		17B5F5EBE3BE4BD0F0533E94 /* RoadmapCommitmentBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A686D86A50999F7D642EE8 /* RoadmapCommitmentBody.swift */; };
 		18B51C18488B1C2AA71B6049 /* SafeToQuitProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */; };
 		1F57DC2CCA8C23C899BBEB75 /* JiraMarkupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2CDA02D599E4AAF8158C692 /* JiraMarkupTests.swift */; };
@@ -25,6 +26,7 @@
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
+		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
@@ -227,6 +229,7 @@
 		1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstallerScriptTests.swift; sourceTree = "<group>"; };
 		20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
+		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TicketDraftBody.swift; sourceTree = SOURCE_ROOT; };
 		348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModel.swift; sourceTree = "<group>"; };
@@ -411,6 +414,7 @@
 		CHAT0105 /* LLMPromptSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupportTests.swift; sourceTree = "<group>"; };
 		D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminologyService.swift; sourceTree = "<group>"; };
 		D25A8FB5E153EBF6D42BDFA9 /* ActionQueueView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueView.swift; sourceTree = "<group>"; };
+		D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ActionQueueDisplayTests.swift; sourceTree = SOURCE_ROOT; };
 		D8B8B5B1EC960D341635643A /* UpdatePaths.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePaths.swift; sourceTree = "<group>"; };
 		DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClient.swift; sourceTree = "<group>"; };
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
@@ -544,6 +548,7 @@
 				42DC02442B940A212DC35C19 /* ActionQueue.swift */,
 				F6A6F0A2654F3EDF84DB2B13 /* ActionCardBodies */,
 				F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */,
+				2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -743,6 +748,7 @@
 				B10226 /* MeetingSoftDeleteTests.swift */,
 				7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */,
 				F2CDA02D599E4AAF8158C692 /* JiraMarkupTests.swift */,
+				D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1058,6 +1064,7 @@
 				405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */,
 				E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */,
 				FC8C73351180353C5404A142 /* JiraMarkupText.swift in Sources */,
+				150C743C9FDF322CBF230DDD /* ActionQueueDisplay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1129,6 +1136,7 @@
 				A10226 /* MeetingSoftDeleteTests.swift in Sources */,
 				B68E23B6D59110583203BB20 /* ActionCardBodyTests.swift in Sources */,
 				1F57DC2CCA8C23C899BBEB75 /* JiraMarkupTests.swift in Sources */,
+				640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

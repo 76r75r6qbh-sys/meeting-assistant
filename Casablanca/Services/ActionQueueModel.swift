@@ -97,6 +97,12 @@ final class ActionQueueModel {
         perform { try ActionQueueStore.complete(id: id) }
     }
 
+    /// Mark a local-only item (e.g. a `todo` bucket item) complete in the app,
+    /// recording `executedAt` and an execution result.
+    func completeLocally(id: String) {
+        perform { try ActionQueueStore.completeLocally(id: id) }
+    }
+
     func reopen(id: String) {
         perform { try ActionQueueStore.reopen(id: id) }
     }
