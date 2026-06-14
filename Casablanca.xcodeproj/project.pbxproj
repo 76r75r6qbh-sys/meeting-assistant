@@ -37,6 +37,7 @@
 		7D8DF90A81336C65087E3FC3 /* RefinementPrepBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A10EB29639B23646888C040 /* RefinementPrepBody.swift */; };
 		7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */; };
 		863B495C0E86496DB75A9C91 /* LLMProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B528C25CC65D55848052D4 /* LLMProviderFactoryTests.swift */; };
+		8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */; };
 		9360DE1FB664D7A47C863B61 /* RoadmapCommitmentCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D3C3AD74A9DB1208328F42 /* RoadmapCommitmentCard.swift */; };
 		98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */; };
 		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
@@ -266,6 +267,7 @@
 		6A10EB29639B23646888C040 /* RefinementPrepBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RefinementPrepBody.swift; sourceTree = SOURCE_ROOT; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		70A686D86A50999F7D642EE8 /* RoadmapCommitmentBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RoadmapCommitmentBody.swift; sourceTree = SOURCE_ROOT; };
+		748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ActionQueueSectionStateTests.swift; sourceTree = SOURCE_ROOT; };
 		78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePromptView.swift; sourceTree = "<group>"; };
 		7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueStoreTests.swift; sourceTree = "<group>"; };
 		7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ActionCardBodyTests.swift; sourceTree = SOURCE_ROOT; };
@@ -794,6 +796,7 @@
 				F2CDA02D599E4AAF8158C692 /* JiraMarkupTests.swift */,
 				D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */,
 				0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */,
+				748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1194,6 +1197,7 @@
 				1F57DC2CCA8C23C899BBEB75 /* JiraMarkupTests.swift in Sources */,
 				640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */,
 				98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */,
+				8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
