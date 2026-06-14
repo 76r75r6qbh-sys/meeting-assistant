@@ -235,4 +235,24 @@ final class ActionQueueDisplayTests: XCTestCase {
         XCTAssertEqual(todo?.totalCount, 3)
         XCTAssertEqual(todo?.pendingCount, 2) // AQ-03 + AQ-05 pending, AQ-04 completed
     }
+
+    // MARK: - Degenerate inputs (review hardening)
+
+    func testEmptyInputReturnsNoSections() {
+        XCTAssertTrue(buildActionQueueSections([]).isEmpty)
+    }
+
+    func testSelfLinkStaysSingle() {
+        // An item that links to its own id must not form a composite-of-one.
+        let sections = buildActionQueueSections([
+            item("AQ-01", bucket: .ticketDraft, linkedItemIds: ["AQ-01"])
+        ])
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].entries.count, 1)
+        guard case .single(let it, let older) = sections[0].entries[0] else {
+            return XCTFail("expected a .single, got a composite")
+        }
+        XCTAssertEqual(it.id, "AQ-01")
+        XCTAssertTrue(older.isEmpty)
+    }
 }
