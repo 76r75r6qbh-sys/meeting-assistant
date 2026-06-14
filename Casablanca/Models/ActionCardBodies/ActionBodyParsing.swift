@@ -9,6 +9,15 @@ import Foundation
 /// bucket"). These helpers parse `Key: value` header lines case-insensitively,
 /// trim whitespace, tolerate field reordering and blank lines, and split
 /// comma-separated list fields into `[String]`.
+///
+/// CANONICAL RE-SERIALIZATION: when a card is edited, the whole body is rebuilt
+/// from the parsed model via `serialized()` and saved. Only the fields each body
+/// type models survive — any extra/unmodeled header an agent added to the body
+/// (e.g. a `Notes:` line on a calendar event) is dropped on first edit. This is
+/// the schema-is-the-contract tradeoff; unlike the JSON-level `extraKeys`
+/// preservation, the freeform body has no escape hatch. An untouched approve is
+/// byte-preserving (the sheet sends `nil` editedBody when nothing changed), so
+/// only an actual edit normalizes the body.
 enum ActionBodyParsing {
     /// Normalize line endings to `\n`. Action-queue bodies can originate from
     /// Outlook/Teams (CRLF) or lone-CR sources; left untrimmed, the trailing
