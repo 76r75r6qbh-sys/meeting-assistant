@@ -2,6 +2,23 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-06-14
+
+A focused release turning the approvals inbox into a first-class surface: the action queue now groups by bucket, renders a bespoke editable card per item type, folds paired ticket+response drafts into one composite, and shows a live open-approvals badge on the Dock and menu bar. Built against the new bucket-based `action-queue.json` schema (see `action-queue-schema.md`).
+
+### Added
+
+- **Bucket-based action queue** — the queue decodes four new fields (`bucket`, `attachments`, `externalRef`, `linkedItemIds`) and two new draft types (`calendar`, `topdesk`). Unknown buckets/values round-trip verbatim; missing fields never fail to load.
+- **Bespoke approval cards per bucket** — email-shaped partner-API replies (To/Cc chips, attachment "Reveal in Finder"), Jira ticket drafts (field chips, custom-fields table with Release-notes-radio call-out, Jira-markup-rendered description), Topdesk responses (visibility toggle, Jira-link chip), refinement-prep (current→proposed radio/priority compare with editable dropdowns and flag pills), roadmap commitments (Teams excerpt + nested ticket), and calendar events. Every card edits in place and round-trips its changes back into the draft body; malformed bodies fall back to a plain-text editor so approval is never blocked.
+- **Composite linked drafts** — a paired ticket + reply (linked via `linkedItemIds`) renders as one card with per-item Approve/Decline/Revise and a primary "Approve all".
+- **Jira wiki-markup renderer** — bold/italic/headings/lists/links/code/tables render in card descriptions, degrading to literal text on anything unrecognized.
+- **Bucket-grouped, collapsible list** — approvals group into fixed-order bucket sections with `(pending / total)` headers and per-bucket collapse state; duplicate items sharing an `externalRef` fold behind a `+N` indicator.
+- **Open-approvals badge** — a live count of pending items on the Dock icon and the menu-bar item, recomputed on launch, on file changes, and after every in-app decision.
+
+### Changed
+
+- Approving a `todo`-bucket item now marks it complete in-app (status, decided/executed timestamps, and an execution result) instead of routing to a remote action.
+
 ## [0.8.2] — 2026-06-14
 
 ### Fixed
