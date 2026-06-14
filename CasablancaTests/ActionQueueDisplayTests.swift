@@ -242,6 +242,16 @@ final class ActionQueueDisplayTests: XCTestCase {
         XCTAssertTrue(buildActionQueueSections([]).isEmpty)
     }
 
+    func testSectionIdsAreUniqueEvenForNilVsUnknownGeneral() {
+        // A nil bucket and a literal `.unknown("general")` bucket are distinct
+        // sections; their ForEach ids must not collide.
+        let sections = buildActionQueueSections([
+            item("AQ-01"),                                  // nil bucket → "general"
+            item("AQ-02", bucket: .unknown("general")),     // → "unknown:general"
+        ])
+        XCTAssertEqual(Set(sections.map(\.id)).count, sections.count)
+    }
+
     func testSelfLinkStaysSingle() {
         // An item that links to its own id must not form a composite-of-one.
         let sections = buildActionQueueSections([

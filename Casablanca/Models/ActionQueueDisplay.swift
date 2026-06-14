@@ -45,8 +45,19 @@ struct ActionQueueSection: Identifiable, Hashable {
     let pendingCount: Int
     let totalCount: Int
 
-    var id: String {
-        bucket?.rawValue ?? "general"
+    var id: String { ActionQueueSection.key(for: bucket) }
+
+    /// Canonical, collision-free string key for a bucket section. Single source
+    /// of truth shared by the `Identifiable` id (ForEach identity) and the
+    /// collapse-state persistence key. `nil` → "general", an unknown bucket →
+    /// "unknown:<raw>" (so a literal `.unknown("general")` never collides with
+    /// the nil "general"), else the bucket's raw value.
+    static func key(for bucket: ActionBucket?) -> String {
+        switch bucket {
+        case .none: return "general"
+        case .unknown(let raw): return "unknown:\(raw)"
+        case .some(let known): return known.rawValue
+        }
     }
 }
 

@@ -384,12 +384,11 @@ final class ActionQueueSectionState {
         self.collapsed = Set(stored)
     }
 
-    /// Stable storage key for a bucket section. `nil` => "general"; unknown
-    /// buckets are namespaced so distinct raw strings stay separate.
+    /// Stable storage key for a bucket section — the same canonical key the
+    /// `ActionQueueSection` ForEach identity uses, so collapse state maps 1:1
+    /// to a rendered section.
     static func key(for bucket: ActionBucket?) -> String {
-        guard let bucket else { return "general" }
-        if case .unknown(let raw) = bucket { return "unknown:\(raw)" }
-        return bucket.rawValue
+        ActionQueueSection.key(for: bucket)
     }
 
     func isCollapsed(_ key: String) -> Bool {
