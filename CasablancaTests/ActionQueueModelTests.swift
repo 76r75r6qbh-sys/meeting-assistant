@@ -90,5 +90,15 @@ final class ActionQueueModelTests: XCTestCase {
         XCTAssertNil(model.loadError, "fixture should load cleanly")
         XCTAssertEqual(model.pendingCount, 3)
         XCTAssertEqual(captured, 3, "onPendingCountChange must fire on reload with the pending count")
+
+        // Error path: a malformed file must still fire the callback with the
+        // last-good count (items unchanged) so the badge never goes stale.
+        try "{ not valid json".write(to: queueURL, atomically: true, encoding: .utf8)
+        captured = nil
+        model.reload()
+
+        XCTAssertNotNil(model.loadError, "malformed JSON should set loadError")
+        XCTAssertEqual(model.pendingCount, 3, "items unchanged on load failure")
+        XCTAssertEqual(captured, 3, "callback must fire with the last-good count on error")
     }
 }
