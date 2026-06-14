@@ -208,15 +208,16 @@ enum ActionBucket: Codable, Hashable, CaseIterable {
     case ticketDraft
     case topdeskResponse
     case refinementPrep
-    case roadmapCommitment
     case calendarEvent
+    case roadmapCommitment
     case todo
     /// An unrecognized value from the agent's file; preserved verbatim.
     case unknown(String)
 
+    // Declaration order is the fixed display order and matches `sortOrder`.
     static let allCases: [ActionBucket] = [
         .partnerApiReply, .ticketDraft, .topdeskResponse, .refinementPrep,
-        .roadmapCommitment, .calendarEvent, .todo,
+        .calendarEvent, .roadmapCommitment, .todo,
     ]
 
     var rawValue: String {

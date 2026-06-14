@@ -668,4 +668,16 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertNil(item.linkedItemIds)
         XCTAssertFalse(item.hasUnknownEnumValue)
     }
+
+    func testBucketSortOrderMatchesAllCasesAndIsGapFree() {
+        // `allCases` declaration order is the fixed display order; `sortOrder`
+        // must agree with it and be a gap-free 0..<n so the grouping UI has a
+        // single source of truth.
+        let order = ActionBucket.allCases
+        XCTAssertEqual(order.map(\.sortOrder), Array(0..<order.count))
+        for bucket in order {
+            XCTAssertFalse(bucket.displayName.isEmpty)
+        }
+        XCTAssertEqual(ActionBucket.unknown("x").sortOrder, order.count)
+    }
 }
