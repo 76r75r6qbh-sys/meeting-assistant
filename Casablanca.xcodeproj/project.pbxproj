@@ -14,8 +14,6 @@
 		2405FA5D7C76BF630A133C64 /* UpdatePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */; };
 		24EB0A08CE05CBF3AEA097E5 /* ReleaseInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */; };
 		2D0DAAC2CE1FED596BF02B11 /* ActionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25A8FB5E153EBF6D42BDFA9 /* ActionQueueView.swift */; };
-		A1B2C3D4E5F600000ON0BD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */; };
-		A1B2C3D4E5F600000ON0BD02 /* OnboardingCaptureStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */; };
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
@@ -27,36 +25,92 @@
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
 		7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */; };
 		863B495C0E86496DB75A9C91 /* LLMProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B528C25CC65D55848052D4 /* LLMProviderFactoryTests.swift */; };
+		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
 		9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A49CA3494756C27CD173CA /* SemanticVersion.swift */; };
 		9BEF92EEB18A36DC9F07B108 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */; };
-		CHAT0001 /* LLMPromptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0101 /* LLMPromptSupport.swift */; };
-		CHAT0002 /* MeetingChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0102 /* MeetingChatService.swift */; };
-		CHAT0003 /* MeetingChatTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0103 /* MeetingChatTab.swift */; };
-		CHAT0004 /* MeetingChatServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0104 /* MeetingChatServiceTests.swift */; };
-		CHAT0005 /* LLMPromptSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0105 /* LLMPromptSupportTests.swift */; };
-		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
-		F373A6A220EDD1B513D31EDE /* LLMRetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */; };
 		9C64626C06AC9157AA4AD10A /* UpdatesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */; };
 		A10001 /* CasablancaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* CasablancaApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
 		A10003 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* Meeting.swift */; };
 		A10004 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* CalendarService.swift */; };
 		A10005 /* MeetingListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* MeetingListViewModel.swift */; };
-		A10110 /* SidebarMeetingsProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110 /* SidebarMeetingsProvider.swift */; };
-		A10111 /* SidebarMeetingsProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111 /* SidebarMeetingsProviderTests.swift */; };
-		A10112 /* GlobalSearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10112 /* GlobalSearchViewModel.swift */; };
-		A10113 /* GlobalSearchViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10113 /* GlobalSearchViewModelTests.swift */; };
 		A10006 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* DashboardView.swift */; };
 		A10007 /* MeetingCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* MeetingCardView.swift */; };
-		A10070 /* PrepEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070 /* PrepEditorView.swift */; };
 		A10008 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* DesignTokens.swift */; };
 		A10009 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* Theme.swift */; };
 		A10010 /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* Permissions.swift */; };
 		A10011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10011 /* Assets.xcassets */; };
 		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
-		A10712 /* TagChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10712 /* TagChip.swift */; };
-		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
+		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
+		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
+		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
+		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
+		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
+		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
+		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
+		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
+		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
+		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
+		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
+		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
+		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
+		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
+		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
+		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
+		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
+		A10032 /* MarkdownConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* MarkdownConverter.swift */; };
+		A10033 /* MarkdownEditorBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MarkdownEditorBundleTests.swift */; };
+		A10034 /* MarkdownEditor in Resources */ = {isa = PBXBuildFile; fileRef = B10034 /* MarkdownEditor */; };
+		A10035 /* MeetingStartFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* MeetingStartFlowTests.swift */; };
+		A10036 /* MeetingPrepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MeetingPrepService.swift */; };
+		A10037 /* MeetingPrepServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MeetingPrepServiceTests.swift */; };
+		A10038 /* ObsidianTodoMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* ObsidianTodoMarkdownTests.swift */; };
+		A10039 /* ObsidianMeetingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039 /* ObsidianMeetingFiles.swift */; };
+		A10040 /* ObsidianTodoMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* ObsidianTodoMarkdown.swift */; };
+		A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* ObsidianTodoSyncServiceTests.swift */; };
+		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
+		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
+		A10044 /* ExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044 /* ExportServiceTests.swift */; };
+		A10045 /* SummarizationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045 /* SummarizationServiceTests.swift */; };
+		A10047 /* RecordingResumeSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* RecordingResumeSessionStore.swift */; };
+		A10048 /* RecordingInterruptionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* RecordingInterruptionMonitor.swift */; };
+		A10049 /* RecordingInterruptionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* RecordingInterruptionMonitorTests.swift */; };
+		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
+		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
+		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
+		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
+		A10054 /* AppPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* AppPreferencesTests.swift */; };
+		A10055 /* AppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* AppleNotesScripting.swift */; };
+		A10056 /* InMemoryAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10056 /* InMemoryAppleNotesScripting.swift */; };
+		A10057 /* AppleNotesScriptingFakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10057 /* AppleNotesScriptingFakeTests.swift */; };
+		A10058 /* AppleNotesBodyRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10058 /* AppleNotesBodyRenderer.swift */; };
+		A10059 /* AppleNotesBodyRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10059 /* AppleNotesBodyRendererTests.swift */; };
+		A10060 /* AppleNotesExportError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* AppleNotesExportError.swift */; };
+		A10061 /* AppleNotesExportErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061 /* AppleNotesExportErrorTests.swift */; };
+		A10062 /* AppleNotesMeetingExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* AppleNotesMeetingExporter.swift */; };
+		A10063 /* AppleNotesMeetingExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10063 /* AppleNotesMeetingExporterTests.swift */; };
+		A10064 /* NSAppleScriptAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064 /* NSAppleScriptAppleNotesScripting.swift */; };
+		A10065 /* NSAppleScriptAppleNotesScriptingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */; };
+		A10066 /* ObsidianMeetingExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ObsidianMeetingExporter.swift */; };
+		A10067 /* ExportServiceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10067 /* ExportServiceRoutingTests.swift */; };
+		A10070 /* PrepEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070 /* PrepEditorView.swift */; };
+		A10071 /* AppNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071 /* AppNotificationCoordinator.swift */; };
+		A10072 /* MeetingStartNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072 /* MeetingStartNotifier.swift */; };
+		A10073 /* MeetingStartNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073 /* MeetingStartNotifierTests.swift */; };
+		A10090 /* NotificationAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* NotificationAuthorization.swift */; };
+		A10100 /* MeetingTimeBucket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100 /* MeetingTimeBucket.swift */; };
+		A10101 /* MeetingTimeBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* MeetingTimeBucketTests.swift */; };
+		A10102 /* MeetingSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102 /* MeetingSearchIndex.swift */; };
+		A10103 /* MeetingSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MeetingSearchIndexTests.swift */; };
+		A10104 /* MeetingPrepServiceWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104 /* MeetingPrepServiceWriteTests.swift */; };
+		A10105 /* PersistenceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* PersistenceControllerTests.swift */; };
+		A10106 /* ExternalStorageSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* ExternalStorageSpikeTests.swift */; };
+		A10108 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10108 /* PersistenceController.swift */; };
+		A10110 /* SidebarMeetingsProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110 /* SidebarMeetingsProvider.swift */; };
+		A10111 /* SidebarMeetingsProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111 /* SidebarMeetingsProviderTests.swift */; };
+		A10112 /* GlobalSearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10112 /* GlobalSearchViewModel.swift */; };
+		A10113 /* GlobalSearchViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10113 /* GlobalSearchViewModelTests.swift */; };
 		A10200 /* MeetingWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* MeetingWorkspacePresentation.swift */; };
 		A10201 /* RecordingStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10201 /* RecordingStatusBar.swift */; };
 		A10202 /* FocusRecordingPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10202 /* FocusRecordingPill.swift */; };
@@ -72,7 +126,22 @@
 		A10212 /* MeetingSummaryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10212 /* MeetingSummaryTab.swift */; };
 		A10213 /* MeetingTranscriptTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10213 /* MeetingTranscriptTab.swift */; };
 		A10214 /* MeetingNotesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10214 /* MeetingNotesTab.swift */; };
-		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
+		A10215 /* MeetingPipelineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10215 /* MeetingPipelineState.swift */; };
+		A10216 /* ExportStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10216 /* ExportStatusCenter.swift */; };
+		A10217 /* ProcessingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10217 /* ProcessingStatusCard.swift */; };
+		A10218 /* MeetingPipelineStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10218 /* MeetingPipelineStateTests.swift */; };
+		A10220 /* SkeletonModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10220 /* SkeletonModifier.swift */; };
+		A10221 /* ToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10221 /* ToastCenter.swift */; };
+		A10222 /* StringHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10222 /* StringHighlighting.swift */; };
+		A10223 /* TranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10223 /* TranscriptPresentation.swift */; };
+		A10224 /* TranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10224 /* TranscriptPresentationTests.swift */; };
+		A10225 /* StringHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10225 /* StringHighlightingTests.swift */; };
+		A10226 /* MeetingSoftDeleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10226 /* MeetingSoftDeleteTests.swift */; };
+		A10260 /* CasablancaSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10260 /* CasablancaSchema.swift */; };
+		A10261 /* SchemaMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10261 /* SchemaMigrationTests.swift */; };
+		A10310 /* RecordingSessionFrameAccountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10310 /* RecordingSessionFrameAccountingTests.swift */; };
+		A10500 /* GlobalSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* GlobalSearchView.swift */; };
+		A10600 /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10600 /* Logging.swift */; };
 		A10610 /* RecordingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10610 /* RecordingTypes.swift */; };
 		A10611 /* AudioRecordingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10611 /* AudioRecordingService.swift */; };
 		A10612 /* AudioInputDeviceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10612 /* AudioInputDeviceProvider.swift */; };
@@ -90,90 +159,16 @@
 		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10703 /* PCMTrackWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* PCMTrackWriterTests.swift */; };
 		A10704 /* RecordingCompressorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10704 /* RecordingCompressorTests.swift */; };
-		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
-		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
-		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
-		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
-		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
-		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
+		A10712 /* TagChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10712 /* TagChip.swift */; };
+		A10713 /* MeetingTagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10713 /* MeetingTagsTests.swift */; };
 		A10800 /* NativeMarkdownEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10800 /* NativeMarkdownEditor.swift */; };
 		A10801 /* NativeMarkdownEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10801 /* NativeMarkdownEditorTests.swift */; };
-		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
-		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
-		A10215 /* MeetingPipelineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10215 /* MeetingPipelineState.swift */; };
-		A10216 /* ExportStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10216 /* ExportStatusCenter.swift */; };
-		A10217 /* ProcessingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10217 /* ProcessingStatusCard.swift */; };
-		A10218 /* MeetingPipelineStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10218 /* MeetingPipelineStateTests.swift */; };
-		A10220 /* SkeletonModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10220 /* SkeletonModifier.swift */; };
-		A10221 /* ToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10221 /* ToastCenter.swift */; };
-		A10222 /* StringHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10222 /* StringHighlighting.swift */; };
-		A10223 /* TranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10223 /* TranscriptPresentation.swift */; };
-		A10224 /* TranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10224 /* TranscriptPresentationTests.swift */; };
-		A10225 /* StringHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10225 /* StringHighlightingTests.swift */; };
-		A10226 /* MeetingSoftDeleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10226 /* MeetingSoftDeleteTests.swift */; };
-		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
-		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
-		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
-		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
-		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
-		A10100 /* MeetingTimeBucket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100 /* MeetingTimeBucket.swift */; };
-		A10101 /* MeetingTimeBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* MeetingTimeBucketTests.swift */; };
-		A10102 /* MeetingSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102 /* MeetingSearchIndex.swift */; };
-		A10103 /* MeetingSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MeetingSearchIndexTests.swift */; };
-		A10713 /* MeetingTagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10713 /* MeetingTagsTests.swift */; };
-		A10108 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10108 /* PersistenceController.swift */; };
-		A10260 /* CasablancaSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10260 /* CasablancaSchema.swift */; };
-		A10105 /* PersistenceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* PersistenceControllerTests.swift */; };
-		A10261 /* SchemaMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10261 /* SchemaMigrationTests.swift */; };
-		A10106 /* ExternalStorageSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* ExternalStorageSpikeTests.swift */; };
-		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
-		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
-		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
-		A10032 /* MarkdownConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* MarkdownConverter.swift */; };
-		A10600 /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10600 /* Logging.swift */; };
-		A10033 /* MarkdownEditorBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MarkdownEditorBundleTests.swift */; };
-		A10034 /* MarkdownEditor in Resources */ = {isa = PBXBuildFile; fileRef = B10034 /* MarkdownEditor */; };
 		A10901 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = B10901 /* Credits.rtf */; };
-		A10035 /* MeetingStartFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* MeetingStartFlowTests.swift */; };
-		A10036 /* MeetingPrepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MeetingPrepService.swift */; };
 		A10950 /* MeetingSeriesResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10950 /* MeetingSeriesResolver.swift */; };
 		A10951 /* MeetingSeriesResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10951 /* MeetingSeriesResolverTests.swift */; };
-		A10037 /* MeetingPrepServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MeetingPrepServiceTests.swift */; };
-		A10104 /* MeetingPrepServiceWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104 /* MeetingPrepServiceWriteTests.swift */; };
-		A10038 /* ObsidianTodoMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* ObsidianTodoMarkdownTests.swift */; };
-		A10039 /* ObsidianMeetingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039 /* ObsidianMeetingFiles.swift */; };
-		A10040 /* ObsidianTodoMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* ObsidianTodoMarkdown.swift */; };
-		A10041 /* ObsidianTodoSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* ObsidianTodoSyncServiceTests.swift */; };
-		A10042 /* ObsidianTodoSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* ObsidianTodoSyncService.swift */; };
-		A10043 /* PermissionsBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* PermissionsBehaviorTests.swift */; };
-		A10044 /* ExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044 /* ExportServiceTests.swift */; };
-		A10045 /* SummarizationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045 /* SummarizationServiceTests.swift */; };
-		A10047 /* RecordingResumeSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* RecordingResumeSessionStore.swift */; };
-		A10048 /* RecordingInterruptionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* RecordingInterruptionMonitor.swift */; };
-		A10049 /* RecordingInterruptionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* RecordingInterruptionMonitorTests.swift */; };
-		A10050 /* RecordingInterruptionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* RecordingInterruptionCoordinator.swift */; };
-		A10051 /* RecordingInterruptionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* RecordingInterruptionCoordinatorTests.swift */; };
-		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
-		A10071 /* AppNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071 /* AppNotificationCoordinator.swift */; };
-		A10090 /* NotificationAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* NotificationAuthorization.swift */; };
-		A10072 /* MeetingStartNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072 /* MeetingStartNotifier.swift */; };
-		A10073 /* MeetingStartNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073 /* MeetingStartNotifierTests.swift */; };
-		A10310 /* RecordingSessionFrameAccountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10310 /* RecordingSessionFrameAccountingTests.swift */; };
-		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
-		A10054 /* AppPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* AppPreferencesTests.swift */; };
-		A10055 /* AppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* AppleNotesScripting.swift */; };
-		A10056 /* InMemoryAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10056 /* InMemoryAppleNotesScripting.swift */; };
-		A10057 /* AppleNotesScriptingFakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10057 /* AppleNotesScriptingFakeTests.swift */; };
-		A10058 /* AppleNotesBodyRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10058 /* AppleNotesBodyRenderer.swift */; };
-		A10059 /* AppleNotesBodyRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10059 /* AppleNotesBodyRendererTests.swift */; };
-		A10060 /* AppleNotesExportError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* AppleNotesExportError.swift */; };
-		A10061 /* AppleNotesExportErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061 /* AppleNotesExportErrorTests.swift */; };
-		A10062 /* AppleNotesMeetingExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* AppleNotesMeetingExporter.swift */; };
-		A10063 /* AppleNotesMeetingExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10063 /* AppleNotesMeetingExporterTests.swift */; };
-		A10064 /* NSAppleScriptAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064 /* NSAppleScriptAppleNotesScripting.swift */; };
-		A10065 /* NSAppleScriptAppleNotesScriptingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */; };
-		A10066 /* ObsidianMeetingExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066 /* ObsidianMeetingExporter.swift */; };
-		A10067 /* ExportServiceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10067 /* ExportServiceRoutingTests.swift */; };
+		A1B2C3D4E5F600000ON0BD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */; };
+		A1B2C3D4E5F600000ON0BD02 /* OnboardingCaptureStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* ActionQueueModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */; };
 		A25F412BA3090DD15071F908 /* UpdateDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */; };
 		A369480DCCBAFDED92973389 /* UpdateInstallerScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */; };
 		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
@@ -186,15 +181,20 @@
 		C40DAA304D9C44955F64244C /* Casablanca-99.0.0-macOS.zip in Resources */ = {isa = PBXBuildFile; fileRef = C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */; };
 		C514F5A5E0BEA52EA0DC4B59 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */; };
 		C9BC31735C018EA073CE78BD /* ActionQueueStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* ActionQueueModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */; };
 		CA1EAD0000000000000000C1 /* CalendarServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */; };
 		CA604E75D903664CE5D5A80A /* UpdateProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
 		CEFB80B9E5C58D2FB05541A7 /* UpdatePromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */; };
+		CHAT0001 /* LLMPromptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0101 /* LLMPromptSupport.swift */; };
+		CHAT0002 /* MeetingChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0102 /* MeetingChatService.swift */; };
+		CHAT0003 /* MeetingChatTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0103 /* MeetingChatTab.swift */; };
+		CHAT0004 /* MeetingChatServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0104 /* MeetingChatServiceTests.swift */; };
+		CHAT0005 /* LLMPromptSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0105 /* LLMPromptSupportTests.swift */; };
 		DBA9D1B7DEB384F9DCBDEEF6 /* ActionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */; };
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
 		F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */; };
+		F373A6A220EDD1B513D31EDE /* LLMRetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -209,6 +209,7 @@
 
 /* Begin PBXFileReference section */
 		045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferencesTests.swift; sourceTree = "<group>"; };
+		0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicyTests.swift; sourceTree = "<group>"; };
 		0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbe.swift; sourceTree = "<group>"; };
 		108FBBE803A2166EC0F75BB4 /* build-fixtures.sh */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.script.sh; path = "build-fixtures.sh"; sourceTree = "<group>"; };
 		1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstallerScriptTests.swift; sourceTree = "<group>"; };
@@ -220,48 +221,105 @@
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
 		48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
-		CHAT0101 /* LLMPromptSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupport.swift; sourceTree = "<group>"; };
-		CHAT0102 /* MeetingChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatService.swift; sourceTree = "<group>"; };
-		CHAT0103 /* MeetingChatTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatTab.swift; sourceTree = "<group>"; };
-		CHAT0104 /* MeetingChatServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatServiceTests.swift; sourceTree = "<group>"; };
-		CHAT0105 /* LLMPromptSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupportTests.swift; sourceTree = "<group>"; };
-		A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicy.swift; sourceTree = "<group>"; };
-		0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicyTests.swift; sourceTree = "<group>"; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePromptView.swift; sourceTree = "<group>"; };
 		7996A7642A643E66F49CBDDF /* ActionQueueStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueStoreTests.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModelTests.swift; sourceTree = "<group>"; };
-		CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CalendarServiceTests.swift; sourceTree = "<group>"; };
 		7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateProgressView.swift; sourceTree = "<group>"; };
 		7EE76844700FCF7A055497BB /* OMLXProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProvider.swift; sourceTree = "<group>"; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloaderTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingCaptureStatus.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModelTests.swift; sourceTree = "<group>"; };
 		A3D480611A08BDB4705DD52C /* UpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
+		A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicy.swift; sourceTree = "<group>"; };
 		ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		B10001 /* CasablancaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
 		B10004 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		B10005 /* MeetingListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingListViewModel.swift; sourceTree = "<group>"; };
-		B10110 /* SidebarMeetingsProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMeetingsProvider.swift; sourceTree = "<group>"; };
-		B10111 /* SidebarMeetingsProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMeetingsProviderTests.swift; sourceTree = "<group>"; };
-		B10112 /* GlobalSearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchViewModel.swift; sourceTree = "<group>"; };
-		B10113 /* GlobalSearchViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchViewModelTests.swift; sourceTree = "<group>"; };
 		B10006 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		B10070 /* PrepEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepEditorView.swift; sourceTree = "<group>"; };
 		B10007 /* MeetingCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingCardView.swift; sourceTree = "<group>"; };
 		B10008 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		B10009 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		B10010 /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
 		B10011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10012 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
-		B10712 /* TagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagChip.swift; sourceTree = "<group>"; };
-		B10500 /* GlobalSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchView.swift; sourceTree = "<group>"; };
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
+		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
+		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
+		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
+		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
+		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
+		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
+		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
+		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
+		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
+		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
+		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
+		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
+		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
+		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
+		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
+		B10032 /* MarkdownConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownConverter.swift; sourceTree = "<group>"; };
+		B10033 /* MarkdownEditorBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorBundleTests.swift; sourceTree = "<group>"; };
+		B10034 /* MarkdownEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MarkdownEditor; sourceTree = "<group>"; };
+		B10035 /* MeetingStartFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartFlowTests.swift; sourceTree = "<group>"; };
+		B10036 /* MeetingPrepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepService.swift; sourceTree = "<group>"; };
+		B10037 /* MeetingPrepServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceTests.swift; sourceTree = "<group>"; };
+		B10038 /* ObsidianTodoMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdownTests.swift; sourceTree = "<group>"; };
+		B10039 /* ObsidianMeetingFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingFiles.swift; sourceTree = "<group>"; };
+		B10040 /* ObsidianTodoMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdown.swift; sourceTree = "<group>"; };
+		B10041 /* ObsidianTodoSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncServiceTests.swift; sourceTree = "<group>"; };
+		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
+		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
+		B10044 /* ExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportServiceTests.swift; sourceTree = "<group>"; };
+		B10045 /* SummarizationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationServiceTests.swift; sourceTree = "<group>"; };
+		B10047 /* RecordingResumeSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStore.swift; sourceTree = "<group>"; };
+		B10048 /* RecordingInterruptionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitor.swift; sourceTree = "<group>"; };
+		B10049 /* RecordingInterruptionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitorTests.swift; sourceTree = "<group>"; };
+		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
+		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
+		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
+		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
+		B10054 /* AppPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesTests.swift; sourceTree = "<group>"; };
+		B10055 /* AppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScripting.swift; sourceTree = "<group>"; };
+		B10056 /* InMemoryAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryAppleNotesScripting.swift; sourceTree = "<group>"; };
+		B10057 /* AppleNotesScriptingFakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScriptingFakeTests.swift; sourceTree = "<group>"; };
+		B10058 /* AppleNotesBodyRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesBodyRenderer.swift; sourceTree = "<group>"; };
+		B10059 /* AppleNotesBodyRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesBodyRendererTests.swift; sourceTree = "<group>"; };
+		B10060 /* AppleNotesExportError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesExportError.swift; sourceTree = "<group>"; };
+		B10061 /* AppleNotesExportErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesExportErrorTests.swift; sourceTree = "<group>"; };
+		B10062 /* AppleNotesMeetingExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesMeetingExporter.swift; sourceTree = "<group>"; };
+		B10063 /* AppleNotesMeetingExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesMeetingExporterTests.swift; sourceTree = "<group>"; };
+		B10064 /* NSAppleScriptAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScripting.swift; sourceTree = "<group>"; };
+		B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScriptingTests.swift; sourceTree = "<group>"; };
+		B10066 /* ObsidianMeetingExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingExporter.swift; sourceTree = "<group>"; };
+		B10067 /* ExportServiceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportServiceRoutingTests.swift; sourceTree = "<group>"; };
+		B10070 /* PrepEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepEditorView.swift; sourceTree = "<group>"; };
+		B10071 /* AppNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotificationCoordinator.swift; sourceTree = "<group>"; };
+		B10072 /* MeetingStartNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifier.swift; sourceTree = "<group>"; };
+		B10073 /* MeetingStartNotifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifierTests.swift; sourceTree = "<group>"; };
+		B10090 /* NotificationAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAuthorization.swift; sourceTree = "<group>"; };
+		B10100 /* MeetingTimeBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucket.swift; sourceTree = "<group>"; };
+		B10101 /* MeetingTimeBucketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucketTests.swift; sourceTree = "<group>"; };
+		B10102 /* MeetingSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndex.swift; sourceTree = "<group>"; };
+		B10103 /* MeetingSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndexTests.swift; sourceTree = "<group>"; };
+		B10104 /* MeetingPrepServiceWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceWriteTests.swift; sourceTree = "<group>"; };
+		B10105 /* PersistenceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceControllerTests.swift; sourceTree = "<group>"; };
+		B10106 /* ExternalStorageSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalStorageSpikeTests.swift; sourceTree = "<group>"; };
+		B10108 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		B10110 /* SidebarMeetingsProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMeetingsProvider.swift; sourceTree = "<group>"; };
+		B10111 /* SidebarMeetingsProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMeetingsProviderTests.swift; sourceTree = "<group>"; };
+		B10112 /* GlobalSearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchViewModel.swift; sourceTree = "<group>"; };
+		B10113 /* GlobalSearchViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchViewModelTests.swift; sourceTree = "<group>"; };
 		B10200 /* MeetingWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingWorkspacePresentation.swift; sourceTree = "<group>"; };
 		B10201 /* RecordingStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStatusBar.swift; sourceTree = "<group>"; };
 		B10202 /* FocusRecordingPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusRecordingPill.swift; sourceTree = "<group>"; };
@@ -277,8 +335,22 @@
 		B10212 /* MeetingSummaryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSummaryTab.swift; sourceTree = "<group>"; };
 		B10213 /* MeetingTranscriptTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTranscriptTab.swift; sourceTree = "<group>"; };
 		B10214 /* MeetingNotesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingNotesTab.swift; sourceTree = "<group>"; };
-		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
+		B10215 /* MeetingPipelineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineState.swift; sourceTree = "<group>"; };
+		B10216 /* ExportStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportStatusCenter.swift; sourceTree = "<group>"; };
+		B10217 /* ProcessingStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingStatusCard.swift; sourceTree = "<group>"; };
+		B10218 /* MeetingPipelineStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineStateTests.swift; sourceTree = "<group>"; };
+		B10220 /* SkeletonModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonModifier.swift; sourceTree = "<group>"; };
+		B10221 /* ToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastCenter.swift; sourceTree = "<group>"; };
+		B10222 /* StringHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlighting.swift; sourceTree = "<group>"; };
+		B10223 /* TranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentation.swift; sourceTree = "<group>"; };
+		B10224 /* TranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentationTests.swift; sourceTree = "<group>"; };
+		B10225 /* StringHighlightingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlightingTests.swift; sourceTree = "<group>"; };
+		B10226 /* MeetingSoftDeleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSoftDeleteTests.swift; sourceTree = "<group>"; };
+		B10260 /* CasablancaSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaSchema.swift; sourceTree = "<group>"; };
+		B10261 /* SchemaMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrationTests.swift; sourceTree = "<group>"; };
+		B10310 /* RecordingSessionFrameAccountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSessionFrameAccountingTests.swift; sourceTree = "<group>"; };
+		B10500 /* GlobalSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchView.swift; sourceTree = "<group>"; };
+		B10600 /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
 		B10610 /* RecordingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTypes.swift; sourceTree = "<group>"; };
 		B10611 /* AudioRecordingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingService.swift; sourceTree = "<group>"; };
 		B10612 /* AudioInputDeviceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProvider.swift; sourceTree = "<group>"; };
@@ -296,89 +368,13 @@
 		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10703 /* PCMTrackWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriterTests.swift; sourceTree = "<group>"; };
 		B10704 /* RecordingCompressorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingCompressorTests.swift; sourceTree = "<group>"; };
-		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
-		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
-		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
-		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
-		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
-		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
+		B10712 /* TagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagChip.swift; sourceTree = "<group>"; };
+		B10713 /* MeetingTagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTagsTests.swift; sourceTree = "<group>"; };
 		B10800 /* NativeMarkdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMarkdownEditor.swift; sourceTree = "<group>"; };
 		B10801 /* NativeMarkdownEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMarkdownEditorTests.swift; sourceTree = "<group>"; };
-		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
-		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
-		B10215 /* MeetingPipelineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineState.swift; sourceTree = "<group>"; };
-		B10216 /* ExportStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportStatusCenter.swift; sourceTree = "<group>"; };
-		B10217 /* ProcessingStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingStatusCard.swift; sourceTree = "<group>"; };
-		B10218 /* MeetingPipelineStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineStateTests.swift; sourceTree = "<group>"; };
-		B10220 /* SkeletonModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonModifier.swift; sourceTree = "<group>"; };
-		B10221 /* ToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastCenter.swift; sourceTree = "<group>"; };
-		B10222 /* StringHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlighting.swift; sourceTree = "<group>"; };
-		B10223 /* TranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentation.swift; sourceTree = "<group>"; };
-		B10224 /* TranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPresentationTests.swift; sourceTree = "<group>"; };
-		B10225 /* StringHighlightingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlightingTests.swift; sourceTree = "<group>"; };
-		B10226 /* MeetingSoftDeleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSoftDeleteTests.swift; sourceTree = "<group>"; };
-		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
-		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
-		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
-		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
-		B10100 /* MeetingTimeBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucket.swift; sourceTree = "<group>"; };
-		B10101 /* MeetingTimeBucketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTimeBucketTests.swift; sourceTree = "<group>"; };
-		B10102 /* MeetingSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndex.swift; sourceTree = "<group>"; };
-		B10103 /* MeetingSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndexTests.swift; sourceTree = "<group>"; };
-		B10713 /* MeetingTagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTagsTests.swift; sourceTree = "<group>"; };
-		B10108 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
-		B10260 /* CasablancaSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaSchema.swift; sourceTree = "<group>"; };
-		B10105 /* PersistenceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceControllerTests.swift; sourceTree = "<group>"; };
-		B10261 /* SchemaMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrationTests.swift; sourceTree = "<group>"; };
-		B10106 /* ExternalStorageSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalStorageSpikeTests.swift; sourceTree = "<group>"; };
-		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
-		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
-		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
-		B10032 /* MarkdownConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownConverter.swift; sourceTree = "<group>"; };
-		B10600 /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
-		B10033 /* MarkdownEditorBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorBundleTests.swift; sourceTree = "<group>"; };
-		B10034 /* MarkdownEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MarkdownEditor; sourceTree = "<group>"; };
 		B10901 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
-		B10035 /* MeetingStartFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartFlowTests.swift; sourceTree = "<group>"; };
-		B10036 /* MeetingPrepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepService.swift; sourceTree = "<group>"; };
 		B10950 /* MeetingSeriesResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSeriesResolver.swift; sourceTree = "<group>"; };
 		B10951 /* MeetingSeriesResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSeriesResolverTests.swift; sourceTree = "<group>"; };
-		B10037 /* MeetingPrepServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceTests.swift; sourceTree = "<group>"; };
-		B10104 /* MeetingPrepServiceWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepServiceWriteTests.swift; sourceTree = "<group>"; };
-		B10038 /* ObsidianTodoMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdownTests.swift; sourceTree = "<group>"; };
-		B10039 /* ObsidianMeetingFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingFiles.swift; sourceTree = "<group>"; };
-		B10040 /* ObsidianTodoMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoMarkdown.swift; sourceTree = "<group>"; };
-		B10041 /* ObsidianTodoSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncServiceTests.swift; sourceTree = "<group>"; };
-		B10042 /* ObsidianTodoSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianTodoSyncService.swift; sourceTree = "<group>"; };
-		B10043 /* PermissionsBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsBehaviorTests.swift; sourceTree = "<group>"; };
-		B10044 /* ExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportServiceTests.swift; sourceTree = "<group>"; };
-		B10045 /* SummarizationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationServiceTests.swift; sourceTree = "<group>"; };
-		B10047 /* RecordingResumeSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStore.swift; sourceTree = "<group>"; };
-		B10048 /* RecordingInterruptionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitor.swift; sourceTree = "<group>"; };
-		B10049 /* RecordingInterruptionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionMonitorTests.swift; sourceTree = "<group>"; };
-		B10050 /* RecordingInterruptionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinator.swift; sourceTree = "<group>"; };
-		B10051 /* RecordingInterruptionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingInterruptionCoordinatorTests.swift; sourceTree = "<group>"; };
-		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
-		B10071 /* AppNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotificationCoordinator.swift; sourceTree = "<group>"; };
-		B10090 /* NotificationAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAuthorization.swift; sourceTree = "<group>"; };
-		B10072 /* MeetingStartNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifier.swift; sourceTree = "<group>"; };
-		B10073 /* MeetingStartNotifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStartNotifierTests.swift; sourceTree = "<group>"; };
-		B10310 /* RecordingSessionFrameAccountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSessionFrameAccountingTests.swift; sourceTree = "<group>"; };
-		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
-		B10054 /* AppPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesTests.swift; sourceTree = "<group>"; };
-		B10055 /* AppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScripting.swift; sourceTree = "<group>"; };
-		B10056 /* InMemoryAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryAppleNotesScripting.swift; sourceTree = "<group>"; };
-		B10057 /* AppleNotesScriptingFakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScriptingFakeTests.swift; sourceTree = "<group>"; };
-		B10058 /* AppleNotesBodyRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesBodyRenderer.swift; sourceTree = "<group>"; };
-		B10059 /* AppleNotesBodyRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesBodyRendererTests.swift; sourceTree = "<group>"; };
-		B10060 /* AppleNotesExportError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesExportError.swift; sourceTree = "<group>"; };
-		B10061 /* AppleNotesExportErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesExportErrorTests.swift; sourceTree = "<group>"; };
-		B10062 /* AppleNotesMeetingExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesMeetingExporter.swift; sourceTree = "<group>"; };
-		B10063 /* AppleNotesMeetingExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesMeetingExporterTests.swift; sourceTree = "<group>"; };
-		B10064 /* NSAppleScriptAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScripting.swift; sourceTree = "<group>"; };
-		B10065 /* NSAppleScriptAppleNotesScriptingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NSAppleScriptAppleNotesScriptingTests.swift; sourceTree = "<group>"; };
-		B10066 /* ObsidianMeetingExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianMeetingExporter.swift; sourceTree = "<group>"; };
-		B10067 /* ExportServiceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportServiceRoutingTests.swift; sourceTree = "<group>"; };
 		B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloader.swift; sourceTree = "<group>"; };
 		B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePathsTests.swift; sourceTree = "<group>"; };
@@ -388,10 +384,14 @@
 		C5B528C25CC65D55848052D4 /* LLMProviderFactoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProviderFactoryTests.swift; sourceTree = "<group>"; };
 		C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateError.swift; sourceTree = "<group>"; };
 		C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-99.0.0-macOS.zip"; sourceTree = "<group>"; };
+		CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CalendarServiceTests.swift; sourceTree = "<group>"; };
+		CHAT0101 /* LLMPromptSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupport.swift; sourceTree = "<group>"; };
+		CHAT0102 /* MeetingChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatService.swift; sourceTree = "<group>"; };
+		CHAT0103 /* MeetingChatTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatTab.swift; sourceTree = "<group>"; };
+		CHAT0104 /* MeetingChatServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatServiceTests.swift; sourceTree = "<group>"; };
+		CHAT0105 /* LLMPromptSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupportTests.swift; sourceTree = "<group>"; };
 		D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminologyService.swift; sourceTree = "<group>"; };
 		D25A8FB5E153EBF6D42BDFA9 /* ActionQueueView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueView.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingCaptureStatus.swift; sourceTree = "<group>"; };
 		D8B8B5B1EC960D341635643A /* UpdatePaths.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePaths.swift; sourceTree = "<group>"; };
 		DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClient.swift; sourceTree = "<group>"; };
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
@@ -462,26 +462,6 @@
 			);
 			name = LLM;
 			path = LLM;
-			sourceTree = "<group>";
-		};
-		E10610 /* Recording */ = {
-			isa = PBXGroup;
-			children = (
-				B10610 /* RecordingTypes.swift */,
-				B10611 /* AudioRecordingService.swift */,
-				B10612 /* AudioInputDeviceProvider.swift */,
-				B10613 /* RecordingSession.swift */,
-				B10614 /* RecordingSegmentMerger.swift */,
-				B10615 /* WAVCodec.swift */,
-				B10616 /* AudioLevelAggregator.swift */,
-				B10617 /* PCMTrackWriter.swift */,
-				B10618 /* MicrophoneCaptureUnit.swift */,
-				B10619 /* SystemAudioCaptureUnit.swift */,
-				B1061A /* RecordingMixdownRenderer.swift */,
-				B1061B /* RecordingCompressor.swift */,
-			);
-			name = Recording;
-			path = Recording;
 			sourceTree = "<group>";
 		};
 		C16AE52BC6C407C652EB053F /* Updates */ = {
@@ -685,31 +665,6 @@
 			path = Components;
 			sourceTree = "<group>";
 		};
-		E10200 /* NotesEditor */ = {
-			isa = PBXGroup;
-			children = (
-				B10200 /* MeetingWorkspacePresentation.swift */,
-				B10201 /* RecordingStatusBar.swift */,
-				B10202 /* FocusRecordingPill.swift */,
-				B10203 /* NotesEditorInspector.swift */,
-				B10204 /* MeetingNotesHeader.swift */,
-			);
-			path = NotesEditor;
-			sourceTree = "<group>";
-		};
-		E10210 /* MeetingDetail */ = {
-			isa = PBXGroup;
-			children = (
-				B10208 /* MeetingDetailPresentation.swift */,
-				B10211 /* MeetingDetailInspector.swift */,
-				B10212 /* MeetingSummaryTab.swift */,
-				B10213 /* MeetingTranscriptTab.swift */,
-				B10214 /* MeetingNotesTab.swift */,
-				CHAT0103 /* MeetingChatTab.swift */,
-			);
-			path = MeetingDetail;
-			sourceTree = "<group>";
-		};
 		E10012 /* CasablancaTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -763,6 +718,51 @@
 				B10226 /* MeetingSoftDeleteTests.swift */,
 			);
 			path = CasablancaTests;
+			sourceTree = "<group>";
+		};
+		E10200 /* NotesEditor */ = {
+			isa = PBXGroup;
+			children = (
+				B10200 /* MeetingWorkspacePresentation.swift */,
+				B10201 /* RecordingStatusBar.swift */,
+				B10202 /* FocusRecordingPill.swift */,
+				B10203 /* NotesEditorInspector.swift */,
+				B10204 /* MeetingNotesHeader.swift */,
+			);
+			path = NotesEditor;
+			sourceTree = "<group>";
+		};
+		E10210 /* MeetingDetail */ = {
+			isa = PBXGroup;
+			children = (
+				B10208 /* MeetingDetailPresentation.swift */,
+				B10211 /* MeetingDetailInspector.swift */,
+				B10212 /* MeetingSummaryTab.swift */,
+				B10213 /* MeetingTranscriptTab.swift */,
+				B10214 /* MeetingNotesTab.swift */,
+				CHAT0103 /* MeetingChatTab.swift */,
+			);
+			path = MeetingDetail;
+			sourceTree = "<group>";
+		};
+		E10610 /* Recording */ = {
+			isa = PBXGroup;
+			children = (
+				B10610 /* RecordingTypes.swift */,
+				B10611 /* AudioRecordingService.swift */,
+				B10612 /* AudioInputDeviceProvider.swift */,
+				B10613 /* RecordingSession.swift */,
+				B10614 /* RecordingSegmentMerger.swift */,
+				B10615 /* WAVCodec.swift */,
+				B10616 /* AudioLevelAggregator.swift */,
+				B10617 /* PCMTrackWriter.swift */,
+				B10618 /* MicrophoneCaptureUnit.swift */,
+				B10619 /* SystemAudioCaptureUnit.swift */,
+				B1061A /* RecordingMixdownRenderer.swift */,
+				B1061B /* RecordingCompressor.swift */,
+			);
+			name = Recording;
+			path = Recording;
 			sourceTree = "<group>";
 		};
 		F0FD78121BD9F422E1B23EB5 /* LLM */ = {
@@ -1165,10 +1165,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				OTHER_CODE_SIGN_FLAGS = (
-					"-r",
-					"$(SRCROOT)/scripts/casablanca.req",
-				);
+				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1203,10 +1200,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.8.2;
-				OTHER_CODE_SIGN_FLAGS = (
-					"-r",
-					"$(SRCROOT)/scripts/casablanca.req",
-				);
+				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
