@@ -280,39 +280,10 @@ private struct ActionQueueDetailSheet: View {
                         originBlock(source)
                     }
 
-                    // Proposed reply — the editable draft Youri approves/declines.
-                    if isDraft {
-                        VStack(alignment: .leading, spacing: CasaSpace.xs) {
-                            HStack(spacing: CasaSpace.xs) {
-                                Image(systemName: "pencil.line")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.accentSecondary)
-                                Text(draftLabel)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Color.textSecondary)
-                                Text("· editable")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.textTertiary)
-                            }
-                            if editedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text("No draft text yet — type a reply or ask your copilot to prepare one.")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.accentWarning)
-                            }
-                            TextEditor(text: $editedBody)
-                                .font(.system(.body))
-                                .frame(minHeight: 220)
-                                .scrollContentBackground(.hidden)
-                                .padding(CasaSpace.sm)
-                                .background(
-                                    RoundedRectangle(cornerRadius: CasaRadius.md)
-                                        .fill(Color.accentSecondary.opacity(0.06))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: CasaRadius.md)
-                                        .stroke(Color.textTertiary.opacity(0.3))
-                                )
-                        }
+                    // Proposed reply — routed to the per-bucket approval card.
+                    // Todos are kind=task but still render their (display-only) card.
+                    if isDraft || item.bucket == .todo {
+                        ActionCardView(item: item, editedBody: $editedBody)
                     }
 
                     // A steer already sent back to the copilot (item is being re-drafted).
@@ -451,16 +422,6 @@ private struct ActionQueueDetailSheet: View {
         .frame(width: 360)
     }
 
-    private var draftLabel: String {
-        switch item.draftType {
-        case .jira: return "Proposed comment"
-        case .teams: return "Proposed message"
-        case .calendar: return "Proposed event"
-        case .topdesk: return "Proposed response"
-        case .email, .other, .unknown, .none: return "Proposed reply"
-        }
-    }
-
     private func labeledBlock(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: CasaSpace.xxs) {
             Text(label)
@@ -516,6 +477,15 @@ private struct ActionQueueDetailSheet: View {
                     Button("Approve") {
                         let trimmed = editedBody == item.body ? nil : editedBody
                         model.approve(id: item.id, editedBody: trimmed)
+                        onDismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                } else if item.bucket == .todo {
+                    Spacer()
+
+                    Button("Mark complete") {
+                        model.completeLocally(id: item.id)
                         onDismiss()
                     }
                     .buttonStyle(.borderedProminent)
