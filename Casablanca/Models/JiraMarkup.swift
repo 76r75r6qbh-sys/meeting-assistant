@@ -106,10 +106,13 @@ func parseJiraMarkup(_ s: String) -> [JiraBlock] {
             while j < lines.count {
                 let t = lines[j].trimmingCharacters(in: .whitespaces)
                 guard isTableRow(t) else { break }
-                if isHeaderRow(t) {
+                if isHeaderRow(t) && headers.isEmpty && rows.isEmpty {
+                    // Only the first row may define headers. A later ||..|| row is
+                    // treated as a body row so its content is never dropped.
                     headers = parseTableCells(t, separator: "||")
                 } else {
-                    rows.append(parseTableCells(t, separator: "|"))
+                    // A doubled-pipe row demoted to a body row still splits on "||".
+                    rows.append(parseTableCells(t, separator: isHeaderRow(t) ? "||" : "|"))
                 }
                 j += 1
             }
@@ -291,12 +294,22 @@ func parseInline(_ s: String) -> [JiraInline] {
                 let inner = String(chars[(i + 1)..<close])
                 if !inner.isEmpty {
                     flushLiteral()
+                    let text: String
+                    let url: String
                     if let pipe = inner.firstIndex(of: "|") {
-                        let text = String(inner[inner.startIndex..<pipe])
-                        let url = String(inner[inner.index(after: pipe)...])
+                        text = String(inner[inner.startIndex..<pipe])
+                        url = String(inner[inner.index(after: pipe)...])
+                    } else {
+                        text = inner
+                        url = inner
+                    }
+                    // Keep the AST honest: only emit `.link` for a URL that
+                    // actually parses; otherwise degrade the visible text to
+                    // literal so the view never claims a dead link.
+                    if URL(string: url) != nil {
                         result.append(.link(text: text, url: url))
                     } else {
-                        result.append(.link(text: inner, url: inner))
+                        result.append(.text(text))
                     }
                     i = close + 1
                     continue

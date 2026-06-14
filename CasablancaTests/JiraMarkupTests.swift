@@ -239,4 +239,33 @@ final class JiraMarkupTests: XCTestCase {
         let cr = "* a\r* b"
         XCTAssertEqual(parseJiraMarkup(cr), parseJiraMarkup(lf))
     }
+
+    // MARK: - Degrade-gracefully consistency (review fixes)
+
+    func test_malformedURL_degradesToLiteralText() {
+        // A URL that does not parse must not produce a dead `.link`; the visible
+        // text is kept as literal instead.
+        let blocks = parseJiraMarkup("see [click here|http://a b]")
+        XCTAssertEqual(blocks, [.paragraph([.text("see "), .text("click here")])])
+    }
+
+    func test_validURL_stillProducesLink() {
+        let blocks = parseJiraMarkup("[IO-1|https://jira/IO-1]")
+        XCTAssertEqual(blocks, [.paragraph([.link(text: "IO-1", url: "https://jira/IO-1")])])
+    }
+
+    func test_table_secondHeaderRowBecomesBodyRowNotDropped() {
+        // Only the first ||..|| row defines headers; a later one is demoted to a
+        // body row so its content is never silently dropped.
+        let blocks = parseJiraMarkup("||A||B||\n|1|2|\n||C||D||")
+        XCTAssertEqual(blocks, [
+            .table(
+                headers: [[.text("A")], [.text("B")]],
+                rows: [
+                    [[.text("1")], [.text("2")]],
+                    [[.text("C")], [.text("D")]],
+                ]
+            )
+        ])
+    }
 }
