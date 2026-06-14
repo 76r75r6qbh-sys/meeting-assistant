@@ -13,36 +13,23 @@ struct CompositeLinkedCard: View {
     let model: ActionQueueModel
     let onDismiss: () -> Void
 
-    /// Per-sub-item edited body, keyed by item id and seeded from each body.
-    @State private var editedBodies: [String: String]
+    /// Per-sub-item edited body, keyed by item id. Intentionally NOT pre-seeded:
+    /// an absent key reads the item's current body (see `bodyBinding`), so a
+    /// re-drafted (revision→pending) item never approves with a stale body.
+    @State private var editedBodies: [String: String] = [:]
     @State private var revisingId: String?
     @State private var revisionPrompt: String = ""
-
-    init(
-        primary: ActionQueueItem,
-        linked: [ActionQueueItem],
-        model: ActionQueueModel,
-        onDismiss: @escaping () -> Void
-    ) {
-        self.primary = primary
-        self.linked = linked
-        self.model = model
-        self.onDismiss = onDismiss
-        var seed: [String: String] = [:]
-        for item in [primary] + linked {
-            seed[item.id] = item.body
-        }
-        _editedBodies = State(initialValue: seed)
-    }
 
     /// All sub-items in display order, primary first.
     private var allItems: [ActionQueueItem] {
         [primary] + linked
     }
 
-    /// A sub-item is still actionable when pending or revision-requested.
-    private func isPending(_ item: ActionQueueItem) -> Bool {
-        item.status == .pending || item.status == .revisionRequested
+    /// A sub-item is actionable (Approve/Decline/Revise, counts toward
+    /// "Approve all") only while pending. Declined/revision-requested items are
+    /// shown greyed-out per the schema, with no live actions.
+    private func isActionable(_ item: ActionQueueItem) -> Bool {
+        item.status == .pending
     }
 
     /// Greyed-out sub-cards: declined or revision-requested stay visible but
@@ -87,7 +74,7 @@ struct CompositeLinkedCard: View {
     }
 
     private var pendingCount: Int {
-        allItems.filter(isPending).count
+        allItems.filter(isActionable).count
     }
 
     private var bottomBar: some View {
@@ -140,7 +127,7 @@ struct CompositeLinkedCard: View {
 
             ActionCardView(item: item, editedBody: bodyBinding(for: item))
 
-            if isPending(item) {
+            if isActionable(item) {
                 subCardActions(item)
             }
         }
@@ -238,7 +225,7 @@ struct CompositeLinkedCard: View {
 
     /// Approve every still-pending sub-card, then dismiss.
     private func approveAll() {
-        for item in allItems where isPending(item) {
+        for item in allItems where isActionable(item) {
             approve(item)
         }
         onDismiss()
