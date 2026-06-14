@@ -139,8 +139,17 @@ struct CasablancaApp: App {
             }
         }
 
-        MenuBarExtra("Casablanca", systemImage: "record.circle") {
+        MenuBarExtra {
             MenuBarMeetingView(viewModel: appModel.meetingListViewModel)
+        } label: {
+            // Reading pendingCount here keeps the menu-bar item reactive: it
+            // updates whenever the action queue reloads (launch, file watcher,
+            // in-app mutation). Image + trailing Text keeps the record.circle
+            // glyph and shows the count beside it when there are pending items.
+            Image(systemName: "record.circle")
+            if appModel.actionQueueModel.pendingCount > 0 {
+                Text("\(appModel.actionQueueModel.pendingCount)")
+            }
         }
         .modelContainer(sharedModelContainer)
         .menuBarExtraStyle(.window)
@@ -236,7 +245,10 @@ final class AppModel {
         }
 
         // Populate the approvals badge and start watching early — before the
-        // (potentially slow) calendar permission check.
+        // (potentially slow) calendar permission check. The callback is set
+        // before the first reload so launch, watcher-driven reloads, and every
+        // in-app mutation all refresh the Dock badge (even with no window open).
+        actionQueueModel.onPendingCountChange = { count in DockBadge.apply(count: count) }
         actionQueueModel.reload()
         actionQueueModel.startWatching()
 

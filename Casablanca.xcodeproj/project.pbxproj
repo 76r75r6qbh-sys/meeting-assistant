@@ -26,6 +26,7 @@
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
+		3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */; };
 		405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
@@ -212,6 +213,7 @@
 		CHAT0004 /* MeetingChatServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0104 /* MeetingChatServiceTests.swift */; };
 		CHAT0005 /* LLMPromptSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0105 /* LLMPromptSupportTests.swift */; };
 		DBA9D1B7DEB384F9DCBDEEF6 /* ActionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */; };
+		DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F665A23474FE05E8763B831 /* DockBadge.swift */; };
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
@@ -247,6 +249,7 @@
 		1F5FB51D6114AB97758F1F61 /* JiraLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/JiraLink.swift; sourceTree = SOURCE_ROOT; };
 		20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		20D3C3AD74A9DB1208328F42 /* RoadmapCommitmentCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RoadmapCommitmentCard.swift; sourceTree = SOURCE_ROOT; };
+		22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/DockBadgeTests.swift; sourceTree = SOURCE_ROOT; };
 		23A222AA67614DF883F5F76C /* RefinementPrepCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RefinementPrepCard.swift; sourceTree = SOURCE_ROOT; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
 		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
@@ -263,6 +266,7 @@
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
+		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6A10EB29639B23646888C040 /* RefinementPrepBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RefinementPrepBody.swift; sourceTree = SOURCE_ROOT; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
@@ -637,6 +641,7 @@
 				B27D68C2A33237168146A7AD /* LLM */,
 				F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */,
 				348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */,
+				5F665A23474FE05E8763B831 /* DockBadge.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -797,6 +802,7 @@
 				D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */,
 				0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */,
 				748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */,
+				22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1124,6 +1130,7 @@
 				9360DE1FB664D7A47C863B61 /* RoadmapCommitmentCard.swift in Sources */,
 				3285625BEB1C852A6F9746E0 /* CompositeLinkedCard.swift in Sources */,
 				A40819F539B3CA03A87824C3 /* JiraLink.swift in Sources */,
+				DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1198,6 +1205,7 @@
 				640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */,
 				98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */,
 				8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */,
+				3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

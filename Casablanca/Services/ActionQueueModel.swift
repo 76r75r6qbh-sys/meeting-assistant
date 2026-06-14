@@ -15,6 +15,11 @@ final class ActionQueueModel {
     /// The queue still loads and works; this just informs the user.
     private(set) var loadWarning: String?
 
+    /// Invoked at the end of every `reload()` with the current `pendingCount`.
+    /// The app supplies this to drive the Dock/menu-bar badge, keeping Services
+    /// free of AppKit. Always fires exactly once per reload (success or failure).
+    @ObservationIgnored var onPendingCountChange: ((Int) -> Void)?
+
     @ObservationIgnored private var watchSource: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedFD: CInt = -1
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
@@ -42,6 +47,10 @@ final class ActionQueueModel {
         } catch {
             loadError = error.localizedDescription
         }
+        // Fire once per reload, on both paths, so a load failure can't leave a
+        // stale badge. On error `items` is unchanged, so `pendingCount` reflects
+        // the last good load.
+        onPendingCountChange?(pendingCount)
     }
 
     /// Build a non-fatal warning for items that couldn't be parsed or carried
