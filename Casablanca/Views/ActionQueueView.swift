@@ -455,6 +455,8 @@ private struct ActionQueueDetailSheet: View {
         switch item.draftType {
         case .jira: return "Proposed comment"
         case .teams: return "Proposed message"
+        case .calendar: return "Proposed event"
+        case .topdesk: return "Proposed response"
         case .email, .other, .unknown, .none: return "Proposed reply"
         }
     }
