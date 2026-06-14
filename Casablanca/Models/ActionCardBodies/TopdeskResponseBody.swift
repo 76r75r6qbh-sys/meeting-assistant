@@ -21,7 +21,7 @@ struct TopdeskResponseBody: Equatable {
         case internalOnly
 
         init(parsing raw: String) {
-            switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "internal-only": self = .internalOnly
             case "visible-to-caller": self = .visibleToCaller
             // Unrecognized → default to visible-to-caller (but still record it).
@@ -60,7 +60,8 @@ struct TopdeskResponseBody: Equatable {
         self.response = response
     }
 
-    init?(parsing body: String) {
+    init?(parsing raw: String) {
+        let body = ActionBodyParsing.normalizeNewlines(raw)
         let (headers, after) = ActionBodyParsing.parseHeaders(body, bodyDelimiter: "---RESPONSE---")
         guard let mcRef = headers.nonEmpty("mc-ref"),
               let customer = headers.nonEmpty("customer") else {

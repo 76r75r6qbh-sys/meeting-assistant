@@ -41,7 +41,8 @@ struct RoadmapCommitmentBody: Equatable {
         self.ticket = ticket
     }
 
-    init?(parsing body: String) {
+    init?(parsing raw: String) {
+        let body = ActionBodyParsing.normalizeNewlines(raw)
         let (headers, after) = ActionBodyParsing.parseHeaders(body, bodyDelimiter: "---TICKET---")
         guard let asker = headers.nonEmpty("asker"),
               let promisedTimeline = headers.nonEmpty("promised timeline") else {
@@ -68,11 +69,10 @@ struct RoadmapCommitmentBody: Equatable {
         if let ticket {
             lines.append("")
             lines.append("---TICKET---")
-            // Serialize the slim ticket as Project / Summary / Description so it
-            // round-trips through the slim parser.
-            lines.append("Project: \(ticket.project)")
-            lines.append("Summary: \(ticket.summary)")
-            lines.append("Description: \(ticket.description)")
+            // Delegate to the ticket's own serializer so rich fields (issue
+            // type, labels, priority, custom fields, ...) survive the round
+            // trip. The slim parser accepts the full `---DESCRIPTION---` form.
+            lines.append(ticket.serialized())
         }
         return lines.joined(separator: "\n")
     }

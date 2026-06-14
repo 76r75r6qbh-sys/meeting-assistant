@@ -61,6 +61,30 @@ final class ActionCardBodyTests: XCTestCase {
         XCTAssertEqual(reparsed, parsed)
     }
 
+    func testPartnerApiReplyCRLFRoundTrip() {
+        // Realistic Outlook/Teams-origin body with CRLF separators.
+        let lf = """
+        To: l.geijsen@praktikon.nl
+        Cc: kim@medicore.nl, arriejanne@medicore.nl
+        Subject: API access to the MINT API
+
+        Hi Lisanne,
+
+        Here is the OpenAPI spec you requested.
+
+        Kind regards,
+        Youri
+        """
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        let fromLF = PartnerApiReplyBody(parsing: lf)
+        let fromCRLF = PartnerApiReplyBody(parsing: crlf)
+        XCTAssertNotNil(fromCRLF)
+        XCTAssertEqual(fromCRLF, fromLF)
+        // No stray carriage returns survive into parsed values.
+        XCTAssertFalse(fromCRLF?.bodyText.contains("\r") ?? true)
+        XCTAssertEqual(fromCRLF?.subject, "API access to the MINT API")
+    }
+
     func testPartnerApiReplyMalformed() {
         // Missing Subject.
         XCTAssertNil(PartnerApiReplyBody(parsing: "To: a@b.nl\n\nBody"))
@@ -151,6 +175,37 @@ final class ActionCardBodyTests: XCTestCase {
         XCTAssertEqual(slim?.project, "IO")
         XCTAssertEqual(slim?.summary, "Tracking story for promised feature")
         XCTAssertEqual(slim?.description, "We promised this in Q3.")
+    }
+
+    func testTicketDraftCRLFRoundTrip() {
+        // Realistic body with the ---DESCRIPTION--- delimiter and CRLF endings.
+        let lf = """
+        Project: IO
+        Issue type: Bug
+        Summary: BgZ exchange fails on empty payload
+        Priority: High
+        Labels: wegiz, bgz
+        Components: Integration, API
+        Custom fields:
+          - Release notes radio: Yes-External
+          - Severity: Critical
+
+        ---DESCRIPTION---
+        h2. Environment
+        Version: 2026.3
+        """
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        let fromLF = TicketDraftBody(parsing: lf)
+        let fromCRLF = TicketDraftBody(parsing: crlf)
+        XCTAssertNotNil(fromCRLF)
+        XCTAssertEqual(fromCRLF, fromLF)
+        XCTAssertFalse(fromCRLF?.description.contains("\r") ?? true)
+        XCTAssertEqual(fromCRLF?.labels, ["wegiz", "bgz"])
+        XCTAssertEqual(fromCRLF?.customFields, [
+            .init(name: "Release notes radio", value: "Yes-External"),
+            .init(name: "Severity", value: "Critical"),
+        ])
+        XCTAssertEqual(fromCRLF?.description, "h2. Environment\nVersion: 2026.3")
     }
 
     func testTicketDraftMalformed() {
@@ -347,6 +402,35 @@ final class ActionCardBodyTests: XCTestCase {
         let parsed = RoadmapCommitmentBody(parsing: body)!
         let reparsed = RoadmapCommitmentBody(parsing: parsed.serialized())
         XCTAssertEqual(reparsed, parsed)
+    }
+
+    func testRoadmapCommitmentRichNestedTicketRoundTrip() {
+        // A nested ticket carrying rich fields (issue type, labels, a custom
+        // field) must survive serialize → parse via the slim parser.
+        let ticket = TicketDraftBody(
+            project: "IO",
+            issueType: "Story",
+            summary: "BgZ consumer roadmap commitment",
+            labels: ["wegiz", "roadmap"],
+            customFields: [.init(name: "Release notes radio", value: "Yes-External")],
+            description: "Promised to Marcel for 2026.4."
+        )
+        let original = RoadmapCommitmentBody(
+            asker: "Marcel van den Berg",
+            topic: "When will BgZ consumer be ready",
+            promisedTimeline: "release 2026.4",
+            sourceLine: "Teams 1:1 — https://teams.microsoft.com/l/message/19:abc/167",
+            permalink: "https://teams.microsoft.com/l/message/19:abc/167",
+            ticket: ticket
+        )
+        let reparsed = RoadmapCommitmentBody(parsing: original.serialized())
+        XCTAssertEqual(reparsed, original)
+        // Specifically verify the rich nested fields were not dropped.
+        XCTAssertEqual(reparsed?.ticket?.issueType, "Story")
+        XCTAssertEqual(reparsed?.ticket?.labels, ["wegiz", "roadmap"])
+        XCTAssertEqual(reparsed?.ticket?.customFields, [
+            .init(name: "Release notes radio", value: "Yes-External"),
+        ])
     }
 
     func testRoadmapCommitmentMalformed() {

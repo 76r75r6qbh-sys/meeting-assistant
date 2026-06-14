@@ -58,7 +58,8 @@ struct RefinementPrepBody: Equatable {
         self.openComments = openComments
     }
 
-    init?(parsing body: String) {
+    init?(parsing raw: String) {
+        let body = ActionBodyParsing.normalizeNewlines(raw)
         let (headers, _) = ActionBodyParsing.parseHeaders(body)
         guard let storyRaw = headers.nonEmpty("story"),
               let proposedRadio = headers.nonEmpty("proposed radio") else {
@@ -77,7 +78,7 @@ struct RefinementPrepBody: Equatable {
         self.estimation = headers["estimation"] ?? ""
 
         let gapsRaw = headers["ac gaps"] ?? ""
-        self.acGaps = gapsRaw.trimmingCharacters(in: .whitespaces).lowercased() == "none"
+        self.acGaps = gapsRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "none"
             ? []
             : ActionBodyParsing.list(gapsRaw)
 
@@ -90,12 +91,12 @@ struct RefinementPrepBody: Equatable {
     private static func splitStory(_ raw: String) -> (key: String, title: String) {
         for separator in [" — ", " - "] {
             if let range = raw.range(of: separator) {
-                let key = String(raw[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-                let title = String(raw[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                let key = String(raw[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = String(raw[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 return (key, title)
             }
         }
-        return (raw.trimmingCharacters(in: .whitespaces), "")
+        return (raw.trimmingCharacters(in: .whitespacesAndNewlines), "")
     }
 
     func serialized() -> String {

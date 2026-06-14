@@ -61,7 +61,8 @@ struct CalendarEventBody: Equatable {
         self.agenda = agenda
     }
 
-    init?(parsing body: String) {
+    init?(parsing raw: String) {
+        let body = ActionBodyParsing.normalizeNewlines(raw)
         let (headers, _) = ActionBodyParsing.parseHeaders(body)
         guard let subject = headers.nonEmpty("subject"),
               let whenRaw = headers.nonEmpty("when") else {

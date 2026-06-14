@@ -20,6 +20,7 @@
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
+		405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
@@ -226,6 +227,7 @@
 		3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TicketDraftBody.swift; sourceTree = SOURCE_ROOT; };
 		348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModel.swift; sourceTree = "<group>"; };
 		3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
+		3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/ActionBodyParsing.swift; sourceTree = SOURCE_ROOT; };
 		42DC02442B940A212DC35C19 /* ActionQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueue.swift; sourceTree = "<group>"; };
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
@@ -804,6 +806,7 @@
 				6A10EB29639B23646888C040 /* RefinementPrepBody.swift */,
 				70A686D86A50999F7D642EE8 /* RoadmapCommitmentBody.swift */,
 				FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */,
+				3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */,
 			);
 			name = ActionCardBodies;
 			path = ActionCardBodies;
@@ -1043,6 +1046,7 @@
 				7D8DF90A81336C65087E3FC3 /* RefinementPrepBody.swift in Sources */,
 				17B5F5EBE3BE4BD0F0533E94 /* RoadmapCommitmentBody.swift in Sources */,
 				6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */,
+				405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

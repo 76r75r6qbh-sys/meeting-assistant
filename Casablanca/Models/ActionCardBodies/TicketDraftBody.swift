@@ -85,7 +85,8 @@ struct TicketDraftBody: Equatable {
         self.init(parsing: body, requireIssueType: false)
     }
 
-    private init?(parsing body: String, requireIssueType: Bool) {
+    private init?(parsing raw: String, requireIssueType: Bool) {
+        let body = ActionBodyParsing.normalizeNewlines(raw)
         let (headers, after) = ActionBodyParsing.parseHeaders(body, bodyDelimiter: "---DESCRIPTION---")
         guard let project = headers.nonEmpty("project"),
               let summary = headers.nonEmpty("summary") else {
@@ -122,7 +123,7 @@ struct TicketDraftBody: Equatable {
         var fields: [CustomField] = []
         var inBlock = false
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed == "---DESCRIPTION---" { break }
             if !inBlock {
                 if trimmed.lowercased() == "custom fields:" {
@@ -136,10 +137,10 @@ struct TicketDraftBody: Equatable {
                 if trimmed.isEmpty { continue }
                 break
             }
-            let entry = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+            let entry = trimmed.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
             guard let colon = entry.firstIndex(of: ":") else { continue }
-            let name = String(entry[..<colon]).trimmingCharacters(in: .whitespaces)
-            let value = String(entry[entry.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            let name = String(entry[..<colon]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(entry[entry.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
             fields.append(CustomField(name: name, value: value))
         }
