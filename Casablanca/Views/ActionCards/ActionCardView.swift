@@ -49,22 +49,8 @@ struct ActionCardView: View {
         LegacyDraftEditor(label: ActionCardView.legacyLabel(for: item), editedBody: $editedBody)
     }
 
-    /// `true` when the rendered card manages its own "no draft text" empty-state
-    /// (parsed cards and the todo card), so the detail sheet should NOT add the
-    /// legacy empty-state warning. `false` means the legacy editor is in use and
-    /// keeps its existing warning.
-    var handlesOwnEmptyState: Bool {
-        switch item.bucket {
-        case .partnerApiReply: return PartnerApiReplyBody(parsing: item.body) != nil
-        case .topdeskResponse: return TopdeskResponseBody(parsing: item.body) != nil
-        case .calendarEvent: return CalendarEventBody(parsing: item.body) != nil
-        case .todo: return true
-        case .ticketDraft, .refinementPrep, .roadmapCommitment, .unknown, .none:
-            return false
-        }
-    }
-
-    /// The legacy editor's label, mirroring the sheet's `draftLabel` mapping.
+    /// The legacy editor's label (each parsed/empty-state card owns its own
+    /// header; this is only used by the `LegacyDraftEditor` fallback).
     static func legacyLabel(for item: ActionQueueItem) -> String {
         switch item.draftType {
         case .jira: return "Proposed comment"

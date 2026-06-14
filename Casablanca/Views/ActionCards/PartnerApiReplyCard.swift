@@ -64,6 +64,8 @@ struct PartnerApiReplyCard: View {
                             }
                             .buttonStyle(.plain)
                             .help("Reveal in Finder")
+                            .accessibilityLabel("Attachment \(URL(fileURLWithPath: path).lastPathComponent)")
+                            .accessibilityHint("Reveal in Finder")
                         }
                     }
                 }

@@ -45,6 +45,7 @@ struct TopdeskResponseCard: View {
             }
             .toggleStyle(.switch)
             .controlSize(.small)
+            .accessibilityLabel("Visible to caller")
 
             // Jira link chip — only when present.
             if let jira = model.addJiraLink, !jira.isEmpty {
@@ -57,6 +58,8 @@ struct TopdeskResponseCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(jiraURL(jira) != nil ? "Open in browser" : jira)
+                .accessibilityLabel("Linked Jira issue \(jira)")
+                .accessibilityHint(jiraURL(jira) != nil ? "Open in browser" : "")
             }
 
             // Response body — editable.
