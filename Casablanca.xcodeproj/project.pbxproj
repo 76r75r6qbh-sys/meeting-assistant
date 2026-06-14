@@ -122,7 +122,9 @@
 		A10103 /* MeetingSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MeetingSearchIndexTests.swift */; };
 		A10713 /* MeetingTagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10713 /* MeetingTagsTests.swift */; };
 		A10108 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10108 /* PersistenceController.swift */; };
+		A10260 /* CasablancaSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10260 /* CasablancaSchema.swift */; };
 		A10105 /* PersistenceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* PersistenceControllerTests.swift */; };
+		A10261 /* SchemaMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10261 /* SchemaMigrationTests.swift */; };
 		A10106 /* ExternalStorageSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* ExternalStorageSpikeTests.swift */; };
 		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
 		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
@@ -325,7 +327,9 @@
 		B10103 /* MeetingSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearchIndexTests.swift; sourceTree = "<group>"; };
 		B10713 /* MeetingTagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTagsTests.swift; sourceTree = "<group>"; };
 		B10108 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		B10260 /* CasablancaSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaSchema.swift; sourceTree = "<group>"; };
 		B10105 /* PersistenceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceControllerTests.swift; sourceTree = "<group>"; };
+		B10261 /* SchemaMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaMigrationTests.swift; sourceTree = "<group>"; };
 		B10106 /* ExternalStorageSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalStorageSpikeTests.swift; sourceTree = "<group>"; };
 		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
 		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
@@ -531,6 +535,7 @@
 			isa = PBXGroup;
 			children = (
 				B10003 /* Meeting.swift */,
+				B10260 /* CasablancaSchema.swift */,
 				B10026 /* TodoItem.swift */,
 				B10029 /* PendingTodoReview.swift */,
 				B10053 /* AppPreferences.swift */,
@@ -715,6 +720,7 @@
 				B10103 /* MeetingSearchIndexTests.swift */,
 				B10713 /* MeetingTagsTests.swift */,
 				B10105 /* PersistenceControllerTests.swift */,
+				B10261 /* SchemaMigrationTests.swift */,
 				B10106 /* ExternalStorageSpikeTests.swift */,
 				B10033 /* MarkdownEditorBundleTests.swift */,
 				B10801 /* NativeMarkdownEditorTests.swift */,
@@ -959,6 +965,7 @@
 				A10042 /* ObsidianTodoSyncService.swift in Sources */,
 				A10047 /* RecordingResumeSessionStore.swift in Sources */,
 				A10108 /* PersistenceController.swift in Sources */,
+				A10260 /* CasablancaSchema.swift in Sources */,
 				A10048 /* RecordingInterruptionMonitor.swift in Sources */,
 				A10050 /* RecordingInterruptionCoordinator.swift in Sources */,
 				A10052 /* RecordingNotificationCenter.swift in Sources */,
@@ -1014,6 +1021,7 @@
 				A10103 /* MeetingSearchIndexTests.swift in Sources */,
 				A10713 /* MeetingTagsTests.swift in Sources */,
 				A10105 /* PersistenceControllerTests.swift in Sources */,
+				A10261 /* SchemaMigrationTests.swift in Sources */,
 				A10106 /* ExternalStorageSpikeTests.swift in Sources */,
 				A10033 /* MarkdownEditorBundleTests.swift in Sources */,
 				A10801 /* NativeMarkdownEditorTests.swift in Sources */,
@@ -1140,7 +1148,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1156,7 +1164,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.8.1;
 				OTHER_CODE_SIGN_FLAGS = (
 					"-r",
 					"$(SRCROOT)/scripts/casablanca.req",
@@ -1178,7 +1186,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1194,7 +1202,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.8.1;
 				OTHER_CODE_SIGN_FLAGS = (
 					"-r",
 					"$(SRCROOT)/scripts/casablanca.req",

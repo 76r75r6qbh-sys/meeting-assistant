@@ -125,4 +125,82 @@ final class PersistenceControllerTests: XCTestCase {
         XCTAssertEqual(backups.count, 1)
         XCTAssertTrue(backups[0].lastPathComponent.hasPrefix("default.store."))
     }
+
+    // MARK: - Pre-open backup net (the data-loss guarantee)
+
+    private func backupSuffix() -> String { ".pre-open-backup" }
+
+    func test_backUpStore_copiesStoreAndSidecars_leavingOriginalsInPlace() throws {
+        let storeURL = storeURL()
+        try writeStubStoreFiles(at: storeURL)
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let created = PersistenceController.backUpStore(at: storeURL, keeping: 3, now: fixedDate)
+
+        // A full backup set: store + -wal + -shm.
+        XCTAssertEqual(created.count, 3)
+        let fm = FileManager.default
+        for url in created {
+            XCTAssertTrue(url.lastPathComponent.hasSuffix(backupSuffix()))
+            XCTAssertTrue(fm.fileExists(atPath: url.path), "backup should exist: \(url.lastPathComponent)")
+        }
+        // COPY, not move: the live store files must still be in place.
+        for original in PersistenceController.storeFileURLs(for: storeURL) {
+            XCTAssertTrue(fm.fileExists(atPath: original.path), "original must remain: \(original.lastPathComponent)")
+        }
+    }
+
+    func test_backUpStore_missingStore_isNoOp() throws {
+        // No store file written at all.
+        let created = PersistenceController.backUpStore(at: storeURL(), keeping: 3)
+
+        XCTAssertEqual(created, [])
+        let contents = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        XCTAssertTrue(contents.isEmpty, "missing store must produce no backups")
+    }
+
+    func test_backUpStore_prunesToMostRecentThreeSets() throws {
+        let storeURL = storeURL()
+        try writeStubStoreFiles(at: storeURL)
+
+        // Five launches at distinct, increasing timestamps → five backup sets.
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        for offset in 0..<5 {
+            let when = base.addingTimeInterval(TimeInterval(offset))
+            PersistenceController.backUpStore(at: storeURL, keeping: 3, now: when)
+        }
+
+        let fm = FileManager.default
+        let backupNames = try fm.contentsOfDirectory(atPath: tempDir.path)
+            .filter { $0.hasSuffix(backupSuffix()) }
+
+        // Each set has 3 files; only the most recent 3 sets survive → 9 files.
+        XCTAssertEqual(backupNames.count, 9, "should keep exactly 3 backup sets")
+
+        // Distinct stamp tokens (second-to-last dot component) should number 3.
+        let stamps = Set(backupNames.compactMap { name -> String? in
+            let withoutSuffix = String(name.dropLast(backupSuffix().count))
+            return withoutSuffix.split(separator: ".").last.map(String.init)
+        })
+        XCTAssertEqual(stamps.count, 3)
+
+        // The pruned (oldest two) stamps must be gone; the newest three kept.
+        let kept = (2...4).map { offset in
+            stampString(from: base.addingTimeInterval(TimeInterval(offset)))
+        }
+        let pruned = (0...1).map { offset in
+            stampString(from: base.addingTimeInterval(TimeInterval(offset)))
+        }
+        XCTAssertTrue(kept.allSatisfy { stamps.contains($0) }, "newest 3 stamps must be kept")
+        XCTAssertTrue(pruned.allSatisfy { !stamps.contains($0) }, "oldest 2 stamps must be pruned")
+    }
+
+    /// Mirror of PersistenceController's private stamp format for assertions.
+    private func stampString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
 }

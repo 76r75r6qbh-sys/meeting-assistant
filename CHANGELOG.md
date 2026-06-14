@@ -2,6 +2,16 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-06-14
+
+### Fixed
+
+- Automatic pre-migration store backup — the meeting database is copied aside before every launch so an upgrade can never make data unrecoverable (the last 3 backups are kept).
+
+### Changed
+
+- Explicit, versioned SwiftData migration plan so schema upgrades are deterministic across macOS versions instead of relying on inference (which silently reset some v0.8.0 stores).
+
 ## [0.8.0] — 2026-06-14
 
 A large quality + feature release: new meeting intelligence features, a reliability and performance pass across the recording → transcription → summary → export pipeline, an internal architecture cleanup, and broad UX polish.
