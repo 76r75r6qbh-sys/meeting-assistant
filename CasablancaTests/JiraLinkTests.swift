@@ -6,12 +6,12 @@ final class JiraLinkTests: XCTestCase {
 
     func testURLForPlainKey() {
         let url = JiraLink.url(forKey: "IO-1234")
-        XCTAssertEqual(url?.absoluteString, "https://medicore.atlassian.net/browse/IO-1234")
+        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.com/browse/IO-1234")
     }
 
     func testURLForKeyTrimsWhitespace() {
         let url = JiraLink.url(forKey: "  MCINT-7  ")
-        XCTAssertEqual(url?.absoluteString, "https://medicore.atlassian.net/browse/MCINT-7")
+        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.com/browse/MCINT-7")
     }
 
     func testURLForEmptyKeyIsNil() {
@@ -24,14 +24,14 @@ final class JiraLinkTests: XCTestCase {
     }
 
     func testURLFromTargetWithFullURL() {
-        let target = "Story IO-99 at https://medicore.atlassian.net/browse/IO-99 needs review"
+        let target = "Story IO-99 at https://tenzinger.atlassian.com/browse/IO-99 needs review"
         let url = JiraLink.url(fromTarget: target)
-        XCTAssertEqual(url?.absoluteString, "https://medicore.atlassian.net/browse/IO-99")
+        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.com/browse/IO-99")
     }
 
     func testURLFromTargetWithIssueKeyOnly() {
         let url = JiraLink.url(fromTarget: "Refinement for IO-4321")
-        XCTAssertEqual(url?.absoluteString, "https://medicore.atlassian.net/browse/IO-4321")
+        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.com/browse/IO-4321")
     }
 
     func testURLFromTargetJunkIsNil() {

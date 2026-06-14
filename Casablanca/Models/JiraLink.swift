@@ -4,8 +4,7 @@ import Foundation
 /// item's freeform `target` string. Used by the refinement-prep and ticket cards
 /// to make story / issue keys clickable.
 enum JiraLink {
-    // NOTE: confirm Jira base URL — Medicore's cloud instance is assumed here.
-    static let browseBase = "https://medicore.atlassian.net/browse/"
+    static let browseBase = "https://tenzinger.atlassian.com/browse/"
 
     /// Build a browse URL for a bare issue key (e.g. "IO-1234"). Trims whitespace
     /// and returns nil for empty / whitespace-only keys.
