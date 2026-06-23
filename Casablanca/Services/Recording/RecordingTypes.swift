@@ -64,6 +64,21 @@ protocol RecordingSessionControlling: AnyObject {
     func setSystemAudioEnabled(_ enabled: Bool)
 }
 
+/// The system-audio capture surface `RecordingSession` drives. Extracted as a
+/// protocol so the stop/finalize teardown can be exercised headlessly with a
+/// fake that throws on `stop()` (mirroring an `SCStream` already torn down by
+/// system sleep or device loss).
+///
+/// `Sendable` is load-bearing: the production conformer feeds buffers from the
+/// SCStream sample-handler queue while the facade drives it from the MainActor,
+/// so any conformer (including test fakes) must be safe to touch from both.
+protocol SystemAudioCapturing: AnyObject, Sendable {
+    func beginAcceptingInput()
+    func start() async throws
+    func stop() async throws
+    func setSystemAudioEnabled(_ enabled: Bool)
+}
+
 typealias RecordingSessionFactory = (
     _ outputURL: URL,
     _ meeting: Meeting,

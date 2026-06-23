@@ -2,6 +2,18 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-06-23
+
+Recording resilience: an interruption that tears down the audio device mid-recording (most commonly closing the laptop lid / system sleep) no longer discards the entire recording.
+
+### Fixed
+
+- **Recording no longer lost when the input device disappears mid-session.** When the machine slept or the capture device went away, ScreenCaptureKit had usually already torn the `SCStream` down, so `RecordingSession.stop()`'s `stopCapture()` threw — and that throw aborted teardown *before* the microphone track was drained, closed, and mixed down. The microphone audio that had been streaming to disk the whole meeting was orphaned and then deleted by the resume store. Stopping the system-audio stream is now best-effort: a stop failure is logged and the captured tracks are still finalized into the output file. (Known narrower gap, tracked separately: a genuine `render()` I/O failure during an interrupt can still drop that segment.)
+
+### Internal
+
+- Extracted a `SystemAudioCapturing` protocol and a headless teardown test seam; added `RecordingSessionTeardownResilienceTests` (fails against the pre-fix teardown, passes after).
+
 ## [0.9.0] — 2026-06-14
 
 A focused release turning the approvals inbox into a first-class surface: the action queue now groups by bucket, renders a bespoke editable card per item type, folds paired ticket+response drafts into one composite, and shows a live open-approvals badge on the Dock and menu bar. Built against the new bucket-based `action-queue.json` schema (see `action-queue-schema.md`).

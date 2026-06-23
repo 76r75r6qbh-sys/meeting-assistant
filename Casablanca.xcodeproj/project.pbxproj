@@ -215,6 +215,7 @@
 		DBA9D1B7DEB384F9DCBDEEF6 /* ActionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */; };
 		DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F665A23474FE05E8763B831 /* DockBadge.swift */; };
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
+		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
@@ -265,6 +266,7 @@
 		4F4CECBC6F340751BC74CCC6 /* ActionCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/ActionCardView.swift; sourceTree = SOURCE_ROOT; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
+		5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionTeardownResilienceTests.swift; sourceTree = SOURCE_ROOT; };
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
 		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
@@ -803,6 +805,7 @@
 				0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */,
 				748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */,
 				22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */,
+				5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1206,6 +1209,7 @@
 				98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */,
 				8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */,
 				3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */,
+				E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1294,7 +1298,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1329,7 +1333,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

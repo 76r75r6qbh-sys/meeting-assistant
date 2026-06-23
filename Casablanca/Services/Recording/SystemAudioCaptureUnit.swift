@@ -16,7 +16,7 @@ import os
 /// SCStream sample-handler queue can read them race-free. `@unchecked
 /// Sendable`: the locks guard the shared flags, the `SCStream` is touched only
 /// from the MainActor facade.
-final class SystemAudioCaptureUnit: @unchecked Sendable {
+final class SystemAudioCaptureUnit: SystemAudioCapturing, @unchecked Sendable {
     private let pipeline: DeferredRecordingPipeline
     private let targetFormat: AVAudioFormat
     private let streamQueue = DispatchQueue(label: "com.casablanca.recording.stream")
