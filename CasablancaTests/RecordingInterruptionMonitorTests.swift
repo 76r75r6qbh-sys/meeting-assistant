@@ -97,6 +97,99 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
+    func testDisplayLostWhileRecordingProducesDisplayUnavailableStart() async {
+        var displays: [CGDirectDisplayID] = [1]
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            displayListProvider: { displays },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        monitor.setActiveInputDevice("BuiltInMic") // recording
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        displays = []
+        monitor.reportDisplayConfigurationChanged()
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.kind, .started)
+        XCTAssertEqual(events.first?.reason, .displayUnavailable)
+    }
+
+    func testDisplayReturnsProducesDisplayUnavailableEnd() async {
+        var displays: [CGDirectDisplayID] = []
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            displayListProvider: { displays },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        monitor.setActiveInputDevice("BuiltInMic")
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        monitor.reportDisplayConfigurationChanged() // no display -> started
+        displays = [1]
+        monitor.reportDisplayConfigurationChanged() // display back -> ended
+
+        XCTAssertEqual(events.map(\.kind), [.started, .ended])
+        XCTAssertEqual(events.map(\.reason), [.displayUnavailable, .displayUnavailable])
+    }
+
+    func testWakeReEvaluatesDisplaySoDisplayUnavailableEndsEvenWithoutScreenParamsEvent() async {
+        let workspace = NotificationCenter()
+        var displays: [CGDirectDisplayID] = []
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            screenNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            displayListProvider: { displays },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        monitor.setActiveInputDevice("BuiltInMic")
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        // Display lost while recording -> displayUnavailable started.
+        monitor.reportDisplayConfigurationChanged()
+
+        // Lid reopens: the wake notification fires and a display is back, but
+        // assume didChangeScreenParameters did NOT re-fire (the deadlock case).
+        displays = [1]
+        workspace.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        XCTAssertTrue(
+            events.contains { $0.kind == .ended && $0.reason == .displayUnavailable },
+            "Wake must re-evaluate display and end displayUnavailable, else auto-resume deadlocks"
+        )
+    }
+
+    func testDisplayLostWhileNotRecordingProducesNoEvent() async {
+        var displays: [CGDirectDisplayID] = [1]
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            displayListProvider: { displays },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        // No setActiveInputDevice -> not recording.
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        displays = []
+        monitor.reportDisplayConfigurationChanged()
+
+        XCTAssertTrue(events.isEmpty, "Display changes must not pause a meeting that isn't recording")
+    }
+
     func testStreamFailureWhileSystemReasonActiveIsSwallowed() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(

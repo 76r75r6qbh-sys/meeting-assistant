@@ -688,6 +688,39 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertEqual(service.activeMeetingID, meeting.id)
     }
 
+    func testResumeContinuesElapsedTimeFromPriorSegments() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 42)
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+
+        try await service.resumeRecording(for: meeting)
+
+        XCTAssertGreaterThanOrEqual(
+            service.elapsedTime, 42,
+            "Timer must continue from the accumulated prior-segment duration, not restart at 0"
+        )
+        XCTAssertLessThan(
+            service.elapsedTime, 44,
+            "Timer should be ~42 plus a sliver — not doubled or reset"
+        )
+    }
+
     func testStopRecordingFromPausedMeetingMergesSegmentsAndDeletesSession() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })

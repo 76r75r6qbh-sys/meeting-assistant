@@ -96,11 +96,15 @@ enum RecordingInterruptionReason: Hashable, Sendable {
     case screenLock
     case systemSleep
     case audioDeviceLost(deviceID: String)
+    /// No display is available to capture, so ScreenCaptureKit can't record
+    /// system audio (e.g. the lid is closed with no external monitor). Recording
+    /// auto-pauses and auto-resumes when a display returns.
+    case displayUnavailable
     case streamFailure(underlyingDescription: String)
 
     var allowsAutoResume: Bool {
         switch self {
-        case .screenLock, .systemSleep: return true
+        case .screenLock, .systemSleep, .displayUnavailable: return true
         case .audioDeviceLost, .streamFailure: return false
         }
     }

@@ -142,6 +142,7 @@ struct AutoPauseIndicatorPresentation {
         case .screenLock: cause = "Auto-paused at \(timeOfDay) for \(duration)s"
         case .systemSleep: cause = "Auto-paused at \(timeOfDay) (sleep, \(duration)s)"
         case .audioDeviceLost: cause = "Auto-paused at \(timeOfDay) — microphone disconnected"
+        case .displayUnavailable: cause = "Auto-paused at \(timeOfDay) — no display for system audio"
         case .streamFailure: cause = "Auto-paused at \(timeOfDay) — recording stream stopped"
         }
         return "\(cause) — \(suffix)"

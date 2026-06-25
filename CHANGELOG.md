@@ -2,6 +2,22 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-06-25
+
+Pause/resume correctness: a lost display now pauses the recording (instead of silently going microphone-only), and resuming continues the timer instead of resetting it.
+
+### Changed
+
+- **Losing the display auto-pauses the recording.** When no display is available to ScreenCaptureKit (lid closed with no external monitor), the recording now cleanly **auto-pauses** rather than continuing microphone-only (the v0.11.0 behavior). It auto-resumes when a display returns (within the auto-resume window; otherwise it stays paused for a manual resume). Detection uses the *online* display list, so an idle screen that merely went to sleep (lid open) does **not** pause a running recording. The lid-close path raises both screen-lock and display-unavailable interruptions; resume is guarded so it never deadlocks if the screen-parameters notification doesn't re-fire on wake.
+
+### Fixed
+
+- **Resume no longer resets the timer to 00:00.** The elapsed-time display now continues from the total already recorded across earlier segments when a paused recording resumes (and the paused display shows the cumulative total), instead of restarting from the new segment.
+
+### Verify on device
+
+- The display-loss auto-pause depends on macOS reporting the built-in display as offline when the lid closes and posting a screen-parameters change. Confirm on real hardware: start a recording, close the lid (no external monitor) → recording pauses; reopen → it resumes and the timer continues. Clamshell with an external display should keep recording without pausing.
+
 ## [0.11.0] — 2026-06-25
 
 More recording resilience: closing the laptop lid no longer fails the recording outright.

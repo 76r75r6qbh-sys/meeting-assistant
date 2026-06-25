@@ -180,6 +180,7 @@ final class RecordingInterruptionCoordinator {
         case .screenLock: return "Screen locked."
         case .systemSleep: return "System went to sleep."
         case .audioDeviceLost(let id): return "Microphone disconnected (\(id))."
+        case .displayUnavailable: return "No display available for system audio (lid closed?)."
         case .streamFailure(let description): return description
         }
     }
@@ -189,6 +190,7 @@ final class RecordingInterruptionCoordinator {
         case .screenLock: return "screen unlock."
         case .systemSleep: return "system wake."
         case .audioDeviceLost: return "microphone reconnect."
+        case .displayUnavailable: return "display reconnect."
         case .streamFailure: return "stream recovery."
         }
     }
