@@ -23,6 +23,7 @@
 		3133A6AE85D46269AC79DD01 /* LegacyDraftEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46E1332211EA769F8620C51 /* LegacyDraftEditor.swift */; };
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
 		3285625BEB1C852A6F9746E0 /* CompositeLinkedCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2157A780490BB80B8F29BE /* CompositeLinkedCard.swift */; };
+		340DA9CD13A0B6BF932B5686 /* RecordingSessionSystemAudioFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */; };
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
@@ -263,6 +264,7 @@
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
 		48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
+		4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionSystemAudioFallbackTests.swift; sourceTree = SOURCE_ROOT; };
 		4F4CECBC6F340751BC74CCC6 /* ActionCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/ActionCardView.swift; sourceTree = SOURCE_ROOT; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
@@ -806,6 +808,7 @@
 				748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */,
 				22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */,
 				5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */,
+				4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1210,6 +1213,7 @@
 				8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */,
 				3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */,
 				E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */,
+				340DA9CD13A0B6BF932B5686 /* RecordingSessionSystemAudioFallbackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1298,7 +1302,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.11.0;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1333,7 +1337,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.11.0;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

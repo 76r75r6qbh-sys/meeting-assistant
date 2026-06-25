@@ -28,6 +28,13 @@ final class AudioRecordingService {
 
     weak var interruptionMonitor: RecordingInterruptionMonitor?
 
+    /// Invoked (non-fatally) when a recording started or resumed but system-audio
+    /// capture was unavailable, so it fell back to microphone-only. Wired by the
+    /// app to a notification — NOT to `errorMessage`, which drives a modal that
+    /// would interrupt the recording. Remote meeting audio comes through system
+    /// audio, so the user should know it is missing, but the recording continues.
+    var onSystemAudioUnavailable: ((String) -> Void)?
+
     init(
         sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
@@ -79,6 +86,7 @@ final class AudioRecordingService {
             isPreparing = false
             startTimer(from: session.startedAt)
             interruptionMonitor?.setActiveInputDevice(selectedInputDeviceID)
+            surfaceSystemAudioFallbackIfNeeded(session)
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -133,6 +141,7 @@ final class AudioRecordingService {
             isPreparing = false
             startTimer(from: session.startedAt)
             interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
+            surfaceSystemAudioFallbackIfNeeded(session)
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -331,6 +340,17 @@ final class AudioRecordingService {
             duration: result.duration
         )
         return result
+    }
+
+    /// Surfaces a non-fatal notice when the session started/resumed but had to
+    /// fall back to microphone-only because system audio was unavailable (e.g.
+    /// the lid is closed so ScreenCaptureKit has no display). Deliberately does
+    /// NOT set `errorMessage` — that drives a modal that would derail recording.
+    private func surfaceSystemAudioFallbackIfNeeded(_ session: RecordingSessionControlling) {
+        guard session.systemAudioUnavailableError != nil else { return }
+        onSystemAudioUnavailable?(
+            "System audio couldn’t be captured (no available display — is the lid closed?). Recording continues with the microphone only."
+        )
     }
 
     private func clearActiveSessionState() {

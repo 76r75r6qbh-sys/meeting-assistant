@@ -2,6 +2,19 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-06-25
+
+More recording resilience: closing the laptop lid no longer fails the recording outright.
+
+### Fixed
+
+- **Recording continues (microphone-only) when system audio can't be captured.** System audio is captured via ScreenCaptureKit, which streams off a *display*; a closed lid with no external monitor has no capturable display, so the stream failed to start with "Geen beeldschermen of vensters gevonden om op te nemen" / "no displays or windows found to record" — and that error aborted the whole recording, resetting the timer to 00:00. The session now degrades to microphone-only instead of failing: the recording (and timer) keep running, and a non-fatal notification tells you system audio is unavailable (so you know remote meeting audio may be missing). System audio recovers automatically on the next resume once a display is available again.
+
+### Known follow-ups (not in this release)
+
+- A system-audio stream that dies **mid-recording** (e.g. undocking an external display partway through) still stops the recording rather than degrading to microphone-only — same root cause as the lid-closed case, different timing.
+- No power assertion is held, so a Mac that actually sleeps on lid-close (no clamshell/external display) still captures nothing while asleep.
+
 ## [0.10.0] — 2026-06-23
 
 Recording resilience: an interruption that tears down the audio device mid-recording (most commonly closing the laptop lid / system sleep) no longer discards the entire recording.

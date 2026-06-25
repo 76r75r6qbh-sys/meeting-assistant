@@ -114,6 +114,13 @@ struct ContentView: View {
         .task {
             if interruptionCoordinator == nil {
                 recordingService.interruptionMonitor = interruptionMonitor
+                // Strong capture is intentional and non-cyclic: the notifier
+                // holds no back-reference to the service, and both live for the
+                // app's lifetime. A weak capture could let the notifier vanish
+                // and silently drop the mic-only notice.
+                recordingService.onSystemAudioUnavailable = { [interruptionNotifier] body in
+                    interruptionNotifier.post(title: "Recording microphone only", body: body)
+                }
                 let context = modelContext
                 interruptionCoordinator = RecordingInterruptionCoordinator(
                     service: recordingService,

@@ -35,6 +35,12 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private var microphoneUnit: MicrophoneCaptureUnit?
     private var systemAudioUnit: SystemAudioCapturing?
 
+    /// Set during `start()` when system-audio capture could not start (e.g. no
+    /// available display because the lid is closed) and the session fell back to
+    /// microphone-only. Read by the facade to surface a non-fatal notice. `nil`
+    /// means system audio started normally (or was disabled by the user).
+    private(set) var systemAudioUnavailableError: Error?
+
     /// Frames captured by the just-finalized track(s), cached during `stop()`
     /// before the writers are released. The facade reads `hasCapturedFrames`
     /// *after* `stop()` (to decide whether to keep the segment), so the count
@@ -89,9 +95,31 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // entirely: it requires Screen Recording permission, and starting it
         // would fail for a microphone-only recording. The mix-down later sees
         // zero system-audio frames and renders microphone-only.
-        if initialSystemAudioEnabled {
-            systemAudioUnit?.beginAcceptingInput()
-            try await systemAudioUnit?.start()
+        await startSystemAudioBestEffort()
+    }
+
+    /// Starts the ScreenCaptureKit system-audio stream, degrading to
+    /// microphone-only if it can't start.
+    ///
+    /// System audio needs an *available display*: ScreenCaptureKit captures it
+    /// off a display's stream. When the lid is closed with no external monitor
+    /// there is no capturable display, so `startCapture()` fails with "no
+    /// displays or windows found to record". That must NOT fail the whole
+    /// recording — the microphone engine is already live (`configure()` started
+    /// it) and needs no display. We disable system audio for this session and
+    /// carry on microphone-only; the mix-down then renders microphone-only.
+    /// `systemAudioUnavailableError` lets the facade surface a non-fatal notice
+    /// (remote meeting audio comes through system audio, so the user should know
+    /// it's missing).
+    private func startSystemAudioBestEffort() async {
+        guard initialSystemAudioEnabled, let systemAudioUnit else { return }
+        systemAudioUnit.beginAcceptingInput()
+        do {
+            try await systemAudioUnit.start()
+        } catch {
+            Log.recording.error("System-audio capture could not start (\(error.localizedDescription, privacy: .public)); continuing microphone-only")
+            systemAudioUnit.setSystemAudioEnabled(false)
+            systemAudioUnavailableError = error
         }
     }
 
@@ -251,6 +279,13 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         let (_, microphoneWriter, _) = try makeTrackWriters()
         self.systemAudioUnit = systemAudioUnit
         return microphoneWriter
+    }
+
+    /// Test seam: drives `startSystemAudioBestEffort()` with the injected unit so
+    /// the no-display degrade-to-microphone-only path can be verified headlessly
+    /// (the real `start()` would spin up the microphone `AVAudioEngine`).
+    func startSystemAudioBestEffortForTesting() async {
+        await startSystemAudioBestEffort()
     }
 #endif
 

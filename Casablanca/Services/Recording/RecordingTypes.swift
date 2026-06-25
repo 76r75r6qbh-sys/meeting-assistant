@@ -58,6 +58,9 @@ protocol RecordingSessionControlling: AnyObject {
     var outputURL: URL { get }
     var startedAt: Date { get }
     var hasCapturedFrames: Bool { get }
+    /// Non-nil after `start()` when system-audio capture could not start and the
+    /// session fell back to microphone-only (see `RecordingSession`).
+    var systemAudioUnavailableError: Error? { get }
     func start() async throws
     func stop() async throws -> RecordingResult
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws

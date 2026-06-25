@@ -598,6 +598,37 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertEqual(session.nextSegmentNumber, 2)
     }
 
+    func testStartRecordingSurfacesMicrophoneOnlyFallbackWithoutFailing() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let segmentURL = rootURL.appendingPathComponent("segment-001.wav")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data("segment".utf8).write(to: segmentURL)
+
+        // A session that started but couldn't capture system audio (lid closed,
+        // no display) and fell back to microphone-only.
+        let fakeSession = FakeRecordingSession(
+            outputURL: segmentURL,
+            stopResult: RecordingResult(outputURL: segmentURL, duration: 0),
+            capturedFrames: 1,
+            systemAudioUnavailableError: NSError(domain: "test.nodisplay", code: 1)
+        )
+        let meeting = Meeting(title: "Lid Closed", date: .now, status: .recording)
+
+        var notices: [String] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession }
+        )
+        service.onSystemAudioUnavailable = { notices.append($0) }
+
+        try await service.startRecording(for: meeting)
+
+        XCTAssertTrue(service.isRecording, "Recording must continue despite the system-audio fallback")
+        XCTAssertNil(service.errorMessage, "Fallback must NOT set errorMessage — that drives a modal that derails recording")
+        XCTAssertEqual(notices.count, 1, "A non-fatal microphone-only notice should be surfaced exactly once")
+    }
+
     func testHandleSystemInterruptWithZeroFramesDoesNotAppendSegment() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
@@ -805,12 +836,14 @@ private final class FakeRecordingSession: RecordingSessionControlling, @unchecke
     let outputURL: URL
     let startedAt = Date()
     let capturedFrames: Int
+    var systemAudioUnavailableError: Error?
     private let stopResult: RecordingResult
 
-    init(outputURL: URL, stopResult: RecordingResult, capturedFrames: Int) {
+    init(outputURL: URL, stopResult: RecordingResult, capturedFrames: Int, systemAudioUnavailableError: Error? = nil) {
         self.outputURL = outputURL
         self.stopResult = stopResult
         self.capturedFrames = capturedFrames
+        self.systemAudioUnavailableError = systemAudioUnavailableError
     }
 
     func start() async throws {}
@@ -824,6 +857,7 @@ private final class ThrowingFakeRecordingSession: RecordingSessionControlling, @
     let outputURL: URL
     let startedAt = Date()
     let hasCapturedFrames = true
+    let systemAudioUnavailableError: Error? = nil
 
     init(outputURL: URL) { self.outputURL = outputURL }
 
