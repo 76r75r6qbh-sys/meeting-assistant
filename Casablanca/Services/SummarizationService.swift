@@ -185,12 +185,22 @@ final class SummarizationService {
     }
 
     func summarize(meeting: Meeting) async throws -> SummaryResponseParser.ParsedResponse {
-        let transcript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawTranscript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !transcript.isEmpty || !freeformNotes.isEmpty else {
+        guard !rawTranscript.isEmpty || !freeformNotes.isEmpty else {
             throw SummarizationError.missingSourceMaterial
         }
+
+        // Long meetings (this app's own transcripts run 50-80k+ characters) were
+        // previously inlined whole into the prompt with no bound at all — tens of
+        // thousands of input tokens sent to a local model every time. Bound it to
+        // the same shared budget used for chat/terminology so it reliably fits
+        // the model's context window alongside the rest of the prompt.
+        let (transcript, transcriptWasTruncated) = LLMPromptSupport.truncated(
+            rawTranscript,
+            toFitTokenBudget: LLMPromptSupport.defaultTranscriptTokenBudget
+        )
 
         let provider = LLMProviderFactory.current()
         isSummarizing = true
@@ -247,8 +257,15 @@ final class SummarizationService {
             throw Self.mapProviderError(error)
         }
 
+        var warnings: [String] = []
+        if transcriptWasTruncated {
+            warnings.append("The transcript was too long and was shortened (kept the start and end) to fit the model's context window.")
+        }
         if wasTruncated {
-            warningMessage = "Summary may be truncated: \(provider.displayName) reached its output length limit."
+            warnings.append("Summary may be truncated: \(provider.displayName) reached its output length limit.")
+        }
+        if !warnings.isEmpty {
+            warningMessage = warnings.joined(separator: " ")
         }
 
         phase = .parsing

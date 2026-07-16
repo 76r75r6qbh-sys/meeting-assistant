@@ -32,10 +32,10 @@ struct ChatMessage: Identifiable, Equatable {
 @MainActor
 @Observable
 final class MeetingChatService {
-    /// chars-per-token heuristic. No real tokenizer exists in the app; 4 chars ≈
-    /// 1 token is the standard rough estimate for English text and is good
-    /// enough to keep the prompt inside the model's context window.
-    static let charsPerToken = 4
+    /// chars-per-token heuristic, shared with summarization and terminology
+    /// correction. Kept as a forwarding alias so existing callers/tests here
+    /// keep working. (Was defined here; moved to `LLMPromptSupport`.)
+    static var charsPerToken: Int { LLMPromptSupport.charsPerToken }
 
     /// Default token budget for the WHOLE assembled prompt. Conservative so it
     /// fits comfortably alongside the model's output budget within a typical
@@ -201,6 +201,12 @@ final class MeetingChatService {
         return fixedPrefix + transcriptHeader + trimmed + fixedSuffix
     }
 
+    /// Forwarding alias so existing callers/tests here keep working. (Moved to
+    /// `LLMPromptSupport` so summarization and terminology correction can share it.)
+    static func middleElide(_ text: String, toCharBudget budget: Int) -> String {
+        LLMPromptSupport.middleElide(text, toCharBudget: budget)
+    }
+
     /// Renders prior Q&A turns into a compact transcript-style block. Empty
     /// history yields an empty string (no stray header).
     static func renderHistory(_ history: [ChatMessage]) -> String {
@@ -212,22 +218,4 @@ final class MeetingChatService {
         return "## Previous Q&A\n" + lines.joined(separator: "\n") + "\n\n"
     }
 
-    /// Keeps the head and tail of `text`, eliding the middle with a marker, so
-    /// the result fits within `budget` characters. The opening and closing of a
-    /// transcript usually carry the most context (agenda + wrap-up), so a middle
-    /// elision preserves more signal than a tail cut.
-    static func middleElide(_ text: String, toCharBudget budget: Int) -> String {
-        guard text.count > budget else { return text }
-        let marker = "\n\n[… transcript truncated to fit context window …]\n\n"
-        guard budget > marker.count else {
-            // Not even room for the marker — return a hard prefix.
-            return String(text.prefix(max(0, budget)))
-        }
-        let keep = budget - marker.count
-        let headLen = keep / 2
-        let tailLen = keep - headLen
-        let head = text.prefix(headLen)
-        let tail = text.suffix(tailLen)
-        return head + marker + tail
-    }
 }
