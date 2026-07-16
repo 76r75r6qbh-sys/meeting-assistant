@@ -27,24 +27,37 @@ enum SummarizationError: LocalizedError {
 @Observable
 final class SummarizationService {
     static let defaultPromptTemplate = """
-    You are a meeting assistant creating concise, high-signal meeting notes.
+    You are a meeting assistant creating structured, high-signal meeting notes.
 
-    Use only the information provided below. If something is unclear or missing, say so briefly instead of guessing.
+    Write the notes in the dominant language of the transcript (Dutch transcript -> Dutch notes, English transcript -> English notes).
 
-    Return markdown with these sections:
-    # Summary
-    ## Decisions
-    ## Action Items
-    ## Risks and Blockers
-    ## Follow-ups
+    Use only the information provided below. If something is unclear or missing, leave it out instead of guessing.
 
-    Keep action items concrete and include owners when they are stated.
-    Each action item MUST be a `- ` bullet under "## Action Items". If there are no action items, write "## Action Items" with nothing below it.
+    The transcript comes from machine speech recognition and may misspell names of people, companies and products. Correct obvious mistranscriptions using the terminology list and the participants list. Never invent names, and never comment on transcript quality in the notes.
+
+    Structure the notes as follows:
+
+    1. Start with a single `# Summary` heading (Dutch: `# Samenvatting`) followed by a 2-4 sentence paragraph: what the meeting was about and its main outcome.
+    2. Then 2-5 thematic sections, each with a descriptive `## <theme>` heading, containing a short intro sentence and/or `- **subtopic:** detail` bullets. Capture the reasoning behind conclusions, not just the conclusions.
+    3. If the meeting discussed planning across dates, weeks or months, add a `## Planning` section with chronological bullets: `- **<period>** — <milestone or activity>`.
+    4. If hiring or staffing was discussed, add a `## Personele zaken` (English: `## Personnel`) section.
+    5. End with these four sections, always present, in this order. Use exactly these headings — Dutch notes / English notes:
+       `## Besluiten` / `## Decisions`
+       `## Actiepunten` / `## Action Items`
+       `## Risico's en blockers` / `## Risks and Blockers`
+       `## Opvolging` / `## Follow-ups`
+
+    Rules for the four closing sections:
+    - Every item is a `- ` bullet. If a section has no items, keep the heading with nothing below it.
+    - Decisions include their stated rationale.
+    - Each action item is one bullet formatted `- **<owner>** — <action>`. Resolve the owner against the participants list; use the person's name, never "me" or "I". If no owner was stated, use `- **?** — <action>`.
+    - Omit optional sections that have nothing meaningful. Never add sections about the transcript itself.
 
     {{terminology_list}}
 
     Meeting title: {{title}}
     Scheduled time: {{scheduled_time}}
+    Participants: {{participants}}
 
     Transcript:
     {{transcript}}
@@ -296,6 +309,7 @@ final class SummarizationService {
         return template
             .replacingOccurrences(of: "{{title}}", with: meeting.title)
             .replacingOccurrences(of: "{{scheduled_time}}", with: formattedDate)
+            .replacingOccurrences(of: "{{participants}}", with: meeting.participants.isEmpty ? "Unknown" : meeting.participants.joined(separator: ", "))
             .replacingOccurrences(of: "{{transcript}}", with: transcript.isEmpty ? "None" : transcript)
             .replacingOccurrences(of: "{{freeform_notes}}", with: freeformNotes.isEmpty ? "None" : freeformNotes)
             .replacingOccurrences(of: "{{terminology_list}}", with: terminologyBlock)

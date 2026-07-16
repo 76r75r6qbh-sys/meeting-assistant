@@ -9,9 +9,12 @@ import Foundation
 enum LLMPromptSupport {
     /// Upper bound on generated tokens when thinking is OFF. Local reasoning
     /// models can otherwise ramble or loop for thousands of tokens on a short
-    /// input, so we cap output as a safety net. (Was
+    /// input, so we cap output as a safety net. Raised from 2000 to 3500 to give
+    /// the richer structured summary (Pocket-style template with four mandatory
+    /// closing sections) enough headroom — truncation at the old limit ate the
+    /// closing sections (action items, follow-ups) first. (Was
     /// `SummarizationService.maxSummaryTokens`.)
-    static let cappedOutputTokens = 2000
+    static let cappedOutputTokens = 3500
 
     /// The Qwen-family soft-switch that disables out-loud reasoning, appended to
     /// the prompt when thinking is off.
