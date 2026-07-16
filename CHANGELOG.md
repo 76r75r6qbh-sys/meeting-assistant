@@ -2,6 +2,20 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] — 2026-07-16
+
+Much better meeting summaries: a richer "Pocket-style" default prompt and working action-item extraction for Dutch meetings.
+
+### Changed
+
+- **New default summary prompt (Pocket-style).** Summaries are now written in the language of the transcript and structured as a short lead summary, 2–5 thematic sections, an optional chronological **Planning** section, and an optional personnel section, followed by the fixed closing sections (Decisions / Action Items / Risks and Blockers / Follow-ups — or their Dutch equivalents). Action items are owner-tagged (`- **Wesley** — …`), decisions include their stated rationale, and the model is instructed to correct speech-recognition mistranscriptions of names using the terminology and participants lists — and to never comment on transcript quality in the notes. **Note:** if you customized the prompt template in Settings, reset it to the default to pick this up.
+- **Participants are now injected into the summarization prompt** (`{{participants}}` template variable), so the model can attribute action items to the right people and correct misheard names.
+- **Summary output limit raised from 2000 to 3500 tokens** (thinking off) so the richer structure doesn't get truncated — truncation used to eat the closing action-items section first.
+
+### Fixed
+
+- **Dutch summaries now produce to-dos.** The summary parser only recognized English section headers (`## Action Items`, `## Decisions`, …), so Dutch summaries (`## Actiepunten`, `## Besluiten`, `## Risico's en blockers`, `## Opvolging`) silently produced no extracted decisions, action items, risks, or follow-ups — and no meeting to-dos. The parser now accepts Dutch header aliases, both curly and straight apostrophes (`Risico’s`/`Risico's`), and trailing colons.
+
 ## [0.12.0] — 2026-06-25
 
 Pause/resume correctness: a lost display now pauses the recording (instead of silently going microphone-only), and resuming continues the timer instead of resetting it.
