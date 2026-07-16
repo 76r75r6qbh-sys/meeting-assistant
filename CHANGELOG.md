@@ -2,6 +2,20 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] — 2026-07-16
+
+Performance pass across the post-recording pipeline: terminology correction, summarization, and the transcribing progress bar.
+
+### Changed
+
+- **Terminology correction is dramatically faster with a long custom terminology list.** It used to run one full-transcript regex pass per alias — hundreds of full scans once the list grew — synchronously on the main thread, and re-parsed the raw settings text on every call. Now it's a single combined regex pass with cached parsing and a cached compiled dictionary, running off the main thread so a long list no longer freezes the UI.
+- **Meeting summaries no longer send an unbounded transcript to the local model.** Long meetings (this app's own recordings run 50-80k+ characters) are now bounded to the same context-window budget and head/tail-preserving truncation already used by "Ask your meeting" chat, so the prompt reliably fits alongside the rest of the context. A warning appears if a transcript had to be shortened.
+- **Transcribing progress no longer looks frozen then jumps to 100%.** The local Whisper model now prewarms during loading instead of compiling on the first real chunk (the likely cause of the bar appearing stuck around 12%), and the bar now creeps gently between real progress updates instead of sitting dead still.
+
+### Fixed
+
+- **Terminology correction no longer silently times out on the app's largest transcripts.** The LLM correction pass had a fixed 60-second timeout; it now scales with transcript length, so large meetings don't quietly fall back to regex-only correction without any visible error.
+
 ## [0.13.0] — 2026-07-16
 
 Much better meeting summaries: a richer "Pocket-style" default prompt and working action-item extraction for Dutch meetings.
