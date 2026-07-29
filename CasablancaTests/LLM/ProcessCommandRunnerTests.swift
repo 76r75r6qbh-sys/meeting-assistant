@@ -28,6 +28,20 @@ final class ProcessCommandRunnerTests: XCTestCase {
         XCTAssertEqual(result.standardOutput, payload)
     }
 
+    /// The mirror image of the deadlock case: the child stops reading long before the
+    /// 300 KB of stdin has been written, so the write end breaks mid-write. This is the
+    /// likely real-world path for a CLI that rejects an oversized prompt and exits.
+    /// `F_SETNOSIGPIPE` in the runner is what turns the resulting `EPIPE` into a
+    /// harmless error — without it this raises `SIGPIPE` and kills the whole process,
+    /// so deleting that one line fails here rather than regressing silently.
+    func testChildThatStopsReadingStandardInputStillReturns() async throws {
+        let payload = String(repeating: "x", count: 300_000)
+        let result = try await run(executable: "/usr/bin/head", arguments: ["-c", "10"], standardInput: payload)
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.standardOutput, String(repeating: "x", count: 10))
+        XCTAssertEqual(result.standardError, "")
+    }
+
     func testNonZeroExitIsReturnedWithStandardError() async throws {
         let result = try await run(executable: "/bin/sh", arguments: ["-c", "printf err >&2; exit 3"])
         XCTAssertEqual(result.exitCode, 3)
@@ -62,6 +76,33 @@ final class ProcessCommandRunnerTests: XCTestCase {
             }
             XCTAssertFalse(message.isEmpty)
         }
+    }
+
+    /// A grandchild that inherited stdout holds the write end open after the child
+    /// exits, so the drain never reaches EOF. Whatever bytes are in hand at that point
+    /// are an arbitrary prefix of the real output — here, nothing at all — and
+    /// returning them as `CommandResult(exitCode: 0, standardOutput: "")` would report
+    /// a bogus empty completion as success, which no retry policy can see through.
+    func testOutputThatNeverReachesEndOfFileIsNotReportedAsSuccess() async {
+        // The shell exits immediately; the backgrounded `sleep` inherits stdout and
+        // keeps the pipe open well past the grace period.
+        let runner = ProcessCommandRunner(drainGracePeriod: 0.3)
+        let started = Date()
+        await XCTAssertThrowsErrorAsync(
+            try await runner.run(
+                executable: "/bin/sh",
+                arguments: ["-c", "sleep 5 & exit 0"],
+                standardInput: "",
+                workingDirectory: nil,
+                timeout: 30
+            )
+        ) { error in
+            guard case CommandRunError.timedOut = error else {
+                return XCTFail("expected timedOut, got \(error)")
+            }
+        }
+        // Bounded by the grace period, not by however long the grandchild lives.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
     func testTimeoutTerminatesProcessAndThrowsTimedOut() async {

@@ -40,12 +40,21 @@ protocol CommandRunning: Sendable {
 struct ProcessCommandRunner: CommandRunning {
     /// How long a terminated process gets to die from `SIGTERM` before `SIGKILL`.
     private static let killGracePeriod: TimeInterval = 2
+    /// Chunk size for pipe reads.
+    private static let readChunkSize = 64 * 1024
+
     /// Upper bound on waiting for stdout/stderr to reach EOF once the child has
     /// exited. Bounded so a grandchild that inherited the pipes cannot hang the
     /// caller forever; in the normal case EOF arrives with the child's exit.
-    private static let drainGracePeriod: TimeInterval = 5
-    /// Chunk size for pipe reads.
-    private static let readChunkSize = 64 * 1024
+    /// Overrunning it is reported as `CommandRunError.timedOut` rather than as a
+    /// possibly-truncated success.
+    ///
+    /// Injectable only so the tests can reach that path without a five-second wait.
+    private let drainGracePeriod: TimeInterval
+
+    init(drainGracePeriod: TimeInterval = 5) {
+        self.drainGracePeriod = drainGracePeriod
+    }
 
     func run(
         executable: String,
@@ -68,6 +77,7 @@ struct ProcessCommandRunner: CommandRunning {
                             standardInput: standardInput,
                             workingDirectory: workingDirectory,
                             timeout: timeout,
+                            drainGracePeriod: drainGracePeriod,
                             control: control
                         ))
                     } catch {
@@ -91,6 +101,7 @@ struct ProcessCommandRunner: CommandRunning {
         standardInput: String,
         workingDirectory: URL?,
         timeout: TimeInterval,
+        drainGracePeriod: TimeInterval,
         control: ProcessControl
     ) throws -> CommandResult {
         let process = Process()
@@ -135,8 +146,8 @@ struct ProcessCommandRunner: CommandRunning {
             terminate(pid: process.processIdentifier, control: control)
         }
         // Closing the child's ends of the pipes ends the reads, so this returns as
-        // soon as both streams hit EOF.
-        _ = streams.wait(timeout: .now() + drainGracePeriod)
+        // soon as both streams hit EOF — which normally happens as the child exits.
+        let drained = streams.wait(timeout: .now() + drainGracePeriod) == .success
 
         switch outcome {
         case .timedOut:
@@ -144,6 +155,13 @@ struct ProcessCommandRunner: CommandRunning {
         case .cancelled:
             throw CancellationError()
         case .exited(let status):
+            // A stream that never reached EOF (a grandchild is still holding the
+            // write end) means the bytes in hand may be an arbitrary prefix of the
+            // real output. Returning them as a `CommandResult` would hand the caller
+            // a plausible-looking truncated reply — or, for a fast-exiting child, a
+            // bogus empty one — reported as success, which no retry policy can see
+            // through. Fail loudly instead.
+            guard drained else { throw CommandRunError.timedOut }
             return CommandResult(
                 exitCode: status,
                 standardOutput: String(decoding: standardOutput.withLock { $0 }, as: UTF8.self),
@@ -179,7 +197,9 @@ struct ProcessCommandRunner: CommandRunning {
         }
     }
 
-    /// Reads `handle` to EOF on its own thread, publishing the bytes when done.
+    /// Reads `handle` to EOF on its own thread, appending each chunk to `destination`
+    /// as it arrives. Publishing incrementally rather than once at EOF means a read
+    /// that never finishes cannot silently discard what it already collected.
     private static func drain(
         _ handle: FileHandle,
         into destination: OSAllocatedUnfairLock<Data>,
@@ -188,14 +208,9 @@ struct ProcessCommandRunner: CommandRunning {
         let handle = HandleBox(handle)
         group.enter()
         DispatchQueue.global().async {
-            var data = Data()
             while let chunk = try? handle.wrapped.read(upToCount: readChunkSize), !chunk.isEmpty {
-                data.append(chunk)
+                destination.withLock { $0.append(chunk) }
             }
-            // `withLock`'s body is `@Sendable`, so hand it an immutable copy rather
-            // than the accumulator it would otherwise capture as a mutable var.
-            let collected = data
-            destination.withLock { $0 = collected }
             group.leave()
         }
     }
