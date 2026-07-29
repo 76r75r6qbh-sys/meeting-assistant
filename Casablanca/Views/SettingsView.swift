@@ -74,12 +74,9 @@ struct SettingsView: View {
         }
     }
 
-    private var providerDisplayName: String {
-        switch llmProvider {
-        case .ollama: return "Ollama"
-        case .omlx: return "oMLX"
-        case .claudeCode: return "Claude Code"
-        }
+    /// Empty for the local providers, which have no caveats worth a caption.
+    private var providerCaveats: String {
+        LLMProviderCopy.caveats(for: llmProvider)
     }
 
     var body: some View {
@@ -238,17 +235,18 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         Form {
-            Section("Local LLM (Summarization)") {
+            Section("Language Model (Summarization)") {
                 Picker("Provider", selection: $llmProviderRaw) {
                     Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
                     Text("oMLX").tag(LLMProviderKind.omlx.rawValue)
+                    Text("Claude Code").tag(LLMProviderKind.claudeCode.rawValue)
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: llmProviderRaw) { _, _ in
                     Task { await refreshModels() }
                 }
 
-                TextField("Endpoint", text: providerEndpointBinding)
+                TextField(LLMProviderCopy.locationFieldLabel(for: llmProvider), text: providerEndpointBinding)
                     .onSubmit {
                         Task { await refreshModels() }
                     }
@@ -270,7 +268,9 @@ struct SettingsView: View {
                             if availableModels.contains(model) {
                                 Text(model).tag(model)
                             } else {
-                                Text("\(model) (not installed)").tag(model)
+                                // Not "(not installed)": under Claude Code nothing is
+                                // installed here, the model is simply not on offer.
+                                Text("\(model) (unavailable)").tag(model)
                             }
                         }
                     }
@@ -287,7 +287,7 @@ struct SettingsView: View {
                 if isLoadingModels {
                     HStack(spacing: CasaSpace.sm) {
                         ProgressView().controlSize(.small)
-                        Text("Loading installed \(providerDisplayName) models…")
+                        Text(LLMProviderCopy.modelLoadingLabel(for: llmProvider))
                     }
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
@@ -296,18 +296,26 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.red)
                 } else if availableModels.isEmpty {
-                    Text("No \(providerDisplayName) models were found at this endpoint yet.")
+                    Text(LLMProviderCopy.noModelsFound(for: llmProvider))
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 } else if !availableModels.contains(providerModelBinding.wrappedValue) {
-                    Text("The current model is not installed at this endpoint. Pick one of the detected models above.")
+                    Text(LLMProviderCopy.modelNotAvailable(for: llmProvider))
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
 
-                Text("Casablanca loads the installed models from \(providerDisplayName) so summarization uses a valid local model.")
+                Text(LLMProviderCopy.summarizationFooter(for: llmProvider))
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !providerCaveats.isEmpty {
+                    Text(providerCaveats)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Summary Prompt") {
@@ -343,9 +351,10 @@ struct SettingsView: View {
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
-                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature local LLM pass on each new transcript before summarization.")
+                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature pass through \(LLMProviderCopy.displayName(for: llmProvider)) on each new transcript before summarization.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
@@ -537,7 +546,7 @@ struct SettingsView: View {
 
     private var summaryPromptSheet: some View {
         sheetContainer(title: "Customize Summary Prompt") {
-            Text("This template is sent to \(providerDisplayName) whenever Casablanca generates a summary.")
+            Text("This template is sent to \(LLMProviderCopy.displayName(for: llmProvider)) whenever Casablanca generates a summary.")
                 .font(.subheadline)
                 .foregroundStyle(Color.textSecondary)
 

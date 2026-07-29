@@ -39,11 +39,13 @@
 		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
+		6EFD7447CD7942D2FD2EA03E /* LLMProviderCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */; };
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
 		7ACF371883AB2A61171CE4B1 /* ClaudeCLIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */; };
 		7D8DF90A81336C65087E3FC3 /* RefinementPrepBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A10EB29639B23646888C040 /* RefinementPrepBody.swift */; };
 		7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */; };
 		863B495C0E86496DB75A9C91 /* LLMProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B528C25CC65D55848052D4 /* LLMProviderFactoryTests.swift */; };
+		8C62110A3E06299DF920ED3C /* LLMProviderCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */; };
 		8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */; };
 		9360DE1FB664D7A47C863B61 /* RoadmapCommitmentCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D3C3AD74A9DB1208328F42 /* RoadmapCommitmentCard.swift */; };
 		98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */; };
@@ -247,6 +249,7 @@
 /* Begin PBXFileReference section */
 		045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferencesTests.swift; sourceTree = "<group>"; };
 		063509C2426442255CDF8375 /* CalendarEventCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/CalendarEventCard.swift; sourceTree = SOURCE_ROOT; };
+		063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/LLMProviderCopyTests.swift; sourceTree = SOURCE_ROOT; };
 		08C28106F02FDEE32B3DEF38 /* JiraMarkupText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/JiraMarkupText.swift; sourceTree = SOURCE_ROOT; };
 		0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicyTests.swift; sourceTree = "<group>"; };
 		0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbe.swift; sourceTree = "<group>"; };
@@ -296,6 +299,7 @@
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TerminologyServiceTests.swift; sourceTree = SOURCE_ROOT; };
+		9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/LLM/LLMProviderCopy.swift; sourceTree = SOURCE_ROOT; };
 		A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloaderTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingCaptureStatus.swift; sourceTree = "<group>"; };
@@ -553,6 +557,7 @@
 				7EE76844700FCF7A055497BB /* OMLXProvider.swift */,
 				FB5609E4DAE701D3E99C18ED /* CommandRunner.swift */,
 				2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */,
+				9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -888,6 +893,7 @@
 				CHAT0105 /* LLMPromptSupportTests.swift */,
 				2C143CA861430497429FF2ED /* ProcessCommandRunnerTests.swift */,
 				818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */,
+				063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -1161,6 +1167,7 @@
 				DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */,
 				516C69B9F96966F24094766A /* CommandRunner.swift in Sources */,
 				7ACF371883AB2A61171CE4B1 /* ClaudeCLIProvider.swift in Sources */,
+				6EFD7447CD7942D2FD2EA03E /* LLMProviderCopy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1242,6 +1249,7 @@
 				2C3D4E5F60718293A4B5C6D9 /* ProgressTrickleTests.swift in Sources */,
 				17195DE1E51EAC28FD43A932 /* ProcessCommandRunnerTests.swift in Sources */,
 				EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */,
+				8C62110A3E06299DF920ED3C /* LLMProviderCopyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
