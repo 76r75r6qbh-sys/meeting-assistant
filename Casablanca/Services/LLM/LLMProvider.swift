@@ -115,6 +115,19 @@ enum LLMProviderFactory {
                 apiKey: defaults.string(forKey: AppPreferenceKey.omlxAPIKey) ?? "",
                 enableThinking: enableThinking
             )
+        case .claudeCode:
+            // A stored-but-empty model is treated as absent: `--model ""` would fail
+            // every call. `enableThinking` does not apply — the CLI has no such switch.
+            let storedModel = defaults.string(forKey: AppPreferenceKey.claudeCLIModel) ?? ""
+            return ClaudeCLIProvider(
+                // Empty path means "auto-detect on the next model fetch".
+                endpoint: defaults.string(forKey: AppPreferenceKey.claudeCLIPath) ?? "",
+                model: storedModel.isEmpty ? "sonnet" : storedModel,
+                runner: ProcessCommandRunner(),
+                // The same suite, so the detected-path write-back lands where the
+                // caller (and the tests) read it.
+                defaults: defaults
+            )
         }
     }
 }

@@ -21,6 +21,7 @@ struct OnboardingView: View {
     @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
     @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
     @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
 
     @State private var step: Step = .welcome
     @State private var llmCheck: LLMCheckState = .idle
@@ -53,6 +54,7 @@ struct OnboardingView: View {
         switch llmProvider {
         case .ollama: return "Ollama"
         case .omlx: return "oMLX"
+        case .claudeCode: return "Claude Code"
         }
     }
 
@@ -60,6 +62,8 @@ struct OnboardingView: View {
         switch llmProvider {
         case .ollama: return ollamaEndpoint
         case .omlx: return omlxEndpoint
+        // Carries the `claude` CLI path, not a URL. Empty means auto-detect.
+        case .claudeCode: return claudeCLIPath
         }
     }
 

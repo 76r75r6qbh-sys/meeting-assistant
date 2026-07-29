@@ -18,6 +18,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
     @AppStorage(AppPreferenceKey.omlxModel) private var omlxModel = ""
     @AppStorage(AppPreferenceKey.omlxAPIKey) private var omlxAPIKey = ""
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
+    @AppStorage(AppPreferenceKey.claudeCLIModel) private var claudeCLIModel = "sonnet"
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
@@ -59,6 +61,8 @@ struct SettingsView: View {
         switch llmProvider {
         case .ollama: return Binding(get: { ollamaEndpoint }, set: { ollamaEndpoint = $0 })
         case .omlx: return Binding(get: { omlxEndpoint }, set: { omlxEndpoint = $0 })
+        // Carries the `claude` CLI path, not a URL. Empty means auto-detect.
+        case .claudeCode: return Binding(get: { claudeCLIPath }, set: { claudeCLIPath = $0 })
         }
     }
 
@@ -66,6 +70,7 @@ struct SettingsView: View {
         switch llmProvider {
         case .ollama: return Binding(get: { ollamaModel }, set: { ollamaModel = $0 })
         case .omlx: return Binding(get: { omlxModel }, set: { omlxModel = $0 })
+        case .claudeCode: return Binding(get: { claudeCLIModel }, set: { claudeCLIModel = $0 })
         }
     }
 
@@ -73,6 +78,7 @@ struct SettingsView: View {
         switch llmProvider {
         case .ollama: return "Ollama"
         case .omlx: return "oMLX"
+        case .claudeCode: return "Claude Code"
         }
     }
 

@@ -13,6 +13,7 @@ enum PrepTodoStorage: String {
 enum LLMProviderKind: String {
     case ollama
     case omlx
+    case claudeCode
 }
 
 enum AppPreferences {

@@ -17,17 +17,26 @@ struct ClaudeCLIProvider: LLMProvider {
     let model: String
     let runner: CommandRunning
     let defaults: UserDefaults
+    /// Paths tried, in order, when `endpoint` is blank. Injectable so auto-detect
+    /// tests do not depend on what happens to be installed on the running machine.
+    let candidates: [String]
+    /// Executable-file probe for `candidates`. Injectable for the same reason.
+    let isExecutable: @Sendable (String) -> Bool
 
     init(
         endpoint: String,
         model: String,
         runner: CommandRunning = ProcessCommandRunner(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        candidates: [String] = ClaudeCLIProvider.defaultCandidatePaths,
+        isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) {
         self.endpoint = endpoint
         self.model = model
         self.runner = runner
         self.defaults = defaults
+        self.candidates = candidates
+        self.isExecutable = isExecutable
     }
 
     var displayName: String { "Claude Code" }
@@ -68,7 +77,7 @@ struct ClaudeCLIProvider: LLMProvider {
     /// in the order we trust them. `~/.claude/local/claude` ranks below the
     /// standalone binary because it is a `#!/usr/bin/env node` wrapper: without
     /// `node` on the minimal PATH a GUI app inherits, it cannot run.
-    static let candidatePaths: [String] = [
+    static let defaultCandidatePaths: [String] = [
         "~/.local/bin/claude",
         "~/.claude/local/claude",
         "/opt/homebrew/bin/claude",
@@ -247,7 +256,7 @@ struct ClaudeCLIProvider: LLMProvider {
     private func resolvedExecutablePath(preferring preferred: String) async throws -> String? {
         let trimmed = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        if let known = Self.candidatePaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+        if let known = candidates.first(where: isExecutable) {
             return known
         }
         return try await pathFromLoginShell()

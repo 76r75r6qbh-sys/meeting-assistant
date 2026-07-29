@@ -168,6 +168,10 @@ final class ClaudeCLIProviderTests: XCTestCase {
         assertPair("--output-format", "json", in: arguments)
         assertPair("--tools", "", in: arguments)
         assertPair("--setting-sources", "", in: arguments)
+        // Keeps the CLI in completion mode. Dropping it — or swapping it for
+        // `--append-system-prompt`, which layers on top of the agent prompt instead
+        // of replacing it — would turn summaries into chat replies.
+        assertPair("--system-prompt", ClaudeCLIProvider.systemPrompt, in: arguments)
         XCTAssertTrue(arguments.contains("--strict-mcp-config"), "missing --strict-mcp-config: \(arguments)")
         XCTAssertTrue(arguments.contains("--no-session-persistence"), "missing --no-session-persistence: \(arguments)")
         // Absent from CLI 2.1.220 — passing it would make every call fail.
@@ -201,14 +205,19 @@ final class ClaudeCLIProviderTests: XCTestCase {
         XCTAssertEqual(runner.lastCall?.arguments, ["--version"])
     }
 
-    /// What makes an auto-detected path appear in the Settings / Onboarding field.
-    func testFetchAvailableModelsWritesResolvedPathToDefaults() async throws {
+    /// What makes an auto-detected path appear in the Settings / Onboarding field
+    /// instead of an empty box: the path the provider *found* is what gets stored,
+    /// not the blank one it was handed.
+    func testFetchAvailableModelsWritesDetectedPathToDefaults() async throws {
         let runner = FakeCommandRunner.succeeding(standardOutput: "2.1.220 (Claude Code)\n")
         XCTAssertNil(defaults.string(forKey: AppPreferenceKey.claudeCLIPath))
 
-        _ = try await makeProvider(runner: runner).fetchAvailableModels(endpoint: Self.stubPath)
+        _ = try await makeAutoDetectProvider(
+            runner: runner,
+            executablePaths: [Self.secondCandidate]
+        ).fetchAvailableModels(endpoint: "")
 
-        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), Self.stubPath)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), Self.secondCandidate)
     }
 
     func testFetchAvailableModelsLaunchFailureIsInvalidEndpoint() async {
@@ -222,7 +231,83 @@ final class ClaudeCLIProviderTests: XCTestCase {
         }
     }
 
+    // MARK: - Path auto-detection
+
+    /// The first-run path: no stored CLI path, so the candidate list decides. Later
+    /// candidates must not win over earlier ones, and non-existent ones are skipped.
+    func testAutoDetectUsesTheFirstExecutableCandidate() async throws {
+        let runner = FakeCommandRunner.succeeding(standardOutput: "2.1.220 (Claude Code)\n")
+
+        let models = try await makeAutoDetectProvider(
+            runner: runner,
+            executablePaths: [Self.secondCandidate, Self.thirdCandidate]
+        ).fetchAvailableModels(endpoint: "")
+
+        XCTAssertEqual(models, ClaudeCLIProvider.availableModels)
+        XCTAssertEqual(runner.allCalls.count, 1, "a candidate hit must not also consult the login shell")
+        XCTAssertEqual(runner.lastCall?.executable, Self.secondCandidate)
+    }
+
+    /// A GUI-spawned process inherits a minimal PATH, so an install outside the known
+    /// locations (bun, nvm, a custom prefix) is only visible to a login shell.
+    func testAutoDetectFallsBackToLoginShellWhenNoCandidateIsExecutable() async throws {
+        // One canned outcome serves both calls: stdout is the shell's answer for the
+        // lookup, and for the `--version` probe only the exit code matters.
+        let shellAnswer = "/Users/test/.bun/bin/claude"
+        let runner = FakeCommandRunner.succeeding(standardOutput: shellAnswer + "\n")
+
+        let models = try await makeAutoDetectProvider(
+            runner: runner,
+            executablePaths: []
+        ).fetchAvailableModels(endpoint: "")
+
+        XCTAssertEqual(models, ClaudeCLIProvider.availableModels)
+        let calls = runner.allCalls
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls.first?.executable, "/bin/zsh")
+        XCTAssertEqual(calls.first?.arguments, ["-lc", "command -v claude"])
+        XCTAssertEqual(calls.last?.executable, shellAnswer, "the probe must run what the shell reported")
+    }
+
+    /// Claude Code is not installed at all: the user must see "endpoint is invalid",
+    /// which Settings points at the path field, rather than a launch failure.
+    func testAutoDetectFindingNothingAnywhereIsInvalidEndpoint() async {
+        // Exit 1 = `command -v claude` found nothing.
+        let runner = FakeCommandRunner.succeeding(exitCode: 1)
+        let provider = makeAutoDetectProvider(runner: runner, executablePaths: [])
+
+        await XCTAssertThrowsErrorAsync(try await provider.fetchAvailableModels(endpoint: "")) { error in
+            guard case LLMProviderError.invalidEndpoint = error else {
+                return XCTFail("expected invalidEndpoint, got \(error)")
+            }
+        }
+        XCTAssertEqual(runner.allCalls.count, 1, "nothing may be launched once resolution failed")
+        XCTAssertNil(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), "must not store a path it never found")
+    }
+
     // MARK: - Helpers
+
+    /// Hermetic stand-ins for the real candidate list, so auto-detect tests do not
+    /// depend on whether the running machine happens to have `claude` installed.
+    private static let firstCandidate = "/tmp/claude-cli-provider-tests/first/claude"
+    private static let secondCandidate = "/tmp/claude-cli-provider-tests/second/claude"
+    private static let thirdCandidate = "/tmp/claude-cli-provider-tests/third/claude"
+
+    /// A provider with a blank endpoint, so path resolution actually runs, and where
+    /// only `executablePaths` count as installed.
+    private func makeAutoDetectProvider(
+        runner: CommandRunning,
+        executablePaths: Set<String>
+    ) -> ClaudeCLIProvider {
+        ClaudeCLIProvider(
+            endpoint: "",
+            model: "sonnet",
+            runner: runner,
+            defaults: defaults,
+            candidates: [Self.firstCandidate, Self.secondCandidate, Self.thirdCandidate],
+            isExecutable: { executablePaths.contains($0) }
+        )
+    }
 
     private func makeProvider(
         runner: CommandRunning,
@@ -309,6 +394,10 @@ final class FakeCommandRunner: CommandRunning {
     }
 
     var lastCall: Call? { calls.withLock { $0.last } }
+
+    /// Every call in order — path resolution can run two commands (the login-shell
+    /// lookup, then the binary itself), and which ran matters.
+    var allCalls: [Call] { calls.withLock { $0 } }
 
     func run(
         executable: String,
