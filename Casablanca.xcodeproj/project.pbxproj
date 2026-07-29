@@ -40,6 +40,7 @@
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
+		7ACF371883AB2A61171CE4B1 /* ClaudeCLIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */; };
 		7D8DF90A81336C65087E3FC3 /* RefinementPrepBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A10EB29639B23646888C040 /* RefinementPrepBody.swift */; };
 		7F31A7678806EAFEC2C6A94A /* UpdatePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */; };
 		863B495C0E86496DB75A9C91 /* LLMProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B528C25CC65D55848052D4 /* LLMProviderFactoryTests.swift */; };
@@ -223,6 +224,7 @@
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
 		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
+		EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
 		F1783E6572E352D3F007A4C7 /* SafeToQuitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */; };
@@ -263,6 +265,7 @@
 		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
 		2C143CA861430497429FF2ED /* ProcessCommandRunnerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/ProcessCommandRunnerTests.swift; sourceTree = SOURCE_ROOT; };
 		2C3D4E5F60718293A4B5C6DA /* ProgressTrickleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ProgressTrickleTests.swift; sourceTree = SOURCE_ROOT; };
+		2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/LLM/ClaudeCLIProvider.swift; sourceTree = SOURCE_ROOT; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TicketDraftBody.swift; sourceTree = SOURCE_ROOT; };
 		348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModel.swift; sourceTree = "<group>"; };
@@ -289,6 +292,7 @@
 		7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ActionCardBodyTests.swift; sourceTree = SOURCE_ROOT; };
 		7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateProgressView.swift; sourceTree = "<group>"; };
 		7EE76844700FCF7A055497BB /* OMLXProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProvider.swift; sourceTree = "<group>"; };
+		818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/ClaudeCLIProviderTests.swift; sourceTree = SOURCE_ROOT; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TerminologyServiceTests.swift; sourceTree = SOURCE_ROOT; };
@@ -548,6 +552,7 @@
 				ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */,
 				7EE76844700FCF7A055497BB /* OMLXProvider.swift */,
 				FB5609E4DAE701D3E99C18ED /* CommandRunner.swift */,
+				2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -882,6 +887,7 @@
 				0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */,
 				CHAT0105 /* LLMPromptSupportTests.swift */,
 				2C143CA861430497429FF2ED /* ProcessCommandRunnerTests.swift */,
+				818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -1154,6 +1160,7 @@
 				A40819F539B3CA03A87824C3 /* JiraLink.swift in Sources */,
 				DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */,
 				516C69B9F96966F24094766A /* CommandRunner.swift in Sources */,
+				7ACF371883AB2A61171CE4B1 /* ClaudeCLIProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1234,6 +1241,7 @@
 				9A1E2C3D4B5F60718293A4C6 /* TerminologyServiceTests.swift in Sources */,
 				2C3D4E5F60718293A4B5C6D9 /* ProgressTrickleTests.swift in Sources */,
 				17195DE1E51EAC28FD43A932 /* ProcessCommandRunnerTests.swift in Sources */,
+				EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
