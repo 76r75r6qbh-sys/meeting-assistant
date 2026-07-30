@@ -60,6 +60,13 @@ These bind every task. A reviewer should treat a violation as a defect.
 6. **Out of scope, do not build:** streaming output; per-feature provider routing;
    API-key / pay-as-you-go support (deliberately subscription-only); a `--max-turns`
    guard; retries inside the provider (`LLMRetryPolicy` owns retries).
+   Also out of scope, and the highest-value follow-up this work leaves behind:
+   **summarization still middle-elides the transcript to 24,000 characters**
+   (`LLMPromptSupport.defaultTranscriptTokenBudget` × `charsPerToken`), a budget whose
+   own doc comment explains it as sized for a ~8k-token *local* context window.
+   Against a 200k-token model that discards most of a long meeting and then shows the
+   user a "transcript was shortened" warning — capping the headline benefit of this
+   whole feature. Recorded here deliberately; do not implement it as part of this plan.
 7. **The build must be green at the end of every task.** Adding a case to
    `LLMProviderKind` breaks four exhaustive switches across two views; Task 3 owns
    landing all of them together.
@@ -266,8 +273,14 @@ Two deliberate trade-offs, both already accepted — do not "fix" them:
 - `.backendError` is **non-transient on purpose**: a usage-limit hit will not resolve
   inside the retry window. The cost is that a genuinely transient API blip (529) also
   won't retry.
-- Timeout is **transient on purpose**, so terminology correction's 240s × 3 attempts can
-  take ~12 minutes worst case.
+- Timeout is **transient on purpose**. The cost lands only at the call sites that
+  actually retry: `SummarizationService.swift:243` and `MeetingChatService.swift:111`
+  wrap `generate` in `LLMRetryPolicy(maxAttempts: 3)`, so one slow call there becomes
+  up to three billed generations. `TerminologyService.runProviderPass` calls `generate`
+  **bare, with no retry wrapper** — an earlier version of this plan claimed its 240s
+  timeout could be spent three times over for ~12 minutes; that was never true.
+  (Terminology correction no longer sends this provider a transcript at all — see
+  *Known risk* below.)
 
 Message construction:
 
@@ -579,3 +592,32 @@ Claude Code selected these are false. Condition them on the selected provider us
 No new tests: the strings and their guards live in `LLMProviderCopyTests` from Task 4.
 Confirm the full suite still passes and that no `providerDisplayName` switch remains in
 either view (`grep -rn "providerDisplayName" Casablanca/`).
+
+---
+
+## Known risk — terminology correction (corrected after the whole-branch review)
+
+The original plan described this hazard as **silent data loss**: the provider pass
+sends the untruncated transcript (~80k chars) and expects a full echo, this provider
+always reports `truncated: false`, and the only guard is `looksLikeMangledOutput`
+(>50% shrink, `TerminologyService.swift:55`) — so a moderate output cap "could be
+silently saved over your transcript".
+
+**That framing was wrong.** `TranscriptionView.swift:163` writes
+`meeting.rawTranscript` *before* the pass runs, and `MeetingTranscriptTab`'s
+**"Restore original"** action (`:59`, `:136`) puts it back. Nothing is lost, and the
+recovery path is one click.
+
+The real residual exposure is narrower and further downstream: `startTranscription`
+calls `ExportService.exportAutomaticallyIfEnabled` (`TranscriptionView.swift:183`)
+immediately after saving the corrected transcript, so with auto-export on, the
+shortened version reaches Obsidian before the user has looked at it. Restoring the
+original inside the app does not retract that file.
+
+Both are now moot for this provider: `TerminologyService.correct` **skips the
+provider pass entirely** when `LLMProvider.supportsFullTranscriptEcho` is false,
+which `ClaudeCLIProvider` returns. The deterministic find/replace still runs, and the
+user gets a warning naming what did and did not happen. That code guard supersedes
+the Settings-caption mitigation the plan originally relied on — a caption cannot
+protect a user who enabled the toggle *before* switching provider, since they never
+read it again.

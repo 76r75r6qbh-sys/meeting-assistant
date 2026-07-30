@@ -1,6 +1,6 @@
 # Casablanca
 
-Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with a local LLM (Ollama or oMLX), and exporting meeting notes to Obsidian or Apple Notes.
+Casablanca is a macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions on-device with Whisper, generating summaries through a selectable LLM provider — a local model via Ollama or oMLX, or Claude Code billed against your Claude subscription — and exporting meeting notes to Obsidian or Apple Notes. Recording and transcription always stay on your Mac; with Claude Code selected, the transcript is sent to Anthropic for summarization.
 
 ## What `v0.8.0` includes
 
@@ -8,7 +8,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Live meeting workspace with freeform notes by default and optional timestamped capture
 - Local meeting recording with microphone and optional system audio capture
 - Local transcription through WhisperKit
-- Local summary generation through a selectable LLM provider — Ollama (default) or oMLX — with per-provider endpoint and model settings and optional oMLX API-key authentication
+- Summary generation through a selectable LLM provider — a local model via Ollama (default) or oMLX, or Claude Code (headless `claude -p`, no API key) — with per-provider endpoint / CLI-path and model settings and optional oMLX API-key authentication
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
 - **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
@@ -33,7 +33,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Xcode 16 or later
 - Microphone permission
 - Screen Recording permission if you want system audio capture
-- Optional: a local LLM server for summaries — [Ollama](https://ollama.com) (default) or [oMLX](https://github.com/jundot/omlx)
+- Optional, for summaries — either a local LLM server ([Ollama](https://ollama.com), the default, or [oMLX](https://github.com/jundot/omlx)) or the [Claude Code](https://claude.com/claude-code) CLI with an active Claude subscription
 
 ## Build
 

@@ -17,6 +17,9 @@ permission state is clean and you actually see the system prompts.
 - [ ] Copy `Casablanca.app` to `/Applications` (the auto-updater requires this).
 - [ ] Have a local LLM running (Ollama default, e.g. `ollama serve` with a model
       pulled) so the summarize step can be exercised.
+- [ ] For the Claude Code provider: have the `claude` CLI installed and logged in
+      (`claude --version` works in Terminal). Every summary it drafts draws from
+      the subscription's usage limits, so keep this pass short.
 - [ ] Have an Obsidian vault folder ready, and Apple Notes signed in.
 
 ## 1. Launch & onboarding
@@ -29,7 +32,9 @@ permission state is clean and you actually see the system prompts.
       Calendar — each with a one-line explanation of what it captures and whether
       it's optional.
 - [ ] **Step 4 (LLM)** probes the configured provider and shows reachable / model
-      count (or a clear unreachable message + Retry).
+      count (or a clear unreachable message + Retry). The field label and the
+      closing hint read "Endpoint" for Ollama / oMLX and "CLI path" for Claude
+      Code — never a mix of the two.
 - [ ] You can move forward with **Skip** at any non-final step — onboarding never
       hard-blocks.
 
@@ -71,6 +76,12 @@ This is the important regression surface for this release.
       model; allow time).
 - [ ] Summarize with the local LLM running — a summary draft is produced. Confirm
       a clear error (not a hang) if the LLM endpoint is down.
+- [ ] **Claude Code provider** (Settings → AI → Claude Code): the CLI path
+      auto-detects and persists, the model picker offers haiku / opus / sonnet, and
+      summarizing one meeting produces a draft. Break the path → the error names
+      the CLI path field. With terminology correction on, the transcript gets the
+      find/replace only and a warning says the model pass was skipped. Afterwards,
+      confirm no orphaned CLI process: `pgrep -f "claude -p"` is empty.
 
 ## 5. Export
 
