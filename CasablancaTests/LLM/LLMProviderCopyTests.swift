@@ -2,9 +2,9 @@ import XCTest
 @testable import Casablanca
 
 final class LLMProviderCopyTests: XCTestCase {
-    /// Every provider kind. `LLMProviderKind` is not `CaseIterable`, so
-    /// `testAllKindsIsExhaustive` is what keeps this list honest.
-    private let allKinds: [LLMProviderKind] = [.ollama, .omlx, .claudeCode]
+    /// Every provider kind. Derived from `CaseIterable` rather than hand-listed, so
+    /// a new kind is covered by every test here the moment it is declared.
+    private let allKinds = LLMProviderKind.allCases
 
     private let localKinds: [LLMProviderKind] = [.ollama, .omlx]
 
@@ -13,18 +13,6 @@ final class LLMProviderCopyTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults
-    }
-
-    /// Adding a case to `LLMProviderKind` makes the switch below non-exhaustive,
-    /// so this file stops compiling until `allKinds` is extended — which is the
-    /// point: every test here iterates that list.
-    func testAllKindsIsExhaustive() {
-        for kind in allKinds {
-            switch kind {
-            case .ollama, .omlx, .claudeCode: break
-            }
-        }
-        XCTAssertEqual(allKinds.count, 3)
     }
 
     // MARK: - Every kind gets copy
@@ -36,6 +24,7 @@ final class LLMProviderCopyTests: XCTestCase {
             XCTAssertFalse(LLMProviderCopy.modelLoadingLabel(for: kind).isEmpty, "modelLoadingLabel for \(kind)")
             XCTAssertFalse(LLMProviderCopy.noModelsFound(for: kind).isEmpty, "noModelsFound for \(kind)")
             XCTAssertFalse(LLMProviderCopy.modelNotAvailable(for: kind).isEmpty, "modelNotAvailable for \(kind)")
+            XCTAssertFalse(LLMProviderCopy.modelUnavailableSuffix(for: kind).isEmpty, "modelUnavailableSuffix for \(kind)")
             XCTAssertFalse(LLMProviderCopy.summarizationFooter(for: kind).isEmpty, "summarizationFooter for \(kind)")
             XCTAssertFalse(LLMProviderCopy.privacySubtitle(for: kind).isEmpty, "privacySubtitle for \(kind)")
 
@@ -81,6 +70,22 @@ final class LLMProviderCopyTests: XCTestCase {
         }
     }
 
+    // MARK: - Model picker suffix
+
+    /// The suffix sits next to `modelNotAvailable`, which for a local provider says
+    /// the model "is not installed at this endpoint" — so the suffix has to agree.
+    func testModelUnavailableSuffixMatchesTheReasonTheModelIsMissing() {
+        for kind in localKinds {
+            XCTAssertEqual(
+                LLMProviderCopy.modelUnavailableSuffix(for: kind),
+                "(not installed)",
+                "modelUnavailableSuffix for \(kind)"
+            )
+        }
+        // Nothing is installed under Claude Code; the model is just not on offer.
+        XCTAssertEqual(LLMProviderCopy.modelUnavailableSuffix(for: .claudeCode), "(unavailable)")
+    }
+
     // MARK: - Agreement with the providers
 
     /// The provider owns the name used in its error messages; this enum owns the
@@ -111,10 +116,19 @@ final class LLMProviderCopyTests: XCTestCase {
     /// With Claude Code selected the transcript is sent to Anthropic. Copy that
     /// still promises a local model, or repeats the "nothing is sent to the
     /// cloud" line the local providers earn, would be a false privacy claim.
+    ///
+    /// `caveats` is deliberately absent: "slower than a local model" is a legitimate
+    /// comparison against the other providers, not a claim about this one.
     func testClaudeCodeCopyMakesNoLocalityClaims() {
+        let stepHeader = LLMProviderCopy.llmStepHeader(for: .claudeCode)
+        let summaries = LLMProviderCopy.summariesFeature(for: .claudeCode)
         let strings = [
             "summarizationFooter": LLMProviderCopy.summarizationFooter(for: .claudeCode),
             "privacySubtitle": LLMProviderCopy.privacySubtitle(for: .claudeCode),
+            "llmStepHeader.title": stepHeader.title,
+            "llmStepHeader.subtitle": stepHeader.subtitle,
+            "summariesFeature.title": summaries.title,
+            "summariesFeature.subtitle": summaries.subtitle,
         ]
         for (entry, text) in strings {
             XCTAssertFalse(

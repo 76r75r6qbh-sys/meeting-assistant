@@ -50,12 +50,8 @@ struct OnboardingView: View {
         LLMProviderKind(rawValue: llmProviderRaw) ?? .ollama
     }
 
-    private var providerDisplayName: String {
-        switch llmProvider {
-        case .ollama: return "Ollama"
-        case .omlx: return "oMLX"
-        case .claudeCode: return "Claude Code"
-        }
+    private var providerName: String {
+        LLMProviderCopy.displayName(for: llmProvider)
     }
 
     private var providerEndpoint: String {
@@ -148,17 +144,21 @@ struct OnboardingView: View {
     // MARK: Step 1 — Welcome
 
     private var welcomeStep: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+        // Rendered before the provider step, so it describes whatever provider is
+        // stored right now — including the `.ollama` default on a first run.
+        let summaries = LLMProviderCopy.summariesFeature(for: llmProvider)
+        return VStack(alignment: .leading, spacing: CasaSpace.lg) {
             stepHeader(
                 "Step 1 of 4 · Welcome",
                 "Welcome to Casablanca",
-                "Everything stays on your Mac — recording, transcription and summaries run locally. Nothing is sent to the cloud."
+                LLMProviderCopy.privacySubtitle(for: llmProvider)
             )
 
             VStack(alignment: .leading, spacing: CasaSpace.md) {
+                // Recording and transcription are on-device for every provider.
                 featureRow("waveform", "Record meetings", "Capture microphone and system audio.")
                 featureRow("text.bubble", "Local transcription", "Whisper runs on-device.")
-                featureRow("sparkles", "Private summaries", "A local LLM drafts your notes.")
+                featureRow("sparkles", summaries.title, summaries.subtitle)
             }
         }
     }
@@ -387,17 +387,18 @@ struct OnboardingView: View {
     // MARK: Step 4 — LLM check
 
     private var llmStep: some View {
-        VStack(alignment: .leading, spacing: CasaSpace.lg) {
+        let header = LLMProviderCopy.llmStepHeader(for: llmProvider)
+        return VStack(alignment: .leading, spacing: CasaSpace.lg) {
             stepHeader(
                 "Step 4 of 4 · Language model",
-                "Connect your local LLM",
-                "Casablanca uses a local language model to draft summaries. Verify it is reachable below."
+                header.title,
+                header.subtitle
             )
 
             VStack(alignment: .leading, spacing: CasaSpace.sm) {
-                infoRow(label: "Provider", value: providerDisplayName)
+                infoRow(label: "Provider", value: providerName)
                 Divider()
-                infoRow(label: "Endpoint", value: providerEndpoint)
+                infoRow(label: LLMProviderCopy.locationFieldLabel(for: llmProvider), value: providerEndpoint)
             }
             .padding(CasaSpace.md)
             .background(Color.backgroundTertiary)
@@ -434,7 +435,7 @@ struct OnboardingView: View {
         case .checking:
             HStack(spacing: CasaSpace.sm) {
                 ProgressView().controlSize(.small)
-                Text("Checking \(providerDisplayName)…")
+                Text("Checking \(providerName)…")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -442,7 +443,7 @@ struct OnboardingView: View {
             HStack(spacing: CasaSpace.sm) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.accentSuccess)
-                Text("\(providerDisplayName) is reachable — \(count) model\(count == 1 ? "" : "s") installed.")
+                Text("\(providerName) is reachable — \(count) model\(count == 1 ? "" : "s") installed.")
                     .font(.caption)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -451,7 +452,7 @@ struct OnboardingView: View {
                 HStack(spacing: CasaSpace.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(Color.accentWarning)
-                    Text("Could not reach \(providerDisplayName).")
+                    Text("Could not reach \(providerName).")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Color.textSecondary)
                     Button("Retry") { Task { await runLLMCheck() } }

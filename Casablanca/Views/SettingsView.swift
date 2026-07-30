@@ -268,9 +268,7 @@ struct SettingsView: View {
                             if availableModels.contains(model) {
                                 Text(model).tag(model)
                             } else {
-                                // Not "(not installed)": under Claude Code nothing is
-                                // installed here, the model is simply not on offer.
-                                Text("\(model) (unavailable)").tag(model)
+                                Text("\(model) \(LLMProviderCopy.modelUnavailableSuffix(for: llmProvider))").tag(model)
                             }
                         }
                     }

@@ -47,10 +47,24 @@ enum LLMProviderCopy {
     }
 
     /// Shown when the lookup succeeded but returned nothing.
+    ///
+    /// For Claude Code this branch is unreachable by construction: the model list
+    /// is static, so `ClaudeCLIProvider.fetchAvailableModels` either throws — which
+    /// `SettingsView.refreshModels` routes into `modelsError`, an earlier branch —
+    /// or returns a non-empty list. The string exists only as a defensive fallback.
     static func noModelsFound(for kind: LLMProviderKind) -> String {
         switch kind {
         case .ollama, .omlx: return "No \(displayName(for: kind)) models were found at this endpoint yet."
-        case .claudeCode: return "Casablanca could not reach the Claude Code CLI. Check the path above."
+        case .claudeCode: return "No Claude Code models are available. Check the CLI path above."
+        }
+    }
+
+    /// Suffix marking a model in the picker that the provider did not report.
+    static func modelUnavailableSuffix(for kind: LLMProviderKind) -> String {
+        switch kind {
+        case .ollama, .omlx: return "(not installed)"
+        // Nothing is installed here; the model is simply not one Claude Code offers.
+        case .claudeCode: return "(unavailable)"
         }
     }
 
@@ -81,7 +95,7 @@ enum LLMProviderCopy {
         // A model on this Mac costs nothing per call and has no shared limits.
         case .ollama, .omlx: return ""
         case .claudeCode:
-            return "Usage counts against your Claude subscription's limits, not an API key, and each call is slower than a local model. Keep terminology correction off with Claude Code: it sends the whole transcript and expects the full text back, and a shortened reply can be saved over your transcript."
+            return "Usage counts against your Claude subscription's limits rather than a paid API key, and each call is slower than a local model. Leave terminology correction off: it sends the whole transcript and expects the full text back, and a shortened reply overwrites your transcript."
         }
     }
 

@@ -10,7 +10,7 @@ enum PrepTodoStorage: String {
     case local
 }
 
-enum LLMProviderKind: String {
+enum LLMProviderKind: String, CaseIterable {
     case ollama
     case omlx
     case claudeCode
