@@ -114,6 +114,11 @@ struct ContentView: View {
         .task {
             if interruptionCoordinator == nil {
                 recordingService.interruptionMonitor = interruptionMonitor
+                // Note: system-audio-unavailable (no display) is handled as an
+                // auto-pause via the interruption monitor/coordinator below
+                // (`.displayUnavailable`), so we deliberately do NOT wire
+                // `onSystemAudioUnavailable` to a microphone-only notification —
+                // the recording pauses rather than silently continuing mic-only.
                 let context = modelContext
                 interruptionCoordinator = RecordingInterruptionCoordinator(
                     service: recordingService,

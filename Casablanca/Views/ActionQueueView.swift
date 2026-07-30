@@ -5,9 +5,24 @@ struct ActionQueueView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var filter: ActionQueueFilter = .pending
-    @State private var selectedItemID: String?
+    @State private var presented: PresentedSheet?
+    @State private var sectionState = ActionQueueSectionState()
 
     private var model: ActionQueueModel { appModel.actionQueueModel }
+
+    /// What the detail sheet is currently showing. A single item routes to the
+    /// per-bucket approval sheet; a composite routes to the linked-card stack.
+    enum PresentedSheet: Identifiable {
+        case single(ActionQueueItem)
+        case composite(primary: ActionQueueItem, linked: [ActionQueueItem])
+
+        var id: String {
+            switch self {
+            case .single(let item): return "single:\(item.id)"
+            case .composite(let primary, _): return "composite:\(primary.id)"
+            }
+        }
+    }
 
     enum ActionQueueFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -40,8 +55,9 @@ struct ActionQueueView: View {
         // the watcher/bootstrap mutates the queue (same rule as the sidebar badge).
         let items = model.items
         let filtered = items.filter { filter.matches($0.status) }
+        let sections = buildActionQueueSections(filtered)
 
-        return content(filtered)
+        return content(filtered: filtered, sections: sections)
             .frame(maxWidth: CasaLayout.contentMaxWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Approvals")
@@ -59,29 +75,74 @@ struct ActionQueueView: View {
                     .frame(maxWidth: 220)
                 }
             }
-            .sheet(item: selectedItemBinding) { item in
-                ActionQueueDetailSheet(item: item, model: model) {
-                    selectedItemID = nil
+            .sheet(item: $presented) { sheet in
+                switch sheet {
+                case .single(let item):
+                    ActionQueueDetailSheet(item: item, model: model) {
+                        presented = nil
+                    }
+                case .composite(let primary, let linked):
+                    CompositeLinkedCard(primary: primary, linked: linked, model: model) {
+                        presented = nil
+                    }
                 }
             }
     }
 
     @ViewBuilder
-    private func content(_ filtered: [ActionQueueItem]) -> some View {
+    private func content(filtered: [ActionQueueItem], sections: [ActionQueueSection]) -> some View {
         if filtered.isEmpty {
             VStack {
                 emptyState
                 Spacer(minLength: 0)
             }
         } else {
-            List(filtered) { item in
-                ActionQueueRow(item: item)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedItemID = item.id }
-                    .contextMenu { contextMenu(for: item) }
+            List {
+                ForEach(sections) { section in
+                    sectionView(section)
+                }
             }
             .listStyle(.inset)
             .animation(reduceMotion ? nil : CasaAnimation.fast, value: filtered.map(\.id))
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(_ section: ActionQueueSection) -> some View {
+        let key = ActionQueueSectionState.key(for: section.bucket)
+        let isCollapsed = sectionState.isCollapsed(key)
+
+        Section {
+            if !isCollapsed {
+                ForEach(section.entries) { entry in
+                    entryRow(entry)
+                }
+            }
+        } header: {
+            ActionQueueSectionHeader(
+                title: section.bucket?.displayName ?? "General",
+                pendingCount: section.pendingCount,
+                totalCount: section.totalCount,
+                isCollapsed: isCollapsed,
+                reduceMotion: reduceMotion
+            ) {
+                sectionState.toggle(key)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entryRow(_ entry: ActionQueueEntry) -> some View {
+        switch entry {
+        case .single(let item, let olderDuplicateIds):
+            ActionQueueRow(item: item, olderDuplicateCount: olderDuplicateIds.count)
+                .contentShape(Rectangle())
+                .onTapGesture { presented = .single(item) }
+                .contextMenu { contextMenu(for: item) }
+        case .composite(let primary, let linked):
+            ActionQueueCompositeRow(primary: primary, linkedCount: linked.count + 1)
+                .contentShape(Rectangle())
+                .onTapGesture { presented = .composite(primary: primary, linked: linked) }
         }
     }
 
@@ -102,13 +163,6 @@ struct ActionQueueView: View {
             }
             Button("Reopen") { model.reopen(id: item.id) }
         }
-    }
-
-    private var selectedItemBinding: Binding<ActionQueueItem?> {
-        Binding(
-            get: { model.items.first { $0.id == selectedItemID } },
-            set: { newValue in selectedItemID = newValue?.id }
-        )
     }
 
     private var emptyState: some View {
@@ -158,6 +212,8 @@ struct ActionQueueView: View {
 
 private struct ActionQueueRow: View {
     let item: ActionQueueItem
+    /// Number of older same-externalRef duplicates folded behind this row.
+    var olderDuplicateCount: Int = 0
 
     var body: some View {
         HStack(spacing: CasaSpace.sm) {
@@ -181,6 +237,10 @@ private struct ActionQueueRow: View {
 
             Spacer()
 
+            if olderDuplicateCount > 0 {
+                CasaChip("+\(olderDuplicateCount)", tint: .textTertiary)
+                    .help("\(olderDuplicateCount) older duplicate\(olderDuplicateCount == 1 ? "" : "s")")
+            }
             if let draftType = item.draftType {
                 tag(draftType.rawValue.capitalized, color: Color.accentSecondary)
             }
@@ -211,6 +271,141 @@ private struct ActionQueueRow: View {
             .background(
                 Capsule().fill(color.opacity(0.15))
             )
+    }
+}
+
+// MARK: - Composite row
+
+/// A list row standing in for a group of linked items. Renders like a normal row
+/// using the primary item, plus a "<n> linked" badge.
+private struct ActionQueueCompositeRow: View {
+    let primary: ActionQueueItem
+    /// Total members in the group (primary + linked).
+    let linkedCount: Int
+
+    var body: some View {
+        HStack(spacing: CasaSpace.sm) {
+            Circle()
+                .fill(priorityColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(primary.title.isEmpty ? "(untitled)" : primary.title)
+                    .font(.body)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                if let target = primary.target, !target.isEmpty {
+                    Text(target)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            CasaChip("\(linkedCount) linked", systemImage: "square.stack", tint: .accentPrimary)
+                .help("\(linkedCount) linked actions")
+        }
+        .padding(.vertical, CasaSpace.xxs)
+    }
+
+    private var priorityColor: Color {
+        switch primary.priority {
+        case .high: return Color.accentDanger
+        case .medium: return Color.accentWarning
+        case .low: return Color.textTertiary
+        case .unknown: return Color.textTertiary
+        }
+    }
+}
+
+// MARK: - Section header
+
+/// Tappable, full-width collapsible section header showing the bucket name and a
+/// "(<pending> / <total>)" count, with a chevron that rotates on collapse.
+private struct ActionQueueSectionHeader: View {
+    let title: String
+    let pendingCount: Int
+    let totalCount: Int
+    let isCollapsed: Bool
+    let reduceMotion: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: CasaSpace.sm) {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    .animation(reduceMotion ? nil : CasaAnimation.fast, value: isCollapsed)
+
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                HStack(spacing: 2) {
+                    Text("(")
+                    Text("\(pendingCount)").fontWeight(.bold)
+                    Text(" / \(totalCount))").foregroundStyle(Color.textTertiary)
+                }
+                .font(.subheadline)
+                .foregroundStyle(Color.textSecondary)
+
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, CasaSpace.xxs)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(pendingCount) pending of \(totalCount)")
+        .accessibilityHint(isCollapsed ? "Expand section" : "Collapse section")
+    }
+}
+
+// MARK: - Section collapse state
+
+/// Per-bucket collapse/expand persistence, backed by a `Set<String>` of collapsed
+/// keys in `UserDefaults`. Default = expanded (absent from the set). Mirrored in
+/// `@Observable` state so toggles re-render the list. Pure enough to unit-test by
+/// injecting a custom `UserDefaults` suite.
+@Observable
+final class ActionQueueSectionState {
+    static let storageKey = "actionQueue.collapsedSections"
+
+    private let defaults: UserDefaults
+    private var collapsed: Set<String>
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let stored = defaults.stringArray(forKey: Self.storageKey) ?? []
+        self.collapsed = Set(stored)
+    }
+
+    /// Stable storage key for a bucket section — the same canonical key the
+    /// `ActionQueueSection` ForEach identity uses, so collapse state maps 1:1
+    /// to a rendered section.
+    static func key(for bucket: ActionBucket?) -> String {
+        ActionQueueSection.key(for: bucket)
+    }
+
+    func isCollapsed(_ key: String) -> Bool {
+        collapsed.contains(key)
+    }
+
+    func toggle(_ key: String) {
+        if collapsed.contains(key) {
+            collapsed.remove(key)
+        } else {
+            collapsed.insert(key)
+        }
+        persist()
+    }
+
+    private func persist() {
+        defaults.set(Array(collapsed).sorted(), forKey: Self.storageKey)
     }
 }
 
@@ -280,39 +475,10 @@ private struct ActionQueueDetailSheet: View {
                         originBlock(source)
                     }
 
-                    // Proposed reply — the editable draft Youri approves/declines.
-                    if isDraft {
-                        VStack(alignment: .leading, spacing: CasaSpace.xs) {
-                            HStack(spacing: CasaSpace.xs) {
-                                Image(systemName: "pencil.line")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.accentSecondary)
-                                Text(draftLabel)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Color.textSecondary)
-                                Text("· editable")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.textTertiary)
-                            }
-                            if editedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text("No draft text yet — type a reply or ask your copilot to prepare one.")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.accentWarning)
-                            }
-                            TextEditor(text: $editedBody)
-                                .font(.system(.body))
-                                .frame(minHeight: 220)
-                                .scrollContentBackground(.hidden)
-                                .padding(CasaSpace.sm)
-                                .background(
-                                    RoundedRectangle(cornerRadius: CasaRadius.md)
-                                        .fill(Color.accentSecondary.opacity(0.06))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: CasaRadius.md)
-                                        .stroke(Color.textTertiary.opacity(0.3))
-                                )
-                        }
+                    // Proposed reply — routed to the per-bucket approval card.
+                    // Todos are kind=task but still render their (display-only) card.
+                    if isDraft || item.bucket == .todo {
+                        ActionCardView(item: item, editedBody: $editedBody)
                     }
 
                     // A steer already sent back to the copilot (item is being re-drafted).
@@ -451,14 +617,6 @@ private struct ActionQueueDetailSheet: View {
         .frame(width: 360)
     }
 
-    private var draftLabel: String {
-        switch item.draftType {
-        case .jira: return "Proposed comment"
-        case .teams: return "Proposed message"
-        case .email, .other, .unknown, .none: return "Proposed reply"
-        }
-    }
-
     private func labeledBlock(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: CasaSpace.xxs) {
             Text(label)
@@ -514,6 +672,15 @@ private struct ActionQueueDetailSheet: View {
                     Button("Approve") {
                         let trimmed = editedBody == item.body ? nil : editedBody
                         model.approve(id: item.id, editedBody: trimmed)
+                        onDismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                } else if item.bucket == .todo {
+                    Spacer()
+
+                    Button("Mark complete") {
+                        model.completeLocally(id: item.id)
                         onDismiss()
                     }
                     .buttonStyle(.borderedProminent)

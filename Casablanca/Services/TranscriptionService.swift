@@ -101,7 +101,15 @@ final class TranscriptionService {
     private static let whisperControlTokenRegex = try! NSRegularExpression(pattern: #"<\|[^|>]+?\|>"#)
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
-    private var highWaterProgress: Double = 0
+    /// The last checkpoint we actually know is true (loading floor, a real VAD
+    /// segment-discovery update, or completion) — the baseline `progressTicker`
+    /// creeps above, so the trickle can never outrun real work by more than
+    /// `trickleBudget`.
+    private var lastCheckpoint: Double = 0
+    private var progressTicker: Task<Void, Never>?
+    private static let trickleBudget = 0.04
+    private static let trickleCeiling = 0.95
+    private static let trickleEasing = 0.25
     private var whisperKit: WhisperPipeline?
     private var loadedWhisperModelID: String?
 
@@ -113,12 +121,14 @@ final class TranscriptionService {
 
         isTranscribing = true
         progress = 0
-        highWaterProgress = 0
+        lastCheckpoint = 0
         statusMessage = "Preparing audio file..."
         currentSegments = []
+        startProgressTicker()
 
         defer {
             isTranscribing = false
+            stopProgressTicker()
         }
 
         let locale = localeIdentifier
@@ -183,8 +193,8 @@ final class TranscriptionService {
 
                 let lastTimestamp = mappedSegments.last?.endTime ?? 0
                 let progressValue = min(0.1 + (lastTimestamp / max(duration, 1)) * 0.85, 0.95)
-                let clampedProgress = max(progressValue, self.highWaterProgress)
-                self.highWaterProgress = clampedProgress
+                let clampedProgress = max(progressValue, self.lastCheckpoint)
+                self.lastCheckpoint = clampedProgress
                 self.progress = clampedProgress
                 self.statusMessage = "Transcribing with local Whisper..."
             }
@@ -245,7 +255,12 @@ final class TranscriptionService {
                     downloadBase: try Self.whisperDownloadBaseURL(),
                     verbose: false,
                     logLevel: .none,
-                    prewarm: false,
+                    // Runs a warm-up inference during model load (compiling/caching
+                    // the CoreML graph) instead of letting that cost land on the
+                    // FIRST real transcription chunk — previously that made the
+                    // progress bar look frozen partway through transcribing
+                    // (e.g. stuck at ~12%) when it was actually still compiling.
+                    prewarm: true,
                     load: true,
                     download: true
                 )
@@ -280,6 +295,37 @@ final class TranscriptionService {
     private func updateStatus(_ message: String, progress: Double) async {
         self.statusMessage = message
         self.progress = progress
+        self.lastCheckpoint = progress
+    }
+
+    /// Starts a lightweight periodic nudge so the bar visibly creeps during the
+    /// long, checkpoint-free waits (model loading, a slow single VAD chunk)
+    /// instead of sitting dead-still. Cancelled in `transcribe()`'s `defer`.
+    private func startProgressTicker() {
+        progressTicker?.cancel()
+        progressTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.trickleProgress()
+            }
+        }
+    }
+
+    private func stopProgressTicker() {
+        progressTicker?.cancel()
+        progressTicker = nil
+    }
+
+    private func trickleProgress() {
+        guard progress > 0 else { return }
+        progress = ProgressTrickle.next(
+            current: progress,
+            checkpoint: lastCheckpoint,
+            budget: Self.trickleBudget,
+            ceiling: Self.trickleCeiling,
+            easing: Self.trickleEasing
+        )
     }
 
     private static func whisperLanguageCode(for localeIdentifier: String) -> String {

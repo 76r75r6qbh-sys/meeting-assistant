@@ -58,9 +58,27 @@ protocol RecordingSessionControlling: AnyObject {
     var outputURL: URL { get }
     var startedAt: Date { get }
     var hasCapturedFrames: Bool { get }
+    /// Non-nil after `start()` when system-audio capture could not start and the
+    /// session fell back to microphone-only (see `RecordingSession`).
+    var systemAudioUnavailableError: Error? { get }
     func start() async throws
     func stop() async throws -> RecordingResult
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws
+    func setSystemAudioEnabled(_ enabled: Bool)
+}
+
+/// The system-audio capture surface `RecordingSession` drives. Extracted as a
+/// protocol so the stop/finalize teardown can be exercised headlessly with a
+/// fake that throws on `stop()` (mirroring an `SCStream` already torn down by
+/// system sleep or device loss).
+///
+/// `Sendable` is load-bearing: the production conformer feeds buffers from the
+/// SCStream sample-handler queue while the facade drives it from the MainActor,
+/// so any conformer (including test fakes) must be safe to touch from both.
+protocol SystemAudioCapturing: AnyObject, Sendable {
+    func beginAcceptingInput()
+    func start() async throws
+    func stop() async throws
     func setSystemAudioEnabled(_ enabled: Bool)
 }
 
@@ -78,11 +96,15 @@ enum RecordingInterruptionReason: Hashable, Sendable {
     case screenLock
     case systemSleep
     case audioDeviceLost(deviceID: String)
+    /// No display is available to capture, so ScreenCaptureKit can't record
+    /// system audio (e.g. the lid is closed with no external monitor). Recording
+    /// auto-pauses and auto-resumes when a display returns.
+    case displayUnavailable
     case streamFailure(underlyingDescription: String)
 
     var allowsAutoResume: Bool {
         switch self {
-        case .screenLock, .systemSleep: return true
+        case .screenLock, .systemSleep, .displayUnavailable: return true
         case .audioDeviceLost, .streamFailure: return false
         }
     }

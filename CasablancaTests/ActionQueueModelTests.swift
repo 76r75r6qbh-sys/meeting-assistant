@@ -42,4 +42,63 @@ final class ActionQueueModelTests: XCTestCase {
         XCTAssertTrue(task.isCancelled || model.loadError == sentinel)
         XCTAssertEqual(model.loadError, sentinel, "cancelled debounce must not reload")
     }
+
+    // MARK: - onPendingCountChange (Dock/menu-bar badge driver)
+
+    /// `reload()` reads `UserDefaults.standard` for the queue path, so point the
+    /// standard key at a temp file for the duration of the test and restore it
+    /// afterwards. Mirrors the store tests' temp-file fixture approach.
+    func testOnPendingCountChangeFiresWithPendingCountOnReload() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ActionQueueModelTests.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let queueURL = tempDir.appendingPathComponent("action-queue.json")
+        // 3 pending + 2 non-pending (declined / completed). pendingCount == 3.
+        let json = """
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-1", "title": "p1", "status": "pending" },
+            { "id": "AQ-2", "title": "p2", "status": "pending" },
+            { "id": "AQ-3", "title": "p3", "status": "pending" },
+            { "id": "AQ-4", "title": "d1", "status": "declined" },
+            { "id": "AQ-5", "title": "c1", "status": "completed" }
+          ]
+        }
+        """
+        try json.write(to: queueURL, atomically: true, encoding: .utf8)
+
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: AppPreferenceKey.actionQueuePath)
+        defaults.set(queueURL.path, forKey: AppPreferenceKey.actionQueuePath)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: AppPreferenceKey.actionQueuePath)
+            } else {
+                defaults.removeObject(forKey: AppPreferenceKey.actionQueuePath)
+            }
+        }
+
+        let model = ActionQueueModel()
+        var captured: Int?
+        model.onPendingCountChange = { captured = $0 }
+
+        model.reload()
+
+        XCTAssertNil(model.loadError, "fixture should load cleanly")
+        XCTAssertEqual(model.pendingCount, 3)
+        XCTAssertEqual(captured, 3, "onPendingCountChange must fire on reload with the pending count")
+
+        // Error path: a malformed file must still fire the callback with the
+        // last-good count (items unchanged) so the badge never goes stale.
+        try "{ not valid json".write(to: queueURL, atomically: true, encoding: .utf8)
+        captured = nil
+        model.reload()
+
+        XCTAssertNotNil(model.loadError, "malformed JSON should set loadError")
+        XCTAssertEqual(model.pendingCount, 3, "items unchanged on load failure")
+        XCTAssertEqual(captured, 3, "callback must fire with the last-good count on error")
+    }
 }

@@ -36,6 +36,46 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    func testDisplayLostTriggersPauseAndAutoResumesWhenDisplayReturns() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.displayUnavailable, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        env.advance(by: 8)
+        env.fireEnd(.displayUnavailable, atOffset: 8)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.displayUnavailable), .resume])
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
+    func testScreenLockPlusDisplayUnavailableResumeOnlyAfterBothEnd() async {
+        // The lid-close deadlock guard: closing the lid raises BOTH .screenLock
+        // and .displayUnavailable. Resume must wait until both clear, and must
+        // not be permanently blocked by either.
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        env.fireStart(.displayUnavailable, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        env.advance(by: 3)
+        env.fireEnd(.screenLock, atOffset: 3)
+        await env.flush()
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock)], "Must not resume until display also returns")
+
+        env.advance(by: 1)
+        env.fireEnd(.displayUnavailable, atOffset: 4)
+        await env.flush()
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock), .resume])
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
     func testAudioDeviceLostNeverAutoResumes() async {
         let env = makeEnv()
         env.coordinator.bind(meeting: env.meeting)

@@ -46,6 +46,8 @@ enum ActionQueueStore {
         decisionNote: String? = nil,
         editedBody: String? = nil,
         revisionPrompt: String? = nil,
+        executedAt: Date? = nil,
+        executionResult: String? = nil,
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
@@ -63,6 +65,12 @@ enum ActionQueueStore {
         }
         if let revisionPrompt {
             item.revisionPrompt = revisionPrompt
+        }
+        if let executedAt {
+            item.executedAt = executedAt
+        }
+        if let executionResult {
+            item.executionResult = executionResult
         }
         doc.items[index] = item
         doc.updatedAt = Date()
@@ -141,6 +149,25 @@ enum ActionQueueStore {
         fileManager: FileManager = .default
     ) throws {
         try setStatus(.pending, for: id, userDefaults: userDefaults, fileManager: fileManager)
+    }
+
+    /// Mark a local-only item (e.g. a `todo` bucket item with no remote execute)
+    /// as completed directly in the app. Unlike `complete(_:)`, this also records
+    /// `executedAt` and an `executionResult` so the item reads as actioned, not
+    /// merely status-flipped.
+    static func completeLocally(
+        id: String,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) throws {
+        try setStatus(
+            .completed,
+            for: id,
+            executedAt: Date(),
+            executionResult: "marked complete in Casablanca",
+            userDefaults: userDefaults,
+            fileManager: fileManager
+        )
     }
 
     // MARK: - Private

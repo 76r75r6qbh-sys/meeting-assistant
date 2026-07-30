@@ -460,6 +460,38 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertNotNil(doc.items[0].decidedAt)
     }
 
+    func testCompleteLocallySetsExecutionFields() throws {
+        let defaults = try seedSingle(status: .pending, kind: .task)
+        try ActionQueueStore.completeLocally(id: "AQ-1", userDefaults: defaults)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        let item = doc.items[0]
+        XCTAssertEqual(item.status, .completed)
+        XCTAssertNotNil(item.decidedAt)
+        XCTAssertNotNil(item.executedAt)
+        XCTAssertEqual(item.executionResult, "marked complete in Casablanca")
+
+        // The fields must actually be on disk.
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["status"] as? String, "completed")
+        XCTAssertEqual(raw["executionResult"] as? String, "marked complete in Casablanca")
+        XCTAssertNotNil(raw["executedAt"] as? String)
+    }
+
+    func testCompleteDoesNotSetExecutionResult() throws {
+        // The existing `complete(...)` path must NOT touch executionResult/executedAt.
+        let defaults = try seedSingle(status: .followUp, kind: .task)
+        try ActionQueueStore.complete(id: "AQ-1", userDefaults: defaults)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        let item = doc.items[0]
+        XCTAssertEqual(item.status, .completed)
+        XCTAssertNil(item.executionResult)
+        XCTAssertNil(item.executedAt)
+
+        let raw = try firstRawItem()
+        XCTAssertNil(raw["executionResult"])
+        XCTAssertNil(raw["executedAt"])
+    }
+
     func testRequestRevisionSetsStatusAndPrompt() throws {
         let defaults = try seedSingle()
         try ActionQueueStore.requestRevision(id: "AQ-1", prompt: "propose a call instead", userDefaults: defaults)
@@ -552,5 +584,132 @@ final class ActionQueueStoreTests: XCTestCase {
         let decidedAt = raw["decidedAt"] as? String
         XCTAssertNotNil(decidedAt)
         XCTAssertFalse(decidedAt!.contains("."))
+    }
+
+    // MARK: - Bucket schema (Task 1)
+
+    func testBucketAndNewFieldsDecodeAndRoundTrip() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            {
+              "id": "AQ-bucket",
+              "title": "Ticket draft item",
+              "status": "pending",
+              "bucket": "ticket_draft",
+              "attachments": ["/a/b.yaml"],
+              "externalRef": "forta:x",
+              "linkedItemIds": ["AQ-1", "AQ-2"]
+            }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        var doc = try ActionQueueStore.load(userDefaults: defaults)
+        var item = doc.items[0]
+        XCTAssertEqual(item.bucket, .ticketDraft)
+        XCTAssertEqual(item.attachments, ["/a/b.yaml"])
+        XCTAssertEqual(item.externalRef, "forta:x")
+        XCTAssertEqual(item.linkedItemIds, ["AQ-1", "AQ-2"])
+
+        // A full rewrite must preserve all four fields on disk.
+        try ActionQueueStore.approve(id: "AQ-bucket", userDefaults: defaults)
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["bucket"] as? String, "ticket_draft")
+        XCTAssertEqual(raw["attachments"] as? [String], ["/a/b.yaml"])
+        XCTAssertEqual(raw["externalRef"] as? String, "forta:x")
+        XCTAssertEqual(raw["linkedItemIds"] as? [String], ["AQ-1", "AQ-2"])
+
+        doc = try ActionQueueStore.load(userDefaults: defaults)
+        item = doc.items[0]
+        XCTAssertEqual(item.bucket, .ticketDraft)
+        XCTAssertEqual(item.attachments, ["/a/b.yaml"])
+        XCTAssertEqual(item.externalRef, "forta:x")
+        XCTAssertEqual(item.linkedItemIds, ["AQ-1", "AQ-2"])
+    }
+
+    func testUnknownBucketPreservedRawAndRoundTrips() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-1", "title": "Item", "status": "pending", "bucket": "totally_new" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        var doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items[0].bucket, .unknown("totally_new"))
+        XCTAssertEqual(doc.items[0].bucket?.rawValue, "totally_new")
+        XCTAssertTrue(doc.hadLenientFallback)
+
+        try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
+        let raw = try firstRawItem()
+        XCTAssertEqual(raw["bucket"] as? String, "totally_new")
+
+        doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items[0].bucket, .unknown("totally_new"))
+    }
+
+    func testCalendarAndTopdeskDraftTypesDecodeAsKnownAndRoundTrip() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-cal", "title": "Cal", "status": "pending", "draftType": "calendar" },
+            { "id": "AQ-td", "title": "TD", "status": "pending", "draftType": "topdesk" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        var doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items[0].draftType, .calendar)
+        XCTAssertEqual(doc.items[1].draftType, .topdesk)
+        // Known cases must NOT trip the lenient fallback warning.
+        XCTAssertFalse(doc.items[0].hasUnknownEnumValue)
+        XCTAssertFalse(doc.items[1].hasUnknownEnumValue)
+
+        try ActionQueueStore.approve(id: "AQ-cal", userDefaults: defaults)
+        try ActionQueueStore.approve(id: "AQ-td", userDefaults: defaults)
+        let obj = try rawJSON()
+        let items = obj["items"] as! [[String: Any]]
+        XCTAssertEqual(items[0]["draftType"] as? String, "calendar")
+        XCTAssertEqual(items[1]["draftType"] as? String, "topdesk")
+
+        doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items[0].draftType, .calendar)
+        XCTAssertEqual(doc.items[1].draftType, .topdesk)
+    }
+
+    func testMissingBucketAndNewFieldsAreNil() throws {
+        try write("""
+        {
+          "version": 1,
+          "items": [
+            { "id": "AQ-min", "title": "Bare item", "status": "pending" }
+          ]
+        }
+        """)
+        let defaults = makeDefaults(path: queueURL.path)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        let item = doc.items[0]
+        XCTAssertNil(item.bucket)
+        XCTAssertNil(item.attachments)
+        XCTAssertNil(item.externalRef)
+        XCTAssertNil(item.linkedItemIds)
+        XCTAssertFalse(item.hasUnknownEnumValue)
+    }
+
+    func testBucketSortOrderMatchesAllCasesAndIsGapFree() {
+        // `allCases` declaration order is the fixed display order; `sortOrder`
+        // must agree with it and be a gap-free 0..<n so the grouping UI has a
+        // single source of truth.
+        let order = ActionBucket.allCases
+        XCTAssertEqual(order.map(\.sortOrder), Array(0..<order.count))
+        for bucket in order {
+            XCTAssertFalse(bucket.displayName.isEmpty)
+        }
+        XCTAssertEqual(ActionBucket.unknown("x").sortOrder, order.count)
     }
 }

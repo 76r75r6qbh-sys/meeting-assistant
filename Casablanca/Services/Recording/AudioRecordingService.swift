@@ -28,6 +28,13 @@ final class AudioRecordingService {
 
     weak var interruptionMonitor: RecordingInterruptionMonitor?
 
+    /// Invoked (non-fatally) when a recording started or resumed but system-audio
+    /// capture was unavailable, so it fell back to microphone-only. Wired by the
+    /// app to a notification — NOT to `errorMessage`, which drives a modal that
+    /// would interrupt the recording. Remote meeting audio comes through system
+    /// audio, so the user should know it is missing, but the recording continues.
+    var onSystemAudioUnavailable: ((String) -> Void)?
+
     init(
         sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
@@ -79,6 +86,7 @@ final class AudioRecordingService {
             isPreparing = false
             startTimer(from: session.startedAt)
             interruptionMonitor?.setActiveInputDevice(selectedInputDeviceID)
+            surfaceSystemAudioFallbackIfNeeded(session)
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -94,9 +102,12 @@ final class AudioRecordingService {
             throw RecordingError.noActiveRecording
         }
 
-        let result = try await finalizeActiveSegment(session: session, meetingID: activeMeetingID, dropIfEmpty: false)
+        let meetingID = activeMeetingID
+        let result = try await finalizeActiveSegment(session: session, meetingID: meetingID, dropIfEmpty: false)
         clearActiveSessionState()
-        elapsedTime = result.duration
+        // Show the cumulative recorded time (all segments), so the paused display
+        // matches where the timer resumes from.
+        elapsedTime = accumulatedSegmentDuration(for: meetingID)
         return result
     }
 
@@ -131,8 +142,11 @@ final class AudioRecordingService {
             outputURL = segmentURL
             isRecording = true
             isPreparing = false
-            startTimer(from: session.startedAt)
+            // Continue the timer from the total already recorded in earlier
+            // segments so resuming doesn't reset the display to 00:00.
+            startTimer(from: session.startedAt, baseElapsed: persisted.segments.reduce(0) { $0 + $1.duration })
             interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
+            surfaceSystemAudioFallbackIfNeeded(session)
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -333,6 +347,21 @@ final class AudioRecordingService {
         return result
     }
 
+    /// Silent backstop for the no-display case. The visible behavior is now an
+    /// auto-pause driven by `RecordingInterruptionMonitor.displayUnavailable`;
+    /// this only fires in the narrow race where `start()`/`resume()` runs during
+    /// a brief no-display gap before the monitor pauses, in which case the
+    /// recording continues microphone-only for that short window. `onSystemAudioUnavailable`
+    /// is intentionally left unwired in production (the pause owns the UX); it
+    /// stays here as a seam for tests and any future non-modal surfacing. Never
+    /// sets `errorMessage` — that drives a modal that would derail recording.
+    private func surfaceSystemAudioFallbackIfNeeded(_ session: RecordingSessionControlling) {
+        guard session.systemAudioUnavailableError != nil else { return }
+        onSystemAudioUnavailable?(
+            "System audio couldn’t be captured (no available display — is the lid closed?). Recording continues with the microphone only."
+        )
+    }
+
     private func clearActiveSessionState() {
         self.session = nil
         isRecording = false
@@ -343,13 +372,26 @@ final class AudioRecordingService {
         audioLevel = 0
     }
 
-    private func startTimer(from startDate: Date) {
+    /// Drives the elapsed-time display. `baseElapsed` carries the cumulative
+    /// duration already recorded in earlier segments so the timer continues from
+    /// the total when a paused recording resumes, instead of restarting at 00:00
+    /// for the new segment. Set synchronously up front so the display is correct
+    /// immediately, then ticked each second.
+    private func startTimer(from startDate: Date, baseElapsed: TimeInterval = 0) {
         timerTask?.cancel()
+        elapsedTime = baseElapsed + Date().timeIntervalSince(startDate)
         timerTask = Task {
             while !Task.isCancelled {
-                elapsedTime = Date().timeIntervalSince(startDate)
+                elapsedTime = baseElapsed + Date().timeIntervalSince(startDate)
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    /// Total duration already captured in finalized segments for a meeting — the
+    /// recorded time before the current/next segment.
+    private func accumulatedSegmentDuration(for meetingID: UUID) -> TimeInterval {
+        guard let persisted = try? sessionStore.loadSession(for: meetingID) else { return 0 }
+        return persisted.segments.reduce(0) { $0 + $1.duration }
     }
 }

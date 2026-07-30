@@ -33,7 +33,13 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private var microphoneWriter: PCMTrackWriter?
     private var systemAudioWriter: PCMTrackWriter?
     private var microphoneUnit: MicrophoneCaptureUnit?
-    private var systemAudioUnit: SystemAudioCaptureUnit?
+    private var systemAudioUnit: SystemAudioCapturing?
+
+    /// Set during `start()` when system-audio capture could not start (e.g. no
+    /// available display because the lid is closed) and the session fell back to
+    /// microphone-only. Read by the facade to surface a non-fatal notice. `nil`
+    /// means system audio started normally (or was disabled by the user).
+    private(set) var systemAudioUnavailableError: Error?
 
     /// Frames captured by the just-finalized track(s), cached during `stop()`
     /// before the writers are released. The facade reads `hasCapturedFrames`
@@ -89,9 +95,31 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // entirely: it requires Screen Recording permission, and starting it
         // would fail for a microphone-only recording. The mix-down later sees
         // zero system-audio frames and renders microphone-only.
-        if initialSystemAudioEnabled {
-            systemAudioUnit?.beginAcceptingInput()
-            try await systemAudioUnit?.start()
+        await startSystemAudioBestEffort()
+    }
+
+    /// Starts the ScreenCaptureKit system-audio stream, degrading to
+    /// microphone-only if it can't start.
+    ///
+    /// System audio needs an *available display*: ScreenCaptureKit captures it
+    /// off a display's stream. When the lid is closed with no external monitor
+    /// there is no capturable display, so `startCapture()` fails with "no
+    /// displays or windows found to record". That must NOT fail the whole
+    /// recording — the microphone engine is already live (`configure()` started
+    /// it) and needs no display. We disable system audio for this session and
+    /// carry on microphone-only; the mix-down then renders microphone-only.
+    /// `systemAudioUnavailableError` lets the facade surface a non-fatal notice
+    /// (remote meeting audio comes through system audio, so the user should know
+    /// it's missing).
+    private func startSystemAudioBestEffort() async {
+        guard initialSystemAudioEnabled, let systemAudioUnit else { return }
+        systemAudioUnit.beginAcceptingInput()
+        do {
+            try await systemAudioUnit.start()
+        } catch {
+            Log.recording.error("System-audio capture could not start (\(error.localizedDescription, privacy: .public)); continuing microphone-only")
+            systemAudioUnit.setSystemAudioEnabled(false)
+            systemAudioUnavailableError = error
         }
     }
 
@@ -99,7 +127,28 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // Teardown ordering is intentional and load-bearing: stop capture
         // (removes the tap, halts new enqueues) → drain in-flight buffers →
         // close writers. Reordering risks dropping or losing queued audio.
-        try await systemAudioUnit?.stop()
+        //
+        // Stopping the system-audio stream is BEST-EFFORT: when the machine
+        // sleeps or the capture device disappears, ScreenCaptureKit has often
+        // already torn the `SCStream` down, so `stopCapture()` throws. Letting
+        // that throw escape here used to abort the entire teardown before the
+        // microphone writer was drained/closed and the mix-down rendered —
+        // orphaning the microphone PCM that had been streaming to disk the whole
+        // meeting, which the resume store then deleted. The result was that an
+        // interruption (e.g. closing the laptop lid) lost the entire recording.
+        // Swallow the stop failure so the captured tracks are still drained,
+        // closed, and rendered below.
+        //
+        // NOTE: this does NOT make stop() infallible — `render()` further down
+        // can still throw (genuine I/O failure), and `handleSystemInterrupt`
+        // currently discards a segment whose finalize throws. That narrower
+        // loss window (orphaned temp PCM on render failure) needs raw-segment
+        // recovery and is tracked separately, not fixed here.
+        do {
+            try await systemAudioUnit?.stop()
+        } catch {
+            Log.recording.error("System-audio stop failed during teardown; finalizing captured audio anyway: \(error.localizedDescription, privacy: .public)")
+        }
         systemAudioUnit = nil
 
         microphoneUnit?.stop()
@@ -150,6 +199,36 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     }
 
     private func configure() throws {
+        let (outputFormat, microphoneWriter, systemAudioWriter) = try makeTrackWriters()
+
+        let levelAggregator = self.levelAggregator
+        let microphoneUnit = MicrophoneCaptureUnit(
+            inputDeviceID: initialInputDeviceID,
+            onLevel: { buffer in levelAggregator.publishMicrophoneLevel(from: buffer) },
+            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) }
+        )
+        let systemAudioUnit = SystemAudioCaptureUnit(
+            pipeline: pipeline,
+            targetFormat: outputFormat,
+            systemAudioEnabled: initialSystemAudioEnabled,
+            onSampleBuffer: { buffer in
+                systemAudioWriter.enqueue(buffer: buffer) { converted in
+                    levelAggregator.publishSystemLevel(from: converted)
+                }
+            },
+            onSystemDisabled: { levelAggregator.resetSystemLevel() },
+            onStreamFatal: onStreamFatal
+        )
+        self.microphoneUnit = microphoneUnit
+        self.systemAudioUnit = systemAudioUnit
+
+        try microphoneUnit.start()
+    }
+
+    /// Creates the two temp PCM files and their writers. Extracted from
+    /// `configure()` so the teardown/finalize path can be exercised in tests
+    /// without starting real audio hardware.
+    private func makeTrackWriters() throws -> (AVAudioFormat, PCMTrackWriter, PCMTrackWriter) {
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16_000,
@@ -183,30 +262,32 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         )
         self.microphoneWriter = microphoneWriter
         self.systemAudioWriter = systemAudioWriter
-
-        let levelAggregator = self.levelAggregator
-        let microphoneUnit = MicrophoneCaptureUnit(
-            inputDeviceID: initialInputDeviceID,
-            onLevel: { buffer in levelAggregator.publishMicrophoneLevel(from: buffer) },
-            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) }
-        )
-        let systemAudioUnit = SystemAudioCaptureUnit(
-            pipeline: pipeline,
-            targetFormat: outputFormat,
-            systemAudioEnabled: initialSystemAudioEnabled,
-            onSampleBuffer: { buffer in
-                systemAudioWriter.enqueue(buffer: buffer) { converted in
-                    levelAggregator.publishSystemLevel(from: converted)
-                }
-            },
-            onSystemDisabled: { levelAggregator.resetSystemLevel() },
-            onStreamFatal: onStreamFatal
-        )
-        self.microphoneUnit = microphoneUnit
-        self.systemAudioUnit = systemAudioUnit
-
-        try microphoneUnit.start()
+        return (outputFormat, microphoneWriter, systemAudioWriter)
     }
+
+#if DEBUG
+    /// Test seam: builds a session whose temp files + writers are live but whose
+    /// only capture source is the injected (typically fake) system-audio unit,
+    /// so `stop()`'s teardown resilience can be verified headlessly. The
+    /// microphone unit stays nil; tests seed captured frames through the
+    /// returned microphone writer. Returns the microphone writer so callers can
+    /// enqueue buffers before stopping. The writer-live-without-its-unit state is
+    /// deliberate and test-only — production always creates them together in
+    /// `configure()`; `stop()` tolerates the nil unit via its `?.` chaining.
+    @discardableResult
+    func configureForTeardownTesting(systemAudioUnit: SystemAudioCapturing?) throws -> PCMTrackWriter {
+        let (_, microphoneWriter, _) = try makeTrackWriters()
+        self.systemAudioUnit = systemAudioUnit
+        return microphoneWriter
+    }
+
+    /// Test seam: drives `startSystemAudioBestEffort()` with the injected unit so
+    /// the no-display degrade-to-microphone-only path can be verified headlessly
+    /// (the real `start()` would spin up the microphone `AVAudioEngine`).
+    func startSystemAudioBestEffortForTesting() async {
+        await startSystemAudioBestEffort()
+    }
+#endif
 
     // MARK: - Permissions
 
