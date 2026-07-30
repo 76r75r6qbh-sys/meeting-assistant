@@ -11,8 +11,23 @@ final class TerminologyService {
     private(set) var isCorrecting = false
     var warningMessage: String?
 
+    /// How `correct` obtains the provider for its second pass. Injectable so the
+    /// tests can exercise the pass (and the skip below) without a live backend.
+    private let providerFactory: () -> LLMProvider
+
+    init(providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() }) {
+        self.providerFactory = providerFactory
+    }
+
     func clearWarning() {
         warningMessage = nil
+    }
+
+    /// Shown when the selected provider is one we do not send a whole transcript to.
+    /// Deliberately states what the user still got, because the transcript is not
+    /// left uncorrected — the deterministic pass has already run.
+    nonisolated static func providerPassSkippedWarning(providerName: String) -> String {
+        "Terminology correction applied deterministic replacements only. The \(providerName) pass is skipped: it would send the whole transcript and wait for the full text back, which does not finish in time."
     }
 
     /// Corrects `rawTranscript` against `entries`. Never throws — on any failure,
@@ -33,8 +48,21 @@ final class TerminologyService {
 
         if Task.isCancelled { return dictionaryReplaced }
 
+        let provider = providerFactory()
+        // The provider pass echoes the whole transcript back. Claude Code's per-call
+        // latency makes a 20k-token echo impossible inside `maxTimeout`, and every
+        // attempt bills the subscription for a result we then discard.
+        guard provider.supportsFullTranscriptEcho else {
+            warningMessage = Self.providerPassSkippedWarning(providerName: provider.displayName)
+            return dictionaryReplaced
+        }
+
         do {
-            let corrected = try await runProviderPass(transcript: dictionaryReplaced, entries: entries)
+            let corrected = try await runProviderPass(
+                provider: provider,
+                transcript: dictionaryReplaced,
+                entries: entries
+            )
             if Self.looksLikeMangledOutput(input: dictionaryReplaced, output: corrected) {
                 warningMessage = "Terminology correction produced unexpected output and was discarded; transcript reflects only deterministic replacements."
                 return dictionaryReplaced
@@ -81,7 +109,11 @@ final class TerminologyService {
         return min(max(estimated, minTimeout), maxTimeout)
     }
 
-    private func runProviderPass(transcript: String, entries: [TerminologyEntry]) async throws -> String {
+    private func runProviderPass(
+        provider: LLMProvider,
+        transcript: String,
+        entries: [TerminologyEntry]
+    ) async throws -> String {
         let prompt = """
         You are correcting domain-specific terminology in a meeting transcript.
 
@@ -98,7 +130,7 @@ final class TerminologyService {
         \(transcript)
         """
 
-        return try await LLMProviderFactory.current().generate(
+        return try await provider.generate(
             prompt: prompt,
             temperature: 0,
             maxTokens: nil,

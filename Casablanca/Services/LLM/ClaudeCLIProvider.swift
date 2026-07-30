@@ -41,6 +41,24 @@ struct ClaudeCLIProvider: LLMProvider {
 
     var displayName: String { "Claude Code" }
 
+    /// Long enough that a structured summary at the callers' 3500-token output cap
+    /// finishes on the slowest selectable model.
+    ///
+    /// The one measured datapoint is a trivial prompt returning in ~1.7s, which is
+    /// essentially fixed overhead (CLI start-up plus one round trip) and says
+    /// nothing about a long generation — so this is derived from output size
+    /// instead: ~3500 tokens at the ~20 tokens/sec an `opus`-class model sustains
+    /// is ~175s, plus prompt processing and start-up. 300s leaves ~1.7× headroom
+    /// over that worst case. The callers' own 120s would cut it off mid-summary
+    /// and, because a timeout is transient, bill two more attempts doing the same.
+    var preferredTimeout: TimeInterval? { 300 }
+
+    /// Never: every call is billed and answered over the network, so echoing a
+    /// whole transcript back is both the slowest and the most expensive thing this
+    /// provider could be asked to do. `TerminologyService` skips its provider pass
+    /// rather than spend a generation on a result that cannot arrive in time.
+    var supportsFullTranscriptEcho: Bool { false }
+
     /// The models we offer. The CLI has no model-list command, and these three
     /// aliases always resolve to the current generation, so hardcoding them beats
     /// pinning version strings that go stale. Ascending order, per the protocol.
@@ -123,6 +141,7 @@ struct ClaudeCLIProvider: LLMProvider {
             workingDirectory: workingDirectory,
             timeout: timeout
         )
+        persistResolvedPath(executable)
 
         // A non-zero exit must not require JSON: usage limits and rejected flags
         // print plain text, and demanding a decodable envelope here would replace a
@@ -189,6 +208,7 @@ struct ClaudeCLIProvider: LLMProvider {
             workingDirectory: nil,
             timeout: Self.probeTimeout
         )
+        persistResolvedPath(executable)
         guard result.exitCode == 0 else {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
@@ -200,12 +220,24 @@ struct ClaudeCLIProvider: LLMProvider {
             )
         }
 
-        // Persist what we resolved, so an auto-detected path shows up in the
-        // Settings / Onboarding field instead of an empty box.
-        if defaults.string(forKey: AppPreferenceKey.claudeCLIPath) != executable {
-            defaults.set(executable, forKey: AppPreferenceKey.claudeCLIPath)
-        }
         return Self.availableModels
+    }
+
+    /// Records the path we just ran, so an auto-detected one shows up in the
+    /// Settings / Onboarding field instead of an empty box — and, just as
+    /// importantly, so the next call reuses it.
+    ///
+    /// Called from `generate` as well as `fetchAvailableModels`: a user who never
+    /// opens the AI settings tab would otherwise repeat the candidate scan and the
+    /// `/bin/zsh -lc` login-shell probe on every single AI call, and that probe's
+    /// 10s budget sits outside the caller's timeout.
+    ///
+    /// Gated on the process having launched rather than on its exit status: a
+    /// launch proves the path names a runnable binary, which is the only thing
+    /// being recorded here.
+    private func persistResolvedPath(_ executable: String) {
+        guard defaults.string(forKey: AppPreferenceKey.claudeCLIPath) != executable else { return }
+        defaults.set(executable, forKey: AppPreferenceKey.claudeCLIPath)
     }
 
     // MARK: - Running
@@ -241,6 +273,18 @@ struct ClaudeCLIProvider: LLMProvider {
                     provider: displayName,
                     kind: .network(.timedOut),
                     message: "\(displayName) did not respond within \(Int(timeout)) seconds."
+                )
+            case .outputIncomplete:
+                // The CLI already finished; only its output never reached EOF. Mapped
+                // to a NON-transient kind on purpose: the generation happened and was
+                // billed, and the bytes in hand are most likely the whole reply, so
+                // rerunning would pay for the same answer again. Reporting it as a
+                // malformed response tells the user what went wrong without spending
+                // two more generations to find out.
+                throw LLMProviderError.requestFailed(
+                    provider: displayName,
+                    kind: .malformedResponse,
+                    message: "\(displayName) produced output that never finished arriving, so it may be incomplete."
                 )
             }
         }

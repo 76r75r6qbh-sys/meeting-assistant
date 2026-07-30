@@ -57,7 +57,7 @@ enum LLMProviderError: LocalizedError {
     }
 }
 
-/// Local LLM provider. Implementations encapsulate the wire format and URL
+/// LLM provider. Implementations encapsulate the wire format and URL or CLI
 /// construction for one backend. Created fresh per call via
 /// `LLMProviderFactory.current()`.
 protocol LLMProvider {
@@ -67,6 +67,26 @@ protocol LLMProvider {
     /// The endpoint URL the provider is currently configured to talk to.
     /// Used by the Settings view to pre-fill the model lookup and by tests.
     var endpoint: String { get }
+
+    /// The timeout this provider wants for a full generation, when the caller has
+    /// no stronger opinion. Defaults to the caller's own value (`nil`).
+    ///
+    /// The call sites were written against a local model on this Mac, where a
+    /// generation starts producing tokens immediately. A provider that pays a
+    /// per-call round trip to a frontier model needs a longer budget, and a
+    /// timeout there is not free: it maps to `.network(.timedOut)`, which
+    /// `LLMRetryPolicy` retries, so an over-tight budget buys three failed
+    /// generations instead of one slow success.
+    var preferredTimeout: TimeInterval? { get }
+
+    /// Whether a whole transcript may be sent to this provider to be echoed back
+    /// in full (what `TerminologyService`'s provider pass does).
+    ///
+    /// True for a local model: the echo is free and finishes in a bounded time.
+    /// A provider billed per call and answering over the network fails this on
+    /// both counts, so it is asked to do a different kind of work instead — or,
+    /// as in terminology correction, not asked at all.
+    var supportsFullTranscriptEcho: Bool { get }
 
     /// Generate a single response for the given prompt.
     /// - Parameters:
@@ -86,6 +106,20 @@ protocol LLMProvider {
 
     /// List models installed on the given endpoint, sorted ascending.
     func fetchAvailableModels(endpoint: String) async throws -> [String]
+}
+
+/// Defaults describing a local model, so the two local providers need no
+/// declaration and only a provider whose profile actually differs opts out.
+extension LLMProvider {
+    var preferredTimeout: TimeInterval? { nil }
+
+    var supportsFullTranscriptEcho: Bool { true }
+
+    /// The timeout to hand `generate`: the provider's own preference when it has
+    /// one, otherwise `fallback` — the number the call site chose for a local model.
+    func timeout(orDefault fallback: TimeInterval) -> TimeInterval {
+        preferredTimeout ?? fallback
+    }
 }
 
 enum LLMProviderFactory {

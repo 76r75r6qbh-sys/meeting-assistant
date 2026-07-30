@@ -14,6 +14,14 @@ enum CommandRunError: Error, Equatable {
     case launchFailed(String)
     /// The process was still running when `timeout` elapsed, and was terminated.
     case timedOut
+    /// The process exited, but its output never reached EOF within the drain grace
+    /// period — so the captured bytes may be an arbitrary prefix of the real output.
+    ///
+    /// Distinct from `timedOut` because the two mean opposite things to a caller
+    /// deciding whether to retry: `timedOut` produced nothing and rerunning may
+    /// work, while this one already ran the work to completion and rerunning pays
+    /// for it a second time.
+    case outputIncomplete
 }
 
 /// Runs a subprocess, feeding it `standardInput` and capturing its output.
@@ -46,8 +54,8 @@ struct ProcessCommandRunner: CommandRunning {
     /// Upper bound on waiting for stdout/stderr to reach EOF once the child has
     /// exited. Bounded so a grandchild that inherited the pipes cannot hang the
     /// caller forever; in the normal case EOF arrives with the child's exit.
-    /// Overrunning it is reported as `CommandRunError.timedOut` rather than as a
-    /// possibly-truncated success.
+    /// Overrunning it is reported as `CommandRunError.outputIncomplete` rather than
+    /// as a possibly-truncated success.
     ///
     /// Injectable only so the tests can reach that path without a five-second wait.
     private let drainGracePeriod: TimeInterval
@@ -142,12 +150,24 @@ struct ProcessCommandRunner: CommandRunning {
         case .exited:
             break
         case .timedOut, .cancelled:
-            // Never leave a runaway child behind.
+            // Reaps the direct child. Anything *it* spawned is not covered: killing
+            // the whole process group would need `posix_spawn` with
+            // `POSIX_SPAWN_SETPGROUP`, which `Process` does not expose. `claude -p`
+            // is not known to outlive its own process, and the drain grace period
+            // below bounds what a surviving grandchild can cost us.
             terminate(pid: process.processIdentifier, control: control)
         }
         // Closing the child's ends of the pipes ends the reads, so this returns as
         // soon as both streams hit EOF — which normally happens as the child exits.
         let drained = streams.wait(timeout: .now() + drainGracePeriod) == .success
+        if !drained {
+            // Both drain threads are still parked in `read(upToCount:)` waiting for an
+            // EOF that a surviving grandchild may never send. Closing our read ends
+            // unblocks them: without this they stay on the global queue for the
+            // lifetime of the process, and a retried call leaks two more each attempt.
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForReading.close()
+        }
 
         switch outcome {
         case .timedOut:
@@ -161,7 +181,7 @@ struct ProcessCommandRunner: CommandRunning {
             // a plausible-looking truncated reply — or, for a fast-exiting child, a
             // bogus empty one — reported as success, which no retry policy can see
             // through. Fail loudly instead.
-            guard drained else { throw CommandRunError.timedOut }
+            guard drained else { throw CommandRunError.outputIncomplete }
             return CommandResult(
                 exitCode: status,
                 standardOutput: String(decoding: standardOutput.withLock { $0 }, as: UTF8.self),
@@ -219,8 +239,13 @@ struct ProcessCommandRunner: CommandRunning {
 /// Cross-thread state for one `run`: whether the caller cancelled, and whether the
 /// child has exited and with what status. An `NSCondition` lets the executing
 /// thread block on "exited, cancelled, or deadline reached" in a single wait, and
-/// lets signals be sent under the same lock that records the exit — so a signal can
-/// never reach a pid that has already been reaped and recycled.
+/// lets signals be sent under the same lock that records the exit, which narrows
+/// the window for signalling a reaped pid to near zero.
+///
+/// It does not close that window completely: `terminationHandler` runs *after*
+/// Foundation has already `waitpid`ed the child, so a `kill` that reads
+/// `exitStatus == nil` a moment earlier can still land on a pid the OS has
+/// reclaimed. Nothing better is available without owning the reap ourselves.
 ///
 /// `@unchecked Sendable`: every field is only touched while holding `condition`.
 private final class ProcessControl: @unchecked Sendable {
@@ -291,7 +316,10 @@ private final class ProcessControl: @unchecked Sendable {
 }
 
 /// Hands a non-`Sendable` `FileHandle` to the one background thread that services
-/// it. `@unchecked Sendable`: each boxed handle is touched only by that thread.
+/// it. `@unchecked Sendable`: each boxed handle is read only by that thread. The
+/// one exception is deliberate — `execute` closes a stuck read handle to unblock
+/// its thread, which is the only way to end a `read` that is waiting for an EOF
+/// that will not come.
 private final class HandleBox: @unchecked Sendable {
     let wrapped: FileHandle
 

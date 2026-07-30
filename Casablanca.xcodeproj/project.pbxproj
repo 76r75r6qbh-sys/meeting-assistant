@@ -29,6 +29,7 @@
 		340DA9CD13A0B6BF932B5686 /* RecordingSessionSystemAudioFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */; };
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
+		393AD5751692F21B16AC796F /* LLMProviderCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE1A651EBC4C04A50173199E /* LLMProviderCapabilityTests.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */; };
 		405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */; };
@@ -36,6 +37,7 @@
 		516C69B9F96966F24094766A /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5609E4DAE701D3E99C18ED /* CommandRunner.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
+		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
 		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
@@ -271,6 +273,7 @@
 		2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/LLM/ClaudeCLIProvider.swift; sourceTree = SOURCE_ROOT; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TicketDraftBody.swift; sourceTree = SOURCE_ROOT; };
+		32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/StubLLMProvider.swift; sourceTree = SOURCE_ROOT; };
 		348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModel.swift; sourceTree = "<group>"; };
 		3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
 		3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/ActionBodyParsing.swift; sourceTree = SOURCE_ROOT; };
@@ -454,6 +457,7 @@
 		C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateError.swift; sourceTree = "<group>"; };
 		C9CDA9B6E30A9CDFA1F59E59 /* Casablanca-99.0.0-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-99.0.0-macOS.zip"; sourceTree = "<group>"; };
 		CA1EAD0000000000000000F1 /* CalendarServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CalendarServiceTests.swift; sourceTree = "<group>"; };
+		CE1A651EBC4C04A50173199E /* LLMProviderCapabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/LLMProviderCapabilityTests.swift; sourceTree = SOURCE_ROOT; };
 		CE2E5170240E071A7AFDB478 /* TopdeskResponseCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/TopdeskResponseCard.swift; sourceTree = SOURCE_ROOT; };
 		CHAT0101 /* LLMPromptSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMPromptSupport.swift; sourceTree = "<group>"; };
 		CHAT0102 /* MeetingChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingChatService.swift; sourceTree = "<group>"; };
@@ -894,6 +898,8 @@
 				2C143CA861430497429FF2ED /* ProcessCommandRunnerTests.swift */,
 				818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */,
 				063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */,
+				32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */,
+				CE1A651EBC4C04A50173199E /* LLMProviderCapabilityTests.swift */,
 			);
 			name = LLM;
 			path = LLM;
@@ -1250,6 +1256,8 @@
 				17195DE1E51EAC28FD43A932 /* ProcessCommandRunnerTests.swift in Sources */,
 				EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */,
 				8C62110A3E06299DF920ED3C /* LLMProviderCopyTests.swift in Sources */,
+				5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */,
+				393AD5751692F21B16AC796F /* LLMProviderCapabilityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

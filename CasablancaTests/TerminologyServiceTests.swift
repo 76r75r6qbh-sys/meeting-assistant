@@ -70,6 +70,57 @@ final class TerminologyServiceTests: XCTestCase {
         XCTAssertEqual(third, first)
     }
 
+    // MARK: - The provider pass, and skipping it
+
+    private static let entries = [TerminologyEntry(canonical: "Medicore", aliases: ["Medi Core"])]
+    private static let transcript = "We use Medi Core for everything."
+
+    /// A provider that cannot take a full-transcript echo must not be sent one: the
+    /// pass would time out and bill for a result that is then discarded. The
+    /// deterministic replacements still have to land, and the user has to be told
+    /// which half of the correction ran.
+    @MainActor
+    func testProviderPassIsSkippedForAProviderThatCannotEchoTheTranscript() async {
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(Self.transcript, entries: Self.entries)
+
+        XCTAssertEqual(result, "We use Medicore for everything.", "the regex pass must still run")
+        XCTAssertTrue(stub.calls.isEmpty, "no generation may be billed for a pass we cannot use")
+        XCTAssertEqual(
+            service.warningMessage,
+            TerminologyService.providerPassSkippedWarning(providerName: "Claude Code")
+        )
+    }
+
+    /// The unchanged path: a local provider still gets the dictionary-replaced
+    /// transcript, and its answer is what gets returned.
+    @MainActor
+    func testProviderPassRunsAndItsOutputIsUsedForALocalProvider() async {
+        let corrected = "We use Medicore for everything, corrected by the model."
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success(corrected)])
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(Self.transcript, entries: Self.entries)
+
+        XCTAssertEqual(result, corrected)
+        XCTAssertNil(service.warningMessage)
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertTrue(
+            stub.calls.first?.prompt.contains("We use Medicore for everything.") == true,
+            "the pass receives the dictionary-replaced text, not the raw transcript"
+        )
+    }
+
+    /// The skip warning has to name what the user still got; a bare "unavailable"
+    /// would read as if the transcript had gone uncorrected.
+    func testProviderPassSkippedWarningNamesTheProviderAndTheReplacementsThatRan() {
+        let warning = TerminologyService.providerPassSkippedWarning(providerName: "Claude Code")
+        XCTAssertTrue(warning.contains("Claude Code"), warning)
+        XCTAssertTrue(warning.localizedCaseInsensitiveContains("deterministic replacements"), warning)
+    }
+
     func testParseSkipsCommentsAndBlankLines() {
         let raw = """
         # Producten & techniek

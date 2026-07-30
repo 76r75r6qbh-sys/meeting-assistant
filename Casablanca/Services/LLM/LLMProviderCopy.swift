@@ -46,16 +46,20 @@ enum LLMProviderCopy {
         }
     }
 
-    /// Shown when the lookup succeeded but returned nothing.
+    /// Shown when the model list is empty.
     ///
-    /// For Claude Code this branch is unreachable by construction: the model list
-    /// is static, so `ClaudeCLIProvider.fetchAvailableModels` either throws — which
-    /// `SettingsView.refreshModels` routes into `modelsError`, an earlier branch —
-    /// or returns a non-empty list. The string exists only as a defensive fallback.
+    /// For Claude Code that does not mean the lookup came back empty — the model
+    /// list is static, so `ClaudeCLIProvider.fetchAvailableModels` either throws
+    /// (routed into `modelsError`, an earlier branch) or returns three entries.
+    /// What it does mean is "nothing has been checked yet": `SettingsView` opens
+    /// with an empty list and runs `refreshModels()` from `.task`, i.e. after the
+    /// first body evaluation, so this branch renders once on every Settings open.
+    /// Hence the loading label rather than a diagnosis — telling the user to check
+    /// a path that has not been tried yet would send them after a non-problem.
     static func noModelsFound(for kind: LLMProviderKind) -> String {
         switch kind {
         case .ollama, .omlx: return "No \(displayName(for: kind)) models were found at this endpoint yet."
-        case .claudeCode: return "No Claude Code models are available. Check the CLI path above."
+        case .claudeCode: return modelLoadingLabel(for: kind)
         }
     }
 
@@ -95,7 +99,21 @@ enum LLMProviderCopy {
         // A model on this Mac costs nothing per call and has no shared limits.
         case .ollama, .omlx: return ""
         case .claudeCode:
-            return "Usage counts against your Claude subscription's limits rather than a paid API key, and each call is slower than a local model. Leave terminology correction off: it sends the whole transcript and expects the full text back, and a shortened reply overwrites your transcript."
+            return "Usage counts against your Claude subscription's limits. There is no API key and no per-call charge, and each call is slower than a local model."
+        }
+    }
+
+    /// Caveat for the terminology-correction section; empty when there is none.
+    ///
+    /// Lives apart from `caveats` because it warns about a *different* toggle: it
+    /// belongs next to the terminology switch, not three sections up under
+    /// summarization, where a user who had the toggle on before switching provider
+    /// would never look.
+    static func terminologyCaveat(for kind: LLMProviderKind) -> String {
+        switch kind {
+        case .ollama, .omlx: return ""
+        case .claudeCode:
+            return "With Claude Code selected, only the find/replace runs. The model pass is skipped because it would send the whole transcript and wait for the full text back, which does not finish in time."
         }
     }
 
@@ -132,6 +150,20 @@ enum LLMProviderCopy {
                 title: "Connect Claude Code",
                 subtitle: "Casablanca runs the Claude Code CLI to draft summaries. Verify it is reachable below."
             )
+        }
+    }
+
+    /// Onboarding step 4's closing line, pointing at where the settings live.
+    ///
+    /// Provider-aware only because the field it names is not the same field: for
+    /// Claude Code the step above it is labelled "CLI path", so calling it an
+    /// endpoint eight lines later describes a control that is not on screen.
+    static func settingsChangeHint(for kind: LLMProviderKind) -> String {
+        switch kind {
+        case .ollama, .omlx:
+            return "Change the provider, endpoint and model anytime in Settings → AI."
+        case .claudeCode:
+            return "Change the provider, CLI path and model anytime in Settings → AI."
         }
     }
 

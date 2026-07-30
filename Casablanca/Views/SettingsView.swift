@@ -79,6 +79,12 @@ struct SettingsView: View {
         LLMProviderCopy.caveats(for: llmProvider)
     }
 
+    /// Shown in the Terminology section rather than here, next to the toggle it is
+    /// actually about. Empty for the local providers.
+    private var terminologyCaveat: String {
+        LLMProviderCopy.terminologyCaveat(for: llmProvider)
+    }
+
     var body: some View {
         TabView {
             generalSettings
@@ -353,6 +359,13 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !terminologyCaveat.isEmpty {
+                    Text(terminologyCaveat)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .formStyle(.grouped)

@@ -119,4 +119,36 @@ final class SummarizationServiceTests: XCTestCase {
         let raw = "# Summary\nDone.\n## Action Items\n- Send notes"
         XCTAssertEqual(SummarizationService.stripReasoning(raw), raw)
     }
+
+    // MARK: - Generation timeout
+
+    private func makeMeeting() -> Meeting {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .completed)
+        meeting.transcript = "Alice: We ship Friday. Bob: Agreed."
+        return meeting
+    }
+
+    /// The 120s at this call site was chosen for a local model. A provider that pays
+    /// a network round trip per call states its own budget, and it has to arrive —
+    /// this generation is wrapped in `LLMRetryPolicy`, so a timeout that fires costs
+    /// three billed generations instead of one slow success.
+    func testSummarizeUsesTheProvidersPreferredTimeoutWhenItHasOne() async throws {
+        let stub = StubLLMProvider(preferredTimeout: 300, outcomes: [.success("# Summary\nWe ship Friday.")])
+        let service = SummarizationService(providerFactory: { stub })
+
+        _ = try await service.summarize(meeting: makeMeeting())
+
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(stub.calls.first?.timeout, 300)
+    }
+
+    /// A local provider keeps the call site's own number, so nothing changes for it.
+    func testSummarizeKeepsItsOwnTimeoutForAProviderWithoutAPreference() async throws {
+        let stub = StubLLMProvider(preferredTimeout: nil, outcomes: [.success("# Summary\nWe ship Friday.")])
+        let service = SummarizationService(providerFactory: { stub })
+
+        _ = try await service.summarize(meeting: makeMeeting())
+
+        XCTAssertEqual(stub.calls.first?.timeout, 120)
+    }
 }

@@ -27,6 +27,7 @@ final class LLMProviderCopyTests: XCTestCase {
             XCTAssertFalse(LLMProviderCopy.modelUnavailableSuffix(for: kind).isEmpty, "modelUnavailableSuffix for \(kind)")
             XCTAssertFalse(LLMProviderCopy.summarizationFooter(for: kind).isEmpty, "summarizationFooter for \(kind)")
             XCTAssertFalse(LLMProviderCopy.privacySubtitle(for: kind).isEmpty, "privacySubtitle for \(kind)")
+            XCTAssertFalse(LLMProviderCopy.settingsChangeHint(for: kind).isEmpty, "settingsChangeHint for \(kind)")
 
             let summaries = LLMProviderCopy.summariesFeature(for: kind)
             XCTAssertFalse(summaries.title.isEmpty, "summariesFeature title for \(kind)")
@@ -53,16 +54,82 @@ final class LLMProviderCopyTests: XCTestCase {
         }
     }
 
-    func testCaveatsForClaudeCodeMentionSubscriptionLimitsAndTerminology() {
+    func testCaveatsForClaudeCodeMentionSubscriptionLimits() {
         let caveats = LLMProviderCopy.caveats(for: .claudeCode)
         XCTAssertFalse(caveats.isEmpty)
         XCTAssertTrue(
             caveats.contains("subscription"),
             "the subscription-billing caveat is the main reason this caption exists: \(caveats)"
         )
+    }
+
+    /// The terminology warning deliberately does NOT live in `caveats`: that caption
+    /// renders under summarization, three sections above the toggle it is about, so a
+    /// user who already had the toggle on and then switched provider never saw it.
+    func testTerminologyCaveatIsSeparateFromTheSummarizationCaveats() {
+        XCTAssertFalse(
+            LLMProviderCopy.caveats(for: .claudeCode).localizedCaseInsensitiveContains("terminology"),
+            "the terminology warning belongs next to the terminology toggle"
+        )
+        for kind in localKinds {
+            XCTAssertEqual(LLMProviderCopy.terminologyCaveat(for: kind), "", "terminologyCaveat for \(kind)")
+        }
+    }
+
+    /// The code now skips the provider pass rather than relying on the user to turn
+    /// the toggle off, so the caption has to describe what happens — not give an
+    /// instruction that no longer applies.
+    func testTerminologyCaveatForClaudeCodeDescribesTheSkipRatherThanAskingTheUserToActInstead() {
+        let caveat = LLMProviderCopy.terminologyCaveat(for: .claudeCode)
+        XCTAssertFalse(caveat.isEmpty)
         XCTAssertTrue(
-            caveats.contains("terminology correction"),
-            "the terminology-correction warning must survive rewording: \(caveats)"
+            caveat.localizedCaseInsensitiveContains("skipped"),
+            "the caption must say the model pass is skipped: \(caveat)"
+        )
+        XCTAssertTrue(
+            caveat.localizedCaseInsensitiveContains("find/replace"),
+            "and that the deterministic half still runs: \(caveat)"
+        )
+        for phrase in ["Leave terminology correction off", "Keep terminology correction off", "turn it off"] {
+            XCTAssertFalse(
+                caveat.localizedCaseInsensitiveContains(phrase),
+                "stale instruction to disable the toggle: \(caveat)"
+            )
+        }
+    }
+
+    // MARK: - First paint, before anything has been checked
+
+    /// `SettingsView` opens with an empty model list and only runs `refreshModels()`
+    /// from `.task`, so this string renders once on every Settings open — before the
+    /// CLI has been looked at. Telling the user to check the path at that moment
+    /// sends them after a problem that may not exist.
+    func testNoModelsFoundForClaudeCodeDoesNotBlameThePathBeforeAnythingWasChecked() {
+        let text = LLMProviderCopy.noModelsFound(for: .claudeCode)
+        XCTAssertFalse(text.isEmpty)
+        XCTAssertFalse(
+            text.localizedCaseInsensitiveContains("check the"),
+            "not a diagnosis: nothing has been probed yet when this first renders: \(text)"
+        )
+        XCTAssertEqual(text, LLMProviderCopy.modelLoadingLabel(for: .claudeCode))
+    }
+
+    // MARK: - Onboarding step 4 footer
+
+    /// Step 4 labels the field above this line "CLI path" for Claude Code, so calling
+    /// it an endpoint eight lines later names a control that is not on screen.
+    func testSettingsChangeHintNamesTheFieldTheStepActuallyShows() {
+        XCTAssertEqual(
+            LLMProviderCopy.settingsChangeHint(for: .claudeCode),
+            "Change the provider, CLI path and model anytime in Settings → AI."
+        )
+        XCTAssertTrue(
+            LLMProviderCopy.settingsChangeHint(for: .claudeCode)
+                .contains(LLMProviderCopy.locationFieldLabel(for: .claudeCode)),
+            "the hint must name the same field label the step renders"
+        )
+        XCTAssertFalse(
+            LLMProviderCopy.settingsChangeHint(for: .claudeCode).localizedCaseInsensitiveContains("endpoint")
         )
     }
 
@@ -122,6 +189,12 @@ final class LLMProviderCopyTests: XCTestCase {
         XCTAssertEqual(
             LLMProviderCopy.reachableSummary(modelCount: 3, for: .claudeCode),
             "Claude Code is reachable — 3 models available."
+        )
+        // A second count, so hardcoding "3" into the branch cannot pass this test —
+        // which is what the comment above claims the branch does not do.
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 2, for: .claudeCode),
+            "Claude Code is reachable — 2 models available."
         )
         XCTAssertFalse(
             LLMProviderCopy.reachableSummary(modelCount: 3, for: .claudeCode).contains("installed"),
@@ -207,6 +280,11 @@ final class LLMProviderCopyTests: XCTestCase {
             XCTAssertEqual(
                 LLMProviderCopy.llmStepHeader(for: kind).subtitle,
                 "Casablanca uses a local language model to draft summaries. Verify it is reachable below."
+            )
+            // Moved out of the view verbatim when Claude Code needed "CLI path" here.
+            XCTAssertEqual(
+                LLMProviderCopy.settingsChangeHint(for: kind),
+                "Change the provider, endpoint and model anytime in Settings → AI."
             )
         }
     }

@@ -94,7 +94,10 @@ final class ClaudeCLIProviderTests: XCTestCase {
     }
 
     /// Transient by design: a timeout is the one failure where rerunning plausibly
-    /// succeeds, even though it means terminology correction can spend 3 × 240s.
+    /// succeeds. It is only reachable from a retrying call site — `SummarizationService`
+    /// and `MeetingChatService` wrap `generate` in `LLMRetryPolicy`, so a timeout there
+    /// costs up to `maxAttempts` billed generations. `TerminologyService` calls
+    /// `generate` bare, and does not send this provider a transcript at all.
     func testGenerateTimeoutIsTransientNetworkFailure() async {
         let runner = FakeCommandRunner.throwing(CommandRunError.timedOut)
         await XCTAssertThrowsErrorAsync(try await generate(with: runner)) { error in
@@ -103,6 +106,25 @@ final class ClaudeCLIProviderTests: XCTestCase {
             }
             XCTAssertEqual(kind, .network(.timedOut))
             XCTAssertEqual((error as? LLMProviderError)?.isTransient, true)
+        }
+    }
+
+    /// The opposite of a timeout: the CLI already ran the generation and only its
+    /// output failed to finish arriving. Retrying would bill a second generation for
+    /// an answer that is most likely already complete, so this maps to a
+    /// non-transient kind even though the underlying condition is a wait that expired.
+    func testGenerateIncompleteOutputIsNonTransientMalformedResponse() async {
+        let runner = FakeCommandRunner.throwing(CommandRunError.outputIncomplete)
+        await XCTAssertThrowsErrorAsync(try await generate(with: runner)) { error in
+            guard case LLMProviderError.requestFailed(_, let kind, _) = error else {
+                return XCTFail("expected requestFailed, got \(error)")
+            }
+            XCTAssertEqual(kind, .malformedResponse)
+            XCTAssertEqual(
+                (error as? LLMProviderError)?.isTransient,
+                false,
+                "a drain overrun must not buy another billed generation"
+            )
         }
     }
 
@@ -218,6 +240,43 @@ final class ClaudeCLIProviderTests: XCTestCase {
         ).fetchAvailableModels(endpoint: "")
 
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), Self.secondCandidate)
+    }
+
+    /// `generate` must persist the path too, not just the model lookup. A user who
+    /// never opens the AI settings tab or onboarding step 4 would otherwise repeat
+    /// the candidate scan plus the `/bin/zsh -lc` login-shell probe on every AI call
+    /// — and that probe's budget sits outside the caller's timeout.
+    func testGenerateWritesDetectedPathToDefaults() async throws {
+        let runner = FakeCommandRunner.succeeding(standardOutput: Self.envelope(result: "ok"))
+        XCTAssertNil(defaults.string(forKey: AppPreferenceKey.claudeCLIPath))
+
+        _ = try await makeAutoDetectProvider(
+            runner: runner,
+            executablePaths: [Self.secondCandidate]
+        ).generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
+
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), Self.secondCandidate)
+        XCTAssertEqual(runner.allCalls.count, 1, "a candidate hit must not also consult the login shell")
+    }
+
+    /// What the write-back buys: a provider built from the stored path resolves
+    /// without touching the filesystem or a shell, so the only command is the CLI.
+    func testGenerateWithAStoredPathRunsExactlyOneCommand() async throws {
+        let runner = FakeCommandRunner.succeeding(standardOutput: Self.envelope(result: "ok"))
+
+        _ = try await makeAutoDetectProvider(
+            runner: runner,
+            // Nothing is executable, so a provider without a stored path would have to
+            // fall through to the login shell.
+            executablePaths: []
+        ).generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
+        XCTAssertEqual(runner.allCalls.count, 2, "auto-detect costs the login-shell probe plus the CLI")
+
+        let withStoredPath = FakeCommandRunner.succeeding(standardOutput: Self.envelope(result: "ok"))
+        _ = try await makeProvider(runner: withStoredPath)
+            .generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
+        XCTAssertEqual(withStoredPath.allCalls.count, 1)
+        XCTAssertEqual(withStoredPath.lastCall?.executable, Self.stubPath)
     }
 
     func testFetchAvailableModelsLaunchFailureIsInvalidEndpoint() async {

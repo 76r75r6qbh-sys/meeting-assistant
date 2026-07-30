@@ -406,7 +406,7 @@ struct OnboardingView: View {
 
             llmStatusView
 
-            Text("Change the provider, endpoint and model anytime in Settings → AI.")
+            Text(LLMProviderCopy.settingsChangeHint(for: llmProvider))
                 .font(.caption)
                 .foregroundStyle(Color.textTertiary)
         }

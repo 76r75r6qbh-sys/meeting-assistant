@@ -56,11 +56,31 @@ final class MeetingChatService {
     private(set) var isAnswering = false
     var errorMessage: String?
 
+    /// What the view shows in place of the plain "Thinking…" label while a
+    /// transient failure is being retried; `nil` whenever there is nothing extra to
+    /// say. Without it a retried question sits behind an unchanging spinner for as
+    /// long as `maxAttempts` timeouts take, with no sign that anything went wrong.
+    private(set) var statusMessage: String?
+
     /// The meeting the current conversation belongs to. When `ask` is called for
     /// a different meeting, the history resets.
     private(set) var currentMeetingID: UUID?
 
     private var task: Task<Void, Never>?
+
+    /// Seams for the tests: the provider `ask` generates through, and the retry
+    /// policy wrapping it. Production uses the current preferences and the default
+    /// policy.
+    private let providerFactory: () -> LLMProvider
+    private let retryPolicy: LLMRetryPolicy
+
+    init(
+        providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
+        retryPolicy: LLMRetryPolicy = LLMRetryPolicy()
+    ) {
+        self.providerFactory = providerFactory
+        self.retryPolicy = retryPolicy
+    }
 
     /// Switch the active meeting, clearing the conversation if it changed. Safe
     /// to call repeatedly with the same id (no-op).
@@ -85,6 +105,7 @@ final class MeetingChatService {
 
         messages.append(ChatMessage(role: .user, text: trimmed))
         errorMessage = nil
+        statusMessage = nil
         isAnswering = true
 
         let summary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -102,18 +123,28 @@ final class MeetingChatService {
         )
         let prompt = LLMPromptSupport.applyThinkingSwitch(to: basePrompt, thinkingEnabled: thinkingEnabled)
 
-        let provider = LLMProviderFactory.current()
-        let retryPolicy = LLMRetryPolicy()
+        let provider = providerFactory()
+        let retryPolicy = self.retryPolicy
 
         task = Task { @MainActor in
-            defer { self.isAnswering = false }
+            defer {
+                self.isAnswering = false
+                self.statusMessage = nil
+            }
             do {
-                let raw = try await retryPolicy.withRetry {
+                let raw = try await retryPolicy.withRetry(
+                    onAttempt: { [weak self] attempt in
+                        self?.statusMessage = "\(provider.displayName) request failed, retrying (\(attempt)/\(retryPolicy.maxAttempts))…"
+                    }
+                ) {
                     try await provider.generate(
                         prompt: prompt,
                         temperature: nil,
                         maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled),
-                        timeout: 120,
+                        // 120s suits a local model; a provider answering over the
+                        // network states its own budget, since a timeout here is
+                        // transient and costs `maxAttempts` generations.
+                        timeout: provider.timeout(orDefault: 120),
                         truncated: nil
                     )
                 }
@@ -138,6 +169,7 @@ final class MeetingChatService {
         task?.cancel()
         task = nil
         isAnswering = false
+        statusMessage = nil
     }
 
     func clearError() {

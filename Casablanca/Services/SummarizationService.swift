@@ -124,6 +124,14 @@ final class SummarizationService {
 
     private var backgroundTask: Task<Void, Never>?
 
+    /// How `summarize` obtains its provider. Injectable so the tests can assert what
+    /// the call site hands `generate` without reaching a live backend.
+    private let providerFactory: () -> LLMProvider
+
+    init(providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() }) {
+        self.providerFactory = providerFactory
+    }
+
     /// Summarize in a service-owned task that is NOT tied to any view's
     /// lifecycle, so it keeps running if the user navigates away. On success it
     /// stores the summary on the meeting and silently saves newly extracted
@@ -202,7 +210,7 @@ final class SummarizationService {
             toFitTokenBudget: LLMPromptSupport.defaultTranscriptTokenBudget
         )
 
-        let provider = LLMProviderFactory.current()
+        let provider = providerFactory()
         isSummarizing = true
         errorMessage = nil
         warningMessage = nil
@@ -249,7 +257,10 @@ final class SummarizationService {
                     prompt: prompt,
                     temperature: nil,
                     maxTokens: tokenBudget,
-                    timeout: 120,
+                    // 120s is what a local model needs for a structured summary;
+                    // a provider that answers over the network says so itself,
+                    // because a timeout here costs `maxAttempts` generations.
+                    timeout: provider.timeout(orDefault: 120),
                     truncated: { wasTruncated = $0 }
                 )
             }

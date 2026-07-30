@@ -83,6 +83,9 @@ final class ProcessCommandRunnerTests: XCTestCase {
     /// are an arbitrary prefix of the real output — here, nothing at all — and
     /// returning them as `CommandResult(exitCode: 0, standardOutput: "")` would report
     /// a bogus empty completion as success, which no retry policy can see through.
+    ///
+    /// Reported as `outputIncomplete`, not `timedOut`: the child ran to completion, so
+    /// a caller that bills per run must not treat this as "nothing happened, retry".
     func testOutputThatNeverReachesEndOfFileIsNotReportedAsSuccess() async {
         // The shell exits immediately; the backgrounded `sleep` inherits stdout and
         // keeps the pipe open well past the grace period.
@@ -97,14 +100,16 @@ final class ProcessCommandRunnerTests: XCTestCase {
                 timeout: 30
             )
         ) { error in
-            guard case CommandRunError.timedOut = error else {
-                return XCTFail("expected timedOut, got \(error)")
+            guard case CommandRunError.outputIncomplete = error else {
+                return XCTFail("expected outputIncomplete, got \(error)")
             }
         }
         // Bounded by the grace period, not by however long the grandchild lives.
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
+    /// The process-timeout case keeps `timedOut`: nothing ran to completion there, so
+    /// a retry is the right call and the two cases must not collapse into one.
     func testTimeoutTerminatesProcessAndThrowsTimedOut() async {
         let started = Date()
         await XCTAssertThrowsErrorAsync(
