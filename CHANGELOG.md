@@ -2,6 +2,26 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] — 2026-07-30
+
+Claude Code joins Ollama and oMLX as a language-model provider, so summaries can come from a frontier model billed against your existing Claude subscription instead of a model running on this Mac.
+
+### Added
+
+- **Claude Code as a third LLM provider.** Settings → AI now offers "Claude Code" alongside Ollama and oMLX. Choosing it runs the installed `claude` CLI in headless mode for summaries, "Ask your meeting" chat, and prep drafting — no API key, and usage draws on your Claude subscription's limits rather than a per-token charge. The CLI path is detected automatically on first lookup (the native installer's `~/.local/bin/claude`, Homebrew, and `/usr/local/bin` are all checked, with a login-shell `command -v` as the fallback) and written back into Settings so you can see and override it.
+- **Retry feedback while a chat answer is being fetched.** "Ask your meeting" now says which attempt it is on when a request fails and is retried, instead of showing an indefinite "Thinking…". Summaries already did this.
+
+### Changed
+
+- **Settings and onboarding no longer claim everything stays on your Mac.** That was true with only local providers and is not with Claude Code, so the wording is now provider-aware throughout: the AI section is headed "Language Model" rather than "Local LLM", the endpoint field becomes "CLI path", and onboarding's privacy line names Anthropic as the recipient of the transcript when Claude Code is selected. Wording for Ollama and oMLX is unchanged.
+- **Each provider can ask for the timeout it needs.** A frontier model producing a full structured summary takes longer than a local one, and the previous fixed 120-second limit would have failed and then retried — billing several generations to deliver nothing. Claude Code now gets 300 seconds for summaries, chat, and prep drafts. Ollama and oMLX keep their existing 120 seconds.
+- **Terminology correction skips its model pass when the provider cannot echo a whole transcript.** The pass sends the full untruncated transcript and expects the complete text back, which is not workable with Claude Code within any sane timeout — it would have stalled the post-recording pipeline for four minutes, spent a billed generation, and then fallen back anyway. The deterministic find/replace still runs, and a notice explains what did and did not happen.
+
+### Fixed
+
+- **A subprocess whose output never reaches end-of-file now fails loudly instead of reporting success with empty output.** Previously a reply still being held open past its grace period produced an apparently successful but blank result, which cannot be retried because nothing looks wrong.
+- **Cancelling a summary or chat no longer leaves the language-model process running.** Cancellation now terminates the child process, escalating from `SIGTERM` to `SIGKILL` if needed, so a cancelled request stops consuming subscription usage.
+
 ## [0.14.0] — 2026-07-16
 
 Performance pass across the post-recording pipeline: terminology correction, summarization, and the transcribing progress bar.
