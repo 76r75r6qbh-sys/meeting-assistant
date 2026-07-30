@@ -141,7 +141,7 @@ struct ClaudeCLIProvider: LLMProvider {
             workingDirectory: workingDirectory,
             timeout: timeout
         )
-        persistResolvedPath(executable)
+        await persistResolvedPath(executable)
 
         // A non-zero exit must not require JSON: usage limits and rejected flags
         // print plain text, and demanding a decodable envelope here would replace a
@@ -208,7 +208,7 @@ struct ClaudeCLIProvider: LLMProvider {
             workingDirectory: nil,
             timeout: Self.probeTimeout
         )
-        persistResolvedPath(executable)
+        await persistResolvedPath(executable)
         guard result.exitCode == 0 else {
             throw LLMProviderError.requestFailed(
                 provider: displayName,
@@ -235,9 +235,29 @@ struct ClaudeCLIProvider: LLMProvider {
     /// Gated on the process having launched rather than on its exit status: a
     /// launch proves the path names a runnable binary, which is the only thing
     /// being recorded here.
-    private func persistResolvedPath(_ executable: String) {
+    ///
+    /// The write hops to the main actor because `AppPreferenceKey.claudeCLIPath` is
+    /// `@AppStorage`-bound in `SettingsView` and `OnboardingView`: `generate` is
+    /// nonisolated, so a background summarization would otherwise publish a
+    /// SwiftUI change from a background thread whenever either view is open.
+    /// Both call sites already have the subprocess result in hand, so the hop sits
+    /// outside the timed region and costs the caller nothing measurable.
+    private func persistResolvedPath(_ executable: String) async {
         guard defaults.string(forKey: AppPreferenceKey.claudeCLIPath) != executable else { return }
-        defaults.set(executable, forKey: AppPreferenceKey.claudeCLIPath)
+        // Boxed rather than captured directly: `UserDefaults` is documented
+        // thread-safe but is not `Sendable` in this SDK, and the provider itself is
+        // not `Sendable` either, so crossing the actor boundary otherwise warns.
+        // The box confines the capture to the one value the hop actually needs.
+        let box = DefaultsBox(defaults: defaults)
+        await MainActor.run {
+            box.defaults.set(executable, forKey: AppPreferenceKey.claudeCLIPath)
+        }
+    }
+
+    /// `@unchecked Sendable`: `UserDefaults` is thread-safe by contract; the hop
+    /// exists for the `@AppStorage` publisher on the other side, not for the store.
+    private struct DefaultsBox: @unchecked Sendable {
+        let defaults: UserDefaults
     }
 
     // MARK: - Running

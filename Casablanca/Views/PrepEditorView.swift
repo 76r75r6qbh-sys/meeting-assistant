@@ -438,7 +438,10 @@ struct PrepEditorView: View {
                 prompt: prompt,
                 temperature: nil,
                 maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled),
-                timeout: 120,
+                // Same 3500-token cap as summarization, so the same reasoning applies:
+                // 120s is a local-model number, and a provider that pays a per-call
+                // round trip to a frontier model would be cut off mid-draft.
+                timeout: provider.timeout(orDefault: 120),
                 truncated: nil
             )
             let trimmed = LLMPromptSupport.stripReasoning(draft)

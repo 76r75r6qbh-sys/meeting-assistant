@@ -259,6 +259,54 @@ final class ClaudeCLIProviderTests: XCTestCase {
         XCTAssertEqual(runner.allCalls.count, 1, "a candidate hit must not also consult the login shell")
     }
 
+    /// `AppPreferenceKey.claudeCLIPath` is `@AppStorage`-bound in `SettingsView` and
+    /// `OnboardingView`, and `generate` is nonisolated — so a background
+    /// summarization that auto-detects the CLI would publish a SwiftUI change from a
+    /// background thread while either of those is open. The provider has to hop to
+    /// the main actor itself; it cannot rely on where its caller happened to be.
+    ///
+    /// The `async` test body is nonisolated, so it runs on the cooperative pool
+    /// rather than the main thread — the same shape as a background summarization.
+    /// The first assertion pins that, so the test cannot pass vacuously.
+    func testGenerateWritesTheDetectedPathOnTheMainThread() async throws {
+        XCTAssertFalse(Thread.isMainThread, "this test only means anything off the main thread")
+
+        let recording = ThreadRecordingDefaults(suiteName: suiteName)!
+        let provider = ClaudeCLIProvider(
+            endpoint: "",
+            model: "sonnet",
+            runner: FakeCommandRunner.succeeding(standardOutput: Self.envelope(result: "ok")),
+            defaults: recording,
+            candidates: [Self.firstCandidate, Self.secondCandidate],
+            isExecutable: { $0 == Self.secondCandidate }
+        )
+
+        _ = try await provider.generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
+
+        XCTAssertEqual(recording.setCallThreads, [true], "the path write must land on the main thread")
+        XCTAssertEqual(recording.string(forKey: AppPreferenceKey.claudeCLIPath), Self.secondCandidate)
+    }
+
+    /// The write is deliberately gated on the run having *returned*, not merely on
+    /// the process having launched, so neither `timedOut` nor `outputIncomplete`
+    /// persists a path. Making the hop to the main actor must not widen that: the
+    /// point of the gate is that these two paths never reach the write at all.
+    func testGenerateDoesNotPersistThePathWhenTheRunNeverReturned() async {
+        for error in [CommandRunError.timedOut, .outputIncomplete] {
+            let provider = makeAutoDetectProvider(
+                runner: FakeCommandRunner.throwing(error),
+                executablePaths: [Self.secondCandidate]
+            )
+            await XCTAssertThrowsErrorAsync(
+                try await provider.generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
+            )
+            XCTAssertNil(
+                defaults.string(forKey: AppPreferenceKey.claudeCLIPath),
+                "\(error) must not persist a path"
+            )
+        }
+    }
+
     /// What the write-back buys: a provider built from the stored path resolves
     /// without touching the filesystem or a shell, so the only command is the CLI.
     func testGenerateWithAStoredPathRunsExactlyOneCommand() async throws {
@@ -409,6 +457,23 @@ final class ClaudeCLIProviderTests: XCTestCase {
             "result": result,
         ])
         return String(decoding: body, as: UTF8.self)
+    }
+}
+
+/// `UserDefaults` that records which thread each write came in on.
+///
+/// Subclassing is the only seam here: the provider takes a plain `UserDefaults`, and
+/// the thing under test is *where* the write happens, which nothing observable from
+/// the outside reveals. Reads are left untouched.
+final class ThreadRecordingDefaults: UserDefaults {
+    private let threads = OSAllocatedUnfairLock(initialState: [Bool]())
+
+    /// `true` for each write that happened on the main thread, in order.
+    var setCallThreads: [Bool] { threads.withLock { $0 } }
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        threads.withLock { $0.append(Thread.isMainThread) }
+        super.set(value, forKey: defaultName)
     }
 }
 
