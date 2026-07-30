@@ -443,7 +443,7 @@ struct OnboardingView: View {
             HStack(spacing: CasaSpace.sm) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.accentSuccess)
-                Text("\(providerName) is reachable — \(count) model\(count == 1 ? "" : "s") installed.")
+                Text(LLMProviderCopy.reachableSummary(modelCount: count, for: llmProvider))
                     .font(.caption)
                     .foregroundStyle(Color.textSecondary)
             }

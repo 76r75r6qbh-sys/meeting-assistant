@@ -35,6 +35,11 @@ final class LLMProviderCopyTests: XCTestCase {
             let step = LLMProviderCopy.llmStepHeader(for: kind)
             XCTAssertFalse(step.title.isEmpty, "llmStepHeader title for \(kind)")
             XCTAssertFalse(step.subtitle.isEmpty, "llmStepHeader subtitle for \(kind)")
+
+            XCTAssertFalse(
+                LLMProviderCopy.reachableSummary(modelCount: 3, for: kind).isEmpty,
+                "reachableSummary for \(kind)"
+            )
         }
     }
 
@@ -86,6 +91,44 @@ final class LLMProviderCopyTests: XCTestCase {
         XCTAssertEqual(LLMProviderCopy.modelUnavailableSuffix(for: .claudeCode), "(unavailable)")
     }
 
+    // MARK: - Step 4 success line
+
+    /// Onboarding built this sentence inline before it moved here. These are the
+    /// exact strings the old interpolation produced, singular and plural, so an
+    /// Ollama or oMLX user cannot notice the move.
+    func testReachableSummaryIsUnchangedForLocalProviders() {
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 1, for: .ollama),
+            "Ollama is reachable — 1 model installed."
+        )
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 3, for: .ollama),
+            "Ollama is reachable — 3 models installed."
+        )
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 1, for: .omlx),
+            "oMLX is reachable — 1 model installed."
+        )
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 3, for: .omlx),
+            "oMLX is reachable — 3 models installed."
+        )
+    }
+
+    /// Claude Code installs nothing, so the line must not say "installed". The
+    /// count is passed through rather than hardcoded even though the CLI's static
+    /// list always has three entries.
+    func testReachableSummaryForClaudeCodeSaysAvailableNotInstalled() {
+        XCTAssertEqual(
+            LLMProviderCopy.reachableSummary(modelCount: 3, for: .claudeCode),
+            "Claude Code is reachable — 3 models available."
+        )
+        XCTAssertFalse(
+            LLMProviderCopy.reachableSummary(modelCount: 3, for: .claudeCode).contains("installed"),
+            "nothing is installed under Claude Code"
+        )
+    }
+
     // MARK: - Agreement with the providers
 
     /// The provider owns the name used in its error messages; this enum owns the
@@ -129,6 +172,7 @@ final class LLMProviderCopyTests: XCTestCase {
             "llmStepHeader.subtitle": stepHeader.subtitle,
             "summariesFeature.title": summaries.title,
             "summariesFeature.subtitle": summaries.subtitle,
+            "reachableSummary": LLMProviderCopy.reachableSummary(modelCount: 3, for: .claudeCode),
         ]
         for (entry, text) in strings {
             XCTAssertFalse(

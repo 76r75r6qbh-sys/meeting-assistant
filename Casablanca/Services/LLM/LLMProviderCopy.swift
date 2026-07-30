@@ -134,4 +134,17 @@ enum LLMProviderCopy {
             )
         }
     }
+
+    /// Step 4's success line, once the provider answered the model lookup.
+    static func reachableSummary(modelCount: Int, for kind: LLMProviderKind) -> String {
+        switch kind {
+        case .ollama, .omlx:
+            return "\(displayName(for: kind)) is reachable — \(modelCount) model\(modelCount == 1 ? "" : "s") installed."
+        case .claudeCode:
+            // Nothing is installed for Claude Code — the CLI offers a fixed set of
+            // models. That set has three entries, so the singular never occurs and
+            // this branch does not carry a singular form.
+            return "\(displayName(for: kind)) is reachable — \(modelCount) models available."
+        }
+    }
 }
