@@ -621,3 +621,39 @@ user gets a warning naming what did and did not happen. That code guard supersed
 the Settings-caption mitigation the plan originally relied on — a caption cannot
 protect a user who enabled the toggle *before* switching provider, since they never
 read it again.
+
+---
+
+## Follow-ups this branch deliberately leaves behind
+
+Recorded here rather than in a scratch file so they survive the branch. None blocks
+merge; each was reviewed and consciously deferred.
+
+1. **Swift 6 concurrency pass.** `LLMRetryPolicy.onAttempt`'s `(Int) -> Void` is
+   non-`Sendable`, so the closure literal each call site forms inherits `@MainActor`
+   isolation while `withRetry` invokes it on the cooperative pool — i.e. a
+   `@MainActor @Observable` property is written off the main actor. This ships today in
+   `SummarizationService.phase` and now also in `MeetingChatService.statusMessage`.
+   Refining `protocol LLMProvider: Sendable` (every conformer's stored properties
+   already look `Sendable`) plus fixing `onAttempt`'s isolation would clear four
+   warnings. The target carries 125 pre-existing warnings and is pinned at
+   `SWIFT_VERSION = 5.0`, so Swift 6 language mode is blocked independently of this
+   work.
+2. **Transcript budget still sized for a local context window.** See Global
+   Constraint 6 — the highest-value follow-up. Summarization middle-elides to 24,000
+   characters against a 200k-token model, then tells the user the transcript was
+   shortened.
+3. **Remaining false-locality copy outside this branch's scope.**
+   `MeetingChatTab.swift:28` ("the local model handles one request at a time") and
+   `README.md:19` (inside the historical `v0.8.0` block).
+4. **No minimum-version check on the `--version` probe.** A CLI too old for `--tools`
+   or `--no-session-persistence` passes the Settings reachability check and then fails
+   every completion. The failure is loud and the CLI's own message reaches the user, so
+   it is diagnosable; parsing the leading semver and requiring ≥ 2.1 would make it
+   obvious instead.
+5. **`ProcessCommandRunner` signals only the direct child.** `claude`'s own
+   subprocesses can survive a cancellation and keep consuming subscription usage.
+   Doing this properly needs `posix_spawn` with `POSIX_SPAWN_SETPGROUP` and
+   `kill(-pgid, …)` — a rewrite of `execute`, not a patch. With `--tools ""` and
+   `--strict-mcp-config` the CLI has little reason to fork, which is why this was
+   judged acceptable.
