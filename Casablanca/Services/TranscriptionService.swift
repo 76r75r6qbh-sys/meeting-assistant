@@ -103,6 +103,12 @@ final class TranscriptionService {
     ]
 
     private static let whisperControlTokenRegex = try! NSRegularExpression(pattern: #"<\|[^|>]+?\|>"#)
+    /// Hoisted alongside the control-token pattern: `cleanWhisperText` runs once
+    /// per segment (thousands of times for a long meeting) and
+    /// `replacingOccurrences(options: .regularExpression)` recompiles the pattern
+    /// on every call.
+    private static let repeatedWhitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
+    private static let whitespaceBeforePunctuationRegex = try! NSRegularExpression(pattern: #"\s+([,.;:!?])"#)
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
     /// The last checkpoint we actually know is true (loading floor, a real VAD
@@ -115,7 +121,10 @@ final class TranscriptionService {
     private static let trickleCeiling = 0.95
     private static let trickleEasing = 0.25
     private var whisperKit: WhisperPipeline?
-    private var loadedWhisperModelID: String?
+    /// The model *and* the compute units the cached pipeline was built with, so
+    /// changing a compute setting reloads instead of reusing a pipeline that is
+    /// still on the old units.
+    private var loadedWhisperPipelineKey: WhisperPipelineKey?
 
     /// Transcription is long and unattended: the Mac idle-slept for 37 minutes
     /// in the middle of one. An assertion keeps it awake until the run ends,
@@ -173,7 +182,7 @@ final class TranscriptionService {
     /// The next transcription reloads it on demand.
     func unloadModel() {
         whisperKit = nil
-        loadedWhisperModelID = nil
+        loadedWhisperPipelineKey = nil
     }
 
     func cancel() {
@@ -200,8 +209,22 @@ final class TranscriptionService {
 
         await updateStatus("Preparing local Whisper model...", progress: 0.05)
 
+        let resolved = TranscriptionOptionsBuilder.resolve(
+            language: Self.whisperLanguageCode(for: localeIdentifier)
+        )
+        // `resolve` turns VAD chunking off when silence is to be dropped, because
+        // that filter will do its own chunking. It does not exist yet, so keep
+        // VAD chunking on rather than quietly decoding the whole file in one go.
+        var decodeOptions = resolved.decoding
+        if resolved.dropSilentChunks {
+            decodeOptions.chunkingStrategy = .vad
+            Log.transcription.notice(
+                "whisperDropSilentChunks is set but the silent-chunk filter is not implemented yet; keeping VAD chunking"
+            )
+        }
+
         let modelLoadStart = ContinuousClock.now
-        let whisperKit = try await loadWhisperKit()
+        let whisperKit = try await loadWhisperKit(compute: resolved.compute)
         let modelLoadWall = ContinuousClock.now - modelLoadStart
 
         whisperKit.segmentDiscoveryCallback = { [weak self] segments in
@@ -225,16 +248,6 @@ final class TranscriptionService {
                 self.statusMessage = "Transcribing with local Whisper..."
             }
         }
-
-        let decodeOptions = DecodingOptions(
-            verbose: false,
-            task: .transcribe,
-            language: Self.whisperLanguageCode(for: localeIdentifier),
-            temperature: 0,
-            withoutTimestamps: false,
-            wordTimestamps: false,
-            chunkingStrategy: .vad
-        )
 
         let transcribeStart = ContinuousClock.now
         let results = try await whisperKit.transcribe(
@@ -276,15 +289,17 @@ final class TranscriptionService {
         )
         lastTimingReport = report
         Log.transcription.notice("transcription finished \(report.summaryLine, privacy: .public)")
+        Log.transcription.notice("config \(resolved.summaryLine, privacy: .public)")
 
         return TranscriptionResult(segments: segments, fullText: fullText, duration: duration)
     }
 
-    private func loadWhisperKit() async throws -> WhisperPipeline {
+    private func loadWhisperKit(compute: ModelComputeOptions) async throws -> WhisperPipeline {
         let selectedModel = UserDefaults.standard.string(forKey: AppPreferenceKey.whisperModel)
             ?? AppPreferenceValue.defaultWhisperModel
+        let pipelineKey = WhisperPipelineKey(model: selectedModel, compute: compute)
 
-        if let whisperKit, loadedWhisperModelID == selectedModel {
+        if let whisperKit, loadedWhisperPipelineKey == pipelineKey {
             return whisperKit
         }
 
@@ -293,6 +308,7 @@ final class TranscriptionService {
                 WhisperKitConfig(
                     model: selectedModel,
                     downloadBase: try Self.whisperDownloadBaseURL(),
+                    computeOptions: compute,
                     verbose: false,
                     logLevel: .none,
                     // Runs a warm-up inference during model load (compiling/caching
@@ -325,7 +341,7 @@ final class TranscriptionService {
                 }
             }
             self.whisperKit = pipeline
-            self.loadedWhisperModelID = selectedModel
+            self.loadedWhisperPipelineKey = pipelineKey
             return pipeline
         } catch {
             throw TranscriptionError.modelNotAvailable(error.localizedDescription)
@@ -387,9 +403,18 @@ final class TranscriptionService {
             withTemplate: " "
         )
 
-        let withoutExtraWhitespace = withoutControlTokens
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+([,.;:!?])"#, with: "$1", options: .regularExpression)
+        let collapsedWhitespace = repeatedWhitespaceRegex.stringByReplacingMatches(
+            in: withoutControlTokens,
+            options: [],
+            range: NSRange(withoutControlTokens.startIndex..., in: withoutControlTokens),
+            withTemplate: " "
+        )
+        let withoutExtraWhitespace = whitespaceBeforePunctuationRegex.stringByReplacingMatches(
+            in: collapsedWhitespace,
+            options: [],
+            range: NSRange(collapsedWhitespace.startIndex..., in: collapsedWhitespace),
+            withTemplate: "$1"
+        )
 
         return withoutExtraWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
     }
