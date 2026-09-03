@@ -247,8 +247,8 @@ final class AudioRecordingService {
         return RecordingResult(outputURL: finalURL, duration: duration)
     }
 
-    func handleSystemInterrupt(reason: RecordingInterruptionReason) async {
-        guard let session, let activeMeetingID else { return }
+    func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome {
+        guard let session, let activeMeetingID else { return .nothingRecording }
 
         // Release the service however the finalize goes. Clearing only on the
         // happy path left `self.session` set after a failed stop, so every
@@ -266,6 +266,7 @@ final class AudioRecordingService {
                 after \(result.duration, privacy: .public)s
                 """
             )
+            return .segmentFinalized(duration: result.duration)
         } catch {
             errorMessage = error.localizedDescription
             Log.recording.error(
@@ -275,6 +276,7 @@ final class AudioRecordingService {
                 \(error.localizedDescription, privacy: .public) — captured audio left on disk for recovery
                 """
             )
+            return .finalizeFailed(error.localizedDescription)
         }
     }
 

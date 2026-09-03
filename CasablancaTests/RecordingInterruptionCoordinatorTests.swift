@@ -152,6 +152,40 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    /// A sleep or lock while a notes-only workspace is open interrupts nothing.
+    /// Persisting `.pausedRecording` there stranded the meeting behind "This
+    /// paused recording can no longer be resumed."
+    func testInterruptWhileNothingRecordingDoesNotChangeMeetingStatus() async {
+        let env = makeEnv(meetingStatus: .notesOnly)
+        env.service.interruptOutcome = .nothingRecording
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep)])
+        XCTAssertEqual(env.meeting.status, .notesOnly, "Nothing was recording, so nothing may be marked paused")
+        XCTAssertTrue(env.notifier.posted.isEmpty, "No recording was paused, so there is nothing to notify about")
+        XCTAssertEqual(env.saveCount, 0)
+    }
+
+    func testInterruptWithFailedFinalizeStillPausesAndNamesTheError() async {
+        let env = makeEnv()
+        env.service.interruptOutcome = .finalizeFailed("disk full")
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+        XCTAssertEqual(env.notifier.posted.count, 1)
+        XCTAssertEqual(env.notifier.posted.first?.title, "Recording paused")
+        XCTAssertTrue(
+            env.notifier.posted.first?.body.contains("disk full") == true,
+            "A failed finalize must name the error: \(env.notifier.posted.first?.body ?? "<none>")"
+        )
+    }
+
     func testBindClearsRecentEventsFromPriorMeeting() async {
         let env = makeEnv()
         env.coordinator.bind(meeting: env.meeting)
@@ -227,8 +261,8 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
                        "Newly-appended interruption must not inherit resumed=true from the prior one")
     }
 
-    private func makeEnv() -> CoordinatorEnv {
-        CoordinatorEnv()
+    private func makeEnv(meetingStatus: MeetingStatus = .recording) -> CoordinatorEnv {
+        CoordinatorEnv(meetingStatus: meetingStatus)
     }
 
     @MainActor
@@ -237,11 +271,12 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         let notifier = FakeNotifier()
         let monitor = FakeMonitor()
         var clock: TimeInterval = 0
-        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+        let meeting: Meeting
         var saveCount = 0
         var coordinator: RecordingInterruptionCoordinator!
 
-        init() {
+        init(meetingStatus: MeetingStatus = .recording) {
+            meeting = Meeting(title: "Weekly Sync", date: .now, status: meetingStatus)
             let env = self
             coordinator = RecordingInterruptionCoordinator(
                 service: service,
@@ -286,9 +321,11 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         }
         var calls: [Call] = []
         var resumeError: Error?
+        var interruptOutcome: InterruptOutcome = .segmentFinalized(duration: 12)
 
-        func handleSystemInterrupt(reason: RecordingInterruptionReason) async {
+        func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome {
             calls.append(.handleSystemInterrupt(reason))
+            return interruptOutcome
         }
 
         func resumeRecording(for meeting: Meeting) async throws {

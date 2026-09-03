@@ -1,7 +1,17 @@
 import Foundation
 
+/// What an interrupt actually did to the recording. The coordinator needs the
+/// distinction: an interrupt that found nothing recording (a sleep while a
+/// notes-only workspace is open) must not persist `.pausedRecording`, because
+/// that later reads back as a paused recording that can no longer be resumed.
+enum InterruptOutcome: Equatable {
+    case nothingRecording
+    case segmentFinalized(duration: TimeInterval)
+    case finalizeFailed(String)
+}
+
 protocol RecordingInterruptionServicing: AnyObject {
-    func handleSystemInterrupt(reason: RecordingInterruptionReason) async
+    func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome
     func resumeRecording(for meeting: Meeting) async throws
 }
 
@@ -101,12 +111,24 @@ final class RecordingInterruptionCoordinator {
         resumeAllowedForActiveWindow = event.reason.allowsAutoResume
         startedAt = event.at
         appendRecentEvent(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
-        Task { @MainActor [service] in
-            await service?.handleSystemInterrupt(reason: event.reason)
+        // Pausing the meeting has to wait for the service's verdict: a sleep
+        // while nothing is recording must leave the meeting alone, so the
+        // status flip, the save and the notification all live after the await.
+        let reason = event.reason
+        let capturedMeeting = meeting
+        Task { @MainActor [weak self, service, notifier] in
+            let outcome = await service?.handleSystemInterrupt(reason: reason) ?? .nothingRecording
+            guard let self else { return }
+            self.log(outcome: outcome, reason: reason, meetingID: capturedMeeting?.id)
+            guard outcome != .nothingRecording else { return }
+
+            // Only mutate the meeting that was bound when the interrupt fired.
+            if let capturedMeeting, self.meeting?.id == capturedMeeting.id {
+                self.meeting?.status = .pausedRecording
+                self.save()
+            }
+            notifier?.post(title: "Recording paused", body: self.bodyForPause(reason, outcome: outcome))
         }
-        meeting?.status = .pausedRecording
-        save()
-        notifier?.post(title: "Recording paused", body: bodyForPause(event.reason))
         scheduleDeadline()
     }
 
@@ -173,6 +195,40 @@ final class RecordingInterruptionCoordinator {
     private func cancelPendingDeadline() {
         deadlineTask?.cancel()
         deadlineTask = nil
+    }
+
+    private func log(outcome: InterruptOutcome, reason: RecordingInterruptionReason, meetingID: UUID?) {
+        let reasonDescription = String(describing: reason)
+        let meetingDescription = meetingID?.uuidString ?? "none"
+        switch outcome {
+        case .nothingRecording:
+            Log.recording.notice(
+                """
+                Interruption (\(reasonDescription, privacy: .public)) found nothing recording; meeting \
+                \(meetingDescription, privacy: .public) left as it was
+                """
+            )
+        case .segmentFinalized(let duration):
+            Log.recording.notice(
+                """
+                Interruption (\(reasonDescription, privacy: .public)) paused meeting \
+                \(meetingDescription, privacy: .public) after finalizing \(duration, privacy: .public)s
+                """
+            )
+        case .finalizeFailed(let message):
+            Log.recording.error(
+                """
+                Interruption (\(reasonDescription, privacy: .public)) paused meeting \
+                \(meetingDescription, privacy: .public); finalize failed: \(message, privacy: .public)
+                """
+            )
+        }
+    }
+
+    private func bodyForPause(_ reason: RecordingInterruptionReason, outcome: InterruptOutcome) -> String {
+        let cause = bodyForPause(reason)
+        guard case .finalizeFailed(let message) = outcome else { return cause }
+        return "\(cause) The audio up to this point may not have been saved: \(message)"
     }
 
     private func bodyForPause(_ reason: RecordingInterruptionReason) -> String {

@@ -767,7 +767,7 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         )
 
         try await service.startRecording(for: meeting)
-        await service.handleSystemInterrupt(reason: .systemSleep)
+        _ = await service.handleSystemInterrupt(reason: .systemSleep)
 
         XCTAssertFalse(service.isRecording, "The service must not stay wedged in recording after a failed finalize")
         XCTAssertNil(service.activeMeetingID)
@@ -810,7 +810,7 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         )
 
         try await service.startRecording(for: meeting)
-        await service.handleSystemInterrupt(reason: .screenLock)
+        _ = await service.handleSystemInterrupt(reason: .screenLock)
 
         XCTAssertFalse(service.isRecording)
         XCTAssertNil(service.errorMessage, "A provably empty segment is not a user-facing failure")
@@ -1030,7 +1030,7 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
 
         await gate.open()
         let result = try await stop.value
-        await interrupt.value
+        _ = await interrupt.value
 
         let stopCalls = await gate.stopCalls
         XCTAssertEqual(stopCalls, 1, "The segment must be finalized exactly once")
@@ -1112,7 +1112,7 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         )
 
         try await service.startRecording(for: meeting)
-        await service.handleSystemInterrupt(reason: .screenLock)
+        _ = await service.handleSystemInterrupt(reason: .screenLock)
 
         XCTAssertFalse(service.isRecording)
         XCTAssertNil(service.activeMeetingID)
