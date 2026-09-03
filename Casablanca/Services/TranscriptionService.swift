@@ -113,11 +113,26 @@ final class TranscriptionService {
     private var whisperKit: WhisperPipeline?
     private var loadedWhisperModelID: String?
 
+    /// Transcription is long and unattended: the Mac idle-slept for 37 minutes
+    /// in the middle of one. An assertion keeps it awake until the run ends,
+    /// however it ends.
+    private let sleepPreventer: SleepPreventing
+    private static let sleepPreventionReason = "Casablanca is transcribing a meeting"
+
+    init(sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer()) {
+        self.sleepPreventer = sleepPreventer
+    }
+
     /// Transcribe an audio file at the given URL
     func transcribe(fileURL: URL, localeIdentifier: String = "en-US") async throws -> TranscriptionResult {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw TranscriptionError.fileNotFound(fileURL.path)
         }
+
+        let sleepAssertion = sleepPreventer.begin(reason: Self.sleepPreventionReason)
+        Log.transcription.notice(
+            "Holding an idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+        )
 
         isTranscribing = true
         progress = 0
@@ -129,6 +144,10 @@ final class TranscriptionService {
         defer {
             isTranscribing = false
             stopProgressTicker()
+            sleepAssertion.end()
+            Log.transcription.notice(
+                "Released the idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+            )
         }
 
         let locale = localeIdentifier

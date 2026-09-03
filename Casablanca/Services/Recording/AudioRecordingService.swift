@@ -34,6 +34,14 @@ final class AudioRecordingService {
     private let makeFinalOutputURL: (Meeting) throws -> URL
     private let mergeSegments: ([URL], URL) throws -> TimeInterval
 
+    /// Held for as long as a segment is actually capturing. Without it the Mac
+    /// idle-sleeps mid-recording once the display sleeps — macOS drops
+    /// coreaudiod's own assertion at that point — which is how a 75-minute
+    /// recording was lost.
+    private let sleepPreventer: SleepPreventing
+    private var sleepAssertion: SleepPreventionToken?
+    private static let sleepPreventionReason = "Casablanca is recording a meeting"
+
     weak var interruptionMonitor: RecordingInterruptionMonitor?
 
     /// Invoked (non-fatally) when a recording started or resumed but system-audio
@@ -47,12 +55,14 @@ final class AudioRecordingService {
         sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
         makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
-        mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge
+        mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge,
+        sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer()
     ) {
         self.sessionStore = sessionStore
         self.makeRecordingSession = makeRecordingSession
         self.makeFinalOutputURL = makeFinalOutputURL
         self.mergeSegments = mergeSegments
+        self.sleepPreventer = sleepPreventer
         refreshInputDevices(forcePreferredSelection: true)
     }
 
@@ -108,6 +118,7 @@ final class AudioRecordingService {
             try await session.start()
 
             self.session = session
+            beginSleepPrevention()
             activeMeetingID = meeting.id
             outputURL = session.outputURL
             isRecording = true
@@ -122,6 +133,7 @@ final class AudioRecordingService {
             errorMessage = error.localizedDescription
             isPreparing = false
             session = nil
+            endSleepPrevention()
             activeMeetingID = nil
             outputURL = nil
             throw error
@@ -176,6 +188,7 @@ final class AudioRecordingService {
             try await session.start()
 
             self.session = session
+            beginSleepPrevention()
             activeMeetingID = meeting.id
             outputURL = segmentURL
             isRecording = true
@@ -192,6 +205,7 @@ final class AudioRecordingService {
             errorMessage = error.localizedDescription
             isPreparing = false
             session = nil
+            endSleepPrevention()
             activeMeetingID = nil
             outputURL = nil
             throw error
@@ -568,8 +582,32 @@ final class AudioRecordingService {
         )
     }
 
+    /// Takes the idle-sleep assertion for the segment that just started.
+    /// Never stacks a second one: an assertion still held from an earlier
+    /// segment would be released only by its token's `deinit`.
+    private func beginSleepPrevention() {
+        guard sleepAssertion == nil else { return }
+        sleepAssertion = sleepPreventer.begin(reason: Self.sleepPreventionReason)
+        Log.recording.notice(
+            "Holding an idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+        )
+    }
+
+    /// Releases it. Idempotent, because every teardown path (pause, stop,
+    /// interrupt, a failed start) funnels through here and more than one of
+    /// them can run for the same session.
+    private func endSleepPrevention() {
+        guard let sleepAssertion else { return }
+        self.sleepAssertion = nil
+        sleepAssertion.end()
+        Log.recording.notice(
+            "Released the idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+        )
+    }
+
     private func clearActiveSessionState() {
         self.session = nil
+        endSleepPrevention()
         isRecording = false
         isPreparing = false
         activeMeetingID = nil
