@@ -20,6 +20,14 @@ final class AudioRecordingService {
 
     private var session: RecordingSessionControlling?
     private var timerTask: Task<Void, Never>?
+    /// The single finalize in flight for the live session, keyed by that
+    /// session's identity. Pause, Stop and the interruption handler all funnel
+    /// through it: whoever gets there first owns `session.stop()` and everyone
+    /// else awaits the same result. Without it, Stop arriving while an
+    /// interrupt was suspended inside `stop()` got `.sessionAlreadyStopped`
+    /// back and ran on to merge and delete the session *before* the in-flight
+    /// finalize could append its segment — a short recording plus deleted audio.
+    private var pendingFinalize: (sessionID: ObjectIdentifier, task: Task<RecordingResult, Error>)?
 
     private let sessionStore: RecordingResumeSessionStore
     private let makeRecordingSession: RecordingSessionFactory
@@ -193,7 +201,15 @@ final class AudioRecordingService {
     func stopRecording(for meeting: Meeting) async throws -> RecordingResult {
         if let liveSession = session, activeMeetingID == meeting.id {
             defer { clearActiveSessionState() }
-            _ = try await finalizeActiveSegment(session: liveSession, meetingID: meeting.id, dropIfEmpty: true)
+            _ = try await finalizeActiveSegment(
+                session: liveSession,
+                meetingID: meeting.id,
+                dropIfEmpty: true,
+                // Everything below this line merges and then deletes the
+                // session, so a segment whose finalize belongs to someone else
+                // must abort the stop rather than be merged around.
+                alreadyStopped: .refuse
+            )
         }
 
         guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
@@ -398,7 +414,61 @@ final class AudioRecordingService {
         )
     }
 
-    /// Finalizes the live segment and records it in the manifest.
+    /// What a finalize does when `stop()` reports that the segment's finalize
+    /// is owned by someone else.
+    private enum AlreadyStoppedPolicy {
+        /// Return a zero-duration result: nothing to append, nothing to delete.
+        /// Safe for pause and interrupt, which touch nothing but the manifest.
+        case tolerate
+        /// Rethrow. Stop must never merge or delete a session while another
+        /// finalize may still be appending a segment to it.
+        case refuse
+    }
+
+    /// Finalizes the live segment exactly once, however many callers ask.
+    ///
+    /// The first caller owns the finalize; a caller that arrives while it is
+    /// still in flight awaits that same task instead of calling `stop()` again.
+    /// A joiner therefore inherits the owner's `dropIfEmpty`/`alreadyStopped`
+    /// handling — which is the point: one `stop()`, one append, one result, and
+    /// no caller can run ahead of the append that is already underway.
+    private func finalizeActiveSegment(
+        session: RecordingSessionControlling,
+        meetingID: UUID,
+        dropIfEmpty: Bool,
+        alreadyStopped: AlreadyStoppedPolicy = .tolerate
+    ) async throws -> RecordingResult {
+        let sessionID = ObjectIdentifier(session)
+
+        if let pendingFinalize, pendingFinalize.sessionID == sessionID {
+            Log.recording.notice(
+                """
+                Joining the finalize already in flight for meeting \
+                \(meetingID.uuidString, privacy: .public) instead of stopping the session twice
+                """
+            )
+            return try await pendingFinalize.task.value
+        }
+
+        let finalize = Task<RecordingResult, Error> {
+            try await self.performFinalize(
+                session: session,
+                meetingID: meetingID,
+                dropIfEmpty: dropIfEmpty,
+                alreadyStopped: alreadyStopped
+            )
+        }
+        pendingFinalize = (sessionID, finalize)
+        defer {
+            if pendingFinalize?.task == finalize {
+                pendingFinalize = nil
+            }
+        }
+        return try await finalize.value
+    }
+
+    /// The finalize itself. Only ever reached through `finalizeActiveSegment`,
+    /// which guarantees one call per session.
     ///
     /// Deletes nothing, ever. The only component allowed to remove capture
     /// files is `RecordingSession.stop()`, which does so only after proving
@@ -406,10 +476,11 @@ final class AudioRecordingService {
     /// `result.outputURL` whenever `hasCapturedFrames` read false — a counter a
     /// previous finalize had already released — which deleted a 75-minute
     /// recording that was fully on disk.
-    private func finalizeActiveSegment(
+    private func performFinalize(
         session: RecordingSessionControlling,
         meetingID: UUID,
-        dropIfEmpty: Bool
+        dropIfEmpty: Bool,
+        alreadyStopped: AlreadyStoppedPolicy
     ) async throws -> RecordingResult {
         let result: RecordingResult
         do {
@@ -426,16 +497,29 @@ final class AudioRecordingService {
             )
             return RecordingResult(outputURL: session.outputURL, duration: 0)
         } catch RecordingError.sessionAlreadyStopped {
-            // Another finalize already owns this segment and either appended it
-            // or is about to. Appending again would duplicate it in the merge;
-            // deleting anything here would destroy audio the winner just wrote.
-            Log.recording.notice(
-                """
-                Segment \(session.outputURL.path, privacy: .public) for meeting \
-                \(meetingID.uuidString, privacy: .public) was already finalized; leaving it to the first stop()
-                """
-            )
-            return RecordingResult(outputURL: session.outputURL, duration: 0)
+            // A finalize outside this service's serialization owns the segment
+            // and either appended it or is about to. Appending again would
+            // duplicate it; deleting anything would destroy audio the owner
+            // just wrote.
+            switch alreadyStopped {
+            case .tolerate:
+                Log.recording.notice(
+                    """
+                    Segment \(session.outputURL.path, privacy: .public) for meeting \
+                    \(meetingID.uuidString, privacy: .public) was already finalized; leaving it to the owning stop()
+                    """
+                )
+                return RecordingResult(outputURL: session.outputURL, duration: 0)
+            case .refuse:
+                Log.recording.error(
+                    """
+                    Segment \(session.outputURL.path, privacy: .public) for meeting \
+                    \(meetingID.uuidString, privacy: .public) is being finalized elsewhere; refusing to merge or \
+                    delete the session while that segment may still be appended
+                    """
+                )
+                throw RecordingError.sessionAlreadyStopped
+            }
         } catch {
             Log.recording.error(
                 """

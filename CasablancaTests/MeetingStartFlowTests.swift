@@ -969,6 +969,207 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertFalse(service.hasResumableSession(for: UUID()))
     }
 
+    /// The race that lost audio: an interrupt suspended inside `session.stop()`
+    /// while the user presses Stop. Stop used to get `.sessionAlreadyStopped`
+    /// back and run straight on to merge (without the in-flight segment) and
+    /// then delete the directory holding it. Finalization is serialized now, so
+    /// Stop waits for that finalize, merges both segments, and only then deletes.
+    func testStopWhileInterruptFinalizeIsInFlightMergesEverySegmentBeforeDeleting() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        // The part of the meeting recorded before the interruption.
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 10)
+
+        let sessionDirectory = try store.sessionDirectory(for: meeting.id)
+        let finalURL = rootURL.appendingPathComponent("final.wav")
+        let gate = FinalizeGate()
+        var capturedURLs: [URL] = []
+        var mergedURLs: [URL] = []
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                try Data("second".utf8).write(to: outputURL)
+                return GatedFakeRecordingSession(outputURL: outputURL, duration: 20, gate: gate)
+            },
+            makeFinalOutputURL: { _ in finalURL },
+            mergeSegments: { urls, destination in
+                mergedURLs = urls
+                for url in urls {
+                    XCTAssertTrue(
+                        FileManager.default.fileExists(atPath: url.path),
+                        "Every merged segment must still be on disk when the merge runs"
+                    )
+                }
+                try Data("merged".utf8).write(to: destination)
+                return 30
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        let liveSegment = try XCTUnwrap(capturedURLs.first)
+
+        let interrupt = Task { await service.handleSystemInterrupt(reason: .systemSleep) }
+        // Wait until the interrupt is suspended *inside* `session.stop()`.
+        while await gate.stopCalls == 0 {
+            await Task.yield()
+        }
+
+        let stop = Task { try await service.stopRecording(for: meeting) }
+        // Give Stop the main actor so it reaches the finalize it has to join.
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        await gate.open()
+        let result = try await stop.value
+        await interrupt.value
+
+        let stopCalls = await gate.stopCalls
+        XCTAssertEqual(stopCalls, 1, "The segment must be finalized exactly once")
+        XCTAssertEqual(
+            mergedURLs, [firstSegment, liveSegment],
+            "The merge must include the segment the interrupt was still finalizing"
+        )
+        XCTAssertEqual(result.outputURL.path, finalURL.path)
+        XCTAssertEqual(result.duration, 30)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sessionDirectory.path),
+            "The session directory is deleted only after the merge that included every segment"
+        )
+    }
+
+    /// `.sessionAlreadyStopped` from a finalize this service does not own must
+    /// abort the stop: merging would omit that segment and the delete would
+    /// then destroy it.
+    func testStopRecordingRefusesToMergeWhenTheSegmentIsFinalizedElsewhere() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let firstSegmentBytes = Data("first".utf8)
+        try firstSegmentBytes.write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 10)
+
+        let sessionDirectory = try store.sessionDirectory(for: meeting.id)
+        let finalURL = rootURL.appendingPathComponent("final.wav")
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                try Data("second".utf8).write(to: outputURL)
+                return ThrowingFakeRecordingSession(outputURL: outputURL, stopError: RecordingError.sessionAlreadyStopped)
+            },
+            makeFinalOutputURL: { _ in finalURL },
+            mergeSegments: { _, _ in
+                XCTFail("Nothing may be merged while another finalize may still append a segment")
+                return 0
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+
+        do {
+            _ = try await service.stopRecording(for: meeting)
+            XCTFail("Expected stopRecording to refuse a segment finalized elsewhere")
+        } catch RecordingError.sessionAlreadyStopped {
+            // Expected
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDirectory.path), "The session must survive")
+        XCTAssertEqual(try Data(contentsOf: firstSegment), firstSegmentBytes)
+        XCTAssertNotNil(try store.loadSession(for: meeting.id), "The manifest must survive so the stop can be retried")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalURL.path), "Nothing may be merged")
+        XCTAssertFalse(service.isRecording)
+        XCTAssertNil(service.activeMeetingID)
+    }
+
+    /// The same report during an interrupt is benign: leave every file where it
+    /// is, append nothing, and release the service.
+    func testHandleSystemInterruptWhenSegmentIsFinalizedElsewhereLeavesFilesAndClearsSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let capturedBytes = Data("captured-audio".utf8)
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                try capturedBytes.write(to: outputURL)
+                return ThrowingFakeRecordingSession(outputURL: outputURL, stopError: RecordingError.sessionAlreadyStopped)
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        await service.handleSystemInterrupt(reason: .screenLock)
+
+        XCTAssertFalse(service.isRecording)
+        XCTAssertNil(service.activeMeetingID)
+        XCTAssertNil(service.errorMessage, "Another finalize owning the segment is not a user-facing failure")
+        let segmentURL = try XCTUnwrap(capturedURLs.first)
+        XCTAssertEqual(try Data(contentsOf: segmentURL), capturedBytes, "The segment must be left exactly as it was")
+        let session = try XCTUnwrap(store.loadSession(for: meeting.id))
+        XCTAssertTrue(session.segments.isEmpty, "The owning finalize appends it, not this one")
+    }
+
+    /// A live session that captured nothing at all: the failure reaches the
+    /// caller and the leftover (empty) directory is cleaned through
+    /// `deleteSessionIfEmpty`, never an unconditional delete.
+    func testStopRecordingWithLiveSessionThatCapturedNothingSurfacesNoCapturedAudio() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                try Data().write(to: outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 0),
+                    capturedFrames: 0,
+                    deletesProvablyEmptyOutputOnStop: true
+                )
+            },
+            mergeSegments: { _, _ in
+                XCTFail("There is nothing to merge")
+                return 0
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        let sessionDirectory = try store.sessionDirectory(for: meeting.id)
+
+        do {
+            _ = try await service.stopRecording(for: meeting)
+            XCTFail("Expected stopRecording to throw .noCapturedAudio")
+        } catch RecordingError.noCapturedAudio {
+            // Expected
+        }
+
+        XCTAssertFalse(service.isRecording)
+        let segmentURL = try XCTUnwrap(capturedURLs.first)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: segmentURL.path), "The session removed its provably empty file")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sessionDirectory.path),
+            "A directory with no recoverable audio is cleaned up by deleteSessionIfEmpty"
+        )
+        XCTAssertNil(try store.loadSession(for: meeting.id))
+    }
+
     func testStopRecordingClearsActiveStateEvenWhenFinalizeThrows() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
@@ -1079,12 +1280,70 @@ private final class ThrowingFakeRecordingSession: RecordingSessionControlling, @
     let startedAt = Date()
     let hasCapturedFrames = true
     let systemAudioUnavailableError: Error? = nil
+    private let stopError: Error
 
-    init(outputURL: URL) { self.outputURL = outputURL }
+    init(outputURL: URL, stopError: Error = NSError(domain: "test.disk-write", code: 42)) {
+        self.outputURL = outputURL
+        self.stopError = stopError
+    }
 
     func start() async throws {}
     func stop() async throws -> RecordingResult {
-        throw NSError(domain: "test.disk-write", code: 42)
+        throw stopError
+    }
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
+    func setSystemAudioEnabled(_ enabled: Bool) {}
+}
+
+/// Holds a `stop()` open so a test can interleave a second finalize with one
+/// that is already in flight — the race that merged a truncated recording and
+/// then deleted the segment it left out.
+private actor FinalizeGate {
+    private(set) var stopCalls = 0
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Called from inside the fake's `stop()`: counts the call and, for the
+    /// first one, suspends until `open()`. Returns false for any later call —
+    /// `RecordingSession.stop()` is one-shot and rejects a second entry
+    /// immediately, even while the first is still finalizing.
+    func enterStop() async -> Bool {
+        stopCalls += 1
+        guard stopCalls == 1 else { return false }
+        if !isOpen {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        return true
+    }
+
+    func open() {
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+private final class GatedFakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
+    let outputURL: URL
+    let startedAt = Date()
+    let hasCapturedFrames = true
+    let systemAudioUnavailableError: Error? = nil
+    private let duration: TimeInterval
+    private let gate: FinalizeGate
+
+    init(outputURL: URL, duration: TimeInterval, gate: FinalizeGate) {
+        self.outputURL = outputURL
+        self.duration = duration
+        self.gate = gate
+    }
+
+    func start() async throws {}
+    func stop() async throws -> RecordingResult {
+        guard await gate.enterStop() else {
+            throw RecordingError.sessionAlreadyStopped
+        }
+        return RecordingResult(outputURL: outputURL, duration: duration)
     }
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
     func setSystemAudioEnabled(_ enabled: Bool) {}
