@@ -50,6 +50,11 @@ final class RecordingInterruptionCoordinator {
     private var resumeAllowedForActiveWindow = true
     private var deadlineTask: Task<Void, Never>?
     private var resumeTask: Task<Void, Never>?
+    /// Invalidates an interrupt whose finalize is still in flight. The status
+    /// flip waits for the service now, so a user Stop or a rebind can land in
+    /// between — and writing `.pausedRecording` over a meeting the user just
+    /// stopped strands a finished recording as unresumable.
+    private var interruptGeneration = 0
 
     init(
         service: RecordingInterruptionServicing,
@@ -78,6 +83,7 @@ final class RecordingInterruptionCoordinator {
         activeReasons.removeAll()
         startedAt = nil
         recentEvents.removeAll()
+        interruptGeneration += 1
     }
 
     func notifyMeetingTransitioned(to status: MeetingStatus) {
@@ -87,6 +93,7 @@ final class RecordingInterruptionCoordinator {
         resumeTask = nil
         activeReasons.removeAll()
         startedAt = nil
+        interruptGeneration += 1
     }
 
     private func handle(event: RecordingInterruptionEvent) {
@@ -116,17 +123,28 @@ final class RecordingInterruptionCoordinator {
         // status flip, the save and the notification all live after the await.
         let reason = event.reason
         let capturedMeeting = meeting
+        let generation = interruptGeneration
         Task { @MainActor [weak self, service, notifier] in
             let outcome = await service?.handleSystemInterrupt(reason: reason) ?? .nothingRecording
             guard let self else { return }
             self.log(outcome: outcome, reason: reason, meetingID: capturedMeeting?.id)
             guard outcome != .nothingRecording else { return }
 
-            // Only mutate the meeting that was bound when the interrupt fired.
-            if let capturedMeeting, self.meeting?.id == capturedMeeting.id {
-                self.meeting?.status = .pausedRecording
-                self.save()
+            // Everything the user could have done in the meantime — Stop,
+            // Discard, switching meetings — bumps the generation, and only a
+            // still-recording meeting can be paused. A stale outcome is
+            // dropped: the pause it describes has already been superseded.
+            guard generation == self.interruptGeneration,
+                  let capturedMeeting,
+                  self.meeting?.id == capturedMeeting.id,
+                  self.meeting?.status == .recording
+            else {
+                self.logDiscarded(outcome: outcome, reason: reason, meetingID: capturedMeeting?.id)
+                return
             }
+
+            self.meeting?.status = .pausedRecording
+            self.save()
             notifier?.post(title: "Recording paused", body: self.bodyForPause(reason, outcome: outcome))
         }
         scheduleDeadline()
@@ -223,6 +241,17 @@ final class RecordingInterruptionCoordinator {
                 """
             )
         }
+    }
+
+    private func logDiscarded(outcome: InterruptOutcome, reason: RecordingInterruptionReason, meetingID: UUID?) {
+        Log.recording.notice(
+            """
+            Discarding stale interrupt outcome \(String(describing: outcome), privacy: .public) \
+            (\(String(describing: reason), privacy: .public)) for meeting \
+            \(meetingID?.uuidString ?? "none", privacy: .public): the meeting was stopped, \
+            discarded or unbound while the finalize was in flight
+            """
+        )
     }
 
     private func bodyForPause(_ reason: RecordingInterruptionReason, outcome: InterruptOutcome) -> String {

@@ -186,6 +186,56 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         )
     }
 
+    /// The finalize now runs before the status flip, so a user Stop can land in
+    /// between. Stop merges the segments and deletes the session, so writing
+    /// `.pausedRecording` afterwards would strand a finished recording behind
+    /// "This paused recording can no longer be resumed."
+    func testInterruptFollowedByUserStopDoesNotRevertToPaused() async {
+        let env = makeEnv()
+        env.service.holdsInterrupt = true
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.audioDeviceLost(deviceID: "USBMic"), atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.audioDeviceLost(deviceID: "USBMic"))])
+        XCTAssertEqual(env.meeting.status, .recording, "The finalize is still in flight, so nothing is paused yet")
+
+        // The user presses Stop while the finalize is in flight: the view sets
+        // .processing itself and then tells the coordinator about it.
+        env.meeting.status = .processing
+        env.coordinator.notifyMeetingTransitioned(to: .processing)
+        let savesBeforeRelease = env.saveCount
+
+        env.service.releaseInterrupt()
+        await env.flush()
+
+        XCTAssertEqual(env.meeting.status, .processing, "A stale interrupt outcome must not undo the user's Stop")
+        XCTAssertTrue(env.notifier.posted.isEmpty, "The recording was stopped, not paused")
+        XCTAssertEqual(env.saveCount, savesBeforeRelease, "A discarded outcome must not save")
+    }
+
+    func testRebindDuringPendingInterruptNeitherPausesNorNotifies() async {
+        let env = makeEnv()
+        env.service.holdsInterrupt = true
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+
+        // The user navigates to a different meeting before the finalize returns.
+        let otherMeeting = Meeting(title: "Different Meeting", date: .now, status: .recording)
+        env.coordinator.bind(meeting: otherMeeting)
+        let savesBeforeRelease = env.saveCount
+
+        env.service.releaseInterrupt()
+        await env.flush()
+
+        XCTAssertEqual(env.meeting.status, .recording, "The unbound meeting must not be mutated")
+        XCTAssertEqual(otherMeeting.status, .recording, "The newly bound meeting was never interrupted")
+        XCTAssertTrue(env.notifier.posted.isEmpty, "No toast for a meeting the user navigated away from")
+        XCTAssertEqual(env.saveCount, savesBeforeRelease)
+    }
+
     func testBindClearsRecentEventsFromPriorMeeting() async {
         let env = makeEnv()
         env.coordinator.bind(meeting: env.meeting)
@@ -322,10 +372,22 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         var calls: [Call] = []
         var resumeError: Error?
         var interruptOutcome: InterruptOutcome = .segmentFinalized(duration: 12)
+        /// Holds `handleSystemInterrupt` suspended so a test can act (user Stop,
+        /// rebind) while the real finalize would still be in flight.
+        var holdsInterrupt = false
+        private var interruptGate: CheckedContinuation<Void, Never>?
 
         func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome {
             calls.append(.handleSystemInterrupt(reason))
+            if holdsInterrupt {
+                await withCheckedContinuation { interruptGate = $0 }
+            }
             return interruptOutcome
+        }
+
+        func releaseInterrupt() {
+            interruptGate?.resume()
+            interruptGate = nil
         }
 
         func resumeRecording(for meeting: Meeting) async throws {
