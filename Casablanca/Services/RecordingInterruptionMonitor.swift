@@ -2,6 +2,7 @@ import AppKit
 import CoreAudio
 import CoreGraphics
 import Foundation
+import IOKit.pwr_mgt
 
 struct RecordingInterruptionEvent: Equatable {
     enum Kind: Equatable { case started, ended }
@@ -9,6 +10,55 @@ struct RecordingInterruptionEvent: Equatable {
     let kind: Kind
     let reason: RecordingInterruptionReason
     let at: Date
+    /// Set only by the IOKit sleep path. The kernel is holding the sleep for
+    /// this process while it finalizes; running this releases the hold, so the
+    /// consumer must run it exactly when it is done — and on every path out,
+    /// including "nothing was recording". Everything else leaves it `nil`.
+    let completion: (@MainActor () -> Void)?
+
+    init(
+        kind: Kind,
+        reason: RecordingInterruptionReason,
+        at: Date,
+        completion: (@MainActor () -> Void)? = nil
+    ) {
+        self.kind = kind
+        self.reason = reason
+        self.at = at
+        self.completion = completion
+    }
+
+    /// `completion` is deliberately excluded: a closure has no identity worth
+    /// comparing, and equality here is only ever about what happened and when.
+    static func == (lhs: RecordingInterruptionEvent, rhs: RecordingInterruptionEvent) -> Bool {
+        lhs.kind == rhs.kind && lhs.reason == rhs.reason && lhs.at == rhs.at
+    }
+}
+
+/// A root-power-domain message, normalized so the monitor never touches IOKit
+/// types directly (and tests never have to).
+enum SystemSleepGateMessage: Equatable {
+    /// The system is *asking* whether it may idle-sleep. Answering is mandatory;
+    /// vetoing is not this layer's job (the recording holds a power assertion).
+    case canSystemSleep(notificationID: Int)
+    /// The system is going to sleep and waits (~30 s) for
+    /// `allowPowerChange(notificationID:)` before suspending the process.
+    case willSleep(notificationID: Int)
+    case hasPoweredOn(notificationID: Int)
+}
+
+/// The IOKit power-change deferral behind a seam, so a unit test never calls
+/// `IORegisterForSystemPower`. Implementations are main-queue confined: `start`
+/// schedules its notification port on the main queue, so every callback — and
+/// therefore every `allowPowerChange` — happens there too.
+protocol SystemSleepGating: AnyObject {
+    /// Registers for root-power-domain messages. `false` means the registration
+    /// failed and there is no deferral to hand out, so the caller must fall back
+    /// to `NSWorkspace`'s (undeferrable) sleep notifications.
+    func start(onMessage: @escaping @MainActor (SystemSleepGateMessage) -> Void) -> Bool
+    /// Tells the kernel this process is done with the pending power change.
+    func allowPowerChange(notificationID: Int)
+    func stop()
 }
 
 @MainActor
@@ -20,6 +70,11 @@ final class RecordingInterruptionMonitor {
     private let deviceListProvider: () -> [String]
     private let displayListProvider: () -> [CGDirectDisplayID]
     private let now: () -> Date
+    /// `nonisolated(unsafe)`: only ever read on the main actor (or from
+    /// `deinit`, which is the last reference by definition), and the gate
+    /// itself is main-queue confined.
+    nonisolated(unsafe) private let sleepGate: SystemSleepGating?
+    private let sleepDeferralTimeout: TimeInterval
 
     private var activeReasons: Set<RecordingInterruptionReason> = []
     private var activeInputDeviceID: String?
@@ -28,24 +83,40 @@ final class RecordingInterruptionMonitor {
     private var coreAudioListenerInstalled = false
     private var coreAudioListenerBlock: AudioObjectPropertyListenerBlock?
     private var coreAudioListenerAddress: AudioObjectPropertyAddress?
+    /// True once `IORegisterForSystemPower` succeeded. While it is true the
+    /// IOKit path owns the `.systemSleep` start (see `installWorkspaceObservers`).
+    private var sleepGateActive = false
+    private var pendingSleepNotificationID: Int?
+    private var pendingSleepStartedAt: Date?
+    private var sleepDeferralSafetyTask: Task<Void, Never>?
 
     init(
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         screenNotificationCenter: NotificationCenter = .default,
         deviceListProvider: @escaping () -> [String] = RecordingInterruptionMonitor.defaultDeviceListProvider,
         displayListProvider: @escaping () -> [CGDirectDisplayID] = RecordingInterruptionMonitor.defaultOnlineDisplayList,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        sleepGate: SystemSleepGating? = nil,
+        sleepDeferralTimeout: TimeInterval = 20
     ) {
         self.workspaceNotificationCenter = workspaceNotificationCenter
         self.screenNotificationCenter = screenNotificationCenter
         self.deviceListProvider = deviceListProvider
         self.displayListProvider = displayListProvider
         self.now = now
+        self.sleepGate = sleepGate
+        self.sleepDeferralTimeout = sleepDeferralTimeout
         installWorkspaceObservers()
         installScreenParameterObserver()
+        installSleepGate()
     }
 
     deinit {
+        // Tear the IOKit registration down before this object goes away: the
+        // gate holds an unretained pointer back to itself in the notification
+        // port's refcon, so the port must stop delivering first.
+        sleepDeferralSafetyTask?.cancel()
+        sleepGate?.stop()
         for observer in observers {
             workspaceNotificationCenter.removeObserver(observer)
         }
@@ -118,6 +189,20 @@ final class RecordingInterruptionMonitor {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // `NSWorkspace.willSleep` cannot be deferred, so an event
+                    // emitted from here carries no completion. If it won the
+                    // race with `kIOMessageSystemWillSleep`, `emit`'s de-dupe
+                    // would swallow the IOKit event and its completion, leaving
+                    // the safety timer as the only thing letting the Mac sleep.
+                    // While the gate is live the IOKit path owns this reason;
+                    // the observer stays installed as the fallback for a failed
+                    // registration.
+                    if kind == .started, reason == .systemSleep, self.sleepGateActive {
+                        Log.recording.notice(
+                            "Ignoring NSWorkspace willSleep; the IOKit sleep gate owns this interruption"
+                        )
+                        return
+                    }
                     self.emit(kind, reason: reason)
                     // On any wake/unlock, re-evaluate display availability so a
                     // `.displayUnavailable` interruption gets its `.ended` even if
@@ -152,6 +237,121 @@ final class RecordingInterruptionMonitor {
         screenObservers.append(observer)
     }
 
+    // MARK: - IOKit sleep deferral
+
+    private func installSleepGate() {
+        guard let sleepGate else { return }
+        sleepGateActive = sleepGate.start { [weak self] message in
+            self?.handleSleepGateMessage(message)
+        }
+        if sleepGateActive {
+            Log.recording.notice("Registered for system power notifications; sleep will wait for the finalize")
+        } else {
+            Log.recording.error(
+                "IORegisterForSystemPower failed; sleep falls back to NSWorkspace willSleep with no deferral"
+            )
+        }
+    }
+
+    private func handleSleepGateMessage(_ message: SystemSleepGateMessage) {
+        switch message {
+        case .canSystemSleep(let notificationID):
+            // Idle sleep is prevented by the recording's power assertion, not
+            // vetoed here — and an unanswered "can I sleep?" stalls the whole
+            // system for 30 s, so answer immediately.
+            Log.recording.notice("IOKit kIOMessageCanSystemSleep(\(notificationID, privacy: .public)): allowing")
+            sleepGate?.allowPowerChange(notificationID: notificationID)
+        case .willSleep(let notificationID):
+            beginSleepDeferral(notificationID: notificationID)
+        case .hasPoweredOn(let notificationID):
+            Log.recording.notice("IOKit kIOMessageSystemHasPoweredOn(\(notificationID, privacy: .public))")
+            // The Mac has already slept and woken. A deferral still pending
+            // here means the kernel slept on its own timeout instead of on
+            // our allow, so answering that notification ID now is
+            // meaningless -- drop it rather than let the safety timer fire
+            // after the fact.
+            discardPendingSleepDeferral()
+            emit(.ended, reason: .systemSleep)
+        }
+    }
+
+    /// Holds the sleep and hands the release out with the event. The consumer
+    /// (the interruption coordinator) runs it once the segment is finalized.
+    private func beginSleepDeferral(notificationID: Int) {
+        // A second will-sleep without an intervening wake shouldn't happen, but
+        // if it does, release the older ID first: nobody will answer it, and the
+        // kernel would sit out its full timeout waiting.
+        if let stale = pendingSleepNotificationID, stale != notificationID {
+            releaseSleepDeferral(notificationID: stale, trigger: "superseded")
+        }
+        pendingSleepNotificationID = notificationID
+        pendingSleepStartedAt = now()
+        Log.recording.notice(
+            """
+            IOKit kIOMessageSystemWillSleep(\(notificationID, privacy: .public)): deferring sleep until the \
+            active segment is finalized
+            """
+        )
+        startSleepDeferralSafetyTimer(notificationID: notificationID)
+
+        let emitted = emit(.started, reason: .systemSleep, completion: { [weak self] in
+            self?.releaseSleepDeferral(notificationID: notificationID, trigger: "finalize")
+        })
+        if !emitted {
+            Log.recording.error(
+                """
+                A systemSleep interruption was already active when kIOMessageSystemWillSleep arrived; \
+                the \(self.sleepDeferralTimeout, privacy: .public)s safety timer now owns the deferral
+                """
+            )
+        }
+    }
+
+    private func discardPendingSleepDeferral() {
+        guard let notificationID = pendingSleepNotificationID else { return }
+        pendingSleepNotificationID = nil
+        pendingSleepStartedAt = nil
+        sleepDeferralSafetyTask?.cancel()
+        sleepDeferralSafetyTask = nil
+        Log.recording.error(
+            "Woke with sleep deferral \(notificationID, privacy: .public) still pending: the kernel slept without waiting for IOAllowPowerChange, so the finalize may have been cut short"
+        )
+    }
+
+    private func startSleepDeferralSafetyTimer(notificationID: Int) {
+        sleepDeferralSafetyTask?.cancel()
+        let timeout = sleepDeferralTimeout
+        sleepDeferralSafetyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(timeout))
+            guard !Task.isCancelled, let self else { return }
+            Log.recording.error(
+                """
+                Sleep deferral safety timer fired after \(timeout, privacy: .public)s: allowing the power \
+                change with the finalize still in flight
+                """
+            )
+            self.releaseSleepDeferral(notificationID: notificationID, trigger: "safetyTimer")
+        }
+    }
+
+    /// Releases the pending deferral exactly once: the completion and the safety
+    /// timer both land here, and whichever is second finds the ID already gone.
+    private func releaseSleepDeferral(notificationID: Int, trigger: String) {
+        guard pendingSleepNotificationID == notificationID else { return }
+        pendingSleepNotificationID = nil
+        sleepDeferralSafetyTask?.cancel()
+        sleepDeferralSafetyTask = nil
+        let heldFor = pendingSleepStartedAt.map { now().timeIntervalSince($0) } ?? 0
+        pendingSleepStartedAt = nil
+        Log.recording.notice(
+            """
+            IOAllowPowerChange(\(notificationID, privacy: .public)) via \(trigger, privacy: .public) after \
+            holding sleep for \(heldFor, privacy: .public)s
+            """
+        )
+        sleepGate?.allowPowerChange(notificationID: notificationID)
+    }
+
     private func installCoreAudioListener() {
         coreAudioListenerInstalled = true
         var address = AudioObjectPropertyAddress(
@@ -174,16 +374,27 @@ final class RecordingInterruptionMonitor {
         )
     }
 
-    private func emit(_ kind: RecordingInterruptionEvent.Kind, reason: RecordingInterruptionReason) {
+    /// Returns whether the event was actually emitted; `false` means it was
+    /// de-duplicated away, and any `completion` handed in was NOT delivered to
+    /// the consumer.
+    @discardableResult
+    private func emit(
+        _ kind: RecordingInterruptionEvent.Kind,
+        reason: RecordingInterruptionReason,
+        completion: (@MainActor () -> Void)? = nil
+    ) -> Bool {
         switch kind {
         case .started:
-            guard !activeReasons.contains(reason) else { return }
+            guard !activeReasons.contains(reason) else { return false }
             activeReasons.insert(reason)
         case .ended:
-            guard activeReasons.contains(reason) else { return }
+            guard activeReasons.contains(reason) else { return false }
             activeReasons.remove(reason)
         }
-        onEvent?(RecordingInterruptionEvent(kind: kind, reason: reason, at: now()))
+        onEvent?(
+            RecordingInterruptionEvent(kind: kind, reason: reason, at: now(), completion: completion)
+        )
+        return true
     }
 
     static func defaultDeviceListProvider() -> [String] {
@@ -202,5 +413,123 @@ final class RecordingInterruptionMonitor {
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
         guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return [] }
         return Array(ids.prefix(Int(count)))
+    }
+}
+
+/// The real power-change deferral. `NSWorkspace.willSleepNotification` gives the
+/// app no way to delay sleep, so a mixdown of a long segment races the kernel
+/// suspending the process. `IORegisterForSystemPower` does: after
+/// `kIOMessageSystemWillSleep` macOS waits (~30 s) for `IOAllowPowerChange`.
+///
+/// Confined to the main queue: the notification port is scheduled on
+/// `DispatchQueue.main`, so the C callback, `allowPowerChange` and `stop` all run
+/// there and the mutable state below needs no lock.
+final class IOKitSystemSleepGate: SystemSleepGating {
+    // `kIOMessage*` are C macros (`iokit_common_msg(0x…)`), so Swift can't see
+    // them; these are the values IOKit/IOMessage.h expands to.
+    private static let canSystemSleep: UInt32 = 0xE000_0270
+    private static let systemWillSleep: UInt32 = 0xE000_0280
+    private static let systemHasPoweredOn: UInt32 = 0xE000_0300
+
+    private var rootPort: io_connect_t = 0
+    private var notifierObject: io_object_t = 0
+    private var notificationPort: IONotificationPortRef?
+    private var onMessage: (@MainActor (SystemSleepGateMessage) -> Void)?
+
+    func start(onMessage: @escaping @MainActor (SystemSleepGateMessage) -> Void) -> Bool {
+        guard rootPort == 0 else { return true }
+        self.onMessage = onMessage
+
+        var notificationPort: IONotificationPortRef?
+        var notifier: io_object_t = 0
+        // Unretained: this object owns the registration and tears it down in
+        // `stop()` (called from its own `deinit` and from the monitor's), so the
+        // port never outlives it. Retaining here would instead make the
+        // registration keep the gate alive forever.
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let port = IORegisterForSystemPower(refcon, &notificationPort, systemSleepGateCallback, &notifier)
+
+        guard port != 0, let notificationPort else {
+            self.onMessage = nil
+            return false
+        }
+        IONotificationPortSetDispatchQueue(notificationPort, .main)
+        self.rootPort = port
+        self.notificationPort = notificationPort
+        self.notifierObject = notifier
+        return true
+    }
+
+    func allowPowerChange(notificationID: Int) {
+        guard rootPort != 0 else { return }
+        let result = IOAllowPowerChange(rootPort, notificationID)
+        if result != kIOReturnSuccess {
+            // Usually means the kernel already gave up waiting for us and slept
+            // (or woke) on its own timeout.
+            Log.recording.error(
+                "IOAllowPowerChange(\(notificationID, privacy: .public)) failed: \(result, privacy: .public)"
+            )
+        }
+    }
+
+    func stop() {
+        onMessage = nil
+        if notifierObject != 0 {
+            IODeregisterForSystemPower(&notifierObject)
+            notifierObject = 0
+        }
+        if rootPort != 0 {
+            IOServiceClose(rootPort)
+            rootPort = 0
+        }
+        if let notificationPort {
+            IONotificationPortDestroy(notificationPort)
+            self.notificationPort = nil
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    /// Called from the C callback, which the notification port delivers on the
+    /// main queue.
+    @MainActor
+    fileprivate func deliver(messageType: UInt32, notificationID: Int) {
+        let message: SystemSleepGateMessage
+        switch messageType {
+        case Self.canSystemSleep:
+            message = .canSystemSleep(notificationID: notificationID)
+        case Self.systemWillSleep:
+            message = .willSleep(notificationID: notificationID)
+        case Self.systemHasPoweredOn:
+            message = .hasPoweredOn(notificationID: notificationID)
+        default:
+            return
+        }
+        onMessage?(message)
+    }
+}
+
+/// Top-level so it converts to a C function pointer (no captures). The gate is
+/// reached through the refcon it registered with.
+private func systemSleepGateCallback(
+    refcon: UnsafeMutableRawPointer?,
+    service: io_service_t,
+    messageType: UInt32,
+    messageArgument: UnsafeMutableRawPointer?
+) {
+    guard refcon != nil else { return }
+    // Raw pointers aren't `Sendable`, so cross into the main actor carrying only
+    // integers and rebuild the pointer there. The port is scheduled on the main
+    // queue, so this really is the main thread. `messageArgument` is the opaque
+    // notification ID to hand back to IOAllowPowerChange, passed as a
+    // pointer-sized integer rather than as a pointer to anything.
+    let gateAddress = Int(bitPattern: refcon)
+    let notificationID = Int(bitPattern: messageArgument)
+    MainActor.assumeIsolated {
+        guard let opaque = UnsafeMutableRawPointer(bitPattern: gateAddress) else { return }
+        let gate = Unmanaged<IOKitSystemSleepGate>.fromOpaque(opaque).takeUnretainedValue()
+        gate.deliver(messageType: messageType, notificationID: notificationID)
     }
 }

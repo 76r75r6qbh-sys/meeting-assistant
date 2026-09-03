@@ -7,7 +7,9 @@ struct ContentView: View {
     @Environment(AppModel.self) private var appModel
     private var recordingService: AudioRecordingService { appModel.recordingService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
-    @State private var interruptionMonitor = RecordingInterruptionMonitor()
+    // The real IOKit gate is passed explicitly: its default is `nil` so a unit
+    // test never registers for system power notifications by accident.
+    @State private var interruptionMonitor = RecordingInterruptionMonitor(sleepGate: IOKitSystemSleepGate())
     @State private var interruptionNotifier = RecordingNotificationCenter()
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
     @State private var sidebarMeetings: SidebarMeetingsProvider?

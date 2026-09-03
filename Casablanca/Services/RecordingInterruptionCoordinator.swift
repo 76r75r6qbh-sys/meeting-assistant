@@ -112,6 +112,11 @@ final class RecordingInterruptionCoordinator {
 
         guard isFirst else {
             appendRecentEvent(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
+            // A start that coalesces into an interrupt already in flight does no
+            // finalize of its own, but it may still be carrying a power-change
+            // deferral. Release it now; otherwise the only thing letting the Mac
+            // sleep is the monitor's safety timer.
+            event.completion?()
             return
         }
 
@@ -125,6 +130,11 @@ final class RecordingInterruptionCoordinator {
         let capturedMeeting = meeting
         let generation = interruptGeneration
         Task { @MainActor [weak self, service, notifier] in
+            // The kernel is holding the sleep until this runs (IOKit sleep path
+            // only; `nil` otherwise). `defer` so every path out releases it —
+            // nothing recording, a stale outcome, a dropped `self` — and so the
+            // status flip and its save still land inside the deferral window.
+            defer { event.completion?() }
             let outcome = await service?.handleSystemInterrupt(reason: reason) ?? .nothingRecording
             guard let self else { return }
             self.log(outcome: outcome, reason: reason, meetingID: capturedMeeting?.id)

@@ -311,6 +311,61 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
                        "Newly-appended interruption must not inherit resumed=true from the prior one")
     }
 
+    // MARK: - Sleep deferral completion
+
+    /// The kernel holds the sleep only until the completion runs, so it must run
+    /// *after* the finalize — otherwise the mixdown races the suspend again.
+    func testHandleStartRunsEventCompletionAfterInterruptFinalize() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        var order: [String] = []
+        env.service.onInterruptEntered = { order.append("finalize") }
+        env.service.holdsInterrupt = true
+
+        env.fireStart(.systemSleep, atOffset: 0) { order.append("allowPowerChange") }
+        await env.flush()
+        XCTAssertEqual(order, ["finalize"], "The power change must not be allowed while the finalize is in flight")
+
+        env.service.releaseInterrupt()
+        await env.flush()
+
+        XCTAssertEqual(order, ["finalize", "allowPowerChange"])
+    }
+
+    /// Nothing was recording, so there is no finalize and no pause — but the
+    /// Mac must still be allowed to sleep straight away.
+    func testCompletionRunsEvenWhenNothingWasRecording() async {
+        let env = makeEnv(meetingStatus: .notesOnly)
+        env.service.interruptOutcome = .nothingRecording
+        env.coordinator.bind(meeting: env.meeting)
+
+        var completions = 0
+        env.fireStart(.systemSleep, atOffset: 0) { completions += 1 }
+        await env.flush()
+
+        XCTAssertEqual(completions, 1)
+        XCTAssertEqual(env.meeting.status, .notesOnly)
+    }
+
+    /// A `.systemSleep` start that lands on top of an already-active reason
+    /// takes the early-return path. Without running the completion there, only
+    /// the 20 s safety timer would let the Mac sleep.
+    func testCompletionRunsForAStartThatIsNotTheFirstActiveReason() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+
+        var completions = 0
+        env.fireStart(.systemSleep, atOffset: 1) { completions += 1 }
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock)])
+        XCTAssertEqual(completions, 1, "A coalesced start must still release the power-change deferral")
+    }
+
     private func makeEnv(meetingStatus: MeetingStatus = .recording) -> CoordinatorEnv {
         CoordinatorEnv(meetingStatus: meetingStatus)
     }
@@ -342,9 +397,20 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
         func advance(by seconds: TimeInterval) { clock += seconds }
 
-        func fireStart(_ reason: RecordingInterruptionReason, atOffset offset: TimeInterval) {
+        func fireStart(
+            _ reason: RecordingInterruptionReason,
+            atOffset offset: TimeInterval,
+            completion: (@MainActor () -> Void)? = nil
+        ) {
             clock = offset
-            monitor.fire(.init(kind: .started, reason: reason, at: Date(timeIntervalSince1970: offset)))
+            monitor.fire(
+                .init(
+                    kind: .started,
+                    reason: reason,
+                    at: Date(timeIntervalSince1970: offset),
+                    completion: completion
+                )
+            )
         }
 
         func fireEnd(_ reason: RecordingInterruptionReason, atOffset offset: TimeInterval) {
@@ -377,8 +443,13 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         var holdsInterrupt = false
         private var interruptGate: CheckedContinuation<Void, Never>?
 
+        /// Fires as soon as the interrupt is entered, so a test can assert the
+        /// ordering of the finalize against the sleep-deferral completion.
+        var onInterruptEntered: (() -> Void)?
+
         func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome {
             calls.append(.handleSystemInterrupt(reason))
+            onInterruptEntered?()
             if holdsInterrupt {
                 await withCheckedContinuation { interruptGate = $0 }
             }
