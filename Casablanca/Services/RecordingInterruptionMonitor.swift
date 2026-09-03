@@ -75,6 +75,7 @@ final class RecordingInterruptionMonitor {
     /// itself is main-queue confined.
     nonisolated(unsafe) private let sleepGate: SystemSleepGating?
     private let sleepDeferralTimeout: TimeInterval
+    private let willSleepFallbackGrace: TimeInterval
 
     private var activeReasons: Set<RecordingInterruptionReason> = []
     private var activeInputDeviceID: String?
@@ -89,6 +90,11 @@ final class RecordingInterruptionMonitor {
     private var pendingSleepNotificationID: Int?
     private var pendingSleepStartedAt: Date?
     private var sleepDeferralSafetyTask: Task<Void, Never>?
+    /// Set by `start()`, so a repeated call never registers twice.
+    private var didStart = false
+    /// Armed by the NSWorkspace `willSleep` fallback while it waits for the
+    /// IOKit will-sleep that is supposed to follow.
+    private var willSleepFallbackTask: Task<Void, Never>?
 
     init(
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
@@ -97,7 +103,8 @@ final class RecordingInterruptionMonitor {
         displayListProvider: @escaping () -> [CGDirectDisplayID] = RecordingInterruptionMonitor.defaultOnlineDisplayList,
         now: @escaping () -> Date = Date.init,
         sleepGate: SystemSleepGating? = nil,
-        sleepDeferralTimeout: TimeInterval = 20
+        sleepDeferralTimeout: TimeInterval = 20,
+        willSleepFallbackGrace: TimeInterval = 0.5
     ) {
         self.workspaceNotificationCenter = workspaceNotificationCenter
         self.screenNotificationCenter = screenNotificationCenter
@@ -106,8 +113,21 @@ final class RecordingInterruptionMonitor {
         self.now = now
         self.sleepGate = sleepGate
         self.sleepDeferralTimeout = sleepDeferralTimeout
+        self.willSleepFallbackGrace = willSleepFallbackGrace
         installWorkspaceObservers()
         installScreenParameterObserver()
+    }
+
+    /// Registers for system power notifications. Separate from `init` and
+    /// idempotent: `ContentView` is a struct whose body is re-evaluated whenever
+    /// the app model changes, so its `@State` initializer expression runs on
+    /// every view value SwiftUI builds while only the first object is kept.
+    /// Registering in `init` therefore did an `IORegisterForSystemPower` (plus a
+    /// notification port) per rebuild, all but one of them immediately thrown
+    /// away. Call this once from `.task`/`onAppear` on the retained instance.
+    func start() {
+        guard !didStart else { return }
+        didStart = true
         installSleepGate()
     }
 
@@ -116,6 +136,7 @@ final class RecordingInterruptionMonitor {
         // gate holds an unretained pointer back to itself in the notification
         // port's refcon, so the port must stop delivering first.
         sleepDeferralSafetyTask?.cancel()
+        willSleepFallbackTask?.cancel()
         sleepGate?.stop()
         for observer in observers {
             workspaceNotificationCenter.removeObserver(observer)
@@ -194,14 +215,21 @@ final class RecordingInterruptionMonitor {
                     // race with `kIOMessageSystemWillSleep`, `emit`'s de-dupe
                     // would swallow the IOKit event and its completion, leaving
                     // the safety timer as the only thing letting the Mac sleep.
-                    // While the gate is live the IOKit path owns this reason;
-                    // the observer stays installed as the fallback for a failed
-                    // registration.
+                    // So while the gate is live the IOKit path owns this reason
+                    // -- but only briefly: this arms a short grace timer that
+                    // pauses the recording anyway if the IOKit message never
+                    // shows up, so a silent regression can't leave a sleep
+                    // completely unhandled.
                     if kind == .started, reason == .systemSleep, self.sleepGateActive {
-                        Log.recording.notice(
-                            "Ignoring NSWorkspace willSleep; the IOKit sleep gate owns this interruption"
-                        )
+                        self.armWillSleepFallback()
                         return
+                    }
+                    // A wake settles the question: whatever the IOKit path was
+                    // going to say about this sleep is moot, and a grace timer
+                    // resuming after the suspend would raise a spurious pause
+                    // that nothing would ever end.
+                    if kind == .ended, reason == .systemSleep {
+                        self.cancelWillSleepFallback()
                     }
                     self.emit(kind, reason: reason)
                     // On any wake/unlock, re-evaluate display availability so a
@@ -253,6 +281,31 @@ final class RecordingInterruptionMonitor {
         }
     }
 
+    /// Waits `willSleepFallbackGrace` for `kIOMessageSystemWillSleep`; if it
+    /// never arrives, pauses the recording the old (undeferrable) way rather
+    /// than letting the sleep pass unhandled.
+    private func armWillSleepFallback() {
+        willSleepFallbackTask?.cancel()
+        let grace = willSleepFallbackGrace
+        Log.recording.notice(
+            "NSWorkspace willSleep: waiting \(grace, privacy: .public)s for the IOKit will-sleep that carries the deferral"
+        )
+        willSleepFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(grace))
+            guard !Task.isCancelled, let self else { return }
+            self.willSleepFallbackTask = nil
+            Log.recording.error(
+                "IOKit will-sleep did not arrive within \(grace, privacy: .public)s; pausing via the NSWorkspace fallback, with no deferral for the finalize"
+            )
+            self.emit(.started, reason: .systemSleep)
+        }
+    }
+
+    private func cancelWillSleepFallback() {
+        willSleepFallbackTask?.cancel()
+        willSleepFallbackTask = nil
+    }
+
     private func handleSleepGateMessage(_ message: SystemSleepGateMessage) {
         switch message {
         case .canSystemSleep(let notificationID):
@@ -271,6 +324,7 @@ final class RecordingInterruptionMonitor {
             // meaningless -- drop it rather than let the safety timer fire
             // after the fact.
             discardPendingSleepDeferral()
+            cancelWillSleepFallback()
             emit(.ended, reason: .systemSleep)
         }
     }
@@ -278,6 +332,8 @@ final class RecordingInterruptionMonitor {
     /// Holds the sleep and hands the release out with the event. The consumer
     /// (the interruption coordinator) runs it once the segment is finalized.
     private func beginSleepDeferral(notificationID: Int) {
+        // The IOKit message arrived, so the NSWorkspace fallback is not needed.
+        cancelWillSleepFallback()
         // A second will-sleep without an intervening wake shouldn't happen, but
         // if it does, release the older ID first: nobody will answer it, and the
         // kernel would sit out its full timeout waiting.

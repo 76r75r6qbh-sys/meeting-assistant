@@ -200,6 +200,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -229,6 +230,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             sleepGate: gate,
             sleepDeferralTimeout: 0.05
         )
+        monitor.start()
         monitor.onEvent = { _ in } // the completion is deliberately never run
 
         gate.send(.willSleep(notificationID: 7))
@@ -245,6 +247,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -263,6 +266,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -287,6 +291,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -311,6 +316,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -334,6 +340,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             sleepGate: gate,
             sleepDeferralTimeout: 0.05
         )
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -351,14 +358,125 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         XCTAssertEqual(gate.allowed, [], "A late finalize completion has nothing left to release")
     }
 
+    /// `ContentView`'s `@State` initializer expression runs on every view value
+    /// SwiftUI builds, so registering in `init` meant one
+    /// `IORegisterForSystemPower` per rebuild. Registration lives in `start()`
+    /// now, and calling it twice must not register twice.
+    func testStartRegistersOnceEvenWhenCalledRepeatedly() async {
+        let gate = FakeSleepGate()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) },
+            sleepGate: gate
+        )
+
+        XCTAssertEqual(gate.registerCount, 0, "init must not register; ContentView rebuilds it constantly")
+
+        monitor.start()
+        monitor.start()
+        monitor.start()
+
+        XCTAssertEqual(gate.registerCount, 1)
+    }
+
+    /// The suppression above must not become a silent hole: if the IOKit
+    /// will-sleep never arrives, the recording still has to be paused.
+    func testWorkspaceWillSleepFallbackPausesWhenNoIOKitMessageArrives() async {
+        let workspace = NotificationCenter()
+        let gate = FakeSleepGate()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) },
+            sleepGate: gate,
+            willSleepFallbackGrace: 0.05
+        )
+        monitor.start()
+
+        var events: [RecordingInterruptionEvent] = []
+        let paused = expectation(description: "fallback pauses the recording")
+        monitor.onEvent = {
+            events.append($0)
+            paused.fulfill()
+        }
+
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        XCTAssertTrue(events.isEmpty, "The IOKit message gets the grace period first")
+
+        await fulfillment(of: [paused], timeout: 5)
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.kind, .started)
+        XCTAssertEqual(events.first?.reason, .systemSleep)
+        XCTAssertNil(events.first?.completion, "NSWorkspace's sleep cannot be deferred, so there is nothing to release")
+    }
+
+    /// The normal case: both sources fire, and the IOKit one -- the only one
+    /// carrying a deferral -- is the single event the coordinator sees.
+    func testIOKitWillSleepInsideGracePeriodWinsAndEmitsOnce() async {
+        let workspace = NotificationCenter()
+        let gate = FakeSleepGate()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) },
+            sleepGate: gate,
+            willSleepFallbackGrace: 0.05
+        )
+        monitor.start()
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        gate.send(.willSleep(notificationID: 21))
+
+        // Well past the grace period: the fallback must have been cancelled.
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertNotNil(events.first?.completion, "The event the coordinator gets must carry the deferral")
+    }
+
+    /// If the Mac sleeps before the grace period elapses, the timer resumes on
+    /// wake -- where a `.started` would strand the meeting paused with nothing
+    /// left to end it.
+    func testWakeCancelsAPendingWillSleepFallback() async {
+        let workspace = NotificationCenter()
+        let gate = FakeSleepGate()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            deviceListProvider: { [] },
+            displayListProvider: { [1] },
+            now: { Date(timeIntervalSince1970: 1_000) },
+            sleepGate: gate,
+            willSleepFallbackGrace: 0.05
+        )
+        monitor.start()
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
+
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertTrue(events.isEmpty, "A wake settles the sleep; the fallback must not fire afterwards")
+    }
+
     /// The real gate is only ever built in production; every test drives this.
     private final class FakeSleepGate: SystemSleepGating {
         var allowed: [Int] = []
         var startSucceeds = true
         var onAllow: ((Int) -> Void)?
+        /// How many times the monitor asked to register.
+        var registerCount = 0
         private var handler: (@MainActor (SystemSleepGateMessage) -> Void)?
 
         func start(onMessage: @escaping @MainActor (SystemSleepGateMessage) -> Void) -> Bool {
+            registerCount += 1
             guard startSucceeds else { return false }
             handler = onMessage
             return true
