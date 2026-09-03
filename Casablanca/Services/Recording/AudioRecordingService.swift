@@ -62,13 +62,33 @@ final class AudioRecordingService {
 
         do {
             refreshInputDevices()
-            _ = try sessionStore.loadSession(for: meeting.id) ?? sessionStore.createSession(
-                for: meeting.id,
-                systemAudioEnabled: isSystemAudioEnabled,
-                selectedInputDeviceID: selectedInputDeviceID
-            )
+            let persisted = try sessionStore.loadSession(for: meeting.id)
 
-            let segmentURL = try sessionStore.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+            // Starting on top of a session that already captured segments is a
+            // resume, not a fresh start. Treating it as a start recorded into
+            // `segment-001.wav` again and overwrote finished audio — that is how
+            // a 75-minute recording was lost.
+            if let persisted, !persisted.segments.isEmpty {
+                Log.recording.notice(
+                    """
+                    startRecording for meeting \(meeting.id.uuidString, privacy: .public) found \
+                    \(persisted.segments.count, privacy: .public) existing segment(s); resuming instead of restarting
+                    """
+                )
+                return try await resumeRecording(for: meeting)
+            }
+
+            if persisted == nil {
+                _ = try sessionStore.createSession(
+                    for: meeting.id,
+                    systemAudioEnabled: isSystemAudioEnabled,
+                    selectedInputDeviceID: selectedInputDeviceID
+                )
+            }
+
+            // Reserve, then build/start immediately: constructing the session
+            // creates the raw `.pcm` files that make the number taken.
+            let segmentURL = try sessionStore.reserveNextSegmentURL(for: meeting.id)
             try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
             let session = try buildSession(
@@ -87,6 +107,9 @@ final class AudioRecordingService {
             startTimer(from: session.startedAt)
             interruptionMonitor?.setActiveInputDevice(selectedInputDeviceID)
             surfaceSystemAudioFallbackIfNeeded(session)
+            Log.recording.notice(
+                "Recording started for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
+            )
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -105,6 +128,12 @@ final class AudioRecordingService {
         let meetingID = activeMeetingID
         let result = try await finalizeActiveSegment(session: session, meetingID: meetingID, dropIfEmpty: false)
         clearActiveSessionState()
+        Log.recording.notice(
+            """
+            Recording paused for meeting \(meetingID.uuidString, privacy: .public) at \
+            \(result.outputURL.path, privacy: .public) after \(result.duration, privacy: .public)s
+            """
+        )
         // Show the cumulative recorded time (all segments), so the paused display
         // matches where the timer resumes from.
         elapsedTime = accumulatedSegmentDuration(for: meetingID)
@@ -123,10 +152,11 @@ final class AudioRecordingService {
         errorMessage = nil
 
         do {
-            let segmentURL = try sessionStore.nextSegmentURL(
-                for: meeting.id,
-                segmentNumber: persisted.nextSegmentNumber
-            )
+            // The manifest counter alone is not enough: it can point at a
+            // number whose WAV or raw PCM is still on disk (a crash mid-segment,
+            // a manifest write that never landed). Reserving probes the
+            // directory so a resume can never record over existing audio.
+            let segmentURL = try sessionStore.reserveNextSegmentURL(for: meeting.id)
             try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
             let session = try buildSession(
@@ -147,6 +177,9 @@ final class AudioRecordingService {
             startTimer(from: session.startedAt, baseElapsed: persisted.segments.reduce(0) { $0 + $1.duration })
             interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
             surfaceSystemAudioFallbackIfNeeded(session)
+            Log.recording.notice(
+                "Recording resumed for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
+            )
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -169,8 +202,15 @@ final class AudioRecordingService {
 
         let segmentURLs = persisted.segments.map { URL(fileURLWithPath: $0.filePath) }
         guard !segmentURLs.isEmpty else {
-            bestEffort("delete recording session", Log.recording) {
-                try sessionStore.deleteSession(for: meeting.id)
+            // An empty manifest is NOT proof that nothing was captured: raw
+            // `.pcm` from an interrupted segment is audio the manifest never
+            // heard about. Deleting unconditionally here destroyed a whole
+            // recording, so the store decides and keeps anything recoverable.
+            Log.recording.error(
+                "Stop for meeting \(meeting.id.uuidString, privacy: .public) found no manifest segments; keeping any recoverable audio"
+            )
+            bestEffort("delete empty recording session", Log.recording) {
+                try sessionStore.deleteSessionIfEmpty(for: meeting.id)
             }
             throw RecordingError.noCapturedAudio
         }
@@ -182,26 +222,59 @@ final class AudioRecordingService {
         outputURL = finalURL
         elapsedTime = duration
         interruptionMonitor?.setActiveInputDevice(nil)
+        Log.recording.notice(
+            """
+            Recording stopped for meeting \(meeting.id.uuidString, privacy: .public): merged \
+            \(segmentURLs.count, privacy: .public) segment(s) into \(finalURL.path, privacy: .public) (\(duration, privacy: .public)s)
+            """
+        )
         return RecordingResult(outputURL: finalURL, duration: duration)
     }
 
     func handleSystemInterrupt(reason: RecordingInterruptionReason) async {
         guard let session, let activeMeetingID else { return }
 
+        // Release the service however the finalize goes. Clearing only on the
+        // happy path left `self.session` set after a failed stop, so every
+        // later start/resume hit `.activeRecordingExists` while the captured
+        // audio sat unreachable on disk.
+        defer { clearActiveSessionState() }
+
+        let reasonDescription = String(describing: reason)
         do {
-            _ = try await finalizeActiveSegment(session: session, meetingID: activeMeetingID, dropIfEmpty: true)
+            let result = try await finalizeActiveSegment(session: session, meetingID: activeMeetingID, dropIfEmpty: true)
+            Log.recording.notice(
+                """
+                Recording interrupted (\(reasonDescription, privacy: .public)) for meeting \
+                \(activeMeetingID.uuidString, privacy: .public); finalized \(result.outputURL.path, privacy: .public) \
+                after \(result.duration, privacy: .public)s
+                """
+            )
         } catch {
             errorMessage = error.localizedDescription
+            Log.recording.error(
+                """
+                Recording interrupted (\(reasonDescription, privacy: .public)) for meeting \
+                \(activeMeetingID.uuidString, privacy: .public); finalize failed: \
+                \(error.localizedDescription, privacy: .public) — captured audio left on disk for recovery
+                """
+            )
         }
-        clearActiveSessionState()
     }
 
     func clearError() { errorMessage = nil }
 
     func setErrorMessage(_ message: String) { errorMessage = message }
 
+    /// A meeting is resumable when its manifest survived *or* audio is still
+    /// on disk for it. The manifest alone is too strict: a write that never
+    /// landed (crash, full disk) would make recoverable audio look gone and let
+    /// the UI demote the meeting to notes-only.
     func hasResumableSession(for meetingID: UUID) -> Bool {
-        (try? sessionStore.loadSession(for: meetingID)) != nil
+        if (try? sessionStore.loadSession(for: meetingID)) != nil {
+            return true
+        }
+        return sessionStore.hasRecoverableAudio(for: meetingID)
     }
 
     func forwardStreamFailure(_ error: Error) {
@@ -325,17 +398,64 @@ final class AudioRecordingService {
         )
     }
 
+    /// Finalizes the live segment and records it in the manifest.
+    ///
+    /// Deletes nothing, ever. The only component allowed to remove capture
+    /// files is `RecordingSession.stop()`, which does so only after proving
+    /// both tracks empty (0 frames *and* 0 bytes). This method used to remove
+    /// `result.outputURL` whenever `hasCapturedFrames` read false — a counter a
+    /// previous finalize had already released — which deleted a 75-minute
+    /// recording that was fully on disk.
     private func finalizeActiveSegment(
         session: RecordingSessionControlling,
         meetingID: UUID,
         dropIfEmpty: Bool
     ) async throws -> RecordingResult {
-        let result = try await session.stop()
+        let result: RecordingResult
+        do {
+            result = try await session.stop()
+        } catch RecordingError.noCapturedAudio {
+            // The session proved the segment empty and removed its own files.
+            // Nothing to append, nothing left to clean up — and not an error
+            // worth surfacing: a silent segment is not a failed recording.
+            Log.recording.notice(
+                """
+                Segment \(session.outputURL.path, privacy: .public) for meeting \
+                \(meetingID.uuidString, privacy: .public) captured no audio; nothing to append
+                """
+            )
+            return RecordingResult(outputURL: session.outputURL, duration: 0)
+        } catch RecordingError.sessionAlreadyStopped {
+            // Another finalize already owns this segment and either appended it
+            // or is about to. Appending again would duplicate it in the merge;
+            // deleting anything here would destroy audio the winner just wrote.
+            Log.recording.notice(
+                """
+                Segment \(session.outputURL.path, privacy: .public) for meeting \
+                \(meetingID.uuidString, privacy: .public) was already finalized; leaving it to the first stop()
+                """
+            )
+            return RecordingResult(outputURL: session.outputURL, duration: 0)
+        } catch {
+            Log.recording.error(
+                """
+                Finalizing segment \(session.outputURL.path, privacy: .public) for meeting \
+                \(meetingID.uuidString, privacy: .public) failed: \(error.localizedDescription, privacy: .public) \
+                — every file is left on disk for recovery
+                """
+            )
+            throw error
+        }
 
         if dropIfEmpty && !session.hasCapturedFrames {
-            bestEffort("remove empty segment file", Log.recording) {
-                try FileManager.default.removeItem(at: result.outputURL)
-            }
+            // Not appended (a frameless segment merges as silence at best), but
+            // the file stays: only the session may call a segment empty.
+            Log.recording.notice(
+                """
+                Segment \(result.outputURL.path, privacy: .public) for meeting \
+                \(meetingID.uuidString, privacy: .public) reported no frames; keeping the file, not appending it
+                """
+            )
             return RecordingResult(outputURL: result.outputURL, duration: 0)
         }
 

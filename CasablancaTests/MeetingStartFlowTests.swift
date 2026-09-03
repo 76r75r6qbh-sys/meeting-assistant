@@ -629,32 +629,198 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertEqual(notices.count, 1, "A non-fatal microphone-only notice should be surfaced exactly once")
     }
 
-    func testHandleSystemInterruptWithZeroFramesDoesNotAppendSegment() async throws {
+    /// Starting a recording for a meeting that already has segments must never
+    /// hand out segment 1 again — that overwrote a 75-minute recording. It
+    /// continues the existing session instead.
+    func testStartRecordingWithExistingSegmentsOpensNextSegmentInsteadOfSegmentOne() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
-        let segmentURL = rootURL.appendingPathComponent("segment-001.wav")
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        try Data().write(to: segmentURL)
-
-        let fakeSession = FakeRecordingSession(
-            outputURL: segmentURL,
-            stopResult: RecordingResult(outputURL: segmentURL, duration: 0),
-            capturedFrames: 0
-        )
         let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let firstSegmentBytes = Data("first-segment-audio".utf8)
+        try firstSegmentBytes.write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 30)
+
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+
+        XCTAssertEqual(capturedURLs.map(\.lastPathComponent), ["segment-002.wav"])
+        XCTAssertEqual(
+            try Data(contentsOf: firstSegment), firstSegmentBytes,
+            "The existing segment must be byte-for-byte untouched"
+        )
+        XCTAssertGreaterThanOrEqual(
+            service.elapsedTime, 30,
+            "Starting into an existing session must continue the timer from the recorded total"
+        )
+        XCTAssertLessThan(service.elapsedTime, 32)
+
+        _ = try await service.pauseRecording()
+
+        let session = try XCTUnwrap(store.loadSession(for: meeting.id))
+        XCTAssertEqual(session.segments.map(\.index), [1, 2])
+        XCTAssertEqual(Set(session.segments.map(\.filePath)).count, 2, "Segments must have distinct paths")
+    }
+
+    /// A raw `.mic.pcm` left behind by a crash owns its segment number even
+    /// though the manifest never got the finalized WAV: recording into it would
+    /// clobber recoverable audio.
+    func testStartRecordingWithOrphanedPCMDoesNotReuseThatSegmentNumber() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let orphanedPCM = try store.sessionDirectory(for: meeting.id).appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 7, count: 4_000).write(to: orphanedPCM)
+
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+
+        XCTAssertEqual(capturedURLs.map(\.lastPathComponent), ["segment-002.wav"])
+        XCTAssertEqual(try Data(contentsOf: orphanedPCM).count, 4_000, "The orphaned PCM must survive untouched")
+    }
+
+    /// The manifest listing no segments is not proof that nothing was
+    /// captured — raw PCM in the directory is audio, and deleting the session
+    /// directory over it is how a whole recording was lost.
+    func testStopRecordingWithZeroSegmentsButOrphanedPCMKeepsSessionDirectory() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .pausedRecording)
+
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let sessionDirectory = try store.sessionDirectory(for: meeting.id)
+        let orphanedPCM = sessionDirectory.appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 3, count: 4_000).write(to: orphanedPCM)
 
         let service = AudioRecordingService(
             sessionStore: store,
-            makeRecordingSession: { _, _, _, _, _, _, _ in fakeSession }
+            makeRecordingSession: { _, _, _, _, _, _, _ in
+                XCTFail("Stopping a paused meeting must not create a live session")
+                throw RecordingError.noActiveRecording
+            },
+            mergeSegments: { _, _ in
+                XCTFail("There is nothing to merge when the manifest lists no segments")
+                return 0
+            }
+        )
+
+        do {
+            _ = try await service.stopRecording(for: meeting)
+            XCTFail("Expected stopRecording to throw .noCapturedAudio")
+        } catch RecordingError.noCapturedAudio {
+            // Expected
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: sessionDirectory.path),
+            "Session directory must survive: it still holds raw audio"
+        )
+        XCTAssertEqual(try Data(contentsOf: orphanedPCM).count, 4_000, "Raw PCM must survive untouched")
+    }
+
+    /// A finalize that fails on I/O must leave every byte on disk and still
+    /// release the service, so the user can resume (and later recover) instead
+    /// of being wedged behind `.activeRecordingExists`.
+    func testHandleSystemInterruptWhenFinalizeThrowsLeavesFilesAndClearsSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        let capturedBytes = Data("captured-audio".utf8)
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                try capturedBytes.write(to: outputURL)
+                return ThrowingFakeRecordingSession(outputURL: outputURL)
+            }
+        )
+
+        try await service.startRecording(for: meeting)
+        await service.handleSystemInterrupt(reason: .systemSleep)
+
+        XCTAssertFalse(service.isRecording, "The service must not stay wedged in recording after a failed finalize")
+        XCTAssertNil(service.activeMeetingID)
+        XCTAssertNotNil(service.errorMessage, "A real finalize failure must be surfaced")
+        let interruptedSegment = try XCTUnwrap(capturedURLs.first)
+        XCTAssertEqual(try Data(contentsOf: interruptedSegment), capturedBytes, "The segment must be left on disk untouched")
+
+        try await service.resumeRecording(for: meeting)
+
+        XCTAssertTrue(service.isRecording, "Resuming after a failed finalize must not be blocked")
+        XCTAssertEqual(
+            capturedURLs.map(\.lastPathComponent), ["segment-001.wav", "segment-002.wav"],
+            "The resumed segment must not overwrite the interrupted one"
+        )
+        XCTAssertEqual(try Data(contentsOf: interruptedSegment), capturedBytes)
+    }
+
+    /// The service must never delete a segment itself. Deletion is the
+    /// session's call, and only when the capture is *provably* empty — 0 frames
+    /// counted AND 0 bytes on disk — which the fake models by removing its own
+    /// file and throwing `.noCapturedAudio`, exactly like `RecordingSession`.
+    func testHandleSystemInterruptWithZeroFramesDoesNotAppendSegment() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .recording)
+
+        var capturedURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                capturedURLs.append(outputURL)
+                try Data().write(to: outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 0),
+                    capturedFrames: 0,
+                    deletesProvablyEmptyOutputOnStop: true
+                )
+            }
         )
 
         try await service.startRecording(for: meeting)
         await service.handleSystemInterrupt(reason: .screenLock)
 
         XCTAssertFalse(service.isRecording)
+        XCTAssertNil(service.errorMessage, "A provably empty segment is not a user-facing failure")
         let session = try XCTUnwrap(store.loadSession(for: meeting.id))
         XCTAssertTrue(session.segments.isEmpty, "Empty segment must not be persisted")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: segmentURL.path), "Empty segment file must be deleted")
+        let segmentURL = try XCTUnwrap(capturedURLs.first)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: segmentURL.path),
+            "Only the session deletes, and only with 0 frames AND 0 bytes"
+        )
     }
 
     func testResumeRecordingOpensNewSegmentForExistingSession() async throws {
@@ -871,19 +1037,41 @@ private final class FakeRecordingSession: RecordingSessionControlling, @unchecke
     let capturedFrames: Int
     var systemAudioUnavailableError: Error?
     private let stopResult: RecordingResult
+    /// Mirrors `RecordingSession.stop()`: when the capture is provably empty
+    /// (0 frames AND 0 bytes on disk) the session — never the facade — removes
+    /// its own files and reports `.noCapturedAudio`.
+    private let deletesProvablyEmptyOutputOnStop: Bool
 
-    init(outputURL: URL, stopResult: RecordingResult, capturedFrames: Int, systemAudioUnavailableError: Error? = nil) {
+    init(
+        outputURL: URL,
+        stopResult: RecordingResult,
+        capturedFrames: Int,
+        systemAudioUnavailableError: Error? = nil,
+        deletesProvablyEmptyOutputOnStop: Bool = false
+    ) {
         self.outputURL = outputURL
         self.stopResult = stopResult
         self.capturedFrames = capturedFrames
         self.systemAudioUnavailableError = systemAudioUnavailableError
+        self.deletesProvablyEmptyOutputOnStop = deletesProvablyEmptyOutputOnStop
     }
 
     func start() async throws {}
-    func stop() async throws -> RecordingResult { stopResult }
+    func stop() async throws -> RecordingResult {
+        if deletesProvablyEmptyOutputOnStop, capturedFrames == 0, isProvablyEmptyOnDisk {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw RecordingError.noCapturedAudio
+        }
+        return stopResult
+    }
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
     func setSystemAudioEnabled(_ enabled: Bool) {}
     var hasCapturedFrames: Bool { capturedFrames > 0 }
+
+    private var isProvablyEmptyOnDisk: Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
+        return (attributes?[.size] as? Int) == 0
+    }
 }
 
 private final class ThrowingFakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
