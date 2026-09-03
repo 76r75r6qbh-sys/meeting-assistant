@@ -23,6 +23,7 @@ enum RecordingError: LocalizedError {
     case failedToCreateAudioFile
     case failedToFinalizeRecording(String)
     case noCapturedAudio
+    case sessionAlreadyStopped
     case activeRecordingExists
     case noActiveRecording
 
@@ -46,6 +47,8 @@ enum RecordingError: LocalizedError {
             return message
         case .noCapturedAudio:
             return "Casablanca started the recording, but no audio samples were captured."
+        case .sessionAlreadyStopped:
+            return "The recording segment was already finalized."
         case .activeRecordingExists:
             return "A recording is already in progress."
         case .noActiveRecording:

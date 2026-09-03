@@ -49,6 +49,20 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     /// safe to read from any thread.
     private let finalizedFrameCount = OSAllocatedUnfairLock<AVAudioFramePosition>(initialState: 0)
 
+    /// Where this session is in its stop sequence. `stop()` is one-shot: an
+    /// interrupt-driven finalize and the user's Stop can interleave, and the
+    /// second entry used to re-read the released frame counters as 0, take the
+    /// "empty" branch, and delete the finished WAV plus the raw PCM — losing the
+    /// whole recording. Lock-guarded because the two callers arrive on different
+    /// threads.
+    private enum Lifecycle {
+        case live
+        case stopping
+        case stopped
+    }
+
+    private let lifecycle = OSAllocatedUnfairLock<Lifecycle>(initialState: .live)
+
     init(
         outputURL: URL,
         meeting: Meeting,
@@ -144,6 +158,16 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // currently discards a segment whose finalize throws. That narrower
         // loss window (orphaned temp PCM on render failure) needs raw-segment
         // recovery and is tracked separately, not fixed here.
+        //
+        // Claim the stop first, before touching anything on disk: a second entry
+        // must be rejected while the first is still finalizing, not allowed to
+        // race it into the delete branch below.
+        try lifecycle.withLock { state in
+            guard case .live = state else { throw RecordingError.sessionAlreadyStopped }
+            state = .stopping
+        }
+        defer { lifecycle.withLock { $0 = .stopped } }
+
         do {
             try await systemAudioUnit?.stop()
         } catch {
@@ -158,15 +182,36 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         microphoneWriter?.drainAndClose()
         systemAudioWriter?.drainAndClose()
 
-        let microphoneFrames = microphoneWriter?.frames ?? 0
-        let systemAudioFrames = systemAudioWriter?.frames ?? 0
+        // The bytes on disk are the source of truth for "how much did we
+        // capture?". The in-memory counters live in the writers, which a
+        // previous finalize may already have released — reading them alone once
+        // reported 0 for a 75-minute recording and deleted it. Take whichever is
+        // larger so a counter that is merely behind can still only *raise* the
+        // count, never lower it. Integer division truncates a torn trailing
+        // partial frame, and a missing file measures as 0 bytes.
+        let microphoneBytes = Self.fileSize(at: microphoneTempURL)
+        let systemAudioBytes = Self.fileSize(at: systemAudioTempURL)
+        let microphoneFrames = max(
+            microphoneWriter?.frames ?? 0,
+            AVAudioFramePosition(microphoneBytes / Int64(MemoryLayout<Float>.size))
+        )
+        let systemAudioFrames = max(
+            systemAudioWriter?.frames ?? 0,
+            AVAudioFramePosition(systemAudioBytes / Int64(MemoryLayout<Float>.size))
+        )
         // Cache the total before releasing the writers so `hasCapturedFrames`
         // (read by the facade after `stop()` returns) reflects what was captured.
         finalizedFrameCount.withLock { $0 = microphoneFrames + systemAudioFrames }
         microphoneWriter = nil
         systemAudioWriter = nil
 
-        guard microphoneFrames > 0 || systemAudioFrames > 0 else {
+        // Delete only when the segment is *provably* empty: no frames counted
+        // AND no bytes on disk on either track. Any doubt keeps the files.
+        let isProvablyEmpty = microphoneFrames == 0
+            && systemAudioFrames == 0
+            && microphoneBytes == 0
+            && systemAudioBytes == 0
+        if isProvablyEmpty {
             bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneTempURL) }
             bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioTempURL) }
             bestEffort("remove output file", Log.recording) { try FileManager.default.removeItem(at: outputURL) }
@@ -184,7 +229,13 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
                 systemAudioFrames: systemAudioFrames
             )
         )
+        let renderStartedAt = Date()
         try renderer.render()
+        let renderMilliseconds = Int((Date().timeIntervalSince(renderStartedAt) * 1000).rounded())
+
+        Log.recording.notice(
+            "Segment finalize: micFrames=\(microphoneFrames, privacy: .public) sysFrames=\(systemAudioFrames, privacy: .public) micBytes=\(microphoneBytes, privacy: .public) sysBytes=\(systemAudioBytes, privacy: .public) renderMs=\(renderMilliseconds, privacy: .public)"
+        )
 
         let duration = Date().timeIntervalSince(startedAt)
         return RecordingResult(outputURL: outputURL, duration: duration)
@@ -281,6 +332,14 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         return microphoneWriter
     }
 
+    /// Test seam: the temporary per-track PCM files this session captures into.
+    /// Tests write raw float32 bytes straight into them (behind the writers'
+    /// backs) to reproduce the double-finalize shape where audio is on disk but
+    /// the in-memory frame counters read 0.
+    var temporaryTrackURLs: (microphone: URL, systemAudio: URL) {
+        (microphoneTempURL, systemAudioTempURL)
+    }
+
     /// Test seam: drives `startSystemAudioBestEffort()` with the injected unit so
     /// the no-display degrade-to-microphone-only path can be verified headlessly
     /// (the real `start()` would spin up the microphone `AVAudioEngine`).
@@ -317,6 +376,12 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         case .denied:
             throw RecordingError.systemAudioPermissionDenied
         }
+    }
+
+    /// Bytes currently on disk for a temp track, or 0 when the file is missing.
+    private static func fileSize(at url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
     }
 
     private static func makeTemporaryURL(for outputURL: URL, suffix: String) -> URL {
