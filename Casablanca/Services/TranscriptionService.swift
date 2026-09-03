@@ -236,20 +236,12 @@ final class TranscriptionService {
             chunkingStrategy: .vad
         )
 
-        // WhisperKit's own `totalDecodingFallbacks` undercounts by one per
-        // window, so the exact fallback histogram is collected here from the
-        // temperature each window reaches. Recording it is a side effect: the
-        // callback's return value still only reports cancellation.
-        let windowTemperatures = WindowTemperatureCollector()
         let transcribeStart = ContinuousClock.now
         let results = try await whisperKit.transcribe(
             audioPath: fileURL.path,
             decodeOptions: decodeOptions,
-            callback: { progress in
-                if let temperature = progress.temperature {
-                    windowTemperatures.record(windowId: progress.windowId, temperature: temperature)
-                }
-                return Task.isCancelled ? false : true
+            callback: { _ in
+                Task.isCancelled ? false : true
             }
         )
         let transcribeWall = ContinuousClock.now - transcribeStart
@@ -280,7 +272,7 @@ final class TranscriptionService {
             transcribeWall: transcribeWall,
             pipelineTimings: whisperKit.currentTimings,
             chunkTimings: results.map(\.timings),
-            maxTemperatureByWindow: windowTemperatures.snapshot
+            segments: results.flatMap(\.segments)
         )
         lastTimingReport = report
         Log.transcription.notice("transcription finished \(report.summaryLine, privacy: .public)")
