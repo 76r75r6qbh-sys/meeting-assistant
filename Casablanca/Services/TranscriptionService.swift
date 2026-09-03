@@ -451,17 +451,40 @@ final class TranscriptionService {
         let fileName = "\(meeting.obsidianFileName).txt"
         let fileURL = transcriptsDir.appendingPathComponent(fileName)
 
-        var content = "Transcription: \(meeting.title)\n"
-        content += "Date: \(meeting.formattedTime)\n"
-        if let duration = meeting.recordingDuration {
+        let content = transcriptFileContents(
+            title: meeting.title,
+            date: meeting.formattedTime,
+            duration: meeting.recordingDuration,
+            result: result
+        )
+
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    /// The transcript file body: a header, a blank line, then one
+    /// `[mm:ss] text` line per segment.
+    ///
+    /// Extracted from `saveTranscriptLocally` so the benchmark harness can write
+    /// byte-identical transcripts — a benchmark run has no `Meeting` behind it,
+    /// but its output has to be diffable against a saved reference transcript.
+    /// `nonisolated`: pure string formatting, so it is callable from anywhere —
+    /// the service itself is `@MainActor` only because of its observable state.
+    nonisolated static func transcriptFileContents(
+        title: String,
+        date: String,
+        duration: TimeInterval?,
+        result: TranscriptionResult
+    ) -> String {
+        var content = "Transcription: \(title)\n"
+        content += "Date: \(date)\n"
+        if let duration {
             let minutes = Int(duration / 60)
             let seconds = Int(duration) % 60
             content += "Duration: \(minutes)m \(seconds)s\n"
         }
         content += "---\n\n"
         content += result.formattedTranscript
-
-        try content.write(to: fileURL, atomically: true, encoding: .utf8)
-        return fileURL
+        return content
     }
 }

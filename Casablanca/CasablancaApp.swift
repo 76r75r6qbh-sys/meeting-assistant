@@ -12,6 +12,9 @@ struct CasablancaApp: App {
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var storeFailure: StoreFailure?
     private let sharedModelContainer: ModelContainer
+    /// True when launched with `--benchmark-transcription`: the process measures
+    /// one transcription and exits, so it must not run the normal launch work.
+    private let isBenchmarkRun: Bool
 
     /// Unrecoverable persistence failure surfaced to the user instead of a crash.
     private struct StoreFailure: Identifiable {
@@ -20,6 +23,19 @@ struct CasablancaApp: App {
     }
 
     init() {
+        // Benchmark mode is decided before anything else: a measurement run must
+        // not open (and so never migrate or mutate) the real meeting database.
+        // The scene still needs *a* container, so it gets an in-memory one that
+        // never reaches disk, and the run exits the process when it finishes.
+        if let request = TranscriptionBenchmark.requestedRun(from: CommandLine.arguments) {
+            isBenchmarkRun = true
+            sharedModelContainer = Self.inMemoryContainer()
+            _appModel = State(initialValue: AppModel())
+            Task { @MainActor in exit(await TranscriptionBenchmark.run(request)) }
+            return
+        }
+        isBenchmarkRun = false
+
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
         do {
             let result = try PersistenceController.makeAppContainer()
@@ -38,17 +54,7 @@ struct CasablancaApp: App {
             // in-memory store so the window can still open and present the
             // failure, rather than crashing on launch.
             Log.persistence.error("Falling back to in-memory store: \(error.localizedDescription)")
-            do {
-                let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-                sharedModelContainer = try ModelContainer(
-                    for: Meeting.self, TodoItem.self, configurations: configuration
-                )
-            } catch {
-                // In-memory creation should never fail for a valid schema; if it
-                // does, the schema itself is broken and there is nothing to do.
-                Log.persistence.error("In-memory ModelContainer creation failed: \(error.localizedDescription)")
-                fatalError("Unrecoverable persistence failure: \(error.localizedDescription)")
-            }
+            sharedModelContainer = Self.inMemoryContainer()
             _storeFailure = State(initialValue: StoreFailure(
                 message: "Casablanca could not open or recreate its meeting database. "
                     + "It is running in a temporary mode and changes will not be saved. "
@@ -58,12 +64,30 @@ struct CasablancaApp: App {
         }
     }
 
+    /// A container that never reaches disk, for the two cases that must not use
+    /// the real store: a benchmark run, and a store that could not be opened or
+    /// recreated. In-memory creation only fails if the schema itself is broken,
+    /// and then there is nothing left to fall back to.
+    private static func inMemoryContainer() -> ModelContainer {
+        do {
+            let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+            return try ModelContainer(for: Meeting.self, TodoItem.self, configurations: configuration)
+        } catch {
+            Log.persistence.error("In-memory ModelContainer creation failed: \(error.localizedDescription)")
+            fatalError("Unrecoverable persistence failure: \(error.localizedDescription)")
+        }
+    }
+
     var body: some Scene {
         WindowGroup(id: Self.mainWindowID) {
             ContentView(viewModel: appModel.meetingListViewModel)
                 .environment(appModel)
                 .frame(minWidth: CasaLayout.windowMinWidth, minHeight: CasaLayout.windowMinHeight)
                 .task {
+                    // A benchmark run measures transcription alone: launch
+                    // housekeeping, calendar access and update checks would only
+                    // add noise to the numbers (and prompts to the screen).
+                    guard !isBenchmarkRun else { return }
                     await appModel.bootstrap(modelContext: sharedModelContainer.mainContext)
                 }
                 .sheet(isPresented: Binding(

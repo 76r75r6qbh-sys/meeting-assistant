@@ -87,6 +87,34 @@ xcodebuild test -project Casablanca.xcodeproj \
   CODE_SIGN_IDENTITY=''
 ```
 
+## Benchmarking transcription
+
+Transcription speed can only be judged on a real recording, so the app can transcribe one file and exit. Put the audio in `~/Library/Application Support/Casablanca/Benchmarks/` and run the built binary directly:
+
+```bash
+/Applications/Casablanca.app/Contents/MacOS/Casablanca \
+  --benchmark-transcription "$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.m4a" \
+  --benchmark-variant baseline \
+  -whisperFallbackCount 5 -whisperWorkers 16
+```
+
+The run transcribes in Dutch (`nl-NL`), prints the timing summary to stdout, and writes `<yyyyMMdd-HHmmss>-<variant>.json` (timings plus the decoding options the run resolved to) and `<yyyyMMdd-HHmmss>-<variant>.txt` (the transcript, in the same format as a saved transcript) into that same `Benchmarks` folder. Nothing is recorded and the meeting database is never opened.
+
+The `-whisper…` arguments are hidden tuning knobs read from the argument domain of `UserDefaults` (see `TranscriptionOptionsBuilder.Key`), so any combination can be A/B'd without a rebuild: `whisperFallbackCount`, `whisperWorkers`, `whisperEncoderCompute` / `whisperDecoderCompute` (`ane` | `gpu` | `cpu`), `whisperLogProbThreshold`, `whisperCompressionRatioThreshold`, `whisperDropSilentChunks`, `whisperSilentChunkEnergy`.
+
+A faster run is only a win if the transcript holds up, so compare it against a reference transcript of the same recording:
+
+```bash
+scripts/transcript-agreement.py \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.reference.txt" \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/20260903-140501-baseline.txt"
+# disagreement=4.21% ref_words=6021 cand_words=6010 edits=253
+```
+
+It ignores the header, timestamps, case and punctuation, and reports the word-level Levenshtein distance as a percentage of the reference. `scripts/transcript-agreement.py --self-test` checks the script itself.
+
+WhisperKit is pinned to an exact revision in `project.pbxproj` rather than tracking `main`, so the engine cannot move between two runs being compared. Bumping it is a deliberate change: update the revision, re-run the benchmark, and treat the new numbers as a new baseline.
+
 ## Notes
 
 - Each GitHub release ships a zipped `.app` bundle.

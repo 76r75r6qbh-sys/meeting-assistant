@@ -40,12 +40,14 @@
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
 		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
+		61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */; };
 		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
 		6EFD7447CD7942D2FD2EA03E /* LLMProviderCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */; };
 		7044416CB6E8E5314D6EA07A /* UpdatePathsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */; };
 		71BB230360D1B6583CBF91D5 /* RecordingResumeSessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57896A2F7F0787F58D67E20C /* RecordingResumeSessionStoreTests.swift */; };
+		7488D00067EF3C943478F40C /* TranscriptionBenchmarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDAE41274064DE9F8846741 /* TranscriptionBenchmarkTests.swift */; };
 		7A9CD96B0454CBE2933BAB1B /* TranscriptionTimingReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2D4DA24C231D754CBF56768 /* TranscriptionTimingReport.swift */; };
 		7ACF371883AB2A61171CE4B1 /* ClaudeCLIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC6B1039431B78677EE404E /* ClaudeCLIProvider.swift */; };
 		7B19D62844472672BA1A33B6 /* RecordingPowerAssertionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D938EA9B4A8D0288A4AEACD3 /* RecordingPowerAssertionTests.swift */; };
@@ -292,6 +294,7 @@
 		4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionSystemAudioFallbackTests.swift; sourceTree = SOURCE_ROOT; };
 		4F4CECBC6F340751BC74CCC6 /* ActionCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/ActionCardView.swift; sourceTree = SOURCE_ROOT; };
 		4F979EA02933A2A7C4B8686F /* SafeToQuitProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbeTests.swift; sourceTree = "<group>"; };
+		4FDAE41274064DE9F8846741 /* TranscriptionBenchmarkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptionBenchmarkTests.swift; sourceTree = "<group>"; };
 		5356811FE16B03FB65CDE802 /* UpdatesSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatesSettingsView.swift; sourceTree = "<group>"; };
 		5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionTeardownResilienceTests.swift; sourceTree = SOURCE_ROOT; };
 		57896A2F7F0787F58D67E20C /* RecordingResumeSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStoreTests.swift; sourceTree = "<group>"; };
@@ -459,6 +462,7 @@
 		B10951 /* MeetingSeriesResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSeriesResolverTests.swift; sourceTree = "<group>"; };
 		B2931ECD9D9B97E683CABC9D /* UpdateDownloader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateDownloader.swift; sourceTree = "<group>"; };
 		B2D4DA24C231D754CBF56768 /* TranscriptionTimingReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptionTimingReport.swift; sourceTree = "<group>"; };
+		B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptionBenchmark.swift; sourceTree = "<group>"; };
 		B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		BC3E160AF88BBEE8A8ACE88F /* UpdatePathsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePathsTests.swift; sourceTree = "<group>"; };
 		BEDC99ABCEE1E1DF4190DB03 /* UpdateLaunchHousekeeping.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateLaunchHousekeeping.swift; sourceTree = "<group>"; };
@@ -533,6 +537,7 @@
 			children = (
 				B2D4DA24C231D754CBF56768 /* TranscriptionTimingReport.swift */,
 				AA3C2D06998C45F4B9A6FBC4 /* TranscriptionOptionsBuilder.swift */,
+				B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */,
 			);
 			name = Transcription;
 			path = Transcription;
@@ -866,6 +871,7 @@
 				D938EA9B4A8D0288A4AEACD3 /* RecordingPowerAssertionTests.swift */,
 				CDE45252DEB27EB25A550D4D /* TranscriptionTimingReportTests.swift */,
 				BF4A649F04425F154220E799 /* TranscriptionOptionsBuilderTests.swift */,
+				4FDAE41274064DE9F8846741 /* TranscriptionBenchmarkTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1207,6 +1213,7 @@
 				D3C2F918BEBC44D5F95091D0 /* SleepPreventer.swift in Sources */,
 				7A9CD96B0454CBE2933BAB1B /* TranscriptionTimingReport.swift in Sources */,
 				83164D376CBD21BFD32F07FD /* TranscriptionOptionsBuilder.swift in Sources */,
+				61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1295,6 +1302,7 @@
 				7B19D62844472672BA1A33B6 /* RecordingPowerAssertionTests.swift in Sources */,
 				4DC0903AB12D1870713DAA6C /* TranscriptionTimingReportTests.swift in Sources */,
 				33256FD50F6AD990F9831D0E /* TranscriptionOptionsBuilderTests.swift in Sources */,
+				7488D00067EF3C943478F40C /* TranscriptionBenchmarkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1499,8 +1507,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = d447d308cb6e32df8165d4cfb8f1bf955592590f;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
