@@ -83,6 +83,10 @@ final class TranscriptionService {
     var statusMessage = ""
     var currentSegments: [TranscriptSegment] = []
 
+    /// Where the last finished run's time went. Logged as one line when the run
+    /// ends; kept so anything that later wants to show or compare runs can.
+    private(set) var lastTimingReport: TranscriptionTimingReport?
+
     /// Supported transcription languages
     static let supportedLanguages: [(id: String, name: String)] = [
         ("en-US", "English (US)"),
@@ -196,7 +200,10 @@ final class TranscriptionService {
 
         await updateStatus("Preparing local Whisper model...", progress: 0.05)
 
+        let modelLoadStart = ContinuousClock.now
         let whisperKit = try await loadWhisperKit()
+        let modelLoadWall = ContinuousClock.now - modelLoadStart
+
         whisperKit.segmentDiscoveryCallback = { [weak self] segments in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -229,13 +236,23 @@ final class TranscriptionService {
             chunkingStrategy: .vad
         )
 
+        // WhisperKit's own `totalDecodingFallbacks` undercounts by one per
+        // window, so the exact fallback histogram is collected here from the
+        // temperature each window reaches. Recording it is a side effect: the
+        // callback's return value still only reports cancellation.
+        let windowTemperatures = WindowTemperatureCollector()
+        let transcribeStart = ContinuousClock.now
         let results = try await whisperKit.transcribe(
             audioPath: fileURL.path,
             decodeOptions: decodeOptions,
-            callback: { _ in
-                Task.isCancelled ? false : true
+            callback: { progress in
+                if let temperature = progress.temperature {
+                    windowTemperatures.record(windowId: progress.windowId, temperature: temperature)
+                }
+                return Task.isCancelled ? false : true
             }
         )
+        let transcribeWall = ContinuousClock.now - transcribeStart
 
         try Task.checkCancellation()
 
@@ -256,6 +273,18 @@ final class TranscriptionService {
             .map(Self.cleanWhisperText)
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+
+        let report = TranscriptionTimingReport(
+            audioSeconds: duration,
+            modelLoadWall: modelLoadWall,
+            transcribeWall: transcribeWall,
+            pipelineTimings: whisperKit.currentTimings,
+            chunkTimings: results.map(\.timings),
+            maxTemperatureByWindow: windowTemperatures.snapshot
+        )
+        lastTimingReport = report
+        Log.transcription.notice("transcription finished \(report.summaryLine, privacy: .public)")
+
         return TranscriptionResult(segments: segments, fullText: fullText, duration: duration)
     }
 

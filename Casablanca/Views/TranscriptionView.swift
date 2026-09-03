@@ -162,7 +162,9 @@ struct TranscriptionView: View {
             if !entries.isEmpty {
                 meeting.rawTranscript = result.formattedTranscript
                 save()
+                let terminologyStart = ContinuousClock.now
                 let corrected = await terminologyService.correct(result.formattedTranscript, entries: entries)
+                logDuration("terminology correction", since: terminologyStart)
                 // Guard against the meeting being deleted mid-correction.
                 guard meeting.modelContext != nil else { return }
                 finalTranscript = corrected
@@ -177,10 +179,14 @@ struct TranscriptionView: View {
 
             // Transcription has finished reading the WAV. Now (and only now) is
             // it safe to compress the recording to AAC/m4a and reclaim disk.
+            let compressionStart = ContinuousClock.now
             await compressRecordingIfEnabled(wavURL: fileURL)
+            logDuration("recording compression", since: compressionStart)
 
+            let saveAndExportStart = ContinuousClock.now
             _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
             await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: appModel.exportStatusCenter)
+            logDuration("transcript save and export", since: saveAndExportStart)
 
             onComplete()
         } catch is CancellationError {
@@ -192,6 +198,16 @@ struct TranscriptionView: View {
             self.error = .transcriptionFailed(error.localizedDescription)
             didStart = false
         }
+    }
+
+    /// Logs how long one post-transcription phase took. Transcription itself
+    /// reports its own phases (see `TranscriptionTimingReport`); these lines
+    /// account for the work that runs after it, which is otherwise invisible.
+    private func logDuration(_ phase: String, since start: ContinuousClock.Instant) {
+        let seconds = (ContinuousClock.now - start).timeInterval
+        Log.transcription.notice(
+            "\(phase, privacy: .public) took \(String(format: "%.1f", seconds), privacy: .public)s"
+        )
     }
 
     /// Re-encodes the finished WAV mixdown to AAC/m4a and repoints the meeting
