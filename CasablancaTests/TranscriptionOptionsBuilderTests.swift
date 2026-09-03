@@ -136,6 +136,65 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertNil(resolved.decoding.chunkingStrategy)
     }
 
+    // MARK: - String-shaped overrides (the argument domain)
+
+    /// Command-line overrides (`-whisperWorkers 8`) land in the argument domain
+    /// as strings, so that is the shape production actually sees.
+    func testNumericOverridesGivenAsStringsAreParsed() {
+        defaults.set("3", forKey: "whisperFallbackCount")
+        defaults.set("8", forKey: "whisperWorkers")
+        defaults.set("-1.2", forKey: "whisperLogProbThreshold")
+        defaults.set(" 1.9 ", forKey: "whisperCompressionRatioThreshold")
+        defaults.set("0.04", forKey: "whisperSilentChunkEnergy")
+
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertEqual(resolved.decoding.temperatureFallbackCount, 3)
+        XCTAssertEqual(resolved.decoding.concurrentWorkerCount, 8)
+        XCTAssertEqual(resolved.decoding.logProbThreshold, -1.2)
+        XCTAssertEqual(resolved.decoding.compressionRatioThreshold, 1.9)
+        XCTAssertEqual(resolved.silentChunkEnergyThreshold, 0.04)
+    }
+
+    func testUnparseableNumericOverridesFallBackToDefaults() {
+        defaults.set("abc", forKey: "whisperFallbackCount")
+        defaults.set("", forKey: "whisperWorkers")
+        defaults.set("abc", forKey: "whisperLogProbThreshold")
+        // A decimal comma is the realistic typo, and `float(forKey:)` would read
+        // it as 2.0 — a silently different benchmark, not a rejected argument.
+        defaults.set("2,4", forKey: "whisperCompressionRatioThreshold")
+        defaults.set("lots", forKey: "whisperSilentChunkEnergy")
+
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertEqual(resolved.decoding.temperatureFallbackCount, 5)
+        XCTAssertEqual(resolved.decoding.concurrentWorkerCount, 16)
+        XCTAssertEqual(resolved.decoding.logProbThreshold, -1.0)
+        XCTAssertEqual(resolved.decoding.compressionRatioThreshold, 2.4)
+        XCTAssertEqual(resolved.silentChunkEnergyThreshold, 0.02)
+    }
+
+    func testDropSilentChunksAcceptsBooleanStringsAndRejectsGarbage() {
+        for accepted in ["YES", "yes", "true", "True", "1"] {
+            defaults.set(accepted, forKey: "whisperDropSilentChunks")
+            XCTAssertTrue(
+                TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).dropSilentChunks,
+                "expected \(accepted) to read as true"
+            )
+        }
+
+        for accepted in ["NO", "no", "false", "0"] {
+            defaults.set(accepted, forKey: "whisperDropSilentChunks")
+            XCTAssertFalse(
+                TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).dropSilentChunks,
+                "expected \(accepted) to read as false"
+            )
+        }
+
+        defaults.set("maybe", forKey: "whisperDropSilentChunks")
+        XCTAssertFalse(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).dropSilentChunks
+        )
+    }
+
     // MARK: - Summary line
 
     func testSummaryLineContainsEveryTunable() {

@@ -62,6 +62,7 @@ struct TranscriptionOptionsBuilder {
     private static let defaultLogProbThreshold: Float = -1.0
     private static let defaultCompressionRatioThreshold: Float = 2.4
     private static let defaultSilentChunkEnergy: Float = 0.02
+    private static let defaultDropSilentChunks = false
     private static let defaultMelCompute: MLComputeUnits = .cpuAndGPU
     private static let defaultEncoderCompute: MLComputeUnits = .cpuAndNeuralEngine
     private static let defaultDecoderCompute: MLComputeUnits = .cpuAndNeuralEngine
@@ -127,7 +128,7 @@ struct TranscriptionOptionsBuilder {
         // as "not set" rather than clamping to 1 and pretending it was meant.
         let workers = int(defaults, Key.workers).flatMap { $0 > 0 ? $0 : nil } ?? defaultWorkers
 
-        let dropSilentChunks = defaults.bool(forKey: Key.dropSilentChunks)
+        let dropSilentChunks = bool(defaults, Key.dropSilentChunks, or: defaultDropSilentChunks)
         let silentChunkEnergy = float(defaults, Key.silentChunkEnergy) ?? defaultSilentChunkEnergy
         let logProbThreshold = float(defaults, Key.logProbThreshold) ?? defaultLogProbThreshold
         let compressionRatioThreshold = float(defaults, Key.compressionRatioThreshold)
@@ -189,16 +190,51 @@ struct TranscriptionOptionsBuilder {
 
     // MARK: - Reading overrides
 
-    /// `nil` when the key is absent, so a deliberate `0` can be told apart from
-    /// "not set" — `UserDefaults.integer(forKey:)` returns `0` for both.
+    // These read the raw object and parse it themselves rather than using
+    // `integer(forKey:)` / `float(forKey:)` / `bool(forKey:)`, for two reasons.
+    // Those accessors return `0`/`false` for an absent key, which would make a
+    // deliberate `0` indistinguishable from "not set"; and command-line
+    // overrides arrive in the argument domain as *strings*, where the accessors
+    // coerce anything unparseable to `0` — `-whisperLogProbThreshold abc` would
+    // silently run at 0.0 (failing nearly every window) and the decimal-comma
+    // typo `2,4` would silently become 2.0. A bogus argument has to cost a
+    // comparison, not corrupt one.
+
+    /// `nil` when the key is absent or its value is not a number, so the caller
+    /// falls back to the default.
     private static func int(_ defaults: UserDefaults, _ key: String) -> Int? {
-        guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.integer(forKey: key)
+        switch defaults.object(forKey: key) {
+        case let number as NSNumber: return number.intValue
+        case let string as String: return Int(trimmed(string))
+        default: return nil
+        }
     }
 
     private static func float(_ defaults: UserDefaults, _ key: String) -> Float? {
-        guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.float(forKey: key)
+        switch defaults.object(forKey: key) {
+        case let number as NSNumber: return number.floatValue
+        case let string as String: return Float(trimmed(string))
+        default: return nil
+        }
+    }
+
+    /// Accepts the spellings a `defaults write` or a command-line argument
+    /// realistically produces; anything else is a typo, not a `false`.
+    private static func bool(_ defaults: UserDefaults, _ key: String, or fallback: Bool) -> Bool {
+        switch defaults.object(forKey: key) {
+        case let number as NSNumber: return number.boolValue
+        case let string as String:
+            switch trimmed(string).lowercased() {
+            case "true", "yes", "1": return true
+            case "false", "no", "0": return false
+            default: return fallback
+            }
+        default: return fallback
+        }
+    }
+
+    private static func trimmed(_ string: String) -> String {
+        string.trimmingCharacters(in: .whitespaces)
     }
 
     /// Anything unrecognised falls back to the default rather than failing the
