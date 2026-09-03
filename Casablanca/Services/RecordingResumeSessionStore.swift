@@ -149,8 +149,9 @@ struct RecordingResumeSessionStore {
 
     /// True when the session directory still holds audio worth keeping: any
     /// raw PCM with a single byte in it, or any WAV larger than its 44-byte
-    /// header. Conservative by design — a directory we cannot inspect counts
-    /// as holding audio, because guessing wrong destroys a recording.
+    /// header. Conservative by design — anything we cannot inspect, whether
+    /// the directory listing or a single file's size, counts as holding audio,
+    /// because guessing wrong destroys a recording.
     func hasRecoverableAudio(for meetingID: UUID) -> Bool {
         let files: [URL]
         do {
@@ -163,14 +164,23 @@ struct RecordingResumeSessionStore {
         }
 
         return files.contains { file in
+            let audioThreshold: Int
             switch file.pathExtension.lowercased() {
             case "pcm":
-                return fileSize(of: file) > 0
+                audioThreshold = 0
             case "wav":
-                return fileSize(of: file) > Self.wavHeaderByteCount
+                audioThreshold = Self.wavHeaderByteCount
             default:
                 return false
             }
+
+            guard let size = fileSize(of: file) else {
+                Log.recording.notice(
+                    "hasRecoverableAudio could not read the size of \(file.path, privacy: .public) for meeting \(meetingID.uuidString, privacy: .public); assuming audio is present"
+                )
+                return true
+            }
+            return size > audioThreshold
         }
     }
 
@@ -228,12 +238,13 @@ struct RecordingResumeSessionStore {
         }
     }
 
-    private func fileSize(of url: URL) -> Int {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
-              let size = attributes[.size] as? Int else {
-            return 0
+    /// The file's size in bytes, or `nil` when it cannot be determined. Never
+    /// collapse that `nil` into 0: an unknown size must not read as "empty".
+    private func fileSize(of url: URL) -> Int? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+            return nil
         }
-        return size
+        return attributes[.size] as? Int
     }
 
     /// Parses the number out of `segment-007.wav`, `segment-007.mic.pcm`, …

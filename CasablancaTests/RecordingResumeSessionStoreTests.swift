@@ -164,6 +164,30 @@ final class RecordingResumeSessionStoreSafetyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: try store.sessionDirectory(for: meetingID).path))
     }
 
+    /// A zero-byte PCM is normally deletable; the same file with an unreadable
+    /// size must not be. `FileManager` refuses to list a directory it cannot
+    /// search, so the unreadable-size case is reached by injecting a file
+    /// manager whose `attributesOfItem` fails for that one file — standing in
+    /// for a race with deletion, an I/O error or a revoked sandbox extension.
+    func testDeleteSessionIfEmptyKeepsDirectoryWhenSegmentSizeCannotBeRead() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 0, to: "segment-001.mic.pcm", for: meetingID)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let root = rootURL!
+        let blindStore = RecordingResumeSessionStore(
+            fileManager: UnstattableFileManager(unreadableFileName: "segment-001.mic.pcm"),
+            baseDirectoryProvider: { root }
+        )
+
+        // Control: with the size readable, this very fixture is deletable.
+        XCTAssertFalse(store.hasRecoverableAudio(for: meetingID))
+
+        XCTAssertTrue(blindStore.hasRecoverableAudio(for: meetingID), "an unknown file size must not read as empty")
+        XCTAssertFalse(try blindStore.deleteSessionIfEmpty(for: meetingID))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+    }
+
     // MARK: - Helpers
 
     private func write(bytes count: Int, to fileName: String, for meetingID: UUID) throws {
@@ -187,5 +211,23 @@ final class RecordingResumeSessionStoreSafetyTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(session)
         try data.write(to: directory.appendingPathComponent("session.json"))
+    }
+}
+
+/// A `FileManager` that cannot stat one specific file while everything else
+/// behaves normally.
+private final class UnstattableFileManager: FileManager {
+    private let unreadableFileName: String
+
+    init(unreadableFileName: String) {
+        self.unreadableFileName = unreadableFileName
+        super.init()
+    }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        if (path as NSString).lastPathComponent == unreadableFileName {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        return try super.attributesOfItem(atPath: path)
     }
 }
