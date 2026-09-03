@@ -25,6 +25,11 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private let initialInputDeviceID: AudioDeviceID?
     private let initialSystemAudioEnabled: Bool
 
+    /// How long `stop()` waits for the system-audio stream to stop before
+    /// abandoning it and finalizing the microphone track anyway. Injectable so
+    /// tests can drive the timeout path without a multi-second wait.
+    private let systemAudioStopTimeout: Duration
+
     private let onFailure: (Error) -> Void
     private let onStreamFatal: (Error) -> Void
 
@@ -68,6 +73,7 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         meeting: Meeting,
         inputDeviceID: AudioDeviceID?,
         systemAudioEnabled: Bool,
+        systemAudioStopTimeout: Duration = .seconds(5),
         onLevelUpdate: @escaping (Double) -> Void,
         onFailure: @escaping (Error) -> Void,
         onStreamFatal: @escaping (Error) -> Void
@@ -77,6 +83,7 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         self.systemAudioTempURL = Self.makeTemporaryURL(for: outputURL, suffix: "system")
         self.initialInputDeviceID = inputDeviceID
         self.initialSystemAudioEnabled = systemAudioEnabled
+        self.systemAudioStopTimeout = systemAudioStopTimeout
         self.onFailure = onFailure
         self.onStreamFatal = onStreamFatal
         self.levelAggregator = AudioLevelAggregator(onLevelUpdate: onLevelUpdate)
@@ -151,7 +158,9 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // meeting, which the resume store then deleted. The result was that an
         // interruption (e.g. closing the laptop lid) lost the entire recording.
         // Swallow the stop failure so the captured tracks are still drained,
-        // closed, and rendered below.
+        // closed, and rendered below. The wait is also time-bounded, because
+        // after sleep the stop often neither returns nor throws — see
+        // `stopSystemAudioBounded`.
         //
         // NOTE: this does NOT make stop() infallible — `render()` further down
         // can still throw (genuine I/O failure), and `handleSystemInterrupt`
@@ -177,10 +186,8 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         }
         defer { lifecycle.withLock { $0 = .stopped } }
 
-        do {
-            try await systemAudioUnit?.stop()
-        } catch {
-            Log.recording.error("System-audio stop failed during teardown; finalizing captured audio anyway: \(error.localizedDescription, privacy: .public)")
+        if let systemAudioUnit {
+            await stopSystemAudioBounded(systemAudioUnit)
         }
         systemAudioUnit = nil
 
@@ -248,6 +255,54 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
         let duration = Date().timeIntervalSince(startedAt)
         return RecordingResult(outputURL: outputURL, duration: duration)
+    }
+
+    /// Stops the system-audio stream, waiting at most `systemAudioStopTimeout`.
+    ///
+    /// A thrown stop is already survivable, but after the Mac sleeps
+    /// ScreenCaptureKit has often torn the `SCStream` down without ever calling
+    /// back, so `stopCapture()`'s continuation is never resumed and awaiting it
+    /// suspends forever. That hung `stop()` never released the facade's
+    /// `session`, so every later resume threw `.activeRecordingExists` and the
+    /// UI sat on "Finalizing recording…" while the captured microphone PCM was
+    /// never rendered. Bounding the wait keeps the rest of the teardown
+    /// (drain → close → mix-down) reachable.
+    ///
+    /// Deliberately NOT a task group: a group only returns once *all* of its
+    /// children have finished, and `cancelAll()` cannot interrupt a suspended
+    /// continuation — the hung child would keep the group, and `stop()`, waiting
+    /// anyway. So both legs race as unstructured tasks to claim a one-shot
+    /// resume. The losing leg is abandoned, and because the claim is
+    /// lock-guarded a hung stop that resumes much later is a harmless no-op
+    /// rather than a double resume (which would trap).
+    private func stopSystemAudioBounded(_ unit: SystemAudioCapturing) async {
+        let timeout = systemAudioStopTimeout
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let isClaimed = OSAllocatedUnfairLock<Bool>(initialState: false)
+            let claim: @Sendable () -> Bool = {
+                isClaimed.withLock { claimed in
+                    guard !claimed else { return false }
+                    claimed = true
+                    return true
+                }
+            }
+
+            Task {
+                do {
+                    try await unit.stop()
+                } catch {
+                    Log.recording.error("System-audio stop failed during teardown; finalizing captured audio anyway: \(error.localizedDescription, privacy: .public)")
+                }
+                if claim() { continuation.resume() }
+            }
+
+            Task {
+                try? await Task.sleep(for: timeout)
+                guard claim() else { return }
+                Log.recording.error("System-audio stop timed out after \(String(describing: timeout), privacy: .public); continuing teardown")
+                continuation.resume()
+            }
+        }
     }
 
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {

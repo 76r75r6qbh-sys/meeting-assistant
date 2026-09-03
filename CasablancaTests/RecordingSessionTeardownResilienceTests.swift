@@ -39,13 +39,37 @@ final class RecordingSessionTeardownResilienceTests: XCTestCase {
         func setSystemAudioEnabled(_ enabled: Bool) {}
     }
 
-    private func makeSession(outputURL: URL) throws -> RecordingSession {
+    /// A fake system-audio source whose `stop()` suspends forever, mirroring an
+    /// `SCStream` that system sleep already tore down: ScreenCaptureKit never
+    /// calls the `stopCapture()` completion, so the continuation is never
+    /// resumed and the await can never finish.
+    private final class HangingSystemAudioUnit: SystemAudioCapturing, @unchecked Sendable {
+        private(set) var stopCalled = false
+        /// Held so the abandoned continuation is never deallocated — dropping it
+        /// would make the runtime log a continuation-leak warning.
+        private var heldContinuation: UnsafeContinuation<Void, Never>?
+        func beginAcceptingInput() {}
+        func start() async throws {}
+        func stop() async throws {
+            stopCalled = true
+            await withUnsafeContinuation { continuation in
+                self.heldContinuation = continuation
+            }
+        }
+        func setSystemAudioEnabled(_ enabled: Bool) {}
+    }
+
+    private func makeSession(
+        outputURL: URL,
+        systemAudioStopTimeout: Duration = .seconds(5)
+    ) throws -> RecordingSession {
         let meeting = Meeting(title: "Teardown Resilience", date: .now, status: .recording)
         return try RecordingSession(
             outputURL: outputURL,
             meeting: meeting,
             inputDeviceID: nil,
             systemAudioEnabled: true,
+            systemAudioStopTimeout: systemAudioStopTimeout,
             onLevelUpdate: { _ in },
             onFailure: { _ in },
             onStreamFatal: { _ in }
@@ -99,5 +123,52 @@ final class RecordingSessionTeardownResilienceTests: XCTestCase {
         XCTAssertGreaterThan(size, 44, "Final WAV must contain audio beyond the 44-byte header")
 
         try? FileManager.default.removeItem(at: result.outputURL)
+    }
+
+    /// The sleep variant of the same loss: ScreenCaptureKit has already torn the
+    /// `SCStream` down, so `stopCapture()` neither returns nor throws — its
+    /// continuation is simply never resumed. `stop()` used to await that
+    /// forever, so the facade kept `session != nil` (every later resume threw
+    /// `.activeRecordingExists`) and the UI sat on "Finalizing recording…" while
+    /// the captured microphone PCM was never rendered. The bounded wait must
+    /// abandon the hung stop and finalize the microphone track.
+    func testStopCompletesWhenSystemAudioStopNeverReturns() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let session = try makeSession(outputURL: outputURL, systemAudioStopTimeout: .milliseconds(200))
+        let hangingSystemAudio = HangingSystemAudioUnit()
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: hangingSystemAudio)
+
+        // Microphone audio that streamed to disk before the machine slept.
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        // `stop()` runs detached so a regression hangs the expectation instead
+        // of the test method: before the fix this never returned at all.
+        let finished = expectation(description: "stop() returns despite a hung system-audio stop")
+        Task {
+            do {
+                let result = try await session.stop()
+                XCTAssertEqual(result.outputURL, outputURL, "The finalized WAV must be the session's output")
+            } catch {
+                XCTFail("stop() must finalize the microphone track, but threw \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 3)
+
+        XCTAssertTrue(hangingSystemAudio.stopCalled, "System-audio stop should have been attempted")
+        XCTAssertTrue(
+            session.hasCapturedFrames,
+            "Captured microphone frames must survive a system-audio stop that never returns"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "A final WAV must be written from the captured microphone audio"
+        )
+        let size = (try FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 44, "Final WAV must contain audio beyond the 44-byte header")
+
+        try? FileManager.default.removeItem(at: outputURL)
     }
 }
