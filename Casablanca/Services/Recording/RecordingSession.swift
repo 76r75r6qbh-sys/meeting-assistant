@@ -163,7 +163,16 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // must be rejected while the first is still finalizing, not allowed to
         // race it into the delete branch below.
         try lifecycle.withLock { state in
-            guard case .live = state else { throw RecordingError.sessionAlreadyStopped }
+            guard case .live = state else {
+                // Leave a trace: this is the interleave that lost a recording, so
+                // a rejected second finalize must be visible in the field — with
+                // which state it hit (still finalizing vs. already finished).
+                // Materialized before interpolation: the log interpolation is an
+                // autoclosure and cannot capture the `inout` state.
+                let rejectedState = String(describing: state)
+                Log.recording.error("Second stop() rejected: state=\(rejectedState, privacy: .public)")
+                throw RecordingError.sessionAlreadyStopped
+            }
             state = .stopping
         }
         defer { lifecycle.withLock { $0 = .stopped } }
