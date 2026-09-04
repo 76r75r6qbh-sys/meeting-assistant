@@ -47,7 +47,7 @@ final class RecordingSessionRecoveryTests: XCTestCase {
 
         XCTAssertEqual(
             try RecordingSessionRecovery.scan(store: store),
-            [.orphanedPCM(meetingID, segmentNumbers: [1])]
+            [.orphanedPCM(meetingID, segmentNumbers: [1], strandedPCM: [])]
         )
     }
 
@@ -60,7 +60,7 @@ final class RecordingSessionRecoveryTests: XCTestCase {
 
         XCTAssertEqual(
             try RecordingSessionRecovery.scan(store: store),
-            [.resumable(meetingID, segmentCount: 1)]
+            [.resumable(meetingID, segmentCount: 1, strandedPCM: [])]
         )
     }
 
@@ -86,7 +86,7 @@ final class RecordingSessionRecoveryTests: XCTestCase {
 
         XCTAssertEqual(
             try RecordingSessionRecovery.scan(store: store),
-            [.resumable(meetingID, segmentCount: 1)]
+            [.resumable(meetingID, segmentCount: 1, strandedPCM: [])]
         )
     }
 
@@ -116,10 +116,10 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         // The renderer owns PCM deletion and only on its success path.
         XCTAssertFalse(FileManager.default.fileExists(atPath: micURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: systemURL.path))
-        XCTAssertEqual(try RecordingSessionRecovery.scan(store: store), [.resumable(meetingID, segmentCount: 1)])
+        XCTAssertEqual(try RecordingSessionRecovery.scan(store: store), [.resumable(meetingID, segmentCount: 1, strandedPCM: [])])
     }
 
-    func testRecoverNeverDeletesNonEmptyFiles() throws {
+    func testRecoverLeavesOccupiedSegmentsUntouched() throws {
         // segment-001.wav already carries samples: rendering over it would
         // destroy a finished recording, so the PCM must be left untouched too.
         let meetingID = UUID()
@@ -155,6 +155,83 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         XCTAssertEqual(session.segments.map(\.index), [2])
         XCTAssertEqual(session.segments[0].duration, 0.5, accuracy: 0.0001)
         XCTAssertEqual(try fileSize(of: directory.appendingPathComponent("segment-002.wav")), 44 + 16_000)
+    }
+
+    func testRenderSkipsAndLogsWhenTheSegmentWavIsAlreadyOccupied() throws {
+        // The state the previous round reported as "no orphaned PCM tracks":
+        // segment-001.wav holds samples and segment-001.mic.pcm is still
+        // there. Nothing may move, and the finding has to say so — otherwise
+        // 130 MB of audio goes unmentioned forever.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let wavURL = directory.appendingPathComponent("segment-001.wav")
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 0x41, count: 4_096).write(to: wavURL)
+        try writeFloatSamples(count: 800, to: micURL)
+
+        XCTAssertEqual(try RecordingSessionRecovery.renderOrphanedTracks(meetingID: meetingID, store: store), 0)
+        XCTAssertEqual(try fileSize(of: wavURL), 4_096)
+        XCTAssertEqual(try fileSize(of: micURL), 800 * 4)
+        XCTAssertEqual(
+            try RecordingSessionRecovery.scan(store: store),
+            [.resumable(meetingID, segmentCount: 1, strandedPCM: [1])],
+            "the stranded PCM must be reported, not silently dropped"
+        )
+    }
+
+    func testRenderSegmentRefusesToOverwriteAnOccupiedWav() throws {
+        // The guard head-on: through `renderOrphanedTracks` the inventory
+        // already filters this segment out, so the guard is only reachable via
+        // the seam — and a safety guard nothing can test is one nobody can
+        // trust.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let wavURL = directory.appendingPathComponent("segment-001.wav")
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 0x41, count: 4_096).write(to: wavURL)
+        try writeFloatSamples(count: 800, to: micURL)
+
+        let rendered = try RecordingSessionRecovery.renderSegment(
+            segmentNumber: 1,
+            for: meetingID,
+            slot: RecordingSessionRecovery.SegmentSlot(
+                microphonePCM: micURL,
+                microphonePCMByteCount: 800 * 4
+            ),
+            store: store
+        )
+
+        XCTAssertFalse(rendered)
+        XCTAssertEqual(try fileSize(of: wavURL), 4_096)
+        XCTAssertEqual(try fileSize(of: micURL), 800 * 4)
+        XCTAssertEqual(try XCTUnwrap(store.loadSession(for: meetingID)).segments.count, 0)
+    }
+
+    func testScanContinuesPastAnUnlistableDirectory() throws {
+        // One permission-denied folder among nine must not cost us the other
+        // eight — the 130 MB PCM pair could be in any of them.
+        let unlistableID = UUID()
+        let healthyID = UUID()
+        try store.createSession(for: unlistableID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 4_096, to: "segment-001.mic.pcm", for: unlistableID)
+        try store.createSession(for: healthyID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+
+        let root = rootURL!
+        let blindStore = RecordingResumeSessionStore(
+            fileManager: UnlistableFileManager(unlistableDirectoryName: unlistableID.uuidString),
+            baseDirectoryProvider: { root }
+        )
+
+        let findings = try RecordingSessionRecovery.scan(store: blindStore)
+
+        XCTAssertEqual(findings.count, 2)
+        XCTAssertTrue(
+            findings.contains(.resumable(unlistableID, segmentCount: 0, strandedPCM: [])),
+            "an uninspectable directory must be kept, never called disposable"
+        )
+        XCTAssertTrue(findings.contains(.disposable(healthyID)), "the other directories are still classified")
     }
 
     // MARK: - adoptOrphanedSegments
@@ -196,5 +273,27 @@ final class RecordingSessionRecoveryTests: XCTestCase {
     private func fileSize(of url: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return try XCTUnwrap(attributes[.size] as? Int)
+    }
+}
+
+/// Stands in for a session directory the process may not list: a revoked
+/// sandbox extension, a permissions change, a folder mid-deletion.
+private final class UnlistableFileManager: FileManager {
+    private let unlistableDirectoryName: String
+
+    init(unlistableDirectoryName: String) {
+        self.unlistableDirectoryName = unlistableDirectoryName
+        super.init()
+    }
+
+    override func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        if url.lastPathComponent == unlistableDirectoryName {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        return try super.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: mask)
     }
 }

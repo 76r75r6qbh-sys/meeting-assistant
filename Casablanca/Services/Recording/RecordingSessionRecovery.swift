@@ -25,10 +25,16 @@ struct RecordingSessionRecovery {
         case disposable(UUID)
         /// Raw PCM tracks whose segment number the manifest does not know.
         /// `renderOrphanedTracks` mixes them into `segment-NNN.wav`.
-        case orphanedPCM(UUID, segmentNumbers: [Int])
+        ///
+        /// `strandedPCM` names segment numbers this sweep can neither render
+        /// nor delete, because their `segment-NNN.wav` already carries
+        /// samples. They are reported rather than silently dropped so the
+        /// caller can surface them for a human to look at.
+        case orphanedPCM(UUID, segmentNumbers: [Int], strandedPCM: [Int])
         /// Finalized WAV segments are present — in the manifest, or on disk
         /// waiting for `adoptOrphanedSegments` to put them there.
-        case resumable(UUID, segmentCount: Int)
+        /// `strandedPCM` carries the same meaning as above.
+        case resumable(UUID, segmentCount: Int, strandedPCM: [Int])
     }
 
     // MARK: - Scanning
@@ -40,12 +46,26 @@ struct RecordingSessionRecovery {
             "Recording recovery scan: \(meetingIDs.count, privacy: .public) session director(ies) to classify"
         )
 
-        return try meetingIDs.map { meetingID in
-            let inventory = try inventory(for: meetingID, store: store)
-            let finding = classify(meetingID: meetingID, inventory: inventory, store: store)
-            log(finding, inventory: inventory)
-            return finding
+        // One unreadable directory must not cost us the other eight. The
+        // store takes the same stance one level down ("assuming audio is
+        // present"): a directory we cannot inspect is reported as resumable
+        // with nothing resumable *found*, never as disposable, so the caller
+        // keeps it and a human can look.
+        var findings: [Finding] = []
+        for meetingID in meetingIDs {
+            do {
+                let inventory = try inventory(for: meetingID, store: store)
+                let finding = classify(meetingID: meetingID, inventory: inventory, store: store)
+                log(finding, inventory: inventory)
+                findings.append(finding)
+            } catch {
+                Log.recording.notice(
+                    "Recording recovery: could not inspect meeting \(meetingID.uuidString, privacy: .public) (\(error.localizedDescription, privacy: .public)); assuming audio is present and keeping the directory"
+                )
+                findings.append(.resumable(meetingID, segmentCount: 0, strandedPCM: []))
+            }
         }
+        return findings
     }
 
     /// A directory holding several kinds of leftovers gets the single most
@@ -58,14 +78,19 @@ struct RecordingSessionRecovery {
         inventory: Inventory,
         store: RecordingResumeSessionStore
     ) -> Finding {
+        let strandedSegmentNumbers = inventory.strandedPCMSegmentNumbers
         let orphanedSegmentNumbers = inventory.orphanedPCMSegmentNumbers
         if !orphanedSegmentNumbers.isEmpty {
-            return .orphanedPCM(meetingID, segmentNumbers: orphanedSegmentNumbers)
+            return .orphanedPCM(
+                meetingID,
+                segmentNumbers: orphanedSegmentNumbers,
+                strandedPCM: strandedSegmentNumbers
+            )
         }
 
         let segmentCount = inventory.manifestSegmentCount + inventory.adoptableWAVs.count
         if segmentCount > 0 {
-            return .resumable(meetingID, segmentCount: segmentCount)
+            return .resumable(meetingID, segmentCount: segmentCount, strandedPCM: strandedSegmentNumbers)
         }
 
         // Last line of defence. `hasRecoverableAudio` is deliberately more
@@ -76,7 +101,7 @@ struct RecordingSessionRecovery {
             Log.recording.notice(
                 "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) holds audio this sweep could not classify; keeping it"
             )
-            return .resumable(meetingID, segmentCount: 0)
+            return .resumable(meetingID, segmentCount: 0, strandedPCM: strandedSegmentNumbers)
         }
 
         return .disposable(meetingID)
@@ -95,10 +120,22 @@ struct RecordingSessionRecovery {
     @discardableResult
     static func renderOrphanedTracks(meetingID: UUID, store: RecordingResumeSessionStore) throws -> Int {
         let inventory = try inventory(for: meetingID, store: store)
+
+        // Named before the early return: PCM sitting next to a WAV that
+        // already carries samples is skipped by design, and saying nothing
+        // about it would let 130 MB of audio go unmentioned forever.
+        for segmentNumber in inventory.strandedPCMSegmentNumbers {
+            let stem = String(format: "segment-%03d", segmentNumber)
+            let wavByteCount = inventory.slots[segmentNumber]?.wavByteCount ?? 0
+            Log.recording.notice(
+                "Recording recovery: \(stem, privacy: .public).wav already exists with \(wavByteCount, privacy: .public) bytes for meeting \(meetingID.uuidString, privacy: .public); leaving \(stem, privacy: .public).mic.pcm/.system.pcm in place"
+            )
+        }
+
         let segmentNumbers = inventory.orphanedPCMSegmentNumbers
         guard !segmentNumbers.isEmpty else {
             Log.recording.notice(
-                "Recording recovery: no orphaned PCM tracks for meeting \(meetingID.uuidString, privacy: .public)"
+                "Recording recovery: no renderable orphaned PCM tracks for meeting \(meetingID.uuidString, privacy: .public)"
             )
             return 0
         }
@@ -107,50 +144,70 @@ struct RecordingSessionRecovery {
         // reason an already-rendered WAV fails to be recorded.
         try ensureManifestExists(meetingID: meetingID, inventory: inventory, store: store)
 
-        let directory = try store.sessionDirectory(for: meetingID)
         var renderedCount = 0
-
         for segmentNumber in segmentNumbers {
             guard let slot = inventory.slots[segmentNumber] else { continue }
-            let microphoneFrames = AVAudioFramePosition(slot.microphonePCMByteCount / bytesPerFloatSample)
-            let systemAudioFrames = AVAudioFramePosition(slot.systemAudioPCMByteCount / bytesPerFloatSample)
-            guard microphoneFrames > 0 || systemAudioFrames > 0 else { continue }
-
-            let outputURL = try store.nextSegmentURL(for: meetingID, segmentNumber: segmentNumber)
-            // Re-checked here and not only in the inventory: the renderer
-            // starts by removing its output file, so this guard is what stands
-            // between a finished recording and deletion.
-            if let existingByteCount = fileByteCount(of: outputURL), existingByteCount > wavHeaderByteCount {
-                Log.recording.notice(
-                    "Recording recovery: keeping existing \(outputURL.lastPathComponent, privacy: .public) (\(existingByteCount, privacy: .public) bytes) for meeting \(meetingID.uuidString, privacy: .public); leaving its raw PCM in place"
-                )
-                continue
+            if try renderSegment(segmentNumber: segmentNumber, for: meetingID, slot: slot, store: store) {
+                renderedCount += 1
             }
-
-            let renderer = RecordingMixdownRenderer(
-                microphoneURL: slot.microphonePCM ?? directory.appendingPathComponent(
-                    String(format: "segment-%03d%@", segmentNumber, Self.microphonePCMSuffix)
-                ),
-                systemAudioURL: slot.systemAudioPCM ?? directory.appendingPathComponent(
-                    String(format: "segment-%03d%@", segmentNumber, Self.systemAudioPCMSuffix)
-                ),
-                microphoneFrames: microphoneFrames,
-                systemAudioFrames: systemAudioFrames,
-                outputURL: outputURL,
-                expectedOutputFrames: max(microphoneFrames, systemAudioFrames)
-            )
-            try renderer.render()
-
-            let duration = Double(max(microphoneFrames, systemAudioFrames)) / sampleRate
-            try store.appendSegment(for: meetingID, segmentURL: outputURL, duration: duration)
-            renderedCount += 1
-
-            Log.recording.notice(
-                "Recording recovery: rendered segment \(segmentNumber, privacy: .public) (\(duration, privacy: .public)s) for meeting \(meetingID.uuidString, privacy: .public)"
-            )
         }
 
         return renderedCount
+    }
+
+    /// Renders one orphaned PCM pair into `segment-NNN.wav` and records it in
+    /// the manifest, which must already exist. Returns whether it rendered.
+    ///
+    /// `internal` rather than private so the never-overwrite guard can be
+    /// exercised head-on: reached through `renderOrphanedTracks` the guard is
+    /// unreachable by construction (the inventory already filters such
+    /// segments out), and a safety guard nothing can test is a safety guard
+    /// nobody can trust. It stays in place for the race the inventory cannot
+    /// see — a WAV that appears between the listing and the render.
+    @discardableResult
+    static func renderSegment(
+        segmentNumber: Int,
+        for meetingID: UUID,
+        slot: SegmentSlot,
+        store: RecordingResumeSessionStore
+    ) throws -> Bool {
+        let microphoneFrames = AVAudioFramePosition(slot.microphonePCMByteCount / bytesPerFloatSample)
+        let systemAudioFrames = AVAudioFramePosition(slot.systemAudioPCMByteCount / bytesPerFloatSample)
+        guard microphoneFrames > 0 || systemAudioFrames > 0 else { return false }
+
+        let directory = try store.sessionDirectory(for: meetingID)
+        let outputURL = try store.nextSegmentURL(for: meetingID, segmentNumber: segmentNumber)
+        // The renderer starts by removing its output file, so this guard is
+        // what stands between a finished recording and deletion. The size is
+        // read fresh here, not taken from the inventory.
+        if let existingByteCount = fileByteCount(of: outputURL), existingByteCount > wavHeaderByteCount {
+            Log.recording.notice(
+                "Recording recovery: \(outputURL.lastPathComponent, privacy: .public) already exists with \(existingByteCount, privacy: .public) bytes for meeting \(meetingID.uuidString, privacy: .public); leaving its raw PCM in place"
+            )
+            return false
+        }
+
+        let renderer = RecordingMixdownRenderer(
+            microphoneURL: slot.microphonePCM ?? directory.appendingPathComponent(
+                String(format: "segment-%03d%@", segmentNumber, Self.microphonePCMSuffix)
+            ),
+            systemAudioURL: slot.systemAudioPCM ?? directory.appendingPathComponent(
+                String(format: "segment-%03d%@", segmentNumber, Self.systemAudioPCMSuffix)
+            ),
+            microphoneFrames: microphoneFrames,
+            systemAudioFrames: systemAudioFrames,
+            outputURL: outputURL,
+            expectedOutputFrames: max(microphoneFrames, systemAudioFrames)
+        )
+        try renderer.render()
+
+        let duration = Double(max(microphoneFrames, systemAudioFrames)) / sampleRate
+        try store.appendSegment(for: meetingID, segmentURL: outputURL, duration: duration)
+
+        Log.recording.notice(
+            "Recording recovery: rendered segment \(segmentNumber, privacy: .public) (\(duration, privacy: .public)s) for meeting \(meetingID.uuidString, privacy: .public)"
+        )
+        return true
     }
 
     /// Records finalized WAVs that are on disk but absent from the manifest.
@@ -186,12 +243,31 @@ struct RecordingSessionRecovery {
 
     // MARK: - Inventory
 
-    private struct SegmentSlot {
+    /// One segment number's files. `internal` so `renderSegment` can be
+    /// called head-on from tests.
+    struct SegmentSlot {
         var microphonePCM: URL?
         var microphonePCMByteCount = 0
         var systemAudioPCM: URL?
         var systemAudioPCMByteCount = 0
         var wavByteCount = 0
+
+        init(
+            microphonePCM: URL? = nil,
+            microphonePCMByteCount: Int = 0,
+            systemAudioPCM: URL? = nil,
+            systemAudioPCMByteCount: Int = 0,
+            wavByteCount: Int = 0
+        ) {
+            self.microphonePCM = microphonePCM
+            self.microphonePCMByteCount = microphonePCMByteCount
+            self.systemAudioPCM = systemAudioPCM
+            self.systemAudioPCMByteCount = systemAudioPCMByteCount
+            self.wavByteCount = wavByteCount
+        }
+
+        var holdsPCMAudio: Bool { microphonePCMByteCount > 0 || systemAudioPCMByteCount > 0 }
+        var wavHoldsAudio: Bool { wavByteCount > RecordingSessionRecovery.wavHeaderByteCount }
     }
 
     private struct Inventory {
@@ -211,9 +287,20 @@ struct RecordingSessionRecovery {
             return slots
                 .filter { segmentNumber, slot in
                     guard !known.contains(segmentNumber) else { return false }
-                    guard slot.wavByteCount <= RecordingSessionRecovery.wavHeaderByteCount else { return false }
-                    return slot.microphonePCMByteCount > 0 || slot.systemAudioPCMByteCount > 0
+                    guard !slot.wavHoldsAudio else { return false }
+                    return slot.holdsPCMAudio
                 }
+                .keys
+                .sorted()
+        }
+
+        /// Segment numbers holding raw PCM this sweep can neither render (the
+        /// WAV slot is occupied by real samples) nor delete (the PCM may be
+        /// audio the WAV does not contain). Reported so they cannot go
+        /// unnoticed; whether the manifest knows the WAV is irrelevant.
+        var strandedPCMSegmentNumbers: [Int] {
+            slots
+                .filter { _, slot in slot.wavHoldsAudio && slot.holdsPCMAudio }
                 .keys
                 .sorted()
         }
@@ -316,15 +403,19 @@ struct RecordingSessionRecovery {
             Log.recording.notice(
                 "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) is disposable (no recoverable audio)"
             )
-        case let .orphanedPCM(meetingID, segmentNumbers):
+        case let .orphanedPCM(meetingID, segmentNumbers, strandedPCM):
             Log.recording.notice(
-                "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) has unrendered PCM for segment(s) \(segmentNumbers.map(String.init).joined(separator: ","), privacy: .public)"
+                "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) has unrendered PCM for segment(s) \(list(segmentNumbers), privacy: .public), stranded PCM for segment(s) \(list(strandedPCM), privacy: .public)"
             )
-        case let .resumable(meetingID, segmentCount):
+        case let .resumable(meetingID, segmentCount, strandedPCM):
             Log.recording.notice(
-                "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) is resumable with \(segmentCount, privacy: .public) segment(s), \(inventory.adoptableWAVs.count, privacy: .public) of them not yet in the manifest"
+                "Recording recovery: meeting \(meetingID.uuidString, privacy: .public) is resumable with \(segmentCount, privacy: .public) segment(s), \(inventory.adoptableWAVs.count, privacy: .public) of them not yet in the manifest, stranded PCM for segment(s) \(list(strandedPCM), privacy: .public)"
             )
         }
+    }
+
+    private static func list(_ segmentNumbers: [Int]) -> String {
+        segmentNumbers.isEmpty ? "none" : segmentNumbers.map(String.init).joined(separator: ",")
     }
 
     // MARK: - Constants
