@@ -107,8 +107,12 @@ final class RecordingInterruptionCoordinator {
     /// a recording that never existed.
     private var lastInterruptOutcome: InterruptOutcome?
     private var startedAt: Date?
+    /// Whether any reason in this window forbids auto-resume outright
+    /// (`allowsAutoResume == false`). That is its only meaning: how long a
+    /// resume stays allowed is decided when the window ends, by
+    /// `SleepResumePolicy` or by the window-bound elapsed check — never by a
+    /// timer, which used to expire mid-sleep and veto both.
     private var resumeAllowedForActiveWindow = true
-    private var deadlineTask: Task<Void, Never>?
     private var resumeTask: Task<Void, Never>?
     /// Invalidates an interrupt whose finalize is still in flight. The status
     /// flip waits for the service now, so a user Stop or a rebind can land in
@@ -169,7 +173,6 @@ final class RecordingInterruptionCoordinator {
     }
 
     private func clearInterruptionBookkeeping() {
-        cancelPendingDeadline()
         resumeTask?.cancel()
         resumeTask = nil
         activeReasons.removeAll()
@@ -259,12 +262,6 @@ final class RecordingInterruptionCoordinator {
             self.save()
             notifier?.post(title: "Recording paused", body: self.bodyForPause(reason, outcome: outcome))
         }
-        // Only the fixed-window reasons get a timer. Sleep and lock are judged
-        // against the meeting slot when they end (`SleepResumePolicy`), and a
-        // timer would only expire while the Mac is asleep anyway.
-        if SleepResumePolicy.isWindowBound(event.reason) {
-            scheduleDeadline()
-        }
     }
 
     private func handleEnd(_ event: RecordingInterruptionEvent) {
@@ -282,7 +279,6 @@ final class RecordingInterruptionCoordinator {
             windowReasons.removeAll()
             lastInterruptOutcome = nil
         }
-        cancelPendingDeadline()
 
         guard let meeting else { return }
         guard resumeAllowedForActiveWindow else { return }
@@ -302,8 +298,12 @@ final class RecordingInterruptionCoordinator {
         }
 
         // The window as a whole decides: any sleep/lock reason in it earns the
-        // meeting-slot policy, whichever reason happens to end last.
-        let governingReason = reasonsThisWindow.first { !SleepResumePolicy.isWindowBound($0) } ?? event.reason
+        // meeting-slot policy, whichever reason happens to end last. A sleep
+        // outranks a lock so the choice is deterministic when a lid close
+        // raises both (the two share a policy, but the log must not vary).
+        let governingReason: RecordingInterruptionReason = reasonsThisWindow.contains(.systemSleep)
+            ? .systemSleep
+            : reasonsThisWindow.first { !SleepResumePolicy.isWindowBound($0) } ?? event.reason
         // The monitor's timestamp and the clock can disagree across a sleep, so
         // take the later of the two: a stale event may not buy extra time.
         let wakeAt = max(event.at, now())
@@ -405,19 +405,6 @@ final class RecordingInterruptionCoordinator {
         }
     }
 
-    private func scheduleDeadline() {
-        cancelPendingDeadline()
-        let window = autoResumeWindow
-        deadlineTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(window))
-            self?.resumeAllowedForActiveWindow = false
-        }
-    }
-
-    private func cancelPendingDeadline() {
-        deadlineTask?.cancel()
-        deadlineTask = nil
-    }
 
     private func log(outcome: InterruptOutcome, reason: RecordingInterruptionReason, meetingID: UUID?) {
         let reasonDescription = String(describing: reason)

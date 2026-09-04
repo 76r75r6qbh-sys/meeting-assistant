@@ -599,6 +599,79 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    // MARK: - Mixed interruption windows (lid close)
+
+    /// Closing the lid raises `.displayUnavailable` and `.systemSleep`, and the
+    /// monitor gives no ordering guarantee. When the display event opens the
+    /// window, the sleep policy must still govern it: the old 30 s deadline
+    /// timer expired during the sleep and vetoed the resume before the policy
+    /// was ever consulted. The tiny `autoResumeWindow` plus the real wait below
+    /// is what lets that timer fire inside a test.
+    func testDisplayThenSleepWindowResumesUnderTheSleepPolicy() async {
+        let env = makeEnv(autoResumeWindow: 0.05)
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.displayUnavailable, atOffset: 0)
+        await env.flush()
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        // Longer than the fixed window, so anything still bound to it has expired.
+        try? await Task.sleep(for: .milliseconds(150))
+
+        env.advance(by: 120)
+        env.fireEnd(.displayUnavailable, atOffset: 120)
+        env.fireEnd(.systemSleep, atOffset: 120)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls,
+            [.handleSystemInterrupt(.displayUnavailable), .resume],
+            "A 2 min sleep inside the meeting slot must resume exactly once"
+        )
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
+    /// Same lid-close ordering, but the wake lands past the meeting slot: the
+    /// policy declines, and the user has to be told. The old timer returned
+    /// early and swallowed this notification.
+    func testDisplayThenSleepWindowPastTheMeetingSlotNotifiesAndStaysPaused() async {
+        let env = makeEnv(autoResumeWindow: 0.05)
+        let meeting = Meeting(
+            title: "Weekly Sync",
+            date: Date(timeIntervalSince1970: 0),
+            endDate: Date(timeIntervalSince1970: 3600),
+            status: .recording
+        )
+        env.coordinator.bind(meeting: meeting)
+
+        env.fireStart(.displayUnavailable, atOffset: 0)
+        await env.flush()
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(meeting.status, .pausedRecording)
+        let savesAfterPause = env.saveCount
+        let postsAfterPause = env.notifier.posted.count
+
+        try? await Task.sleep(for: .milliseconds(150))
+
+        env.advance(by: 7200)
+        env.fireEnd(.displayUnavailable, atOffset: 7200)
+        env.fireEnd(.systemSleep, atOffset: 7200)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.displayUnavailable)],
+                       "Past the meeting slot nothing may be resumed")
+        XCTAssertEqual(meeting.status, .pausedRecording)
+        XCTAssertEqual(env.notifier.posted.count, postsAfterPause + 1,
+                       "Exactly one stay-paused notification")
+        XCTAssertEqual(env.notifier.posted.last?.title, "Recording paused")
+        XCTAssertEqual(env.notifier.posted.last?.body, "Open the meeting to Resume or Stop.")
+        XCTAssertEqual(env.saveCount, savesAfterPause,
+                       "Staying paused writes nothing: the manifest and the meeting are left alone")
+    }
+
     // MARK: - Sleep deferral completion
 
     /// The kernel holds the sleep only until the completion runs, so it must run
@@ -654,8 +727,11 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(completions, 1, "A coalesced start must still release the power-change deferral")
     }
 
-    private func makeEnv(meetingStatus: MeetingStatus = .recording) -> CoordinatorEnv {
-        CoordinatorEnv(meetingStatus: meetingStatus)
+    private func makeEnv(
+        meetingStatus: MeetingStatus = .recording,
+        autoResumeWindow: TimeInterval = 30
+    ) -> CoordinatorEnv {
+        CoordinatorEnv(meetingStatus: meetingStatus, autoResumeWindow: autoResumeWindow)
     }
 
     @MainActor
@@ -668,14 +744,14 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         var saveCount = 0
         var coordinator: RecordingInterruptionCoordinator!
 
-        init(meetingStatus: MeetingStatus = .recording) {
+        init(meetingStatus: MeetingStatus = .recording, autoResumeWindow: TimeInterval = 30) {
             meeting = Meeting(title: "Weekly Sync", date: .now, status: meetingStatus)
             let env = self
             coordinator = RecordingInterruptionCoordinator(
                 service: service,
                 monitor: monitor,
                 notifier: notifier,
-                autoResumeWindow: 30,
+                autoResumeWindow: autoResumeWindow,
                 now: { Date(timeIntervalSince1970: env.clock) },
                 save: { env.saveCount += 1 }
             )
