@@ -121,4 +121,58 @@ final class TranscriptSegmentMergeTests: XCTestCase {
 
         XCTAssertEqual(merger.orderedSegments.map(\.text), ["first", "second"])
     }
+
+    // MARK: - Absolute live timestamps
+
+    /// WhisperKit's live callback offsets only `seek`, so a report's own
+    /// `start`/`end` restart near zero for every decode window — the live list
+    /// showed `[00:00]` again halfway through a meeting. `seek` is the window's
+    /// absolute position in 16 kHz samples, which is what puts them back on the
+    /// recording's clock.
+    func testLiveTimesAreOffsetByTheWindowsSeek() {
+        let times = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 480_000,
+            start: 0,
+            end: 3,
+            reportMinStart: 0
+        )
+
+        XCTAssertEqual(times.startTime, 30, accuracy: 0.001)
+        XCTAssertEqual(times.endTime, 33, accuracy: 0.001)
+    }
+
+    func testFirstWindowKeepsItsOwnTimes() {
+        let times = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 0,
+            start: 2,
+            end: 5,
+            reportMinStart: 2
+        )
+
+        XCTAssertEqual(times.startTime, 0, accuracy: 0.001)
+        XCTAssertEqual(times.endTime, 3, accuracy: 0.001)
+    }
+
+    /// The report's own segments stay in their relative order and keep their
+    /// durations: only the whole window moves onto the absolute clock.
+    func testLaterSegmentsInAWindowKeepTheirOffsetFromTheWindowStart() {
+        let reportMinStart: TimeInterval = 1
+        let first = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 160_000,
+            start: 1,
+            end: 4,
+            reportMinStart: reportMinStart
+        )
+        let second = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 160_000,
+            start: 4,
+            end: 9,
+            reportMinStart: reportMinStart
+        )
+
+        XCTAssertEqual(first.startTime, 10, accuracy: 0.001)
+        XCTAssertEqual(first.endTime, 13, accuracy: 0.001)
+        XCTAssertEqual(second.startTime, 13, accuracy: 0.001)
+        XCTAssertEqual(second.endTime, 18, accuracy: 0.001)
+    }
 }

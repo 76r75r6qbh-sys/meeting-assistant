@@ -28,15 +28,15 @@ struct TranscriptSegmentMerger {
     /// reported them in.
     ///
     /// The chunk key leads rather than `startTime` because a live report's
-    /// `start`/`end` are relative to its own VAD chunk — the batched segment
+    /// `start`/`end` arrive relative to its own VAD chunk — the batched segment
     /// callback offsets only `seek` (WhisperKit.swift, `batchedSegmentCallback`),
     /// and the timings are globalised only once every chunk has returned
     /// (`AudioChunking.updateSeekOffsetsForResults` →
-    /// `TranscriptionUtilities.updateSegmentTimings`). Sorting the union on
-    /// those relative timings would interleave the text of concurrent chunks;
-    /// the chunk key is monotone in audio position, so leading with it keeps the
-    /// live list readable. For timings that are already global the two orders
-    /// agree.
+    /// `TranscriptionUtilities.updateSegmentTimings`). The caller shifts them
+    /// onto the absolute clock with `absoluteLiveTimes` before merging, but that
+    /// shift is approximate, so the chunk key — which is monotone in audio
+    /// position and exact — stays the primary order. For timings that are
+    /// already global the two orders agree.
     ///
     /// The order also has to be total: dictionary iteration order is arbitrary,
     /// and a list that reshuffles between callbacks flickers just as badly as
@@ -56,5 +56,39 @@ struct TranscriptSegmentMerger {
                 return lhs.position < rhs.position
             }
             .map(\.segment)
+    }
+}
+
+extension TranscriptSegmentMerger {
+    /// The sample rate WhisperKit counts `seek` in.
+    private static let whisperSampleRate: Double = 16_000
+
+    /// Puts one live-reported segment back on the recording's clock.
+    ///
+    /// WhisperKit's live callback offsets only `seek` — `start`/`end` are
+    /// globalised much later, once every chunk has returned
+    /// (`AudioChunking.updateSeekOffsetsForResults`) — so a report's own times
+    /// restart near zero for every decode window and the live list showed
+    /// `[00:00]` again halfway through a meeting. `seek` is that window's
+    /// absolute position in samples, so shifting the report onto it, relative to
+    /// its own earliest segment, recovers absolute times to within the second or
+    /// two a live view can live with.
+    ///
+    /// - Parameters:
+    ///   - seek: the reporting window's `seek`, in 16 kHz samples.
+    ///   - reportMinStart: the smallest `start` in the same report — every
+    ///     segment of the report shifts by the same amount, so their order and
+    ///     durations are preserved.
+    static func absoluteLiveTimes(
+        seek: Int,
+        start: TimeInterval,
+        end: TimeInterval,
+        reportMinStart: TimeInterval
+    ) -> (startTime: TimeInterval, endTime: TimeInterval) {
+        let windowStart = Double(seek) / whisperSampleRate
+        return (
+            startTime: windowStart + (start - reportMinStart),
+            endTime: windowStart + (end - reportMinStart)
+        )
     }
 }

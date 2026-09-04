@@ -135,8 +135,21 @@ final class TranscriptionService {
     private let sleepPreventer: SleepPreventing
     private static let sleepPreventionReason = "Casablanca is transcribing a meeting"
 
-    init(sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer()) {
+    /// Keeping the model resident between meetings is a convenience; the system
+    /// needing that RAM outranks it, so pressure hands it straight back.
+    private let memoryPressureMonitor: MemoryPressureMonitoring
+
+    init(
+        sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer(),
+        memoryPressureMonitor: MemoryPressureMonitoring = DispatchMemoryPressureMonitor()
+    ) {
         self.sleepPreventer = sleepPreventer
+        self.memoryPressureMonitor = memoryPressureMonitor
+        memoryPressureMonitor.start { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleMemoryPressure()
+            }
+        }
     }
 
     /// Transcribe an audio file at the given URL
@@ -173,19 +186,50 @@ final class TranscriptionService {
         transcriptionTask = task
 
         let result = try await task.value
-        // Free the Whisper model from memory now that transcription is done.
-        // Summarization usually runs immediately after and a local LLM (oMLX/
-        // Ollama) needs several GB free; keeping the Whisper model resident can
-        // push the machine over the LLM's memory guard and fail the request.
-        unloadModel()
+        applyRetentionPolicy()
         return result
     }
 
     /// Releases the cached Whisper model so its memory returns to the OS.
     /// The next transcription reloads it on demand.
+    ///
+    /// The key goes with the pipeline: a surviving key would make the next load
+    /// hand back a pipeline that is no longer there.
     func unloadModel() {
         whisperKit = nil
         loadedWhisperPipelineKey = nil
+    }
+
+    /// Frees or keeps the just-used model according to what the configured
+    /// summarizer needs, and says which it did — this is the difference between
+    /// a warm second meeting and re-paying model load plus prewarm.
+    private func applyRetentionPolicy() {
+        let provider = AppPreferences.llmProvider()
+        guard WhisperModelRetentionPolicy.shouldUnloadAfterTranscription(provider: provider) else {
+            Log.transcription.notice(
+                "keeping the Whisper model loaded: \(provider.rawValue, privacy: .public) needs no local model memory"
+            )
+            return
+        }
+        unloadModel()
+        Log.transcription.notice(
+            "unloaded the Whisper model: \(provider.rawValue, privacy: .public) summarizes locally and needs the memory"
+        )
+    }
+
+    /// The system is short on memory. A model kept warm for the next meeting is
+    /// expendable; one a run is currently decoding with is not — pulling it out
+    /// mid-transcription would fail that run.
+    func handleMemoryPressure() {
+        guard loadedWhisperPipelineKey != nil || whisperKit != nil else { return }
+        guard !isTranscribing else {
+            Log.transcription.notice(
+                "memory pressure while transcribing: keeping the Whisper model until the run ends"
+            )
+            return
+        }
+        unloadModel()
+        Log.transcription.notice("memory pressure: unloaded the idle Whisper model")
     }
 
     func cancel() {
@@ -194,6 +238,19 @@ final class TranscriptionService {
         isTranscribing = false
         statusMessage = "Cancelled"
     }
+
+    // MARK: - Test Seams
+
+#if DEBUG
+    /// A `WhisperKit` cannot be built without loading a real model, so tests
+    /// prime and inspect the cache fields through these to drive teardown.
+    var cachedPipelineKeyForTesting: WhisperPipelineKey? { loadedWhisperPipelineKey }
+    var hasCachedPipelineForTesting: Bool { whisperKit != nil }
+
+    func primeCachedPipelineKeyForTesting(_ key: WhisperPipelineKey) {
+        loadedWhisperPipelineKey = key
+    }
+#endif
 
     // MARK: - Whisper Implementation
 
@@ -239,11 +296,21 @@ final class TranscriptionService {
                 // identifies this window across the chunks decoding concurrently.
                 // No segments means no window to attribute the report to.
                 guard let chunkKey = segments.first?.seek else { return }
+                // The report's `start`/`end` are relative to its own window, so
+                // shift the whole window onto the absolute clock — otherwise the
+                // live list restarts at [00:00] for every chunk.
+                let reportMinStart = segments.map { TimeInterval($0.start) }.min() ?? 0
                 let mappedSegments = segments
-                    .compactMap { segment in
-                        Self.makeTranscriptSegment(
-                            startTime: TimeInterval(segment.start),
-                            endTime: TimeInterval(segment.end),
+                    .compactMap { segment -> TranscriptSegment? in
+                        let times = TranscriptSegmentMerger.absoluteLiveTimes(
+                            seek: chunkKey,
+                            start: TimeInterval(segment.start),
+                            end: TimeInterval(segment.end),
+                            reportMinStart: reportMinStart
+                        )
+                        return Self.makeTranscriptSegment(
+                            startTime: times.startTime,
+                            endTime: times.endTime,
                             rawText: segment.text
                         )
                     }
