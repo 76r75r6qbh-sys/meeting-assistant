@@ -3,10 +3,15 @@ import XCTest
 
 @MainActor
 final class RecordingInterruptionMonitorTests: XCTestCase {
-    func testScreenSleepProducesInterruptionStartedScreenLock() async {
+    /// `screensDidSleep` is an idle DISPLAY sleep — the lid is open and the user
+    /// simply isn't touching the Mac. With the recording's power assertion in
+    /// place the screen going dark is harmless to microphone and system-audio
+    /// capture, so it must not pause anything.
+    func testScreensDidSleepProducesNoEvent() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -16,15 +21,14 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
 
         center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
 
-        XCTAssertEqual(events.count, 1)
-        XCTAssertEqual(events.first?.kind, .started)
-        XCTAssertEqual(events.first?.reason, .screenLock)
+        XCTAssertTrue(events.isEmpty, "An idle display sleep must not interrupt the recording")
     }
 
-    func testScreenWakeProducesInterruptionEndedScreenLock() async {
+    func testScreensDidWakeProducesNoEvent() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -35,15 +39,45 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
         center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
 
-        XCTAssertEqual(events.count, 2)
-        XCTAssertEqual(events.last?.kind, .ended)
-        XCTAssertEqual(events.last?.reason, .screenLock)
+        XCTAssertTrue(events.isEmpty, "Nothing was interrupted by the display sleep, so nothing ends on wake")
+    }
+
+    /// The REAL session lock (Ctrl-Cmd-Q, or the lock screen that follows an
+    /// idle display sleep) arrives as `com.apple.screenIsLocked` on the
+    /// distributed center. It is reported, so a later hook can key off it, but
+    /// it must not pause: the recording holds a power assertion and capture
+    /// keeps running behind the lock screen.
+    func testDistributedScreenIsLockedIsReportedButDoesNotPause() async {
+        let distributed = NotificationCenter()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: distributed,
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        var events: [RecordingInterruptionEvent] = []
+        var lockChanges: [Bool] = []
+        monitor.onEvent = { events.append($0) }
+        monitor.onSessionLockChanged = { lockChanges.append($0) }
+
+        distributed.post(name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+
+        XCTAssertEqual(lockChanges, [true])
+        XCTAssertTrue(monitor.isSessionLocked)
+
+        distributed.post(name: Notification.Name("com.apple.screenIsUnlocked"), object: nil)
+
+        XCTAssertEqual(lockChanges, [true, false])
+        XCTAssertFalse(monitor.isSessionLocked)
+        XCTAssertTrue(events.isEmpty, "A session lock must not interrupt the recording")
     }
 
     func testSleepAndWakeProduceSystemSleepEvents() async {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -63,6 +97,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         var devices: [String] = ["BuiltInMic", "USBMic"]
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { devices },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -83,6 +118,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         var devices: [String] = ["BuiltInMic", "USBMic"]
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { devices },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -102,6 +138,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
             screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             displayListProvider: { displays },
             now: { Date(timeIntervalSince1970: 1_000) }
@@ -124,6 +161,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
             screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             displayListProvider: { displays },
             now: { Date(timeIntervalSince1970: 1_000) }
@@ -147,6 +185,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
             screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             displayListProvider: { displays },
             now: { Date(timeIntervalSince1970: 1_000) }
@@ -159,10 +198,10 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         // Display lost while recording -> displayUnavailable started.
         monitor.reportDisplayConfigurationChanged()
 
-        // Lid reopens: the wake notification fires and a display is back, but
-        // assume didChangeScreenParameters did NOT re-fire (the deadlock case).
+        // Lid reopens: the system wake notification fires and a display is back,
+        // but assume didChangeScreenParameters did NOT re-fire (the deadlock case).
         displays = [1]
-        workspace.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
 
         XCTAssertTrue(
             events.contains { $0.kind == .ended && $0.reason == .displayUnavailable },
@@ -175,6 +214,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
             screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             displayListProvider: { displays },
             now: { Date(timeIntervalSince1970: 1_000) }
@@ -196,6 +236,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -225,6 +266,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         gate.onAllow = { _ in allowed.fulfill() }
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate,
@@ -243,6 +285,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -262,6 +305,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -287,6 +331,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -312,6 +357,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         gate.startSucceeds = false
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -335,6 +381,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate,
@@ -366,6 +413,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate
@@ -387,6 +435,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate,
@@ -419,6 +468,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) },
             sleepGate: gate,
@@ -447,6 +497,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let gate = FakeSleepGate()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             displayListProvider: { [1] },
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -501,6 +552,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -519,6 +571,7 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         let center = NotificationCenter()
         let monitor = RecordingInterruptionMonitor(
             workspaceNotificationCenter: center,
+            distributedNotificationCenter: NotificationCenter(),
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )

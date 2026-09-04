@@ -21,6 +21,11 @@ protocol RecordingInterruptionNotifying: AnyObject {
 
 protocol RecordingInterruptionEmitting: AnyObject {
     var onEvent: ((RecordingInterruptionEvent) -> Void)? { get set }
+    /// `true` when the login session locks, `false` when it unlocks. A lock is
+    /// not an interruption (the recording keeps running behind the lock screen);
+    /// the unlock is what matters here, as the moment the user is demonstrably
+    /// back and a failed auto-resume is worth one more try.
+    var onSessionLockChanged: ((Bool) -> Void)? { get set }
 }
 
 extension AudioRecordingService: RecordingInterruptionServicing {}
@@ -119,6 +124,18 @@ final class RecordingInterruptionCoordinator {
     /// between — and writing `.pausedRecording` over a meeting the user just
     /// stopped strands a finished recording as unresumable.
     private var interruptGeneration = 0
+    /// An auto-resume that threw, kept until the next unlock gets to retry it
+    /// once. Cleared by `clearInterruptionBookkeeping`, so a Stop, a Discard or
+    /// a rebind takes the retry with it.
+    private var pendingResumeRetry: PendingResumeRetry?
+
+    private struct PendingResumeRetry {
+        let meetingID: UUID
+        let reason: RecordingInterruptionReason
+        /// When the interruption paused the recording, so the retry can be
+        /// refused once the meeting itself is long over.
+        let pausedAt: Date
+    }
 
     init(
         service: RecordingInterruptionServicing,
@@ -136,6 +153,9 @@ final class RecordingInterruptionCoordinator {
         self.save = save
         monitor.onEvent = { [weak self] event in
             self?.handle(event: event)
+        }
+        monitor.onSessionLockChanged = { [weak self] locked in
+            self?.handleSessionLockChanged(locked)
         }
     }
 
@@ -178,6 +198,7 @@ final class RecordingInterruptionCoordinator {
         activeReasons.removeAll()
         windowReasons.removeAll()
         lastInterruptOutcome = nil
+        pendingResumeRetry = nil
         startedAt = nil
         interruptGeneration += 1
     }
@@ -343,13 +364,84 @@ final class RecordingInterruptionCoordinator {
             }
         }
 
-        let reasonForBody = event.reason
-        let recordIndexAtDispatch = recentEvents.indices.last
-        let capturedMeeting = meeting
+        dispatchResume(
+            meeting: meeting,
+            reasonForBody: event.reason,
+            pausedAt: startedAt,
+            recordIndex: recentEvents.indices.last,
+            isRetry: false
+        )
+    }
+
+    /// The session locking or unlocking. A lock never pauses — the recording's
+    /// power assertion keeps capture alive behind the lock screen — so the only
+    /// interesting edge is the unlock, which retries a failed auto-resume once.
+    private func handleSessionLockChanged(_ locked: Bool) {
+        // The monitor already logs the lock itself; nothing to add unless the
+        // unlock has a retry to make.
+        guard !locked else { return }
+        retryFailedAutoResumeAfterUnlock()
+    }
+
+    /// One extra attempt at a resume that threw, taken when the user comes back.
+    /// A wake often beats the display or the audio device to being ready; by the
+    /// time the session unlocks, the thing that broke the first attempt has
+    /// usually settled. Strictly one-shot: the token is consumed here whether or
+    /// not this attempt succeeds, so an unlock loop can't hammer the service.
+    private func retryFailedAutoResumeAfterUnlock() {
+        guard let retry = pendingResumeRetry else { return }
+        pendingResumeRetry = nil
+        guard let meeting, meeting.id == retry.meetingID, meeting.status == .pausedRecording else {
+            Log.recording.notice(
+                """
+                Not retrying the failed auto-resume for meeting \
+                \(retry.meetingID.uuidString, privacy: .public) on unlock: it is no longer the bound \
+                paused recording
+                """
+            )
+            return
+        }
+        // An unlock says the user is back, not that the meeting still is: the
+        // same deadline that governs a wake governs the retry, so a Mac unlocked
+        // hours later doesn't restart a recording nobody is holding any more.
+        let deadline = SleepResumePolicy.deadline(pausedAt: retry.pausedAt, meetingEnd: meeting.endDate)
+        guard now() < deadline else {
+            Log.recording.notice(
+                """
+                Not retrying the failed auto-resume for meeting \
+                \(meeting.id.uuidString, privacy: .public) on unlock: the unlock is past the \
+                resume deadline (\(deadline.timeIntervalSince1970, privacy: .public))
+                """
+            )
+            return
+        }
+        Log.recording.notice(
+            """
+            Session unlocked: retrying the failed auto-resume for meeting \
+            \(meeting.id.uuidString, privacy: .public) once
+            """
+        )
+        dispatchResume(
+            meeting: meeting,
+            reasonForBody: retry.reason,
+            pausedAt: retry.pausedAt,
+            recordIndex: recentEvents.indices.last,
+            isRetry: true
+        )
+    }
+
+    private func dispatchResume(
+        meeting capturedMeeting: Meeting,
+        reasonForBody: RecordingInterruptionReason,
+        pausedAt: Date,
+        recordIndex recordIndexAtDispatch: Int?,
+        isRetry: Bool
+    ) {
         resumeTask = Task { @MainActor [weak self, service, notifier] in
             do {
                 try await service?.resumeRecording(for: capturedMeeting)
                 if let self {
+                    self.pendingResumeRetry = nil
                     if let lastIdx = recordIndexAtDispatch, lastIdx < self.recentEvents.count {
                         self.recentEvents[lastIdx].resumedAutomatically = true
                     }
@@ -366,6 +458,29 @@ final class RecordingInterruptionCoordinator {
                     notifier?.post(title: "Recording resumed", body: "")
                 }
             } catch {
+                // The user pressing Stop cancels this task (via
+                // `clearInterruptionBookkeeping`), and the resume then throws
+                // `CancellationError`. That is the user getting exactly what
+                // they asked for — toasting "Could not resume recording" over it
+                // reads as a bug, so it is only logged.
+                if error is CancellationError || Task.isCancelled {
+                    Log.recording.notice(
+                        """
+                        Auto-resume for meeting \(capturedMeeting.id.uuidString, privacy: .public) was \
+                        cancelled; the recording was stopped or the meeting unbound
+                        """
+                    )
+                    return
+                }
+                // One retry, at the next unlock. A retry that fails again does
+                // not arm another (its token was consumed on dispatch).
+                if !isRetry {
+                    self?.pendingResumeRetry = PendingResumeRetry(
+                        meetingID: capturedMeeting.id,
+                        reason: reasonForBody,
+                        pausedAt: pausedAt
+                    )
+                }
                 notifier?.post(title: "Could not resume recording", body: error.localizedDescription)
             }
         }

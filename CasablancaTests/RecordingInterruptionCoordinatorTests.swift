@@ -171,6 +171,102 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    /// A failed auto-resume gets exactly one more chance, at the moment the user
+    /// comes back: the session unlocking says they are in front of the Mac
+    /// again, and whatever transient thing broke the first attempt (a display
+    /// still coming back up after a wake) has usually settled by then.
+    func testScreenIsUnlockedRetriesFailedResumeOnce() async {
+        let env = makeEnv()
+        env.service.resumeError = NSError(domain: "test", code: 7)
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        env.advance(by: 10)
+        env.fireEnd(.systemSleep, atOffset: 10)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+        XCTAssertEqual(env.notifier.posted.last?.title, "Could not resume recording")
+
+        env.service.resumeError = nil
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls,
+            [.handleSystemInterrupt(.systemSleep), .resume, .resume],
+            "An unlock must retry the failed auto-resume"
+        )
+        XCTAssertEqual(env.meeting.status, .recording)
+
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls.filter { $0 == .resume }.count,
+            2,
+            "The retry is a one-shot: a second unlock must not resume again"
+        )
+    }
+
+    /// The unlock only says the user is back — not that the meeting still is.
+    /// A retry stays bound to the same deadline a wake would face, so a Mac
+    /// unlocked hours later does not restart a recording nobody is holding.
+    func testUnlockDoesNotRetryAFailedResumePastTheResumeDeadline() async {
+        let env = makeEnv()
+        env.service.resumeError = NSError(domain: "test", code: 7)
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        env.advance(by: 10)
+        env.fireEnd(.systemSleep, atOffset: 10)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+
+        env.service.resumeError = nil
+        env.advance(by: 4 * 60 * 60)
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls.filter { $0 == .resume }.count,
+            1,
+            "An unlock past the resume deadline must leave the meeting paused"
+        )
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+    }
+
+    /// The coordinator cancels `resumeTask` from `clearInterruptionBookkeeping`
+    /// when the user presses Stop, so the in-flight resume throws
+    /// `CancellationError`. That is the user getting what they asked for, not a
+    /// failure to tell them about — and it must not arm the unlock retry either.
+    func testCancelledAutoResumeDoesNotPostCouldNotResume() async {
+        let env = makeEnv()
+        env.service.resumeError = CancellationError()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+        env.advance(by: 5)
+        env.fireEnd(.screenLock, atOffset: 5)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock), .resume])
+        XCTAssertFalse(
+            env.notifier.posted.contains { $0.title == "Could not resume recording" },
+            "A cancelled resume is the user's own Stop, not a failure"
+        )
+
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls.filter { $0 == .resume }.count, 1)
+    }
+
     /// A sleep or lock while a notes-only workspace is open interrupts nothing.
     /// Persisting `.pausedRecording` there stranded the meeting behind "This
     /// paused recording can no longer be resumed."
@@ -777,6 +873,8 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
             )
         }
 
+        func fireSessionLock(_ locked: Bool) { monitor.fireSessionLock(locked) }
+
         func fireEnd(_ reason: RecordingInterruptionReason, atOffset offset: TimeInterval) {
             clock = offset
             monitor.fire(.init(kind: .ended, reason: reason, at: Date(timeIntervalSince1970: offset)))
@@ -844,6 +942,8 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
     private final class FakeMonitor: RecordingInterruptionEmitting {
         var onEvent: ((RecordingInterruptionEvent) -> Void)?
+        var onSessionLockChanged: ((Bool) -> Void)?
         func fire(_ event: RecordingInterruptionEvent) { onEvent?(event) }
+        func fireSessionLock(_ locked: Bool) { onSessionLockChanged?(locked) }
     }
 }

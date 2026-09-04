@@ -64,9 +64,22 @@ protocol SystemSleepGating: AnyObject {
 @MainActor
 final class RecordingInterruptionMonitor {
     var onEvent: ((RecordingInterruptionEvent) -> Void)?
+    /// Fires with `true` when the login session locks and `false` when it
+    /// unlocks. Deliberately NOT an interruption: the recording holds a power
+    /// assertion, so capture keeps running behind the lock screen. The consumer
+    /// uses it for recovery decisions (retrying a failed resume once the user is
+    /// back), not for pausing.
+    var onSessionLockChanged: ((Bool) -> Void)?
+
+    /// Whether the login session is locked right now. The hook for a follow-up
+    /// we deliberately did not build yet: if on-device testing shows `SCStream`
+    /// dying while the session is locked, a `.streamFailure` raised during an
+    /// active lock should become auto-resumable on unlock.
+    private(set) var isSessionLocked = false
 
     private let workspaceNotificationCenter: NotificationCenter
     private let screenNotificationCenter: NotificationCenter
+    private let distributedNotificationCenter: NotificationCenter
     private let deviceListProvider: () -> [String]
     private let displayListProvider: () -> [CGDirectDisplayID]
     private let now: () -> Date
@@ -81,6 +94,10 @@ final class RecordingInterruptionMonitor {
     private var activeInputDeviceID: String?
     private var observers: [NSObjectProtocol] = []
     private var screenObservers: [NSObjectProtocol] = []
+    /// `nonisolated(unsafe)`: appended to only on the main actor, and read once
+    /// more from `deinit` (the last reference by definition) to unregister --
+    /// the same rationale as `sleepGate` above.
+    nonisolated(unsafe) private var distributedObservers: [NSObjectProtocol] = []
     private var coreAudioListenerInstalled = false
     private var coreAudioListenerBlock: AudioObjectPropertyListenerBlock?
     private var coreAudioListenerAddress: AudioObjectPropertyAddress?
@@ -99,6 +116,7 @@ final class RecordingInterruptionMonitor {
     init(
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         screenNotificationCenter: NotificationCenter = .default,
+        distributedNotificationCenter: NotificationCenter = DistributedNotificationCenter.default(),
         deviceListProvider: @escaping () -> [String] = RecordingInterruptionMonitor.defaultDeviceListProvider,
         displayListProvider: @escaping () -> [CGDirectDisplayID] = RecordingInterruptionMonitor.defaultOnlineDisplayList,
         now: @escaping () -> Date = Date.init,
@@ -108,6 +126,7 @@ final class RecordingInterruptionMonitor {
     ) {
         self.workspaceNotificationCenter = workspaceNotificationCenter
         self.screenNotificationCenter = screenNotificationCenter
+        self.distributedNotificationCenter = distributedNotificationCenter
         self.deviceListProvider = deviceListProvider
         self.displayListProvider = displayListProvider
         self.now = now
@@ -116,6 +135,7 @@ final class RecordingInterruptionMonitor {
         self.willSleepFallbackGrace = willSleepFallbackGrace
         installWorkspaceObservers()
         installScreenParameterObserver()
+        installSessionLockObservers()
     }
 
     /// Registers for system power notifications. Separate from `init` and
@@ -143,6 +163,9 @@ final class RecordingInterruptionMonitor {
         }
         for observer in screenObservers {
             screenNotificationCenter.removeObserver(observer)
+        }
+        for observer in distributedObservers {
+            distributedNotificationCenter.removeObserver(observer)
         }
         if let block = coreAudioListenerBlock, var address = coreAudioListenerAddress {
             AudioObjectRemovePropertyListenerBlock(
@@ -195,9 +218,14 @@ final class RecordingInterruptionMonitor {
     }
 
     private func installWorkspaceObservers() {
+        // `screensDidSleep`/`screensDidWake` are deliberately absent. They fire on
+        // a plain idle DISPLAY sleep -- lid open, the user just not touching the
+        // Mac -- which used to pause a running recording for no reason. With the
+        // recording's power assertion in place, neither a dark screen nor the
+        // session lock that may follow it harms capture, so only a real system
+        // sleep interrupts here. The genuine lock is observed separately (see
+        // `installSessionLockObservers`) and only reported.
         let pairs: [(Notification.Name, RecordingInterruptionEvent.Kind, RecordingInterruptionReason)] = [
-            (NSWorkspace.screensDidSleepNotification, .started, .screenLock),
-            (NSWorkspace.screensDidWakeNotification, .ended, .screenLock),
             (NSWorkspace.willSleepNotification, .started, .systemSleep),
             (NSWorkspace.didWakeNotification, .ended, .systemSleep)
         ]
@@ -263,6 +291,40 @@ final class RecordingInterruptionMonitor {
             }
         }
         screenObservers.append(observer)
+    }
+
+    /// Observes the real session lock. `com.apple.screenIsLocked` /
+    /// `com.apple.screenIsUnlocked` are posted on the *distributed* center by
+    /// loginwindow, and unlike `screensDidSleep` they mean the user actually
+    /// locked the session (or the lock screen came up after the idle timeout) --
+    /// not merely that the display went dark. Neither pauses the recording; they
+    /// are logged and reported.
+    private func installSessionLockObservers() {
+        let pairs: [(Notification.Name, Bool)] = [
+            (Notification.Name("com.apple.screenIsLocked"), true),
+            (Notification.Name("com.apple.screenIsUnlocked"), false)
+        ]
+
+        for (name, locked) in pairs {
+            let observer = distributedNotificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isSessionLocked = locked
+                    Log.recording.notice(
+                        """
+                        Session \(locked ? "locked" : "unlocked", privacy: .public); the recording keeps \
+                        running (the power assertion holds capture up)
+                        """
+                    )
+                    self.onSessionLockChanged?(locked)
+                }
+            }
+            distributedObservers.append(observer)
+        }
     }
 
     // MARK: - IOKit sleep deferral
