@@ -204,6 +204,16 @@ final class AudioRecordingService {
                 )
             }
 
+            // The entry `guard session == nil` ran before the retry loop, and
+            // the attempt that finally worked has its own suspension point, so
+            // re-assert the precondition before publishing. A Stop landing in
+            // there merges and deletes the manifest; publishing on top of that
+            // would hand a live session, a running timer and an idle-sleep
+            // assertion to a meeting already in `.processing`, and the next Stop
+            // would fail with `sessionNotFound` — orphaning the segment while
+            // the Mac stays awake.
+            try await discardStartedSessionIfNoLongerPublishable(session, meetingID: meeting.id)
+
             self.session = session
             beginSleepPrevention()
             activeMeetingID = meeting.id
@@ -219,7 +229,13 @@ final class AudioRecordingService {
                 "Recording resumed for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
             )
         } catch {
-            errorMessage = error.localizedDescription
+            // A cancelled resume is the user pressing Stop, not a failure:
+            // `errorMessage` drives a modal, and throwing one at someone who
+            // just stopped the recording would be nonsense. The teardown below
+            // still runs.
+            if !(error is CancellationError) {
+                errorMessage = error.localizedDescription
+            }
             isPreparing = false
             session = nil
             endSleepPrevention()
@@ -440,6 +456,15 @@ final class AudioRecordingService {
         var attempt = 1
 
         while true {
+            // Top of the iteration, so this covers both the first attempt and
+            // every wake from a backoff wait. A Stop cancels the coordinator's
+            // resume task (`clearInterruptionBookkeeping`) while we may be
+            // sitting in that wait, and the default `sleep`
+            // (`try? await Task.sleep`) swallows the cancellation — without
+            // this, the remaining attempts ran back-to-back and one of them
+            // could start a segment for a meeting the user had already stopped.
+            try Task.checkCancellation()
+
             do {
                 let session = try makeSession()
                 try await session.start()
@@ -475,6 +500,33 @@ final class AudioRecordingService {
                 attempt += 1
             }
         }
+    }
+
+    /// Tears a just-started segment down instead of publishing it when the
+    /// resume it belongs to has been cancelled or overtaken. Safe to stop
+    /// unconditionally: `start()` has only just returned, so the segment has no
+    /// frames and `RecordingSession.stop()` removes its own provably empty files
+    /// (reporting `.noCapturedAudio`, which is the expected outcome here — hence
+    /// `try?`).
+    private func discardStartedSessionIfNoLongerPublishable(
+        _ session: RecordingSessionControlling,
+        meetingID: UUID
+    ) async throws {
+        let overtaken = self.session != nil
+        guard overtaken || Task.isCancelled else { return }
+
+        _ = try? await session.stop()
+        Log.recording.error(
+            """
+            Resume for meeting \(meetingID.uuidString, privacy: .public) started a segment but was \
+            \(overtaken ? "overtaken by another session" : "cancelled", privacy: .public); \
+            tore it down instead of publishing it
+            """
+        )
+        if overtaken {
+            throw RecordingError.activeRecordingExists
+        }
+        throw CancellationError()
     }
 
     private func buildSession(

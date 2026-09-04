@@ -981,6 +981,62 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertEqual(sleepPreventer.beginCount, 0, "The assertion belongs to a session that actually started")
     }
 
+    /// A Stop cancels the coordinator's resume task
+    /// (`clearInterruptionBookkeeping`), and it can land while the retry is
+    /// sitting in a backoff wait. The default `sleep` swallows cancellation, so
+    /// without an explicit check the remaining attempts ran back-to-back and one
+    /// of them published a live session — timer, idle-sleep assertion and all —
+    /// for a meeting the user had already stopped and whose manifest was gone.
+    func testCancelledResumeStopsRetryingAndPublishesNothing() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Stopped Mid-Retry", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        // Attempt 1 throws; attempt 2 would succeed — so if the cancellation is
+        // ignored, the resume publishes instead of failing.
+        let flaky = FlakyEngineStart(failuresBeforeSuccess: 1)
+        let sleeps = SleepSpy()
+        let sleepPreventer = SleepPreventerSpy()
+        let resume = ResumeTaskBox()
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in flaky.session(outputURL: outputURL) },
+            sleepPreventer: sleepPreventer,
+            startRetryDelays: [.zero, .zero, .zero],
+            sleep: { [sleeps, resume] delay in
+                sleeps.record(delay)
+                // The Stop arrives while the retry is waiting.
+                resume.cancel()
+            }
+        )
+
+        resume.run { try await service.resumeRecording(for: meeting) }
+
+        do {
+            try await resume.value
+            XCTFail("A cancelled resume must throw, not publish a session")
+        } catch is CancellationError {
+            // Expected
+        }
+
+        XCTAssertEqual(flaky.startAttempts, 1, "Cancellation must end the retry, not just skip the wait")
+        XCTAssertEqual(sleeps.delays.count, 1)
+        XCTAssertFalse(service.isRecording, "Nothing may be published for a meeting the user stopped")
+        XCTAssertFalse(service.isPreparing)
+        XCTAssertNil(service.activeMeetingID)
+        XCTAssertEqual(sleepPreventer.beginCount, 0, "A cancelled resume must not hold the Mac awake")
+        XCTAssertNil(
+            service.errorMessage,
+            "Stop is not a failure — an error modal after the user's own Stop would be nonsense"
+        )
+    }
+
     /// The retry is for the wake path only. A manual start must fail fast so the
     /// user sees the error instead of staring at a spinner for seven seconds.
     func testStartRecordingDoesNotRetry() async throws {
@@ -1593,5 +1649,30 @@ private final class SleepPreventerSpy: SleepPreventing {
         return SleepPreventionToken { [weak self] in
             self?.endCount += 1
         }
+    }
+}
+
+/// Runs `resumeRecording` in a child task the test can cancel from inside the
+/// injected `sleep` — the real shape of the bug, where a Stop cancels the
+/// coordinator's `resumeTask` while the retry is mid-backoff. The task is
+/// created here rather than in the test body so the non-Sendable `Meeting`
+/// never crosses a `@Sendable` closure boundary.
+private final class ResumeTaskBox: @unchecked Sendable {
+    /// Written on the MainActor before the child task can reach the injected
+    /// `sleep` and read from that `sleep`, which runs off the MainActor —
+    /// ordered by the await in between, never concurrent.
+    private var task: Task<Void, Error>?
+
+    @MainActor
+    func run(_ operation: @escaping @MainActor () async throws -> Void) {
+        task = Task { try await operation() }
+    }
+
+    func cancel() {
+        task?.cancel()
+    }
+
+    var value: Void {
+        get async throws { try await task?.value }
     }
 }
