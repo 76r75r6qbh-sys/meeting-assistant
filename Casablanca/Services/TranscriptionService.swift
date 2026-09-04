@@ -121,6 +121,9 @@ final class TranscriptionService {
     private static let trickleCeiling = 0.95
     private static let trickleEasing = 0.25
     private var whisperKit: WhisperPipeline?
+    /// Accumulates the live transcript across the concurrently decoding chunks.
+    /// Reset at the start of every run.
+    private var liveSegmentMerger = TranscriptSegmentMerger()
     /// The model *and* the compute units the cached pipeline was built with, so
     /// changing a compute setting reloads instead of reusing a pipeline that is
     /// still on the old units.
@@ -227,9 +230,15 @@ final class TranscriptionService {
         let whisperKit = try await loadWhisperKit(compute: resolved.compute)
         let modelLoadWall = ContinuousClock.now - modelLoadStart
 
+        liveSegmentMerger = TranscriptSegmentMerger()
         whisperKit.segmentDiscoveryCallback = { [weak self] segments in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // WhisperKit reports one 30 s decode window at a time and offsets
+                // `seek` by the VAD chunk's start, so the first segment's seek
+                // identifies this window across the chunks decoding concurrently.
+                // No segments means no window to attribute the report to.
+                guard let chunkKey = segments.first?.seek else { return }
                 let mappedSegments = segments
                     .compactMap { segment in
                         Self.makeTranscriptSegment(
@@ -238,9 +247,11 @@ final class TranscriptionService {
                             rawText: segment.text
                         )
                     }
-                self.currentSegments = mappedSegments
+                self.liveSegmentMerger.merge(chunkSegments: mappedSegments, chunkKey: chunkKey)
+                let mergedSegments = self.liveSegmentMerger.orderedSegments
+                self.currentSegments = mergedSegments
 
-                let lastTimestamp = mappedSegments.last?.endTime ?? 0
+                let lastTimestamp = mergedSegments.map(\.endTime).max() ?? 0
                 let progressValue = min(0.1 + (lastTimestamp / max(duration, 1)) * 0.85, 0.95)
                 let clampedProgress = max(progressValue, self.lastCheckpoint)
                 self.lastCheckpoint = clampedProgress

@@ -210,6 +210,7 @@
 		A83C80018AF2D1867913487B /* UpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD4139757289B0A6DC1F05C /* UpdateServiceTests.swift */; };
 		A8FA62DBB7CD4046DD1FCC81 /* UpdateLaunchHousekeeping.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEDC99ABCEE1E1DF4190DB03 /* UpdateLaunchHousekeeping.swift */; };
 		AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */; };
+		AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E7D3EB2A3ABED36DDB1955 /* TranscriptSegmentMergeTests.swift */; };
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
 		B5410AFB7ACFB3702A9B7C70 /* ActionQueueModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */; };
 		B68E23B6D59110583203BB20 /* ActionCardBodyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */; };
@@ -244,6 +245,7 @@
 		F2B536352E8E06883681CFDF /* CalendarEventCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063509C2426442255CDF8375 /* CalendarEventCard.swift */; };
 		F373A6A220EDD1B513D31EDE /* LLMRetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */; };
 		F3F970EC8BC6BB2C82B51E92 /* TodoCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60674D19219E3089C98327A /* TodoCard.swift */; };
+		F638A49C74CF2B49FDC39E86 /* TranscriptSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */; };
 		FC8C73351180353C5404A142 /* JiraMarkupText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C28106F02FDEE32B3DEF38 /* JiraMarkupText.swift */; };
 /* End PBXBuildFile section */
 
@@ -258,6 +260,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		00E7D3EB2A3ABED36DDB1955 /* TranscriptSegmentMergeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptSegmentMergeTests.swift; sourceTree = "<group>"; };
 		045962ADE2E9E4D925ECAFB7 /* UpdatePreferencesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferencesTests.swift; sourceTree = "<group>"; };
 		063509C2426442255CDF8375 /* CalendarEventCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/CalendarEventCard.swift; sourceTree = SOURCE_ROOT; };
 		063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/LLMProviderCopyTests.swift; sourceTree = SOURCE_ROOT; };
@@ -276,6 +279,7 @@
 		22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/DockBadgeTests.swift; sourceTree = SOURCE_ROOT; };
 		23A222AA67614DF883F5F76C /* RefinementPrepCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RefinementPrepCard.swift; sourceTree = SOURCE_ROOT; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
+		29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptSegmentMerger.swift; sourceTree = "<group>"; };
 		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
 		2C143CA861430497429FF2ED /* ProcessCommandRunnerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/ProcessCommandRunnerTests.swift; sourceTree = SOURCE_ROOT; };
 		2C3D4E5F60718293A4B5C6DA /* ProgressTrickleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/ProgressTrickleTests.swift; sourceTree = SOURCE_ROOT; };
@@ -538,6 +542,7 @@
 				B2D4DA24C231D754CBF56768 /* TranscriptionTimingReport.swift */,
 				AA3C2D06998C45F4B9A6FBC4 /* TranscriptionOptionsBuilder.swift */,
 				B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */,
+				29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */,
 			);
 			name = Transcription;
 			path = Transcription;
@@ -872,6 +877,7 @@
 				CDE45252DEB27EB25A550D4D /* TranscriptionTimingReportTests.swift */,
 				BF4A649F04425F154220E799 /* TranscriptionOptionsBuilderTests.swift */,
 				4FDAE41274064DE9F8846741 /* TranscriptionBenchmarkTests.swift */,
+				00E7D3EB2A3ABED36DDB1955 /* TranscriptSegmentMergeTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1214,6 +1220,7 @@
 				7A9CD96B0454CBE2933BAB1B /* TranscriptionTimingReport.swift in Sources */,
 				83164D376CBD21BFD32F07FD /* TranscriptionOptionsBuilder.swift in Sources */,
 				61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */,
+				F638A49C74CF2B49FDC39E86 /* TranscriptSegmentMerger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1303,6 +1310,7 @@
 				4DC0903AB12D1870713DAA6C /* TranscriptionTimingReportTests.swift in Sources */,
 				33256FD50F6AD990F9831D0E /* TranscriptionOptionsBuilderTests.swift in Sources */,
 				7488D00067EF3C943478F40C /* TranscriptionBenchmarkTests.swift in Sources */,
+				AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
