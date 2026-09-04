@@ -23,6 +23,46 @@ struct WhisperPipelineKey: Equatable {
         self.textDecoderCompute = compute.textDecoderCompute
         self.prefillCompute = compute.prefillCompute
     }
+
+    /// Compact identity for log lines, including the compute units so a
+    /// compute-only change is still distinguishable from a no-op.
+    var summary: String {
+        "\(model) mel=\(melCompute.rawValue) enc=\(audioEncoderCompute.rawValue)"
+            + " dec=\(textDecoderCompute.rawValue) prefill=\(prefillCompute.rawValue)"
+    }
+}
+
+/// The one cached Whisper pipeline, together with the key it was built with.
+///
+/// One value type rather than two fields on the service, because the two must
+/// disappear together: a surviving key makes the next load hand back a pipeline
+/// that has been released, and a surviving pipeline is gigabytes nobody asked
+/// for. `clear()` is the single place that tears both down.
+///
+/// Generic over the pipeline so it can be exercised without a real `WhisperKit`,
+/// which cannot be constructed without downloading and loading a model.
+struct WhisperPipelineCache<Pipeline> {
+    var pipeline: Pipeline?
+    var key: WhisperPipelineKey?
+
+    var isLoaded: Bool { pipeline != nil }
+    var isEmpty: Bool { pipeline == nil && key == nil }
+
+    /// The cached pipeline, but only if it was built with `key` — the compute
+    /// units are baked in at load time, so anything else has to be reloaded.
+    func pipeline(matching key: WhisperPipelineKey) -> Pipeline? {
+        self.key == key ? pipeline : nil
+    }
+
+    mutating func store(pipeline: Pipeline, key: WhisperPipelineKey) {
+        self.pipeline = pipeline
+        self.key = key
+    }
+
+    mutating func clear() {
+        pipeline = nil
+        key = nil
+    }
 }
 
 /// The one place transcription decides *how* to decode.

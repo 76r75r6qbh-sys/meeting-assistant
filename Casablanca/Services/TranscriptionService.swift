@@ -120,14 +120,13 @@ final class TranscriptionService {
     private static let trickleBudget = 0.04
     private static let trickleCeiling = 0.95
     private static let trickleEasing = 0.25
-    private var whisperKit: WhisperPipeline?
     /// Accumulates the live transcript across the concurrently decoding chunks.
     /// Reset at the start of every run.
     private var liveSegmentMerger = TranscriptSegmentMerger()
-    /// The model *and* the compute units the cached pipeline was built with, so
-    /// changing a compute setting reloads instead of reusing a pipeline that is
-    /// still on the old units.
-    private var loadedWhisperPipelineKey: WhisperPipelineKey?
+    /// The loaded pipeline and the model *plus* compute units it was built with,
+    /// so changing a compute setting reloads instead of reusing a pipeline that
+    /// is still on the old units.
+    private var pipelineCache = WhisperPipelineCache<WhisperPipeline>()
 
     /// Transcription is long and unattended: the Mac idle-slept for 37 minutes
     /// in the middle of one. An assertion keeps it awake until the run ends,
@@ -196,8 +195,7 @@ final class TranscriptionService {
     /// The key goes with the pipeline: a surviving key would make the next load
     /// hand back a pipeline that is no longer there.
     func unloadModel() {
-        whisperKit = nil
-        loadedWhisperPipelineKey = nil
+        pipelineCache.clear()
     }
 
     /// Frees or keeps the just-used model according to what the configured
@@ -221,7 +219,7 @@ final class TranscriptionService {
     /// expendable; one a run is currently decoding with is not — pulling it out
     /// mid-transcription would fail that run.
     func handleMemoryPressure() {
-        guard loadedWhisperPipelineKey != nil || whisperKit != nil else { return }
+        guard !pipelineCache.isEmpty else { return }
         guard !isTranscribing else {
             Log.transcription.notice(
                 "memory pressure while transcribing: keeping the Whisper model until the run ends"
@@ -243,12 +241,13 @@ final class TranscriptionService {
 
 #if DEBUG
     /// A `WhisperKit` cannot be built without loading a real model, so tests
-    /// prime and inspect the cache fields through these to drive teardown.
-    var cachedPipelineKeyForTesting: WhisperPipelineKey? { loadedWhisperPipelineKey }
-    var hasCachedPipelineForTesting: Bool { whisperKit != nil }
+    /// drive the service's teardown paths through a key-only cache; that the
+    /// pipeline goes with the key is proven against `WhisperPipelineCache`.
+    var cachedPipelineKeyForTesting: WhisperPipelineKey? { pipelineCache.key }
+    var cacheIsEmptyForTesting: Bool { pipelineCache.isEmpty }
 
     func primeCachedPipelineKeyForTesting(_ key: WhisperPipelineKey) {
-        loadedWhisperPipelineKey = key
+        pipelineCache.key = key
     }
 #endif
 
@@ -377,8 +376,19 @@ final class TranscriptionService {
             ?? AppPreferenceValue.defaultWhisperModel
         let pipelineKey = WhisperPipelineKey(model: selectedModel, compute: compute)
 
-        if let whisperKit, loadedWhisperPipelineKey == pipelineKey {
-            return whisperKit
+        if let cached = pipelineCache.pipeline(matching: pipelineKey) {
+            return cached
+        }
+
+        // A model or compute change means the cached pipeline is unusable — and
+        // since it is now kept resident between meetings, building the
+        // replacement first would hold both models at once (two large-v3
+        // pipelines is several GB). Release it before paying for the new one.
+        if let staleKey = pipelineCache.key {
+            Log.transcription.notice(
+                "Unloading cached Whisper pipeline \(staleKey.summary, privacy: .public) before loading \(pipelineKey.summary, privacy: .public)"
+            )
+            unloadModel()
         }
 
         do {
@@ -418,8 +428,7 @@ final class TranscriptionService {
                     }
                 }
             }
-            self.whisperKit = pipeline
-            self.loadedWhisperPipelineKey = pipelineKey
+            self.pipelineCache.store(pipeline: pipeline, key: pipelineKey)
             return pipeline
         } catch {
             throw TranscriptionError.modelNotAvailable(error.localizedDescription)
