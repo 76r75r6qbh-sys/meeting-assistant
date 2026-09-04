@@ -42,6 +42,16 @@ final class AudioRecordingService {
     private var sleepAssertion: SleepPreventionToken?
     private static let sleepPreventionReason = "Casablanca is recording a meeting"
 
+    /// How long to wait before each retry of a *resumed* segment's
+    /// `session.start()`. Right after the Mac wakes, CoreAudio is regularly not
+    /// ready yet and the first `AVAudioEngine.start()` throws, which made the
+    /// auto-resume fail once and leave the meeting paused. Empty disables the
+    /// retry; `attempts == 1 + startRetryDelays.count`.
+    private let startRetryDelays: [Duration]
+    /// The backoff wait, injectable so the retry tests are deterministic
+    /// instead of seven seconds long.
+    private let sleep: @Sendable (Duration) async -> Void
+
     weak var interruptionMonitor: RecordingInterruptionMonitor?
 
     /// Invoked (non-fatally) when a recording started or resumed but system-audio
@@ -56,13 +66,17 @@ final class AudioRecordingService {
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
         makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
         mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge,
-        sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer()
+        sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer(),
+        startRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)],
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.sessionStore = sessionStore
         self.makeRecordingSession = makeRecordingSession
         self.makeFinalOutputURL = makeFinalOutputURL
         self.mergeSegments = mergeSegments
         self.sleepPreventer = sleepPreventer
+        self.startRetryDelays = startRetryDelays
+        self.sleep = sleep
         refreshInputDevices(forcePreferredSelection: true)
     }
 
@@ -179,13 +193,16 @@ final class AudioRecordingService {
             let segmentURL = try sessionStore.reserveNextSegmentURL(for: meeting.id)
             try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-            let session = try buildSession(
-                outputURL: segmentURL,
-                meeting: meeting,
-                selectedInputDeviceID: persisted.selectedInputDeviceID,
-                systemAudioEnabled: persisted.systemAudioEnabled
-            )
-            try await session.start()
+            // Resuming is the wake path, so this start is retried; a manual
+            // start above deliberately still fails fast.
+            let session = try await startWithRetry(meetingID: meeting.id) {
+                try buildSession(
+                    outputURL: segmentURL,
+                    meeting: meeting,
+                    selectedInputDeviceID: persisted.selectedInputDeviceID,
+                    systemAudioEnabled: persisted.systemAudioEnabled
+                )
+            }
 
             self.session = session
             beginSleepPrevention()
@@ -396,6 +413,68 @@ final class AudioRecordingService {
         formatter.dateFormat = "yyyy-MM-dd HHmmss"
         let timestamp = formatter.string(from: Date())
         return directory.appendingPathComponent("\(meeting.sanitizedTitle) \(timestamp).wav")
+    }
+
+    /// Builds and starts a resumed segment, retrying with backoff while
+    /// CoreAudio comes back after a wake. Only the resume path uses it: a manual
+    /// start must surface its failure immediately rather than spin for seconds.
+    ///
+    /// Each attempt builds a *fresh* session through the factory rather than
+    /// re-calling `start()` on the failed one: `RecordingSession.startedAt` is
+    /// fixed at init (a reused session would bill the backoff wait as recorded
+    /// audio) and its `configure()` is not idempotent — a second call would
+    /// replace the writers and the capture unit while orphaning the first
+    /// attempt's engine and file handles. Rebuilding on the same reserved
+    /// segment URL is safe because the writers create their temp `.pcm` files
+    /// with `FileManager.createFile`, which truncates the empty ones the failed
+    /// attempt left behind.
+    ///
+    /// Nothing is published until an attempt succeeds, so `session` stays nil
+    /// across failed attempts and a concurrent Stop can never see a half-built
+    /// session; the sleep assertion is taken by the caller afterwards.
+    private func startWithRetry(
+        meetingID: UUID,
+        makeSession: () throws -> RecordingSessionControlling
+    ) async throws -> RecordingSessionControlling {
+        let totalAttempts = 1 + startRetryDelays.count
+        var attempt = 1
+
+        while true {
+            do {
+                let session = try makeSession()
+                try await session.start()
+                if attempt > 1 {
+                    Log.recording.notice(
+                        """
+                        Audio engine start for meeting \(meetingID.uuidString, privacy: .public) succeeded on \
+                        attempt \(attempt, privacy: .public) of \(totalAttempts, privacy: .public)
+                        """
+                    )
+                }
+                return session
+            } catch {
+                guard attempt < totalAttempts else {
+                    Log.recording.error(
+                        """
+                        Audio engine start for meeting \(meetingID.uuidString, privacy: .public) failed on all \
+                        \(totalAttempts, privacy: .public) attempt(s): \(error.localizedDescription, privacy: .public)
+                        """
+                    )
+                    throw error
+                }
+                let delay = startRetryDelays[attempt - 1]
+                Log.recording.notice(
+                    """
+                    Audio engine start for meeting \(meetingID.uuidString, privacy: .public) failed on attempt \
+                    \(attempt, privacy: .public) of \(totalAttempts, privacy: .public) \
+                    (\(error.localizedDescription, privacy: .public)); retrying in \
+                    \(delay.timeInterval, privacy: .public)s
+                    """
+                )
+                await sleep(delay)
+                attempt += 1
+            }
+        }
     }
 
     private func buildSession(

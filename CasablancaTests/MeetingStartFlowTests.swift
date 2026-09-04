@@ -887,6 +887,130 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         )
     }
 
+    // MARK: - Retrying the audio engine start after wake
+
+    /// After the Mac wakes, CoreAudio is often not ready yet and the first
+    /// `AVAudioEngine.start()` throws — the auto-resume then failed once and left
+    /// the meeting paused. Resuming retries with backoff instead.
+    func testResumeRetriesSessionStartWithBackoff() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Woke Up", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        let flaky = FlakyEngineStart(failuresBeforeSuccess: 2)
+        let sleeps = SleepSpy()
+        var builtURLs: [URL] = []
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                builtURLs.append(outputURL)
+                return flaky.session(outputURL: outputURL)
+            },
+            startRetryDelays: [.zero, .zero, .zero],
+            sleep: { [sleeps] in sleeps.record($0) }
+        )
+
+        try await service.resumeRecording(for: meeting)
+
+        XCTAssertEqual(flaky.startAttempts, 3, "The resume must retry the engine start, not fail on the first throw")
+        XCTAssertTrue(service.isRecording)
+        XCTAssertEqual(service.activeMeetingID, meeting.id)
+        XCTAssertNil(service.errorMessage, "A resume that eventually started must not leave an error on screen")
+        XCTAssertEqual(sleeps.delays, [.zero, .zero], "One backoff wait between attempts, taken from the configured delays")
+        // Each attempt rebuilds through the factory: `RecordingSession.startedAt`
+        // is fixed at init (a reused session would bill the backoff as recorded
+        // audio) and its `configure()` is not idempotent.
+        XCTAssertEqual(builtURLs.count, 3, "Every attempt builds a fresh session")
+        XCTAssertEqual(
+            Set(builtURLs.map(\.lastPathComponent)), ["segment-002.wav"],
+            "The retries reuse the reserved segment number — they must not burn a number per attempt"
+        )
+    }
+
+    /// The retry is bounded: after the configured attempts the resume fails, and
+    /// it fails cleanly — the last error surfaces, no session is left half-built
+    /// for a concurrent Stop to find, and the idle-sleep assertion is not held.
+    func testResumeGivesUpAfterRetriesAndSurfacesLastError() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Dead CoreAudio", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        let flaky = FlakyEngineStart(failuresBeforeSuccess: .max)
+        let sleeps = SleepSpy()
+        let sleepPreventer = SleepPreventerSpy()
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in flaky.session(outputURL: outputURL) },
+            sleepPreventer: sleepPreventer,
+            startRetryDelays: [.milliseconds(1), .milliseconds(2), .milliseconds(3)],
+            sleep: { [sleeps] in sleeps.record($0) }
+        )
+
+        do {
+            try await service.resumeRecording(for: meeting)
+            XCTFail("A resume whose every attempt fails must throw")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).code, 4,
+                "The error from the LAST attempt must surface, not the first one"
+            )
+        }
+
+        XCTAssertEqual(flaky.startAttempts, 4, "One attempt plus one per configured delay")
+        XCTAssertEqual(
+            sleeps.delays, [.milliseconds(1), .milliseconds(2), .milliseconds(3)],
+            "The backoff must walk the configured delays in order"
+        )
+        XCTAssertNotNil(service.errorMessage, "The user has to see why the resume failed")
+        XCTAssertFalse(service.isRecording)
+        XCTAssertFalse(service.isPreparing)
+        XCTAssertNil(service.activeMeetingID, "No half-built session may be left behind for a concurrent Stop")
+        XCTAssertEqual(sleepPreventer.activeCount, 0, "A failed resume must not leave the Mac awake")
+        XCTAssertEqual(sleepPreventer.beginCount, 0, "The assertion belongs to a session that actually started")
+    }
+
+    /// The retry is for the wake path only. A manual start must fail fast so the
+    /// user sees the error instead of staring at a spinner for seven seconds.
+    func testStartRecordingDoesNotRetry() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "No Microphone", date: .now, status: .recording)
+
+        let flaky = FlakyEngineStart(failuresBeforeSuccess: .max)
+        let sleeps = SleepSpy()
+
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in flaky.session(outputURL: outputURL) },
+            startRetryDelays: [.zero, .zero, .zero],
+            sleep: { [sleeps] in sleeps.record($0) }
+        )
+
+        do {
+            try await service.startRecording(for: meeting)
+            XCTFail("A session whose start() throws must fail the start")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 1)
+        }
+
+        XCTAssertEqual(flaky.startAttempts, 1, "A manual start must fail fast — no retry, no backoff")
+        XCTAssertTrue(sleeps.delays.isEmpty)
+        XCTAssertFalse(service.isRecording)
+        XCTAssertNil(service.activeMeetingID)
+    }
+
     func testStopRecordingFromPausedMeetingMergesSegmentsAndDeletesSession() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
@@ -1400,5 +1524,74 @@ final class AutoPauseIndicatorPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.shouldShow)
         XCTAssertTrue(presentation.summary.contains("microphone"))
         XCTAssertTrue(presentation.summary.contains("Resume"))
+    }
+}
+
+/// Vends recording sessions whose `start()` throws for the first
+/// `failuresBeforeSuccess` attempts — CoreAudio right after a wake, which is not
+/// ready yet and then is. The attempt counter lives here, not in the session,
+/// because the retry rebuilds the session per attempt. Each failure carries a
+/// distinct error code (the attempt number) so a test can prove *which*
+/// attempt's error surfaced. `.max` never succeeds.
+private final class FlakyEngineStart: @unchecked Sendable {
+    private(set) var startAttempts = 0
+    private let failuresBeforeSuccess: Int
+
+    init(failuresBeforeSuccess: Int) {
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+    }
+
+    func session(outputURL: URL) -> RecordingSessionControlling {
+        CountingStartRecordingSession(outputURL: outputURL) { [unowned self] in
+            startAttempts += 1
+            if startAttempts <= failuresBeforeSuccess {
+                throw NSError(domain: "test.audio-engine", code: startAttempts)
+            }
+        }
+    }
+}
+
+private final class CountingStartRecordingSession: RecordingSessionControlling, @unchecked Sendable {
+    let outputURL: URL
+    let startedAt = Date()
+    let hasCapturedFrames = true
+    let systemAudioUnavailableError: Error? = nil
+    private let onStart: () throws -> Void
+
+    init(outputURL: URL, onStart: @escaping () throws -> Void) {
+        self.outputURL = outputURL
+        self.onStart = onStart
+    }
+
+    func start() async throws { try onStart() }
+    func stop() async throws -> RecordingResult { RecordingResult(outputURL: outputURL, duration: 0) }
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
+    func setSystemAudioEnabled(_ enabled: Bool) {}
+}
+
+/// Records the backoff waits the retry asked for without taking any of them, so
+/// the retry tests are deterministic instead of seven seconds long.
+private final class SleepSpy: @unchecked Sendable {
+    private(set) var delays: [Duration] = []
+
+    func record(_ delay: Duration) {
+        delays.append(delay)
+    }
+}
+
+/// Mirrors `RecordingPowerAssertionTests`' fake, kept local because that one is
+/// file-private. Used here to pin that a resume which never started takes no
+/// idle-sleep assertion.
+private final class SleepPreventerSpy: SleepPreventing {
+    private(set) var beginCount = 0
+    private(set) var endCount = 0
+
+    var activeCount: Int { beginCount - endCount }
+
+    func begin(reason: String) -> SleepPreventionToken {
+        beginCount += 1
+        return SleepPreventionToken { [weak self] in
+            self?.endCount += 1
+        }
     }
 }
