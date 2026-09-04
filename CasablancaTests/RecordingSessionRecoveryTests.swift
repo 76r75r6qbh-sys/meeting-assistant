@@ -1,0 +1,200 @@
+import XCTest
+@testable import Casablanca
+
+/// Covers the launch-time recovery sweep over
+/// `~/Library/Application Support/Casablanca/RecordingSessions`: which
+/// orphaned session directories are disposable, which still hold raw PCM that
+/// has to be rendered, and which already hold finalized segments. Everything
+/// runs against real files in a per-test temp directory — the sweep's whole
+/// job is filesystem classification, so faking the filesystem would test
+/// nothing.
+final class RecordingSessionRecoveryTests: XCTestCase {
+    private var rootURL: URL!
+    private var store: RecordingResumeSessionStore!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecordingSessionRecoveryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let root = rootURL!
+        store = RecordingResumeSessionStore(baseDirectoryProvider: { root })
+    }
+
+    override func tearDownWithError() throws {
+        if let rootURL, FileManager.default.fileExists(atPath: rootURL.path) {
+            try FileManager.default.removeItem(at: rootURL)
+        }
+        rootURL = nil
+        store = nil
+        try super.tearDownWithError()
+    }
+
+    // MARK: - scan
+
+    func testScanClassifiesEmptyManifestOnlyDirectoryAsDisposable() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+
+        XCTAssertEqual(try RecordingSessionRecovery.scan(store: store), [.disposable(meetingID)])
+    }
+
+    func testScanFindsOrphanedPCMPairNotInManifest() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 4_096, to: "segment-001.mic.pcm", for: meetingID)
+        try write(bytes: 0, to: "segment-001.system.pcm", for: meetingID)
+
+        XCTAssertEqual(
+            try RecordingSessionRecovery.scan(store: store),
+            [.orphanedPCM(meetingID, segmentNumbers: [1])]
+        )
+    }
+
+    func testScanFindsManifestWithFinalizedSegmentButNoMerge() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let segmentURL = try store.nextSegmentURL(for: meetingID, segmentNumber: 1)
+        try write(bytes: 2_048, to: segmentURL.lastPathComponent, for: meetingID)
+        try store.appendSegment(for: meetingID, segmentURL: segmentURL, duration: 42)
+
+        XCTAssertEqual(
+            try RecordingSessionRecovery.scan(store: store),
+            [.resumable(meetingID, segmentCount: 1)]
+        )
+    }
+
+    func testScanIgnoresDirectoriesThatAreNotUUIDs() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        // A stray directory and a stray file next to the session directories.
+        try FileManager.default.createDirectory(
+            at: rootURL.appendingPathComponent("not-a-uuid", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: rootURL.appendingPathComponent(".DS_Store"))
+
+        XCTAssertEqual(try RecordingSessionRecovery.scan(store: store), [.disposable(meetingID)])
+    }
+
+    func testScanClassifiesStrayWavWithoutManifestEntryAsResumable() throws {
+        // The manifest counter says a segment was reserved but the append
+        // never landed. The WAV is real audio: resumable, never disposable.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 2_048, to: "segment-001.wav", for: meetingID)
+
+        XCTAssertEqual(
+            try RecordingSessionRecovery.scan(store: store),
+            [.resumable(meetingID, segmentCount: 1)]
+        )
+    }
+
+    // MARK: - renderOrphanedTracks
+
+    func testRecoverRendersOrphanedPCMIntoSegmentAndAppendsManifest() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        let systemURL = directory.appendingPathComponent("segment-001.system.pcm")
+        try writeFloatSamples(count: 16_000, to: micURL)
+        try Data().write(to: systemURL)
+
+        let rendered = try RecordingSessionRecovery.renderOrphanedTracks(meetingID: meetingID, store: store)
+
+        XCTAssertEqual(rendered, 1)
+        let wavURL = directory.appendingPathComponent("segment-001.wav")
+        XCTAssertEqual(try fileSize(of: wavURL), 44 + 32_000)
+
+        let session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(session.segments.count, 1)
+        XCTAssertEqual(session.segments[0].index, 1)
+        XCTAssertEqual(session.segments[0].filePath, wavURL.path)
+        XCTAssertEqual(session.segments[0].duration, 1.0, accuracy: 0.0001)
+
+        // The renderer owns PCM deletion and only on its success path.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: micURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: systemURL.path))
+        XCTAssertEqual(try RecordingSessionRecovery.scan(store: store), [.resumable(meetingID, segmentCount: 1)])
+    }
+
+    func testRecoverNeverDeletesNonEmptyFiles() throws {
+        // segment-001.wav already carries samples: rendering over it would
+        // destroy a finished recording, so the PCM must be left untouched too.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let wavURL = directory.appendingPathComponent("segment-001.wav")
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 0x41, count: 4_096).write(to: wavURL)
+        try writeFloatSamples(count: 800, to: micURL)
+
+        let rendered = try RecordingSessionRecovery.renderOrphanedTracks(meetingID: meetingID, store: store)
+
+        XCTAssertEqual(rendered, 0, "an existing non-empty WAV must never be overwritten")
+        XCTAssertEqual(try fileSize(of: wavURL), 4_096)
+        XCTAssertEqual(try fileSize(of: micURL), 800 * 4)
+        XCTAssertTrue(store.hasRecoverableAudio(for: meetingID))
+        XCTAssertFalse(try store.deleteSessionIfEmpty(for: meetingID))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testRenderCreatesManifestWhenTheDirectoryHasNone() throws {
+        // The real-world May 19 case with an unreadable manifest: the PCM is
+        // still the authority, so recovery rebuilds the manifest around it.
+        let meetingID = UUID()
+        let directory = try store.sessionDirectory(for: meetingID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeFloatSamples(count: 8_000, to: directory.appendingPathComponent("segment-002.mic.pcm"))
+
+        let rendered = try RecordingSessionRecovery.renderOrphanedTracks(meetingID: meetingID, store: store)
+
+        XCTAssertEqual(rendered, 1)
+        let session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(session.segments.map(\.index), [2])
+        XCTAssertEqual(session.segments[0].duration, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(try fileSize(of: directory.appendingPathComponent("segment-002.wav")), 44 + 16_000)
+    }
+
+    // MARK: - adoptOrphanedSegments
+
+    func testAdoptOrphanedSegmentsAppendsStrayWavsToTheManifest() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 2_048, to: "segment-001.wav", for: meetingID)
+        try write(bytes: 4_096, to: "segment-002.wav", for: meetingID)
+        // A header-only WAV carries no samples and must not be adopted.
+        try write(bytes: 44, to: "segment-003.wav", for: meetingID)
+
+        let adopted = try RecordingSessionRecovery.adoptOrphanedSegments(meetingID: meetingID, store: store)
+
+        XCTAssertEqual(adopted, 2)
+        let session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(session.segments.map(\.index), [1, 2])
+        XCTAssertEqual(session.nextSegmentNumber, 3)
+        // Idempotent: a second pass finds nothing left to adopt.
+        XCTAssertEqual(try RecordingSessionRecovery.adoptOrphanedSegments(meetingID: meetingID, store: store), 0)
+    }
+
+    // MARK: - Helpers
+
+    private func write(bytes count: Int, to fileName: String, for meetingID: UUID) throws {
+        let directory = try store.sessionDirectory(for: meetingID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: count).write(to: directory.appendingPathComponent(fileName))
+    }
+
+    /// Writes `count` float32 samples of a mild constant level — enough for the
+    /// mixdown to produce a non-empty Int16 track.
+    private func writeFloatSamples(count: Int, to url: URL) throws {
+        let samples = [Float](repeating: 0.25, count: count)
+        let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        try data.write(to: url)
+    }
+
+    private func fileSize(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap(attributes[.size] as? Int)
+    }
+}

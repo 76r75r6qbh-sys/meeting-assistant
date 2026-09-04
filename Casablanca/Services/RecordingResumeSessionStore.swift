@@ -129,6 +129,27 @@ struct RecordingResumeSessionStore {
         return session
     }
 
+    /// Every meeting that owns a session directory under the base directory,
+    /// sorted for a stable sweep order. Entries whose name is not a UUID — and
+    /// loose files such as `.DS_Store` — are ignored: only Casablanca's own
+    /// `<meetingUUID>/` directories are session state. An absent base
+    /// directory means nothing was ever recorded, so the list is empty.
+    func meetingIDs() throws -> [UUID] {
+        let base = try baseDirectoryProvider()
+        guard fileManager.fileExists(atPath: base.path) else {
+            return []
+        }
+
+        let contents = try fileManager.contentsOfDirectory(
+            at: base,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        )
+        return contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .compactMap { UUID(uuidString: $0.lastPathComponent) }
+            .sorted { $0.uuidString < $1.uuidString }
+    }
+
     /// Every file in the session directory except the manifest: the WAV
     /// segments plus any raw `.mic.pcm` / `.system.pcm` still on disk.
     /// Empty when the directory does not exist.
