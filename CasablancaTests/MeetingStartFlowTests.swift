@@ -1149,6 +1149,133 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertFalse(service.hasResumableSession(for: UUID()))
     }
 
+    /// Task 3 loosened `hasResumableSession` so a manifest that never landed
+    /// (crash, full disk) cannot make recoverable audio look gone — the view
+    /// then demoted the meeting to notes-only with "This paused recording can no
+    /// longer be resumed." Regression cover for that: raw `.pcm` bytes alone,
+    /// with no manifest at all, still count as resumable.
+    func testHasResumableSessionTrueWhenOnlyOrphanedPCMExists() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Lost Manifest", date: .now, status: .pausedRecording)
+
+        let directory = try store.sessionDirectory(for: meeting.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 4_000).write(to: directory.appendingPathComponent("segment-001.mic.pcm"))
+
+        let service = AudioRecordingService(sessionStore: store)
+
+        XCTAssertNil(try store.loadSession(for: meeting.id), "The manifest is gone — that is the premise")
+        XCTAssertTrue(
+            service.hasResumableSession(for: meeting.id),
+            "Audio on disk is a resumable session even without a manifest"
+        )
+    }
+
+    /// The Resume button looked dead: the view's catch swallowed the error and
+    /// only flipped the status back to paused. The service publishes the reason
+    /// on a real failure so the view can raise it — and deliberately stays
+    /// silent for a cancelled resume, which is the user's own Stop, not a fault.
+    func testResumeFailureSetsErrorMessage() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Dead Engine", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        let alwaysFails = FlakyEngineStart(failuresBeforeSuccess: .max)
+        let failing = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in alwaysFails.session(outputURL: outputURL) },
+            startRetryDelays: [],
+            sleep: { _ in }
+        )
+
+        do {
+            try await failing.resumeRecording(for: meeting)
+            XCTFail("A resume whose session start never succeeds must throw")
+        } catch {
+            // Expected — the message is what the view puts in the alert.
+        }
+
+        XCTAssertNotNil(
+            failing.errorMessage,
+            "The view has nothing to show in the resume alert unless the service publishes the reason"
+        )
+
+        // A Stop cancelling the resume is not a failure, so nothing is published.
+        let cancelledRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cancelledStore = RecordingResumeSessionStore(baseDirectoryProvider: { cancelledRootURL })
+        let stopped = Meeting(title: "Stopped Mid-Resume", date: .now, status: .pausedRecording)
+        let stoppedSegment = try cancelledStore.nextSegmentURL(for: stopped.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: stoppedSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: stoppedSegment)
+        _ = try cancelledStore.createSession(for: stopped.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try cancelledStore.appendSegment(for: stopped.id, segmentURL: stoppedSegment, duration: 12)
+
+        let failsOnce = FlakyEngineStart(failuresBeforeSuccess: 1)
+        let resume = ResumeTaskBox()
+        let cancelled = AudioRecordingService(
+            sessionStore: cancelledStore,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in failsOnce.session(outputURL: outputURL) },
+            startRetryDelays: [.zero],
+            sleep: { [resume] _ in resume.cancel() }
+        )
+
+        resume.run { try await cancelled.resumeRecording(for: stopped) }
+
+        do {
+            try await resume.value
+            XCTFail("A cancelled resume must throw, not publish a session")
+        } catch is CancellationError {
+            // Expected
+        }
+
+        XCTAssertNil(
+            cancelled.errorMessage,
+            "Stop is not a failure — the view must not raise an alert at a user who just pressed Stop"
+        )
+    }
+
+    /// After an app relaunch nothing has ticked the timer, so a paused meeting
+    /// showed 00:00 instead of the total already captured — which reads as "my
+    /// recording is gone". `refreshElapsed` puts the manifest's total back on
+    /// screen, and leaves the display alone when there is no manifest to read.
+    func testRefreshElapsedShowsAccumulatedSegmentDuration() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Relaunched While Paused", date: .now, status: .pausedRecording)
+
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        let secondSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 2)
+        try Data("second".utf8).write(to: secondSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 42)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: secondSegment, duration: 18)
+
+        let service = AudioRecordingService(sessionStore: store)
+        XCTAssertEqual(service.elapsedTime, 0, "A fresh service has never ticked")
+
+        service.refreshElapsed(for: meeting.id)
+
+        XCTAssertEqual(
+            service.elapsedTime, 60, accuracy: 0.001,
+            "The paused display must show the sum of every recorded segment"
+        )
+
+        service.refreshElapsed(for: UUID())
+
+        XCTAssertEqual(
+            service.elapsedTime, 60, accuracy: 0.001,
+            "No manifest means nothing is known — leave the display alone instead of zeroing it"
+        )
+    }
+
     /// The race that lost audio: an interrupt suspended inside `session.stop()`
     /// while the user presses Stop. Stop used to get `.sessionAlreadyStopped`
     /// back and run straight on to merge (without the in-flight segment) and

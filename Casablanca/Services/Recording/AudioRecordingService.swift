@@ -342,6 +342,22 @@ final class AudioRecordingService {
         return sessionStore.hasRecoverableAudio(for: meetingID)
     }
 
+    /// Puts the total already recorded for a paused meeting back on the elapsed
+    /// display. Nothing ticks the timer across an app relaunch, so a paused
+    /// recording showed 00:00 — which reads as "my recording is gone" and is
+    /// exactly the moment the user reaches for Resume. Leaves `elapsedTime`
+    /// untouched when there is no manifest to read: an unknown total must not
+    /// overwrite a live one with zero.
+    func refreshElapsed(for meetingID: UUID) {
+        guard (try? sessionStore.loadSession(for: meetingID)) != nil else { return }
+
+        let total = accumulatedSegmentDuration(for: meetingID)
+        elapsedTime = total
+        Log.recording.notice(
+            "Elapsed display refreshed for meeting \(meetingID.uuidString, privacy: .public) to \(total, privacy: .public)s"
+        )
+    }
+
     func forwardStreamFailure(_ error: Error) {
         interruptionMonitor?.reportStreamFailure(error)
     }
