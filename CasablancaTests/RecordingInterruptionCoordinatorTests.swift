@@ -21,7 +21,27 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(env.saveCount, 2)
     }
 
-    func testLongLockSkipsAutoResumeAndStaysPaused() async {
+    /// The fixed 30 s window survives only for `.displayUnavailable`: past it
+    /// there is still no display to capture system audio from, so the app does
+    /// not resume on its own.
+    func testLongDisplayOutageSkipsAutoResumeAndStaysPaused() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.displayUnavailable, atOffset: 0)
+        await env.flush()
+        env.advance(by: 31)
+        env.fireEnd(.displayUnavailable, atOffset: 31)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.displayUnavailable)])
+        XCTAssertEqual(env.notifier.posted.count, 1)
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+    }
+
+    /// Supersedes the old fixed-window behaviour for locks: a 31 s lock used to
+    /// strand the meeting paused. Locks now follow the meeting-slot policy.
+    func testLongLockStillAutoResumesWithinTheMeetingSlot() async {
         let env = makeEnv()
         env.coordinator.bind(meeting: env.meeting)
 
@@ -31,9 +51,8 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         env.fireEnd(.screenLock, atOffset: 31)
         await env.flush()
 
-        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock)])
-        XCTAssertEqual(env.notifier.posted.count, 1)
-        XCTAssertEqual(env.meeting.status, .pausedRecording)
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.screenLock), .resume])
+        XCTAssertEqual(env.meeting.status, .recording)
     }
 
     func testDisplayLostTriggersPauseAndAutoResumesWhenDisplayReturns() async {
@@ -309,6 +328,275 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertNotNil(secondRecord)
         XCTAssertFalse(secondRecord?.resumedAutomatically == true,
                        "Newly-appended interruption must not inherit resumed=true from the prior one")
+    }
+
+    // MARK: - SleepResumePolicy (pure)
+
+    func testPolicyResumesWhileTheMeetingSlotIsStillOpen() {
+        // 2 h meeting, paused at its start, woken 2 h 13 min in: past the 30 min
+        // fallback, inside the meeting's end + grace.
+        XCTAssertTrue(SleepResumePolicy.shouldAutoResume(
+            reason: .systemSleep,
+            pausedAt: Date(timeIntervalSince1970: 0),
+            wakeAt: Date(timeIntervalSince1970: 8000),
+            meetingEnd: Date(timeIntervalSince1970: 7200)
+        ))
+    }
+
+    func testPolicyStaysPausedPastTheMeetingEndGrace() {
+        XCTAssertFalse(SleepResumePolicy.shouldAutoResume(
+            reason: .systemSleep,
+            pausedAt: Date(timeIntervalSince1970: 0),
+            wakeAt: Date(timeIntervalSince1970: 8200),
+            meetingEnd: Date(timeIntervalSince1970: 7200)
+        ))
+    }
+
+    func testPolicyFallsBackToThirtyMinutesWithoutAMeetingEnd() {
+        let pausedAt = Date(timeIntervalSince1970: 500)
+        XCTAssertTrue(SleepResumePolicy.shouldAutoResume(
+            reason: .systemSleep,
+            pausedAt: pausedAt,
+            wakeAt: pausedAt.addingTimeInterval(30 * 60 - 1),
+            meetingEnd: nil
+        ))
+        XCTAssertFalse(SleepResumePolicy.shouldAutoResume(
+            reason: .systemSleep,
+            pausedAt: pausedAt,
+            wakeAt: pausedAt.addingTimeInterval(30 * 60 + 1),
+            meetingEnd: nil
+        ))
+    }
+
+    /// A meeting that pauses at (or after) its scheduled end still gets the
+    /// full fallback window, which outlasts end + grace there.
+    func testPolicyPrefersTheFallbackWhenItOutlastsTheMeetingSlot() {
+        let end = Date(timeIntervalSince1970: 3600)
+        XCTAssertEqual(
+            SleepResumePolicy.deadline(pausedAt: end, meetingEnd: end),
+            end.addingTimeInterval(30 * 60)
+        )
+        XCTAssertTrue(SleepResumePolicy.shouldAutoResume(
+            reason: .screenLock,
+            pausedAt: end,
+            wakeAt: end.addingTimeInterval(20 * 60),
+            meetingEnd: end
+        ))
+    }
+
+    func testPolicyDeadlineIsExclusive() {
+        let pausedAt = Date(timeIntervalSince1970: 0)
+        let deadline = SleepResumePolicy.deadline(pausedAt: pausedAt, meetingEnd: nil)
+        XCTAssertFalse(SleepResumePolicy.shouldAutoResume(
+            reason: .systemSleep,
+            pausedAt: pausedAt,
+            wakeAt: deadline,
+            meetingEnd: nil
+        ))
+    }
+
+    /// `.displayUnavailable` keeps the old fixed window: the policy declines it
+    /// so the coordinator's window check stays the only judge.
+    func testPolicyDeclinesWindowBoundReasons() {
+        XCTAssertTrue(SleepResumePolicy.isWindowBound(.displayUnavailable))
+        XCTAssertFalse(SleepResumePolicy.shouldAutoResume(
+            reason: .displayUnavailable,
+            pausedAt: Date(timeIntervalSince1970: 0),
+            wakeAt: Date(timeIntervalSince1970: 1),
+            meetingEnd: nil
+        ))
+    }
+
+    func testPolicyDeclinesReasonsThatNeverAutoResume() {
+        for reason: RecordingInterruptionReason in [
+            .audioDeviceLost(deviceID: "USBMic"),
+            .streamFailure(underlyingDescription: "stream not found")
+        ] {
+            XCTAssertFalse(SleepResumePolicy.shouldAutoResume(
+                reason: reason,
+                pausedAt: Date(timeIntervalSince1970: 0),
+                wakeAt: Date(timeIntervalSince1970: 1),
+                meetingEnd: nil
+            ), "\(reason) must never auto-resume")
+        }
+    }
+
+    func testPolicyGovernsSleepAndLock() {
+        XCTAssertFalse(SleepResumePolicy.isWindowBound(.systemSleep))
+        XCTAssertFalse(SleepResumePolicy.isWindowBound(.screenLock))
+    }
+
+    // MARK: - Sleep/wake resume policy
+
+    /// The whole point of the task: a real sleep lasts minutes, not seconds, and
+    /// the old fixed 30 s window left the meeting paused with the user assuming
+    /// the recording was lost.
+    func testSleepWakeAfterTwoMinutesStillAutoResumes() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        env.advance(by: 120)
+        env.fireEnd(.systemSleep, atOffset: 120)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
+    /// Past the meeting's own slot (+ grace) the recording is almost certainly
+    /// over, so the app stops guessing and hands the decision to the user.
+    func testSleepWakeAfterMeetingEndPlusGraceStaysPaused() async {
+        let env = makeEnv()
+        let meeting = Meeting(
+            title: "Weekly Sync",
+            date: Date(timeIntervalSince1970: 0),
+            endDate: Date(timeIntervalSince1970: 3600),
+            status: .recording
+        )
+        env.coordinator.bind(meeting: meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(meeting.status, .pausedRecording)
+
+        env.advance(by: 7200)
+        env.fireEnd(.systemSleep, atOffset: 7200)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep)])
+        XCTAssertEqual(meeting.status, .pausedRecording)
+        XCTAssertEqual(env.notifier.posted.last?.title, "Recording paused")
+        XCTAssertEqual(env.notifier.posted.last?.body, "Open the meeting to Resume or Stop.")
+    }
+
+    /// A meeting started by hand has no scheduled end, so the fallback window
+    /// from the pause is all there is to go on.
+    func testManualMeetingWithoutEndDateResumesWithin30Minutes() async {
+        let env = makeEnv()
+        let meeting = Meeting(title: "Ad hoc", date: Date(timeIntervalSince1970: 0), status: .recording)
+        XCTAssertNil(meeting.endDate)
+        env.coordinator.bind(meeting: meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        env.advance(by: 25 * 60)
+        env.fireEnd(.systemSleep, atOffset: 25 * 60)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(meeting.status, .recording)
+    }
+
+    func testManualMeetingWithoutEndDateStaysPausedAfter30Minutes() async {
+        let env = makeEnv()
+        let meeting = Meeting(title: "Ad hoc", date: Date(timeIntervalSince1970: 0), status: .recording)
+        env.coordinator.bind(meeting: meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        env.advance(by: 30 * 60 + 1)
+        env.fireEnd(.systemSleep, atOffset: 30 * 60 + 1)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep)])
+        XCTAssertEqual(meeting.status, .pausedRecording)
+        XCTAssertEqual(env.notifier.posted.last?.body, "Open the meeting to Resume or Stop.")
+    }
+
+    /// Sleeping closes the recording workspace, so `onDisappear` unbinds the
+    /// coordinator. If that unbind won, the wake would find no meeting to resume.
+    func testWakeResumesEvenAfterViewUnboundWhilePaused() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        env.coordinator.bind(meeting: nil)
+        XCTAssertFalse(env.coordinator.recentEvents.isEmpty,
+                       "The interruption is still live, so its history must survive the unbind")
+
+        env.advance(by: 60)
+        env.fireEnd(.systemSleep, atOffset: 60)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
+    /// The unbind deferral is only for an interruption still in flight. The
+    /// ordinary case — the user navigates away between interruptions — must
+    /// still release the meeting, or the coordinator would keep steering a
+    /// workspace that is no longer on screen.
+    func testUnbindWithNoLiveInterruptionStillReleasesTheMeeting() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.screenLock, atOffset: 0)
+        await env.flush()
+        env.fireEnd(.screenLock, atOffset: 5)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .recording)
+        XCTAssertEqual(env.coordinator.recentEvents.count, 1)
+
+        env.coordinator.bind(meeting: nil)
+        XCTAssertTrue(env.coordinator.recentEvents.isEmpty,
+                      "Nothing is in flight, so the unbind must clear the interruption history")
+
+        // And the released meeting is no longer touched by a later interruption.
+        env.fireStart(.systemSleep, atOffset: 10)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .recording)
+    }
+
+    /// A sleep with a notes-only meeting open interrupts nothing, so the wake
+    /// has nothing to resume — asking the service produced a bogus
+    /// "Could not resume recording" toast for a recording that never existed.
+    func testWakeAfterNothingRecordingInterruptDoesNotResume() async {
+        let env = makeEnv(meetingStatus: .notesOnly)
+        env.service.interruptOutcome = .nothingRecording
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        env.advance(by: 120)
+        env.fireEnd(.systemSleep, atOffset: 120)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep)],
+                       "Nothing was paused, so nothing may be resumed")
+        XCTAssertTrue(env.notifier.posted.isEmpty)
+        XCTAssertEqual(env.meeting.status, .notesOnly)
+    }
+
+    /// The user pausing on purpose outranks any interruption still in flight:
+    /// a later wake must not restart a recording they chose to stop feeding.
+    func testManualPauseClearsInterruptionBookkeeping() async {
+        let env = makeEnv()
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        // The view pauses the recording itself and tells the coordinator.
+        env.coordinator.notifyMeetingTransitioned(to: .pausedRecording)
+
+        env.advance(by: 60)
+        env.fireEnd(.systemSleep, atOffset: 60)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep)],
+                       "A manual pause must not be undone by a later wake")
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
     // MARK: - Sleep deferral completion
