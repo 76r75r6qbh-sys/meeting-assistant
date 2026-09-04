@@ -135,20 +135,23 @@ final class RecordingInterruptionMonitor {
         self.willSleepFallbackGrace = willSleepFallbackGrace
         installWorkspaceObservers()
         installScreenParameterObserver()
-        installSessionLockObservers()
     }
 
-    /// Registers for system power notifications. Separate from `init` and
-    /// idempotent: `ContentView` is a struct whose body is re-evaluated whenever
-    /// the app model changes, so its `@State` initializer expression runs on
-    /// every view value SwiftUI builds while only the first object is kept.
-    /// Registering in `init` therefore did an `IORegisterForSystemPower` (plus a
-    /// notification port) per rebuild, all but one of them immediately thrown
-    /// away. Call this once from `.task`/`onAppear` on the retained instance.
+    /// Registers for system power notifications and the session lock. Separate
+    /// from `init` and idempotent: `ContentView` is a struct whose body is
+    /// re-evaluated whenever the app model changes, so its `@State` initializer
+    /// expression runs on every view value SwiftUI builds while only the first
+    /// object is kept. Registering in `init` therefore did an
+    /// `IORegisterForSystemPower` (plus a notification port) per rebuild, all
+    /// but one of them immediately thrown away -- and the lock observers live
+    /// on `distnoted`, so each throwaway cost a cross-process register plus
+    /// unregister too. Call this once from `.task`/`onAppear` on the retained
+    /// instance.
     func start() {
         guard !didStart else { return }
         didStart = true
         installSleepGate()
+        installSessionLockObservers()
     }
 
     deinit {
@@ -314,12 +317,18 @@ final class RecordingInterruptionMonitor {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isSessionLocked = locked
-                    Log.recording.notice(
-                        """
-                        Session \(locked ? "locked" : "unlocked", privacy: .public); the recording keeps \
-                        running (the power assertion holds capture up)
-                        """
-                    )
+                    // Only worth a line while something is actually recording
+                    // (`activeInputDeviceID` is set only then); every other lock
+                    // of the day is none of this subsystem's business.
+                    if self.activeInputDeviceID != nil {
+                        if locked {
+                            Log.recording.notice(
+                                "Session locked; the recording keeps running (the power assertion holds capture up)"
+                            )
+                        } else {
+                            Log.recording.notice("Session unlocked; the user is back at the Mac")
+                        }
+                    }
                     self.onSessionLockChanged?(locked)
                 }
             }

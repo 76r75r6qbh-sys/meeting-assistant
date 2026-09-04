@@ -211,6 +211,41 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         )
     }
 
+    /// A retry token belongs to the window that armed it. A later window brings
+    /// its own rules — `.audioDeviceLost` forbids auto-resume outright — and an
+    /// unlock must not reach past it to a resume the previous window failed.
+    func testUnlockDoesNotRetryAResumeFromAnEarlierInterruptionWindow() async {
+        let env = makeEnv()
+        env.service.resumeError = NSError(domain: "test", code: 7)
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        env.advance(by: 10)
+        env.fireEnd(.systemSleep, atOffset: 10)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+
+        // A second window, whose reason never auto-resumes.
+        env.service.resumeError = nil
+        env.fireStart(.audioDeviceLost(deviceID: "USBMic"), atOffset: 20)
+        await env.flush()
+        env.fireEnd(.audioDeviceLost(deviceID: "USBMic"), atOffset: 25)
+        await env.flush()
+
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls.filter { $0 == .resume }.count,
+            1,
+            "The stale token from the earlier window must not resume the recording"
+        )
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+    }
+
     /// The unlock only says the user is back — not that the meeting still is.
     /// A retry stays bound to the same deadline a wake would face, so a Mac
     /// unlocked hours later does not restart a recording nobody is holding.

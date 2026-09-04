@@ -16,6 +16,8 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) }
         )
 
+        monitor.start()
+
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
 
@@ -32,6 +34,8 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             deviceListProvider: { [] },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
+
+        monitor.start()
 
         var events: [RecordingInterruptionEvent] = []
         monitor.onEvent = { events.append($0) }
@@ -56,6 +60,8 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) }
         )
 
+        monitor.start()
+
         var events: [RecordingInterruptionEvent] = []
         var lockChanges: [Bool] = []
         monitor.onEvent = { events.append($0) }
@@ -71,6 +77,35 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         XCTAssertEqual(lockChanges, [true, false])
         XCTAssertFalse(monitor.isSessionLocked)
         XCTAssertTrue(events.isEmpty, "A session lock must not interrupt the recording")
+    }
+
+    /// The distributed center is cross-process (`distnoted`), and the only
+    /// production construction is a SwiftUI `@State` initializer expression that
+    /// re-runs on every app-model change. Registering in `init` would therefore
+    /// cost a register plus unregister per thrown-away view value, so the
+    /// observers wait for the idempotent `start()` -- called once, from `.task`.
+    func testSessionLockObserversWaitForStartAndRegisterOnlyOnce() async {
+        let distributed = NotificationCenter()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: distributed,
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+
+        var lockChanges: [Bool] = []
+        monitor.onSessionLockChanged = { lockChanges.append($0) }
+
+        distributed.post(name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+
+        XCTAssertTrue(lockChanges.isEmpty, "Nothing may be registered on the distributed center before start()")
+        XCTAssertFalse(monitor.isSessionLocked)
+
+        monitor.start()
+        monitor.start()
+        distributed.post(name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+
+        XCTAssertEqual(lockChanges, [true], "A repeated start() must not register a second observer")
     }
 
     func testSleepAndWakeProduceSystemSleepEvents() async {

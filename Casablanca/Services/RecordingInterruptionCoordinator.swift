@@ -244,6 +244,11 @@ final class RecordingInterruptionCoordinator {
         }
 
         resumeAllowedForActiveWindow = event.reason.allowsAutoResume
+        // A new window supersedes whatever the previous one left behind: its
+        // retry would be judged against a `pausedAt` that no longer describes
+        // anything, and this window's own rules (a reason that forbids
+        // auto-resume, say) must be the ones that decide.
+        pendingResumeRetry = nil
         startedAt = event.at
         appendRecentEvent(InterruptionRecord(reason: event.reason, startedAt: event.at, endedAt: nil, resumedAutomatically: false))
         // Pausing the meeting has to wait for the service's verdict: a sleep
