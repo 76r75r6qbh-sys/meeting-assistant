@@ -134,84 +134,165 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
     // MARK: - Service-owned background run
 
-    /// `transcribeInBackground` cannot reach a real WhisperKit in a test, so the
-    /// transcription step itself is driven through the service's DEBUG seam; the
-    /// ownership behaviour under test (no-op re-trigger, cancel) is all around it.
+    /// `transcribeInBackground` can reach neither a real WhisperKit nor the live
+    /// pipeline in a test, so both are driven through the service's DEBUG seams:
+    /// the live pipeline reads `UserDefaults.standard`, writes into the real
+    /// Application Support, exports into the user's real Obsidian vault and can
+    /// make a billed LLM terminology call. Everything under test here — the
+    /// guards, the wind-down wait, the cancel path — is production code.
     func testSecondBackgroundRunForSameMeetingIsNoOp() async throws {
         let context = try makeInMemoryModelContext()
-        let meeting = Meeting(title: "Standup", date: Date(timeIntervalSince1970: 1_700_000_000))
-        // Already-compressed, so the live pipeline's compression step is skipped:
-        // this test is about ownership, not about re-encoding.
-        meeting.recordingFileURL = "/tmp/does-not-matter.m4a"
-        context.insert(meeting)
+        let meeting = makeMeeting(titled: "Standup", in: context)
+        let service = makeService()
+        let pipelineRuns = EventLog()
+        service.pipelineOverrideForTesting = makeFakePipeline(log: pipelineRuns)
 
-        let service = TranscriptionService(
-            sleepPreventer: FakeSleepPreventer(),
-            memoryPressureMonitor: FakeMemoryPressureMonitor()
-        )
         let runs = Counter()
         service.transcribeOverrideForTesting = { _, _ in
             runs.increment()
             return makeResult(text: "hello")
         }
 
-        service.transcribeInBackground(
-            meeting: meeting,
-            modelContext: context,
-            terminologyService: TerminologyService(),
-            exportReporter: nil
-        )
+        start(service, meeting, context)
         XCTAssertEqual(service.transcribingMeetingID, meeting.id)
 
         // The re-trigger a re-appearing view produces: it must not start a second
         // concurrent transcription on the same WhisperKit instance.
-        service.transcribeInBackground(
-            meeting: meeting,
-            modelContext: context,
-            terminologyService: TerminologyService(),
-            exportReporter: nil
-        )
+        start(service, meeting, context)
 
         await service.waitForBackgroundWorkForTesting()
 
         XCTAssertEqual(runs.value, 1, "A second run for the meeting already transcribing is ignored")
+        XCTAssertEqual(pipelineRuns.events, ["pipeline"], "…and the pipeline runs once, not twice")
         XCTAssertNil(service.transcribingMeetingID, "The run clears itself on the way out")
         XCTAssertEqual(service.lastCompletedMeetingID, meeting.id, "A clean run reports the meeting it finished")
-        XCTAssertNil(service.lastError)
+        XCTAssertNil(service.lastError, "A no-op re-trigger is not an error: that run is genuinely showing")
+    }
+
+    /// The refusal that would otherwise be invisible. Callers flip the meeting to
+    /// `.processing` *before* calling (NotesEditorView after Stop, ContentView's
+    /// "Transcribe"), so a silent refusal leaves it spinning on a run that does
+    /// not exist, with `.task` unable to re-fire and Cancel disabled.
+    func testRejectedRunForAnotherMeetingSurfacesAnError() async throws {
+        let context = try makeInMemoryModelContext()
+        let running = makeMeeting(titled: "Sprint Review", in: context)
+        let refused = makeMeeting(titled: "Retro", in: context)
+        let service = makeService()
+        service.pipelineOverrideForTesting = makeFakePipeline(log: EventLog())
+
+        let runs = Counter()
+        let gate = Gate()
+        service.transcribeOverrideForTesting = { _, _ in
+            runs.increment()
+            await gate.wait()
+            return makeResult(text: "hello")
+        }
+
+        start(service, running, context)
+        start(service, refused, context)
+
+        XCTAssertEqual(service.transcribingMeetingID, running.id, "The live run keeps the service")
+        guard case .anotherTranscriptionInProgress(let blockingTitle) = service.lastError else {
+            return XCTFail("A refused start must surface an error, got \(String(describing: service.lastError))")
+        }
+        XCTAssertEqual(blockingTitle, "Sprint Review", "The error names what is blocking the start")
+        XCTAssertEqual(
+            service.lastError?.localizedDescription,
+            "Another meeting (Sprint Review) is still being transcribed. Try again when it finishes.",
+            "The alert has to read as an instruction, not as a failure"
+        )
+
+        gate.open()
+        await service.waitForBackgroundWorkForTesting()
+
+        XCTAssertEqual(runs.value, 1, "The refused meeting never started a decode of its own")
+        XCTAssertEqual(
+            service.lastCompletedMeetingID,
+            running.id,
+            "Only the run that was already going completes"
+        )
+    }
+
+    /// Retry straight after Cancel. `cancel()` leaves `transcribingMeetingID` set
+    /// until the old task unwinds, so a re-trigger in that window used to be
+    /// refused — leaving the meeting stuck. It now waits the predecessor out and
+    /// then runs, which also keeps the two decodes off one WhisperKit instance.
+    func testRestartAfterCancelWaitsForWindDownThenRuns() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = makeMeeting(titled: "Bilateral", in: context)
+        let service = makeService()
+        let log = EventLog()
+        service.pipelineOverrideForTesting = makeFakePipeline(log: log)
+
+        let decodes = Counter()
+        service.transcribeOverrideForTesting = { _, _ in
+            decodes.increment()
+            let decode = decodes.value
+            log.append("decode \(decode) started")
+            if decode == 1 {
+                do {
+                    try await Task.sleep(nanoseconds: 60_000_000_000)
+                } catch {
+                    log.append("decode 1 unwound")
+                    throw error
+                }
+            }
+            log.append("decode \(decode) finished")
+            return makeResult(text: "hello")
+        }
+
+        start(service, meeting, context)
+        service.cancel()
+        // The window the fix is about: cancelled, but not yet unwound.
+        start(service, meeting, context)
+
+        await service.waitForBackgroundWorkForTesting()
+
+        XCTAssertEqual(
+            log.events,
+            ["decode 1 started", "decode 1 unwound", "decode 2 started", "decode 2 finished", "pipeline"],
+            "The replacement run starts only after the cancelled one has unwound"
+        )
+        XCTAssertEqual(decodes.value, 2, "The restart really ran; it was not swallowed as a duplicate")
+        XCTAssertEqual(service.lastCompletedMeetingID, meeting.id)
+        XCTAssertNil(service.transcribingMeetingID)
+        XCTAssertNil(service.lastError, "Neither the cancel nor the restart is a failure")
     }
 
     func testCancelStopsBackgroundTask() async throws {
         let context = try makeInMemoryModelContext()
-        let meeting = Meeting(title: "Bilateral", date: Date(timeIntervalSince1970: 1_700_000_000))
-        // Already-compressed, so the live pipeline's compression step is skipped:
-        // this test is about ownership, not about re-encoding.
-        meeting.recordingFileURL = "/tmp/does-not-matter.m4a"
-        context.insert(meeting)
+        let meeting = makeMeeting(titled: "Week start", in: context)
+        let service = makeService()
+        let pipelineRuns = EventLog()
+        service.pipelineOverrideForTesting = makeFakePipeline(log: pipelineRuns)
 
-        let service = TranscriptionService(
-            sleepPreventer: FakeSleepPreventer(),
-            memoryPressureMonitor: FakeMemoryPressureMonitor()
-        )
         let started = Counter()
+        let gate = Gate()
+        let cancellationReachedTheDecode = Flag()
         service.transcribeOverrideForTesting = { _, _ in
             started.increment()
-            // Stands in for a long transcription: it ends only when cancelled.
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            // Stands in for a long transcription: it waits, and on release
+            // reports whether the cancellation reached this far IN — proving the
+            // inner step is cancelled, not just the task wrapping it.
+            await gate.wait()
+            cancellationReachedTheDecode.set(Task.isCancelled)
+            try Task.checkCancellation()
             XCTFail("A cancelled run must not reach its result")
             return makeResult(text: "unreachable")
         }
 
-        service.transcribeInBackground(
-            meeting: meeting,
-            modelContext: context,
-            terminologyService: TerminologyService(),
-            exportReporter: nil
-        )
+        start(service, meeting, context)
         service.cancel()
+        gate.open()
 
         await service.waitForBackgroundWorkForTesting()
 
         XCTAssertEqual(started.value, 1)
+        XCTAssertTrue(
+            cancellationReachedTheDecode.value,
+            "Cancellation has to propagate INTO the transcription step, not stop at the task boundary"
+        )
+        XCTAssertEqual(pipelineRuns.events, [], "A cancelled run never reaches the pipeline")
         XCTAssertNil(service.transcribingMeetingID, "Cancel ends the service-owned run")
         XCTAssertNil(service.lastCompletedMeetingID, "A cancelled run never completes the pipeline")
         XCTAssertNil(service.lastError, "Cancel is user intent, not a failure to surface")
@@ -219,6 +300,48 @@ final class PostTranscriptionPipelineTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func makeService() -> TranscriptionService {
+        TranscriptionService(
+            sleepPreventer: FakeSleepPreventer(),
+            memoryPressureMonitor: FakeMemoryPressureMonitor()
+        )
+    }
+
+    private func makeMeeting(titled title: String, in context: ModelContext) -> Meeting {
+        let meeting = Meeting(title: title, date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = "/tmp/does-not-matter.wav"
+        context.insert(meeting)
+        return meeting
+    }
+
+    /// A pipeline whose every step is a fake reading scratch preferences, so no
+    /// service-level test can touch `UserDefaults.standard`, the real
+    /// Application Support, the user's Obsidian vault, or an LLM. Appends
+    /// "pipeline" to `log` from the transcript-saving step, which always runs, so
+    /// a test can tell whether the pipeline was reached at all.
+    private func makeFakePipeline(log: EventLog) -> PostTranscriptionPipeline {
+        PostTranscriptionPipeline(
+            correctTerminology: { transcript, _ in transcript },
+            saveTranscript: { _, _ in
+                log.append("pipeline")
+                return URL(fileURLWithPath: "/dev/null")
+            },
+            export: { _ in },
+            compress: { url in url },
+            defaults: makeDefaults()
+        )
+    }
+
+    /// Starts a background run with the fakes the tests share.
+    private func start(_ service: TranscriptionService, _ meeting: Meeting, _ context: ModelContext) {
+        service.transcribeInBackground(
+            meeting: meeting,
+            modelContext: context,
+            terminologyService: TerminologyService(),
+            exportReporter: nil
+        )
+    }
 
     private func makeInMemoryModelContext() throws -> ModelContext {
         let schema = Schema([Meeting.self, TodoItem.self])
@@ -268,6 +391,45 @@ private final class StepRecorder {
 private final class Counter {
     private(set) var value = 0
     func increment() { value += 1 }
+}
+
+/// An ordered list of what happened, for the assertions that are about order.
+@MainActor
+private final class EventLog {
+    private(set) var events: [String] = []
+    func append(_ event: String) { events.append(event) }
+}
+
+@MainActor
+private final class Flag {
+    private(set) var value = false
+    func set(_ newValue: Bool) { value = newValue }
+}
+
+/// Holds a fake transcription open until the test releases it, so "while a run
+/// is in flight" is a fact rather than a race.
+private actor Gate {
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func openNow() {
+        isOpen = true
+        let waiting = continuations
+        continuations = []
+        for continuation in waiting { continuation.resume() }
+    }
+}
+
+extension Gate {
+    /// Callable from the main-actor tests without an await ceremony at each site.
+    nonisolated func open() {
+        Task { await self.openNow() }
+    }
 }
 
 private final class FakeSleepPreventer: SleepPreventing {

@@ -60,7 +60,14 @@ struct PostTranscriptionPipeline {
                 try TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
             },
             export: { meeting in
-                await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportReporter)
+                // `defaults` goes to the exporter too: it decides both WHETHER to
+                // export and WHERE, so leaving it on `.standard` would let a
+                // scratch-preference caller reach the user's real vault.
+                await ExportService.exportAutomaticallyIfEnabled(
+                    meeting,
+                    defaults: defaults,
+                    reporter: exportReporter
+                )
             },
             compress: { wavURL in
                 try await RecordingCompressor.compress(wavURL: wavURL)

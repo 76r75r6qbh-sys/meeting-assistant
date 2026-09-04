@@ -53,6 +53,10 @@ enum TranscriptionError: LocalizedError {
     case transcriptionFailed(String)
     case modelNotAvailable(String)
     case cancelled
+    /// A start was refused because a different meeting is mid-transcription.
+    /// Refusing silently would leave the refused meeting stuck on `.processing`
+    /// with a progress bar for a run that does not exist, so this is surfaced.
+    case anotherTranscriptionInProgress(meetingTitle: String)
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +70,8 @@ enum TranscriptionError: LocalizedError {
             return "Whisper model '\(model)' is not available. It may still be downloading."
         case .cancelled:
             return "Transcription was cancelled."
+        case .anotherTranscriptionInProgress(let meetingTitle):
+            return "Another meeting (\(meetingTitle)) is still being transcribed. Try again when it finishes."
         }
     }
 }
@@ -134,6 +140,13 @@ final class TranscriptionService {
     /// kept decoding — and coming back started a SECOND transcription on the same
     /// WhisperKit instance.
     private var backgroundTask: Task<Void, Never>?
+    /// Title of the meeting in `transcribingMeetingID`, kept so a refused start
+    /// can name what is blocking it without reaching back into the model.
+    private var transcribingMeetingTitle = ""
+    /// Monotonic id for the run in `backgroundTask`. A cancelled run can still be
+    /// unwinding after its replacement has started; the id is how the unwinding
+    /// one knows the state it is about to clear is no longer its own.
+    private var currentRunID = 0
     /// The last checkpoint we actually know is true (loading floor, a real VAD
     /// segment-discovery update, or completion) — the baseline `progressTicker`
     /// creeps above, so the trickle can never outrun real work by more than
@@ -179,21 +192,34 @@ final class TranscriptionService {
     /// lifecycle, so navigating away no longer cancels it — nor leaves a
     /// detached transcription running that a returning view would duplicate.
     ///
-    /// A call while a run is already in flight is ignored (and logged),
-    /// including a call for a *different* meeting: one WhisperKit instance
-    /// cannot serve two concurrent runs, and queueing would need a queue the app
-    /// has no use for — the second meeting can be transcribed once this one ends.
+    /// Three ways a call can land while something is already in flight:
+    /// - the same meeting, genuinely running ⇒ ignored, because the caller's
+    ///   view is already showing that run;
+    /// - anything, while a cancelled run is only *unwinding* ⇒ the new run waits
+    ///   for the predecessor and then starts, so Retry-straight-after-Cancel
+    ///   works (one WhisperKit instance, so the two must not overlap);
+    /// - a DIFFERENT meeting while one genuinely runs ⇒ refused, and the refusal
+    ///   is surfaced as `lastError`. Callers flip the meeting to `.processing`
+    ///   before calling (NotesEditorView after Stop, ContentView's "Transcribe"),
+    ///   so a silent refusal would leave it spinning on a run that never exists.
+    ///   Queueing would need a queue no caller in the app has a use for.
     func transcribeInBackground(
         meeting: Meeting,
         modelContext: ModelContext,
         terminologyService: TerminologyService,
         exportReporter: ExportStatusCenter?
     ) {
-        if let runningID = transcribingMeetingID {
-            let reason = runningID == meeting.id
-                ? "this meeting is already transcribing"
-                : "another meeting is transcribing"
-            Log.transcription.notice("second run ignored: \(reason, privacy: .public)")
+        // A cancelled predecessor is not competing for the model, it is leaving;
+        // the new run below waits it out rather than being refused.
+        let windingDownPredecessor = isWindingDown ? backgroundTask : nil
+
+        if let runningID = transcribingMeetingID, windingDownPredecessor == nil {
+            if runningID == meeting.id {
+                Log.transcription.notice("second run ignored: this meeting is already transcribing")
+            } else {
+                Log.transcription.notice("second run ignored: another meeting is transcribing")
+                lastError = .anotherTranscriptionInProgress(meetingTitle: transcribingMeetingTitle)
+            }
             return
         }
 
@@ -206,6 +232,7 @@ final class TranscriptionService {
         // Marked busy synchronously so a near-simultaneous re-trigger (a view
         // re-appearing) hits the guard above before the task even starts.
         transcribingMeetingID = meeting.id
+        transcribingMeetingTitle = meeting.title
         lastError = nil
         // Cleared so a re-transcription of the SAME meeting is still a change an
         // observer can see when it finishes.
@@ -213,15 +240,23 @@ final class TranscriptionService {
         meeting.status = .processing
         try? modelContext.save()
 
-        let pipeline = PostTranscriptionPipeline.live(
-            terminologyService: terminologyService,
-            exportReporter: exportReporter
-        )
+        let pipeline = makePipeline(terminologyService: terminologyService, exportReporter: exportReporter)
         let localeIdentifier = meeting.transcriptionLanguage
         let meetingID = meeting.id
+        // Identifies THIS run, so a predecessor unwinding after this one started
+        // cannot clear the state belonging to this one.
+        currentRunID += 1
+        let runID = currentRunID
 
         backgroundTask = Task { @MainActor in
-            defer { self.transcribingMeetingID = nil }
+            defer {
+                if self.currentRunID == runID {
+                    self.transcribingMeetingID = nil
+                }
+            }
+            if let windingDownPredecessor {
+                await windingDownPredecessor.value
+            }
             do {
                 let result = try await self.runTranscription(
                     fileURL: fileURL,
@@ -242,6 +277,30 @@ final class TranscriptionService {
                     ?? .transcriptionFailed(error.localizedDescription)
             }
         }
+    }
+
+    /// True while the run in `backgroundTask` has been cancelled and is only
+    /// finishing its unwind — it is on its way out, not competing.
+    private var isWindingDown: Bool {
+        transcribingMeetingID != nil && backgroundTask?.isCancelled == true
+    }
+
+    /// The pipeline `transcribeInBackground` runs. A DEBUG seam so the tests can
+    /// substitute fakes: the live one writes into Application Support, exports to
+    /// the user's real vault and can call an LLM, none of which belongs in a test.
+    private func makePipeline(
+        terminologyService: TerminologyService,
+        exportReporter: ExportStatusCenter?
+    ) -> PostTranscriptionPipeline {
+#if DEBUG
+        if let pipelineOverrideForTesting {
+            return pipelineOverrideForTesting
+        }
+#endif
+        return PostTranscriptionPipeline.live(
+            terminologyService: terminologyService,
+            exportReporter: exportReporter
+        )
     }
 
     /// Dismisses the error a failed background run left behind, so a view's
@@ -369,6 +428,12 @@ final class TranscriptionService {
     /// can exercise the ownership behaviour around it (no-op re-trigger, cancel,
     /// the pipeline) without a downloaded model.
     var transcribeOverrideForTesting: (@MainActor (URL, String) async throws -> TranscriptionResult)?
+
+    /// Replaces the post-transcription pipeline in `transcribeInBackground`, so
+    /// no test ever runs the live one — it reads `UserDefaults.standard`, writes
+    /// into the real Application Support, exports into the user's real vault and
+    /// can make a billed LLM call.
+    var pipelineOverrideForTesting: PostTranscriptionPipeline?
 
     /// Lets a test await the service-owned background run instead of polling.
     func waitForBackgroundWorkForTesting() async {
