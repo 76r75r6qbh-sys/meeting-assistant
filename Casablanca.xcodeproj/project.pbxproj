@@ -27,6 +27,7 @@
 		3127409D4B3D935ACE809817 /* WhisperModelRetentionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0714BB51165E07B6318DEB4 /* WhisperModelRetentionPolicy.swift */; };
 		3133A6AE85D46269AC79DD01 /* LegacyDraftEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46E1332211EA769F8620C51 /* LegacyDraftEditor.swift */; };
 		31CA18E6ABD1202A5B8E1374 /* GitHubReleaseClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */; };
+		3239D887F91409B4F9F382C2 /* PostTranscriptionPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8851A8BFCD60597DC28A0954 /* PostTranscriptionPipelineTests.swift */; };
 		3285625BEB1C852A6F9746E0 /* CompositeLinkedCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2157A780490BB80B8F29BE /* CompositeLinkedCard.swift */; };
 		33256FD50F6AD990F9831D0E /* TranscriptionOptionsBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4A649F04425F154220E799 /* TranscriptionOptionsBuilderTests.swift */; };
 		340DA9CD13A0B6BF932B5686 /* RecordingSessionSystemAudioFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */; };
@@ -61,6 +62,7 @@
 		8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */; };
 		9360DE1FB664D7A47C863B61 /* RoadmapCommitmentCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D3C3AD74A9DB1208328F42 /* RoadmapCommitmentCard.swift */; };
 		98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */; };
+		9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */; };
 		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
 		9A1E2C3D4B5F60718293A4C6 /* TerminologyServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */; };
 		9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A49CA3494756C27CD173CA /* SemanticVersion.swift */; };
@@ -319,6 +321,8 @@
 		7EE76844700FCF7A055497BB /* OMLXProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProvider.swift; sourceTree = "<group>"; };
 		818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/ClaudeCLIProviderTests.swift; sourceTree = SOURCE_ROOT; };
 		830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersionTests.swift; sourceTree = "<group>"; };
+		8851A8BFCD60597DC28A0954 /* PostTranscriptionPipelineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipelineTests.swift; sourceTree = "<group>"; };
+		8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TerminologyServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/LLM/LLMProviderCopy.swift; sourceTree = SOURCE_ROOT; };
@@ -548,6 +552,7 @@
 				B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */,
 				29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */,
 				B0714BB51165E07B6318DEB4 /* WhisperModelRetentionPolicy.swift */,
+				8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */,
 			);
 			name = Transcription;
 			path = Transcription;
@@ -884,6 +889,7 @@
 				4FDAE41274064DE9F8846741 /* TranscriptionBenchmarkTests.swift */,
 				00E7D3EB2A3ABED36DDB1955 /* TranscriptSegmentMergeTests.swift */,
 				292F4D13FAFB622A7728511B /* WhisperModelRetentionPolicyTests.swift */,
+				8851A8BFCD60597DC28A0954 /* PostTranscriptionPipelineTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1228,6 +1234,7 @@
 				61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */,
 				F638A49C74CF2B49FDC39E86 /* TranscriptSegmentMerger.swift in Sources */,
 				3127409D4B3D935ACE809817 /* WhisperModelRetentionPolicy.swift in Sources */,
+				9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1319,6 +1326,7 @@
 				7488D00067EF3C943478F40C /* TranscriptionBenchmarkTests.swift in Sources */,
 				AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */,
 				20B2077035789E9F04F1CA25 /* WhisperModelRetentionPolicyTests.swift in Sources */,
+				3239D887F91409B4F9F382C2 /* PostTranscriptionPipelineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

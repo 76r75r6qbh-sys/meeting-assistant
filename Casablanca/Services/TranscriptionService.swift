@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import SwiftData
 import WhisperKit
 
 private typealias WhisperPipeline = WhisperKit
@@ -87,6 +88,22 @@ final class TranscriptionService {
     /// ends; kept so anything that later wants to show or compare runs can.
     private(set) var lastTimingReport: TranscriptionTimingReport?
 
+    /// The meeting whose post-recording pipeline is running (nil when idle).
+    /// Unlike `isTranscribing` this stays set for the whole pipeline — including
+    /// the export and the AAC re-encode that run after Whisper is done — so a
+    /// re-appearing view can tell "still working" from "not started".
+    private(set) var transcribingMeetingID: UUID?
+
+    /// The meeting whose pipeline most recently finished cleanly. Views observe
+    /// it to learn that *their* meeting is done, which no longer arrives as a
+    /// return from the view's own task.
+    private(set) var lastCompletedMeetingID: UUID?
+
+    /// What ended the last background run, or nil if it ended cleanly or was
+    /// cancelled. The run outlives the view that started it, so the error has to
+    /// live here for a view to be able to offer Retry at all.
+    private(set) var lastError: TranscriptionError?
+
     /// Supported transcription languages
     static let supportedLanguages: [(id: String, name: String)] = [
         ("en-US", "English (US)"),
@@ -111,6 +128,12 @@ final class TranscriptionService {
     private static let whitespaceBeforePunctuationRegex = try! NSRegularExpression(pattern: #"\s+([,.;:!?])"#)
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
+    /// The service-owned task running `transcribeInBackground`. Deliberately not
+    /// tied to any view's lifecycle: navigating away used to cancel the view's
+    /// `.task`, which threw out of `transcribe` while the inner unstructured task
+    /// kept decoding — and coming back started a SECOND transcription on the same
+    /// WhisperKit instance.
+    private var backgroundTask: Task<Void, Never>?
     /// The last checkpoint we actually know is true (loading floor, a real VAD
     /// segment-discovery update, or completion) — the baseline `progressTicker`
     /// creeps above, so the trickle can never outrun real work by more than
@@ -149,6 +172,93 @@ final class TranscriptionService {
                 self?.handleMemoryPressure()
             }
         }
+    }
+
+    /// Transcribe `meeting`'s recording and run the whole post-recording
+    /// pipeline in a service-owned task that is NOT tied to any view's
+    /// lifecycle, so navigating away no longer cancels it — nor leaves a
+    /// detached transcription running that a returning view would duplicate.
+    ///
+    /// A call while a run is already in flight is ignored (and logged),
+    /// including a call for a *different* meeting: one WhisperKit instance
+    /// cannot serve two concurrent runs, and queueing would need a queue the app
+    /// has no use for — the second meeting can be transcribed once this one ends.
+    func transcribeInBackground(
+        meeting: Meeting,
+        modelContext: ModelContext,
+        terminologyService: TerminologyService,
+        exportReporter: ExportStatusCenter?
+    ) {
+        if let runningID = transcribingMeetingID {
+            let reason = runningID == meeting.id
+                ? "this meeting is already transcribing"
+                : "another meeting is transcribing"
+            Log.transcription.notice("second run ignored: \(reason, privacy: .public)")
+            return
+        }
+
+        guard let recordingPath = meeting.recordingFileURL else {
+            lastError = .fileNotFound("No recording file available")
+            return
+        }
+        let fileURL = URL(fileURLWithPath: recordingPath)
+
+        // Marked busy synchronously so a near-simultaneous re-trigger (a view
+        // re-appearing) hits the guard above before the task even starts.
+        transcribingMeetingID = meeting.id
+        lastError = nil
+        // Cleared so a re-transcription of the SAME meeting is still a change an
+        // observer can see when it finishes.
+        lastCompletedMeetingID = nil
+        meeting.status = .processing
+        try? modelContext.save()
+
+        let pipeline = PostTranscriptionPipeline.live(
+            terminologyService: terminologyService,
+            exportReporter: exportReporter
+        )
+        let localeIdentifier = meeting.transcriptionLanguage
+        let meetingID = meeting.id
+
+        backgroundTask = Task { @MainActor in
+            defer { self.transcribingMeetingID = nil }
+            do {
+                let result = try await self.runTranscription(
+                    fileURL: fileURL,
+                    localeIdentifier: localeIdentifier
+                )
+                try Task.checkCancellation()
+                await pipeline.run(
+                    meeting: meeting,
+                    result: result,
+                    recordingURL: fileURL,
+                    modelContext: modelContext
+                )
+                self.lastCompletedMeetingID = meetingID
+            } catch {
+                // Cancellation is user intent, not a failure — never surface it.
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                self.lastError = (error as? TranscriptionError)
+                    ?? .transcriptionFailed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Dismisses the error a failed background run left behind, so a view's
+    /// alert can be closed (and the run retried).
+    func clearError() {
+        lastError = nil
+    }
+
+    /// The transcription step of `transcribeInBackground`, isolated so the tests
+    /// can replace it — a real `WhisperKit` needs a downloaded model.
+    private func runTranscription(fileURL: URL, localeIdentifier: String) async throws -> TranscriptionResult {
+#if DEBUG
+        if let transcribeOverrideForTesting {
+            return try await transcribeOverrideForTesting(fileURL, localeIdentifier)
+        }
+#endif
+        return try await transcribe(fileURL: fileURL, localeIdentifier: localeIdentifier)
     }
 
     /// Transcribe an audio file at the given URL
@@ -231,10 +341,15 @@ final class TranscriptionService {
     }
 
     func cancel() {
+        // Both, in this order: the background task owns the pipeline, the inner
+        // task owns the decode. Cancelling only the outer one would leave the
+        // decode running detached — the bug this whole seam exists to fix.
+        backgroundTask?.cancel()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         isTranscribing = false
         statusMessage = "Cancelled"
+        Log.transcription.notice("transcription cancelled")
     }
 
     // MARK: - Test Seams
@@ -248,6 +363,16 @@ final class TranscriptionService {
 
     func primeCachedPipelineKeyForTesting(_ key: WhisperPipelineKey) {
         pipelineCache.key = key
+    }
+
+    /// Replaces the WhisperKit run inside `transcribeInBackground`, so the tests
+    /// can exercise the ownership behaviour around it (no-op re-trigger, cancel,
+    /// the pipeline) without a downloaded model.
+    var transcribeOverrideForTesting: (@MainActor (URL, String) async throws -> TranscriptionResult)?
+
+    /// Lets a test await the service-owned background run instead of polling.
+    func waitForBackgroundWorkForTesting() async {
+        await backgroundTask?.value
     }
 #endif
 
