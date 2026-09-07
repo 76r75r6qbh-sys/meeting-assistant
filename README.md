@@ -100,7 +100,7 @@ Transcription speed can only be judged on a real recording, so the app can trans
 
 The run transcribes in Dutch (`nl-NL`), prints the timing summary to stdout, and writes `<yyyyMMdd-HHmmss>-<variant>.json` (timings plus the decoding options the run resolved to) and `<yyyyMMdd-HHmmss>-<variant>.txt` (the transcript, in the same format as a saved transcript) into that same `Benchmarks` folder. Nothing is recorded and the meeting database is never opened.
 
-The `-whisper…` arguments are hidden tuning knobs read from the argument domain of `UserDefaults` (see `TranscriptionOptionsBuilder.Key`), so any combination can be A/B'd without a rebuild: `whisperFallbackCount`, `whisperWorkers`, `whisperEncoderCompute` / `whisperDecoderCompute` (`ane` | `gpu` | `cpu`), `whisperLogProbThreshold`, `whisperCompressionRatioThreshold`, `whisperDropSilentChunks`, `whisperSilentChunkEnergy`.
+The `-whisper…` arguments are hidden tuning knobs read from the argument domain of `UserDefaults` (see `TranscriptionOptionsBuilder.Key`), so any combination can be A/B'd without a rebuild: `whisperFallbackCount`, `whisperWorkers`, `whisperEncoderCompute` / `whisperDecoderCompute` (`ane` | `gpu` | `cpu`), `whisperLogProbThreshold`, `whisperCompressionRatioThreshold`, `whisperChunking` (`vad` | `none` — `none` runs WhisperKit's sequential seek loop instead of splitting on silence), `whisperDropSilentChunks` (drops the VAD chunks with no speech in them; only applies to `whisperChunking vad`), `whisperSilentChunkEnergy`.
 
 A faster run is only a win if the transcript holds up, so compare it against a reference transcript of the same recording:
 

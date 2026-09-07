@@ -85,6 +85,40 @@ final class TranscriptionTimingReportTests: XCTestCase {
         XCTAssertEqual(report.totalWindows, 3)
     }
 
+    /// The silent-chunk filter path loads the audio itself, so it never reaches
+    /// the `transcribe(audioPath:)` overload that sets
+    /// `currentTimings.audioLoading` — and `currentTimings` is
+    /// `public private(set)`, so it cannot be back-filled. Without the override
+    /// a filtered run reports `audioLoad=0s` next to baseline runs with real
+    /// figures, in the log line and in the benchmark JSON.
+    func testAudioLoadingOverrideWinsOverAnUnsetPipelineFigure() {
+        let report = TranscriptionTimingReport(
+            audioSeconds: 600,
+            modelLoadWall: .zero,
+            transcribeWall: .seconds(150),
+            pipelineTimings: TranscriptionTimings(),
+            chunkTimings: [],
+            segments: [],
+            audioLoadingOverride: 7
+        )
+
+        XCTAssertEqual(report.audioLoading, 7, accuracy: 0.0001)
+        XCTAssertTrue(report.summaryLine.contains("audioLoad=7s"), report.summaryLine)
+    }
+
+    func testPipelineAudioLoadingIsKeptWhenThereIsNoOverride() {
+        let report = TranscriptionTimingReport(
+            audioSeconds: 600,
+            modelLoadWall: .zero,
+            transcribeWall: .seconds(150),
+            pipelineTimings: TranscriptionTimings(audioLoading: 3),
+            chunkTimings: [],
+            segments: []
+        )
+
+        XCTAssertEqual(report.audioLoading, 3, accuracy: 0.0001)
+    }
+
     func testSummaryLineIsSingleLineKeyValue() {
         let report = TranscriptionTimingReport(
             audioSeconds: 2_650,
