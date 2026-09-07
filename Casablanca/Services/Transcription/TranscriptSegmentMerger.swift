@@ -27,16 +27,17 @@ struct TranscriptSegmentMerger {
     /// by `startTime` within the window, then by the position the window
     /// reported them in.
     ///
-    /// The chunk key leads rather than `startTime` because a live report's
-    /// `start`/`end` arrive relative to its own VAD chunk — the batched segment
-    /// callback offsets only `seek` (WhisperKit.swift, `batchedSegmentCallback`),
-    /// and the timings are globalised only once every chunk has returned
-    /// (`AudioChunking.updateSeekOffsetsForResults` →
+    /// The chunk key leads rather than `startTime` because under VAD chunking a
+    /// live report's `start`/`end` arrive relative to its own chunk — the
+    /// batched segment callback offsets only `seek` (WhisperKit.swift,
+    /// `batchedSegmentCallback`), and the timings are globalised only once every
+    /// chunk has returned (`AudioChunking.updateSeekOffsetsForResults` →
     /// `TranscriptionUtilities.updateSegmentTimings`). The caller shifts them
     /// onto the absolute clock with `absoluteLiveTimes` before merging, but that
     /// shift is approximate, so the chunk key — which is monotone in audio
-    /// position and exact — stays the primary order. For timings that are
-    /// already global the two orders agree.
+    /// position and exact — stays the primary order. Under sequential chunking
+    /// (`chunkingStrategy: .none`) the reported times are already absolute and
+    /// pass through untouched; the two orders then agree.
     ///
     /// The order also has to be total: dictionary iteration order is arbitrary,
     /// and a list that reshuffles between callbacks flickers just as badly as
@@ -65,10 +66,11 @@ extension TranscriptSegmentMerger {
 
     /// Puts one live-reported segment back on the recording's clock.
     ///
-    /// WhisperKit's live callback offsets only `seek` — `start`/`end` are
-    /// globalised much later, once every chunk has returned
-    /// (`AudioChunking.updateSeekOffsetsForResults`) — so a report's own times
-    /// restart near zero for every decode window and the live list showed
+    /// Under VAD chunking each chunk is transcribed as its own audio array, so
+    /// its `seek` restarts at zero and `SegmentSeeker` builds `start`/`end`
+    /// relative to the chunk. WhisperKit's live callback offsets only `seek`
+    /// (`start`/`end` are globalised much later, once every chunk has returned
+    /// via `AudioChunking.updateSeekOffsetsForResults`), so the live list showed
     /// `[00:00]` again halfway through a meeting. `seek` is that window's
     /// absolute position in samples, so shifting the report onto it, relative to
     /// its own earliest segment, recovers absolute times to within the second or
@@ -79,12 +81,22 @@ extension TranscriptSegmentMerger {
     ///   - reportMinStart: the smallest `start` in the same report — every
     ///     segment of the report shifts by the same amount, so their order and
     ///     durations are preserved.
+    ///   - timesAreAbsolute: `true` for `chunkingStrategy: .none`, where
+    ///     WhisperKit seeks through the whole file itself and
+    ///     `findSeekPointAndSegments` already adds `Float(seek) / sampleRate`
+    ///     into `start`/`end` (`SegmentSeeker.swift`). Shifting those again
+    ///     would land every segment early by its window's leading silence, so
+    ///     they are returned untouched.
     static func absoluteLiveTimes(
         seek: Int,
         start: TimeInterval,
         end: TimeInterval,
-        reportMinStart: TimeInterval
+        reportMinStart: TimeInterval,
+        timesAreAbsolute: Bool
     ) -> (startTime: TimeInterval, endTime: TimeInterval) {
+        guard !timesAreAbsolute else {
+            return (startTime: start, endTime: end)
+        }
         let windowStart = Double(seek) / whisperSampleRate
         return (
             startTime: windowStart + (start - reportMinStart),

@@ -35,7 +35,9 @@ struct TranscriptionTimingReport: Codable, Sendable {
     /// CoreML specialization of the encoder and decoder combined — the on-device
     /// graph compile that only happens on a cold model.
     let specializationTime: TimeInterval
-    /// Reading and resampling the audio file to 16kHz float samples.
+    /// Reading and resampling the audio file to 16kHz float samples. Normally
+    /// WhisperKit's own figure, but the silent-chunk filter loads the file
+    /// itself and so has to supply it (see `audioLoadingOverride`).
     let audioLoading: TimeInterval
 
     // MARK: - Decode timings, summed over results.map(\.timings)
@@ -73,13 +75,21 @@ struct TranscriptionTimingReport: Codable, Sendable {
     ///   - segments: `results.flatMap(\.segments)`. Both `fallbackWindows` and
     ///     `totalWindows` are derived from these same segments, so the ratio
     ///     can never end up describing two different populations.
+    ///   - audioLoadingOverride: an app-side measurement of loading the audio,
+    ///     for runs that load it themselves. WhisperKit sets
+    ///     `currentTimings.audioLoading` only inside its own
+    ///     `transcribe(audioPath:)`, which the silent-chunk filter path never
+    ///     calls, and `currentTimings` is `public private(set)` so it cannot be
+    ///     back-filled — without this the filtered runs would report
+    ///     `audioLoad=0s` beside baseline runs with real figures.
     init(
         audioSeconds: TimeInterval,
         modelLoadWall: Duration,
         transcribeWall: Duration,
         pipelineTimings: TranscriptionTimings,
         chunkTimings: [TranscriptionTimings],
-        segments: [TranscriptionSegment]
+        segments: [TranscriptionSegment],
+        audioLoadingOverride: TimeInterval? = nil
     ) {
         self.audioSeconds = audioSeconds
         self.modelLoadWall = modelLoadWall.timeInterval
@@ -89,7 +99,7 @@ struct TranscriptionTimingReport: Codable, Sendable {
         self.prewarmLoadTime = pipelineTimings.prewarmLoadTime
         self.specializationTime = pipelineTimings.encoderSpecializationTime
             + pipelineTimings.decoderSpecializationTime
-        self.audioLoading = pipelineTimings.audioLoading
+        self.audioLoading = audioLoadingOverride ?? pipelineTimings.audioLoading
 
         self.logmels = chunkTimings.reduce(0) { $0 + $1.logmels }
         self.encoding = chunkTimings.reduce(0) { $0 + $1.encoding }

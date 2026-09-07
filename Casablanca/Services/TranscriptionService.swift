@@ -18,6 +18,9 @@ private struct WhisperRun {
     /// One text per result, cleaned and joined into the transcript.
     let texts: [String]
     let chunkTimings: [TranscriptionTimings]
+    /// Seconds spent loading and resampling the audio, when this run loaded the
+    /// file itself. `nil` when WhisperKit did it and already timed it.
+    let audioLoadingOverride: TimeInterval?
 }
 
 /// Transcription segment with timestamp
@@ -481,6 +484,10 @@ final class TranscriptionService {
         let whisperKit = try await loadWhisperKit(compute: resolved.compute)
         let modelLoadWall = ContinuousClock.now - modelLoadStart
 
+        // With `chunking=none` WhisperKit seeks through the whole file, so
+        // `SegmentSeeker` reports times that are already absolute.
+        let liveTimesAreAbsolute = resolved.decoding.chunkingStrategy == ChunkingStrategy.none
+
         liveSegmentMerger = TranscriptSegmentMerger()
         whisperKit.segmentDiscoveryCallback = { [weak self] segments in
             Task { @MainActor [weak self] in
@@ -500,7 +507,8 @@ final class TranscriptionService {
                             seek: chunkKey,
                             start: TimeInterval(segment.start),
                             end: TimeInterval(segment.end),
-                            reportMinStart: reportMinStart
+                            reportMinStart: reportMinStart,
+                            timesAreAbsolute: liveTimesAreAbsolute
                         )
                         return Self.makeTranscriptSegment(
                             startTime: times.startTime,
@@ -549,7 +557,8 @@ final class TranscriptionService {
             transcribeWall: transcribeWall,
             pipelineTimings: whisperKit.currentTimings,
             chunkTimings: run.chunkTimings,
-            segments: run.segments
+            segments: run.segments,
+            audioLoadingOverride: run.audioLoadingOverride
         )
         lastTimingReport = report
         Log.transcription.notice("transcription finished \(report.summaryLine, privacy: .public)")
@@ -590,7 +599,8 @@ final class TranscriptionService {
             return WhisperRun(
                 segments: results.flatMap(\.segments),
                 texts: results.map(\.text),
-                chunkTimings: results.map(\.timings)
+                chunkTimings: results.map(\.timings),
+                audioLoadingOverride: nil
             )
         }
 
@@ -598,10 +608,16 @@ final class TranscriptionService {
         // with the filter spliced between chunking and decoding: load, chunk,
         // drop the chunks that hold no speech, decode what is left, then put
         // the survivors back on the meeting's clock.
+        //
+        // WhisperKit only records `currentTimings.audioLoading` inside
+        // `transcribe(audioPath:)`, which this path does not call, so the
+        // report would otherwise say `audioLoad=0s`.
+        let audioLoadStart = ContinuousClock.now
         let audioArray = try AudioProcessor.loadAudioAsFloatArray(
             fromPath: fileURL.path,
             channelMode: whisperKit.audioInputConfig.channelMode
         )
+        let audioLoadWall = ContinuousClock.now - audioLoadStart
         // One VAD instance for both jobs: the chunker splits on the silences it
         // finds, and the filter then judges the chunks by the same threshold.
         let vad = EnergyVAD(energyThreshold: resolved.silentChunkEnergyThreshold)
@@ -620,6 +636,13 @@ final class TranscriptionService {
             chunks.count
         )
         Log.transcription.notice("silent-chunk filter \(dropped, privacy: .public)")
+        if outcome.kept.isEmpty, !chunks.isEmpty {
+            // Nothing left to decode, so the transcript comes back empty. Say
+            // so here rather than leaving an empty transcript unexplained.
+            Log.transcription.notice(
+                "silent-chunk filter: all \(chunks.count, privacy: .public) chunks silent; transcript will be empty"
+            )
+        }
 
         // Every kept chunk is at most one window, so it decodes in a single
         // pass: no second round of chunking, and `chunkAll` has already applied
@@ -641,7 +664,8 @@ final class TranscriptionService {
         return WhisperRun(
             segments: results.flatMap(\.segments),
             texts: results.map(\.text),
-            chunkTimings: results.map(\.timings)
+            chunkTimings: results.map(\.timings),
+            audioLoadingOverride: audioLoadWall.timeInterval
         )
     }
 

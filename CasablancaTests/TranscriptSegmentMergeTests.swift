@@ -134,7 +134,8 @@ final class TranscriptSegmentMergeTests: XCTestCase {
             seek: 480_000,
             start: 0,
             end: 3,
-            reportMinStart: 0
+            reportMinStart: 0,
+            timesAreAbsolute: false
         )
 
         XCTAssertEqual(times.startTime, 30, accuracy: 0.001)
@@ -146,7 +147,8 @@ final class TranscriptSegmentMergeTests: XCTestCase {
             seek: 0,
             start: 2,
             end: 5,
-            reportMinStart: 2
+            reportMinStart: 2,
+            timesAreAbsolute: false
         )
 
         XCTAssertEqual(times.startTime, 0, accuracy: 0.001)
@@ -161,18 +163,50 @@ final class TranscriptSegmentMergeTests: XCTestCase {
             seek: 160_000,
             start: 1,
             end: 4,
-            reportMinStart: reportMinStart
+            reportMinStart: reportMinStart,
+            timesAreAbsolute: false
         )
         let second = TranscriptSegmentMerger.absoluteLiveTimes(
             seek: 160_000,
             start: 4,
             end: 9,
-            reportMinStart: reportMinStart
+            reportMinStart: reportMinStart,
+            timesAreAbsolute: false
         )
 
         XCTAssertEqual(first.startTime, 10, accuracy: 0.001)
         XCTAssertEqual(first.endTime, 13, accuracy: 0.001)
         XCTAssertEqual(second.startTime, 13, accuracy: 0.001)
         XCTAssertEqual(second.endTime, 18, accuracy: 0.001)
+    }
+
+    /// With `chunkingStrategy: .none` there is no chunk for the report to be
+    /// relative to: `SegmentSeeker.findSeekPointAndSegments` already builds
+    /// `start`/`end` as `Float(seek) / sampleRate + timestampSeconds`, so the
+    /// times arrive absolute. Shifting them again lands every segment early by
+    /// its window's leading silence — 4 s in this case.
+    func testAbsoluteTimesArePassedThroughUnchanged() {
+        let absolute = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 480_000,
+            start: 34,
+            end: 37,
+            reportMinStart: 34,
+            timesAreAbsolute: true
+        )
+
+        XCTAssertEqual(absolute.startTime, 34, accuracy: 0.001)
+        XCTAssertEqual(absolute.endTime, 37, accuracy: 0.001)
+
+        // The same report read as chunk-relative is exactly the bug this flag
+        // exists to avoid.
+        let shifted = TranscriptSegmentMerger.absoluteLiveTimes(
+            seek: 480_000,
+            start: 34,
+            end: 37,
+            reportMinStart: 34,
+            timesAreAbsolute: false
+        )
+
+        XCTAssertEqual(shifted.startTime, 30, accuracy: 0.001)
     }
 }
