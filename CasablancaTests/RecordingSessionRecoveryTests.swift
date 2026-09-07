@@ -256,6 +256,10 @@ final class RecordingSessionRecoveryTests: XCTestCase {
 
     // MARK: - Coordinator (what launch recovery actually does)
 
+    /// Well past `freshPCMWindow`, so the fresh-PCM guard does not read a
+    /// just-written test fixture as a live capture.
+    private var afterCapture: Date { Date().addingTimeInterval(60) }
+
     func testCoordinatorKeepsTheEmptySessionOfAPausedMeeting() throws {
         // The only deletion recovery is allowed to make is `deleteSessionIfEmpty`
         // on a `.disposable` finding — and not even that while a meeting is
@@ -268,7 +272,7 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         let outcome = RecordingSessionRecoveryCoordinator.repair(
             findings: try RecordingSessionRecovery.scan(store: store),
             store: store,
-            activeMeetingIDs: [meetingID]
+            recordingStatusMeetingIDs: [meetingID]
         )
 
         XCTAssertEqual(outcome.deletedSessions, 0)
@@ -285,7 +289,7 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         let outcome = RecordingSessionRecoveryCoordinator.repair(
             findings: try RecordingSessionRecovery.scan(store: store),
             store: store,
-            activeMeetingIDs: []
+            recordingStatusMeetingIDs: []
         )
 
         XCTAssertEqual(outcome.deletedSessions, 1)
@@ -306,11 +310,12 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         let outcome = RecordingSessionRecoveryCoordinator.repair(
             findings: try RecordingSessionRecovery.scan(store: store),
             store: store,
-            activeMeetingIDs: [meetingID]
+            recordingStatusMeetingIDs: [meetingID],
+            now: afterCapture
         )
 
         XCTAssertEqual(outcome.renderedSegments, 1)
-        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        XCTAssertEqual(outcome.repairedMeetingIDs, [meetingID])
         XCTAssertEqual(outcome.strandedSegments, 0)
         let session = try XCTUnwrap(store.loadSession(for: meetingID))
         XCTAssertEqual(session.segments.map(\.index), [1])
@@ -333,13 +338,32 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         let outcome = RecordingSessionRecoveryCoordinator.repair(
             findings: try RecordingSessionRecovery.scan(store: store),
             store: store,
-            activeMeetingIDs: []
+            recordingStatusMeetingIDs: []
         )
 
         XCTAssertEqual(outcome.adoptedSegments, 1)
-        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        XCTAssertEqual(outcome.repairedMeetingIDs, [meetingID])
         let session = try XCTUnwrap(store.loadSession(for: meetingID))
         XCTAssertEqual(session.segments.map(\.index), [1])
+    }
+
+    func testCoordinatorReportsAHealthyPausedSessionAsNothingToRecover() throws {
+        // The normal overnight pause: manifest intact, segment listed, nothing
+        // to repair. Counting it would put a toast on every single launch.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let segmentURL = try store.nextSegmentURL(for: meetingID, segmentNumber: 1)
+        try write(bytes: 2_048, to: segmentURL.lastPathComponent, for: meetingID)
+        try store.appendSegment(for: meetingID, segmentURL: segmentURL, duration: 42)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            recordingStatusMeetingIDs: [meetingID]
+        )
+
+        XCTAssertEqual(outcome, RecordingSessionRecoveryCoordinator.Outcome(), "a healthy session must be left entirely alone")
+        XCTAssertNil(RecoveryToastMessage.compose(recoveredRecordings: 0, strandedSegments: 0))
     }
 
     func testCoordinatorReportsStrandedPCMWithoutTouchingIt() throws {
@@ -352,17 +376,144 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
         try Data(repeating: 0x41, count: 4_096).write(to: wavURL)
         try writeFloatSamples(count: 800, to: micURL)
+        // The WAV is already in the manifest, so stranded PCM is the only thing
+        // this directory has to report.
+        try store.appendSegment(for: meetingID, segmentURL: wavURL, duration: 42)
 
         let outcome = RecordingSessionRecoveryCoordinator.repair(
             findings: try RecordingSessionRecovery.scan(store: store),
             store: store,
-            activeMeetingIDs: []
+            recordingStatusMeetingIDs: [],
+            now: afterCapture
         )
 
         XCTAssertEqual(outcome.strandedSegments, 1)
-        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        XCTAssertEqual(outcome.repairedMeetingIDs, [], "nothing was repaired, so nothing may be counted as recovered")
+        XCTAssertEqual(outcome.adoptedSegments, 0)
         XCTAssertEqual(try fileSize(of: wavURL), 4_096)
         XCTAssertEqual(try fileSize(of: micURL), 800 * 4)
+    }
+
+    func testCoordinatorLeavesASessionWhosePCMWasJustWrittenAlone() throws {
+        // Belt and braces behind the live-meeting filter: PCM written seconds
+        // ago means something is capturing into this directory right now, and
+        // the renderer deletes the PCM it consumes.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try writeFloatSamples(count: 8_000, to: micURL)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            recordingStatusMeetingIDs: [meetingID]
+        )
+
+        XCTAssertEqual(outcome.skippedActiveSessions, 1)
+        XCTAssertEqual(outcome.renderedSegments, 0)
+        XCTAssertEqual(outcome.repairedMeetingIDs, [])
+        XCTAssertEqual(try fileSize(of: micURL), 8_000 * 4, "live PCM must still be there, byte for byte")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("segment-001.wav").path))
+    }
+
+    // MARK: - Sweep ordering (the live-recording race)
+
+    @MainActor
+    func testSweepReadsTheLiveMeetingSetAfterScanning() async throws {
+        // The race the review found: a recording that starts BETWEEN the scan
+        // and the repair. `sweep` must read the live set after scanning, so
+        // such a meeting is filtered out and its in-flight PCM is untouched.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try writeFloatSamples(count: 8_000, to: micURL)
+
+        let steps = StepRecorder()
+        let store = self.store!
+        let outcome = await RecordingSessionRecoveryCoordinator.sweep(
+            scan: {
+                steps.append("scan")
+                return (try? RecordingSessionRecovery.scan(store: store)) ?? []
+            },
+            exclusions: {
+                // The recording starts here — only once the scan has run.
+                steps.append("exclusions")
+                return (live: [meetingID], recordingStatus: [meetingID])
+            },
+            repair: { findings, recordingStatus in
+                steps.append("repair")
+                return RecordingSessionRecoveryCoordinator.repair(
+                    findings: findings,
+                    store: store,
+                    recordingStatusMeetingIDs: recordingStatus,
+                    // Deliberately past the fresh-PCM window: the filter alone
+                    // has to be what saves this recording.
+                    now: Date().addingTimeInterval(60)
+                )
+            }
+        )
+
+        XCTAssertEqual(steps.values, ["scan", "exclusions", "repair"])
+        XCTAssertEqual(outcome, RecordingSessionRecoveryCoordinator.Outcome())
+        XCTAssertEqual(try fileSize(of: micURL), 8_000 * 4, "the live recording's PCM must be untouched")
+    }
+
+    func testExcludingLiveDropsOnlyTheLiveMeeting() {
+        let live = UUID()
+        let other = UUID()
+        let findings: [RecordingSessionRecovery.Finding] = [
+            .orphanedPCM(live, segmentNumbers: [1], strandedPCM: []),
+            .resumable(other, segmentCount: 1, strandedPCM: [])
+        ]
+
+        XCTAssertEqual(
+            RecordingSessionRecoveryCoordinator.excludingLive(findings: findings, liveIDs: [live]),
+            [.resumable(other, segmentCount: 1, strandedPCM: [])]
+        )
+        XCTAssertEqual(
+            RecordingSessionRecoveryCoordinator.excludingLive(findings: findings, liveIDs: []),
+            findings
+        )
+    }
+
+    // MARK: - Toast composition
+
+    func testToastStaysSilentWhenNothingChanged() {
+        XCTAssertNil(RecoveryToastMessage.compose(recoveredRecordings: 0, strandedSegments: 0))
+    }
+
+    func testToastUsesSingularForOneRecovery() {
+        XCTAssertEqual(
+            RecoveryToastMessage.compose(recoveredRecordings: 1, strandedSegments: 0),
+            "1 unfinished recording was recovered — open it to Resume or Stop."
+        )
+    }
+
+    func testToastUsesPluralForSeveralRecoveries() {
+        XCTAssertEqual(
+            RecoveryToastMessage.compose(recoveredRecordings: 9, strandedSegments: 0),
+            "9 unfinished recordings were recovered — open them to Resume or Stop."
+        )
+    }
+
+    func testToastAppendsStrandedSegmentsWithMatchingPlurals() {
+        XCTAssertEqual(
+            RecoveryToastMessage.compose(recoveredRecordings: 2, strandedSegments: 1),
+            "2 unfinished recordings were recovered — open them to Resume or Stop. 1 segment needs manual attention."
+        )
+        XCTAssertEqual(
+            RecoveryToastMessage.compose(recoveredRecordings: 2, strandedSegments: 3),
+            "2 unfinished recordings were recovered — open them to Resume or Stop. 3 segments need manual attention."
+        )
+    }
+
+    func testToastReportsStrandedSegmentsOnTheirOwn() {
+        XCTAssertEqual(
+            RecoveryToastMessage.compose(recoveredRecordings: 0, strandedSegments: 2),
+            "2 segments need manual attention."
+        )
     }
 
     // MARK: - Helpers
@@ -407,4 +558,11 @@ private final class UnlistableFileManager: FileManager {
         }
         return try super.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: mask)
     }
+}
+
+/// Records the order the sweep called its steps in.
+private final class StepRecorder: @unchecked Sendable {
+    private(set) var values: [String] = []
+
+    func append(_ step: String) { values.append(step) }
 }

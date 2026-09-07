@@ -158,6 +158,9 @@ struct CasablancaApp: App {
                     let modelContext = sharedModelContainer.mainContext
                     Task { await appModel.recoverOrphanedRecordingSessions(modelContext: modelContext) }
                 }
+                // Off-limits mid-capture: recovery and the capture units would
+                // be reaching for the same raw PCM files.
+                .disabled(appModel.recordingService.isRecording || appModel.recordingService.isPreparing)
             }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
@@ -337,44 +340,87 @@ final class AppModel {
 
     /// Repairs the recording-session directories a crash or force quit left
     /// behind, then reconciles the meetings stuck in a recording status on top
-    /// of them. Also reachable from "Recover Unfinished Recordings…", so it has
-    /// to be safe to run while the app is live: the meeting currently being
-    /// captured is excluded from the filesystem half (its in-flight PCM belongs
-    /// to the capture units, not to recovery), and the pure status decision
-    /// leaves any meeting whose audio survived alone.
+    /// of them. Thin glue: the ordering, the repair and the toast wording all
+    /// live in `RecordingSessionRecoveryCoordinator` / `RecoveryToastMessage`,
+    /// which are tested directly.
+    ///
+    /// Also reachable from "Recover Unfinished Recordings…", so it has to be
+    /// safe to run while the app is live. Two things make it so: the live set
+    /// is read AFTER the scan (a recording that starts in between is filtered
+    /// out, one that starts later is not in the findings at all), and the
+    /// repair leaves any directory whose raw PCM was written seconds ago alone.
     ///
     /// Nothing destructive happens here. The only deletion is
     /// `deleteSessionIfEmpty` on a directory holding no recoverable byte;
     /// captured audio is merged away only when the user presses Stop.
     func recoverOrphanedRecordingSessions(modelContext: ModelContext) async {
-        let activeMeetingIDs = Self.meetingIDsInARecordingStatus(in: modelContext)
-        let liveMeetingID = (recordingService.isRecording || recordingService.isPreparing)
-            ? recordingService.activeMeetingID
-            : nil
-
         // Rendering the orphaned PCM one of these directories holds is a
-        // synchronous ~65 MB write, so the whole filesystem sweep runs off the
-        // main actor. Only the SwiftData writes below stay on it.
-        let outcome = await Task.detached(priority: .utility) { () -> RecordingSessionRecoveryCoordinator.Outcome in
-            let store = RecordingResumeSessionStore()
-            do {
-                let findings = try RecordingSessionRecovery.scan(store: store)
-                    .filter { $0.meetingID != liveMeetingID }
-                return RecordingSessionRecoveryCoordinator.repair(
-                    findings: findings,
-                    store: store,
-                    activeMeetingIDs: activeMeetingIDs
+        // synchronous ~65 MB write, so both filesystem phases run off the main
+        // actor. Only the exclusion snapshot, the SwiftData writes and the
+        // toast stay on it.
+        let outcome = await RecordingSessionRecoveryCoordinator.sweep(
+            scan: {
+                await Task.detached(priority: .utility) { () -> [RecordingSessionRecovery.Finding] in
+                    do {
+                        return try RecordingSessionRecovery.scan(store: RecordingResumeSessionStore())
+                    } catch {
+                        Log.recording.error(
+                            "Recording recovery could not scan the session directories: \(error.localizedDescription, privacy: .public)"
+                        )
+                        return []
+                    }
+                }.value
+            },
+            exclusions: {
+                (
+                    live: self.liveCaptureMeetingIDs(),
+                    recordingStatus: Self.meetingIDsInARecordingStatus(in: modelContext)
                 )
-            } catch {
-                Log.recording.error(
-                    "Recording recovery could not scan the session directories: \(error.localizedDescription, privacy: .public)"
-                )
-                return RecordingSessionRecoveryCoordinator.Outcome()
+            },
+            repair: { findings, recordingStatusMeetingIDs in
+                await Task.detached(priority: .utility) {
+                    RecordingSessionRecoveryCoordinator.repair(
+                        findings: findings,
+                        store: RecordingResumeSessionStore(),
+                        recordingStatusMeetingIDs: recordingStatusMeetingIDs
+                    )
+                }.value
             }
-        }.value
+        )
 
-        reconcileStuckRecordingMeetings(modelContext: modelContext, excluding: liveMeetingID)
-        surfaceRecoveryToast(for: outcome)
+        let reconciled = reconcileStuckRecordingMeetings(
+            modelContext: modelContext,
+            excluding: liveCaptureMeetingIDs()
+        )
+        // Only meetings the user can actually act on are counted: a session
+        // this sweep repaired, or one whose stale `.recording` became
+        // `.pausedRecording`. A meeting downgraded to `.notesOnly` lost its
+        // audio — telling the user to "open it to Resume or Stop" would send
+        // them to a screen with neither button. Those are logged instead.
+        let stillResumable = Set(reconciled.filter { $0.value == .pausedRecording }.keys)
+        let cleared = reconciled.count - stillResumable.count
+        if cleared > 0 {
+            Log.recording.notice(
+                "Recording recovery: \(cleared, privacy: .public) meeting(s) had no recording left and are now notes-only"
+            )
+        }
+
+        let recovered = Set(outcome.repairedMeetingIDs).union(stillResumable)
+        if let message = RecoveryToastMessage.compose(
+            recoveredRecordings: recovered.count,
+            strandedSegments: outcome.strandedSegments
+        ) {
+            toastCenter.show(message: message, duration: 8)
+        }
+    }
+
+    /// The meeting being captured right now, if any: the one directory recovery
+    /// must not touch at all. Read fresh at every use — a stale answer is the
+    /// whole hazard.
+    private func liveCaptureMeetingIDs() -> Set<UUID> {
+        guard recordingService.isRecording || recordingService.isPreparing,
+              let meetingID = recordingService.activeMeetingID else { return [] }
+        return [meetingID]
     }
 
     /// The meetings SwiftData reports as `.recording`/`.pausedRecording` — the
@@ -392,52 +438,38 @@ final class AppModel {
     /// Applies `PausedRecordingRecovery` to every meeting left in a recording
     /// status: one whose audio is gone stops offering a Resume that fails, and a
     /// `.recording` meeting that outlived the process becomes the paused one it
-    /// really is.
+    /// really is. Returns what changed, so the caller can report it.
     @discardableResult
-    private func reconcileStuckRecordingMeetings(modelContext: ModelContext, excluding liveMeetingID: UUID?) -> Int {
-        guard let all = try? modelContext.fetch(FetchDescriptor<Meeting>()) else { return 0 }
+    private func reconcileStuckRecordingMeetings(
+        modelContext: ModelContext,
+        excluding liveMeetingIDs: Set<UUID>
+    ) -> [UUID: MeetingStatus] {
+        guard let all = try? modelContext.fetch(FetchDescriptor<Meeting>()) else { return [:] }
         // Enum-typed stored properties don't filter reliably in SwiftData
         // predicates, so filter in memory — and narrowing first matters here:
         // `hasResumableSession` touches the filesystem, which must not happen
         // once per completed meeting ever recorded.
         let candidates = all.filter {
-            ($0.status == .recording || $0.status == .pausedRecording) && $0.id != liveMeetingID
+            ($0.status == .recording || $0.status == .pausedRecording) && !liveMeetingIDs.contains($0.id)
         }
-        guard !candidates.isEmpty else { return 0 }
+        guard !candidates.isEmpty else { return [:] }
 
-        var recovered = 0
+        var changes: [UUID: MeetingStatus] = [:]
         for meeting in candidates {
             guard let newStatus = PausedRecordingRecovery.recoveredStatus(
                 current: meeting.status,
                 hasResumableSession: recordingService.hasResumableSession(for: meeting.id)
             ) else { continue }
             meeting.status = newStatus
-            recovered += 1
+            changes[meeting.id] = newStatus
         }
-        if recovered > 0 {
+        if !changes.isEmpty {
             try? modelContext.save()
             Log.recording.notice(
-                "Recording recovery: reconciled \(recovered, privacy: .public) stuck meeting status(es)"
+                "Recording recovery: reconciled \(changes.count, privacy: .public) stuck meeting status(es)"
             )
         }
-        return recovered
-    }
-
-    /// One toast for the whole sweep — recovery is a background chore, not a
-    /// report. Stranded segments get their own sentence because nothing in the
-    /// app can repair them.
-    private func surfaceRecoveryToast(for outcome: RecordingSessionRecoveryCoordinator.Outcome) {
-        var sentences: [String] = []
-        if !outcome.resumableMeetingIDs.isEmpty {
-            sentences.append(
-                "\(outcome.resumableMeetingIDs.count) unfinished recordings were recovered — open them to Resume or Stop."
-            )
-        }
-        if outcome.strandedSegments > 0 {
-            sentences.append("\(outcome.strandedSegments) segments need manual attention.")
-        }
-        guard !sentences.isEmpty else { return }
-        toastCenter.show(message: sentences.joined(separator: " "), duration: 8)
+        return changes
     }
 
     /// Install the shared notification delegate + category and wire the calendar
