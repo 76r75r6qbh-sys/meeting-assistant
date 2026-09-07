@@ -345,7 +345,7 @@ final class AudioRecordingService {
                 after \(result.duration, privacy: .public)s
                 """
             )
-            return .segmentFinalized(duration: result.duration)
+            return .segmentFinalized(meetingID: activeMeetingID, duration: result.duration)
         } catch {
             errorMessage = error.localizedDescription
             Log.recording.error(
@@ -355,7 +355,7 @@ final class AudioRecordingService {
                 \(error.localizedDescription, privacy: .public) — captured audio left on disk for recovery
                 """
             )
-            return .finalizeFailed(error.localizedDescription)
+            return .finalizeFailed(meetingID: activeMeetingID, error.localizedDescription)
         }
     }
 

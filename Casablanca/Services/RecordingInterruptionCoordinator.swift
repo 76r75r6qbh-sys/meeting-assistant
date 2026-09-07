@@ -4,10 +4,26 @@ import Foundation
 /// distinction: an interrupt that found nothing recording (a sleep while a
 /// notes-only workspace is open) must not persist `.pausedRecording`, because
 /// that later reads back as a paused recording that can no longer be resumed.
+///
+/// The meeting ID travels WITH the outcome because the coordinator must act on
+/// the meeting that was recording, which is not necessarily the one on screen:
+/// the user can navigate to the dashboard or to another meeting before the Mac
+/// sleeps, and the recording keeps running. Reading the bound meeting instead
+/// left the recording meeting stuck `.recording` in SwiftData and made the wake
+/// try to resume the wrong one ("Could not resume recording").
 enum InterruptOutcome: Equatable {
     case nothingRecording
-    case segmentFinalized(duration: TimeInterval)
-    case finalizeFailed(String)
+    case segmentFinalized(meetingID: UUID, duration: TimeInterval)
+    case finalizeFailed(meetingID: UUID, String)
+
+    /// The meeting the interrupt acted on, or nil when it acted on nothing.
+    var meetingID: UUID? {
+        switch self {
+        case .nothingRecording: return nil
+        case .segmentFinalized(let meetingID, _): return meetingID
+        case .finalizeFailed(let meetingID, _): return meetingID
+        }
+    }
 }
 
 protocol RecordingInterruptionServicing: AnyObject {
@@ -95,6 +111,12 @@ final class RecordingInterruptionCoordinator {
     private weak var service: RecordingInterruptionServicing?
     private weak var monitor: RecordingInterruptionEmitting?
     private weak var notifier: RecordingInterruptionNotifying?
+    /// Finds a meeting by id — wired to the app's model context. The
+    /// coordinator has to be able to act on the RECORDING meeting even when the
+    /// user has navigated away from it, and the bound meeting is then the wrong
+    /// one (or nil). Defaults to "not found", which reduces to the bound
+    /// meeting only.
+    private let lookupMeeting: (UUID) -> Meeting?
     private let autoResumeWindow: TimeInterval
     private let now: () -> Date
     private let save: () -> Void
@@ -111,6 +133,10 @@ final class RecordingInterruptionCoordinator {
     /// the service anyway failed and toasted "Could not resume recording" about
     /// a recording that never existed.
     private var lastInterruptOutcome: InterruptOutcome?
+    /// The meeting the interrupt actually paused, as the SERVICE reported it.
+    /// The wake resumes this one — not whatever happens to be on screen, which
+    /// after a navigation is another meeting or none at all.
+    private var pausedMeetingID: UUID?
     private var startedAt: Date?
     /// Whether any reason in this window forbids auto-resume outright
     /// (`allowsAutoResume == false`). That is its only meaning: how long a
@@ -141,6 +167,7 @@ final class RecordingInterruptionCoordinator {
         service: RecordingInterruptionServicing,
         monitor: RecordingInterruptionEmitting,
         notifier: RecordingInterruptionNotifying,
+        lookupMeeting: @escaping (UUID) -> Meeting? = { _ in nil },
         autoResumeWindow: TimeInterval = 30,
         now: @escaping () -> Date = Date.init,
         save: @escaping () -> Void = {}
@@ -148,6 +175,7 @@ final class RecordingInterruptionCoordinator {
         self.service = service
         self.monitor = monitor
         self.notifier = notifier
+        self.lookupMeeting = lookupMeeting
         self.autoResumeWindow = autoResumeWindow
         self.now = now
         self.save = save
@@ -192,12 +220,22 @@ final class RecordingInterruptionCoordinator {
         !activeReasons.isEmpty || startedAt != nil
     }
 
+    /// The meeting an interruption applies to. `nil` id means "nothing recorded
+    /// it yet", which falls back to the bound meeting; otherwise the bound
+    /// meeting is a fast path and the app-wide lookup is the real answer.
+    private func resolveMeeting(_ id: UUID?) -> Meeting? {
+        guard let id else { return meeting }
+        if let meeting, meeting.id == id { return meeting }
+        return lookupMeeting(id)
+    }
+
     private func clearInterruptionBookkeeping() {
         resumeTask?.cancel()
         resumeTask = nil
         activeReasons.removeAll()
         windowReasons.removeAll()
         lastInterruptOutcome = nil
+        pausedMeetingID = nil
         pendingResumeRetry = nil
         startedAt = nil
         interruptGeneration += 1
@@ -269,22 +307,29 @@ final class RecordingInterruptionCoordinator {
             if generation == self.interruptGeneration {
                 self.lastInterruptOutcome = outcome
             }
-            guard outcome != .nothingRecording else { return }
+            guard let interruptedMeetingID = outcome.meetingID else { return }
 
+            // The meeting to pause is the one the SERVICE finalized, resolved
+            // through the app-wide lookup when it is not the one on screen.
+            // Reading the bound meeting instead dropped the whole outcome
+            // whenever the user had navigated away before the sleep, leaving the
+            // recording meeting `.recording` in SwiftData — and the wake then
+            // tried to resume the wrong meeting.
+            //
             // Everything the user could have done in the meantime — Stop,
             // Discard, switching meetings — bumps the generation, and only a
             // still-recording meeting can be paused. A stale outcome is
             // dropped: the pause it describes has already been superseded.
             guard generation == self.interruptGeneration,
-                  let capturedMeeting,
-                  self.meeting?.id == capturedMeeting.id,
-                  self.meeting?.status == .recording
+                  let interruptedMeeting = self.resolveMeeting(interruptedMeetingID),
+                  interruptedMeeting.status == .recording
             else {
-                self.logDiscarded(outcome: outcome, reason: reason, meetingID: capturedMeeting?.id)
+                self.logDiscarded(outcome: outcome, reason: reason, meetingID: interruptedMeetingID)
                 return
             }
 
-            self.meeting?.status = .pausedRecording
+            interruptedMeeting.status = .pausedRecording
+            self.pausedMeetingID = interruptedMeetingID
             self.save()
             notifier?.post(title: "Recording paused", body: self.bodyForPause(reason, outcome: outcome))
         }
@@ -299,14 +344,15 @@ final class RecordingInterruptionCoordinator {
 
         let reasonsThisWindow = windowReasons
         let outcomeThisWindow = lastInterruptOutcome
+        let pausedMeetingIDThisWindow = pausedMeetingID
         defer {
             startedAt = nil
             resumeAllowedForActiveWindow = true
             windowReasons.removeAll()
             lastInterruptOutcome = nil
+            pausedMeetingID = nil
         }
 
-        guard let meeting else { return }
         guard resumeAllowedForActiveWindow else { return }
         guard let startedAt else { return }
 
@@ -315,9 +361,24 @@ final class RecordingInterruptionCoordinator {
         guard outcomeThisWindow != .nothingRecording else {
             Log.recording.notice(
                 """
-                Not resuming meeting \(meeting.id.uuidString, privacy: .public) after \
+                Not resuming meeting \(pausedMeetingIDThisWindow?.uuidString ?? "none", privacy: .public) after \
                 \(String(describing: event.reason), privacy: .public): the interrupt found \
                 nothing recording
+                """
+            )
+            return
+        }
+
+        // The RECORDING meeting, which the user may have navigated away from
+        // long before the sleep. `pausedMeetingID` is nil only when the pause
+        // itself has not landed yet (a finalize still in flight), in which case
+        // the bound meeting is still the best guess.
+        guard let meeting = resolveMeeting(pausedMeetingIDThisWindow) else {
+            Log.recording.notice(
+                """
+                Not resuming after \(String(describing: event.reason), privacy: .public): meeting \
+                \(pausedMeetingIDThisWindow?.uuidString ?? "none", privacy: .public) could not be \
+                found any more
                 """
             )
             return
@@ -396,11 +457,11 @@ final class RecordingInterruptionCoordinator {
     private func retryFailedAutoResumeAfterUnlock() {
         guard let retry = pendingResumeRetry else { return }
         pendingResumeRetry = nil
-        guard let meeting, meeting.id == retry.meetingID, meeting.status == .pausedRecording else {
+        guard let meeting = resolveMeeting(retry.meetingID), meeting.status == .pausedRecording else {
             Log.recording.notice(
                 """
                 Not retrying the failed auto-resume for meeting \
-                \(retry.meetingID.uuidString, privacy: .public) on unlock: it is no longer the bound \
+                \(retry.meetingID.uuidString, privacy: .public) on unlock: it is no longer a \
                 paused recording
                 """
             )
@@ -450,11 +511,12 @@ final class RecordingInterruptionCoordinator {
                     if let lastIdx = recordIndexAtDispatch, lastIdx < self.recentEvents.count {
                         self.recentEvents[lastIdx].resumedAutomatically = true
                     }
-                    // Only mutate the bound meeting if it's still the one we resumed.
-                    if self.meeting?.id == capturedMeeting.id {
-                        self.meeting?.status = .recording
-                        self.save()
-                    }
+                    // The meeting that was resumed, whether or not it is the one
+                    // on screen: it is the recording's own status, and leaving it
+                    // `.pausedRecording` while capture ran again was how a
+                    // resumed meeting still read as paused.
+                    capturedMeeting.status = .recording
+                    self.save()
                     notifier?.post(
                         title: "Recording resumed",
                         body: "Continued after \(self.bodyForResume(reasonForBody))"
@@ -537,14 +599,14 @@ final class RecordingInterruptionCoordinator {
                 \(meetingDescription, privacy: .public) left as it was
                 """
             )
-        case .segmentFinalized(let duration):
+        case .segmentFinalized(_, let duration):
             Log.recording.notice(
                 """
                 Interruption (\(reasonDescription, privacy: .public)) paused meeting \
                 \(meetingDescription, privacy: .public) after finalizing \(duration, privacy: .public)s
                 """
             )
-        case .finalizeFailed(let message):
+        case .finalizeFailed(_, let message):
             Log.recording.error(
                 """
                 Interruption (\(reasonDescription, privacy: .public)) paused meeting \
@@ -567,7 +629,7 @@ final class RecordingInterruptionCoordinator {
 
     private func bodyForPause(_ reason: RecordingInterruptionReason, outcome: InterruptOutcome) -> String {
         let cause = bodyForPause(reason)
-        guard case .finalizeFailed(let message) = outcome else { return cause }
+        guard case .finalizeFailed(_, let message) = outcome else { return cause }
         return "\(cause) The audio up to this point may not have been saved: \(message)"
     }
 

@@ -130,6 +130,10 @@ struct ContentView: View {
                     service: recordingService,
                     monitor: interruptionMonitor,
                     notifier: interruptionNotifier,
+                    // The coordinator acts on the meeting that is RECORDING,
+                    // which the user may have navigated away from before the
+                    // Mac slept; the bound meeting is then another one or none.
+                    lookupMeeting: { [viewModel] id in viewModel.fetchMeeting(byID: id) },
                     save: { try? context.save() }
                 )
             }

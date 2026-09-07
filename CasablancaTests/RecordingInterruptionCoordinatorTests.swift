@@ -321,7 +321,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
     func testInterruptWithFailedFinalizeStillPausesAndNamesTheError() async {
         let env = makeEnv()
-        env.service.interruptOutcome = .finalizeFailed("disk full")
+        env.service.interruptOutcome = .finalizeFailed(meetingID: env.meeting.id, "disk full")
         env.coordinator.bind(meeting: env.meeting)
 
         env.fireStart(.systemSleep, atOffset: 0)
@@ -588,6 +588,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
             endDate: Date(timeIntervalSince1970: 3600),
             status: .recording
         )
+        env.setRecordingMeeting(meeting)
         env.coordinator.bind(meeting: meeting)
 
         env.fireStart(.systemSleep, atOffset: 0)
@@ -610,6 +611,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         let env = makeEnv()
         let meeting = Meeting(title: "Ad hoc", date: Date(timeIntervalSince1970: 0), status: .recording)
         XCTAssertNil(meeting.endDate)
+        env.setRecordingMeeting(meeting)
         env.coordinator.bind(meeting: meeting)
 
         env.fireStart(.systemSleep, atOffset: 0)
@@ -626,6 +628,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
     func testManualMeetingWithoutEndDateStaysPausedAfter30Minutes() async {
         let env = makeEnv()
         let meeting = Meeting(title: "Ad hoc", date: Date(timeIntervalSince1970: 0), status: .recording)
+        env.setRecordingMeeting(meeting)
         env.coordinator.bind(meeting: meeting)
 
         env.fireStart(.systemSleep, atOffset: 0)
@@ -681,10 +684,63 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertTrue(env.coordinator.recentEvents.isEmpty,
                       "Nothing is in flight, so the unbind must clear the interruption history")
 
-        // And the released meeting is no longer touched by a later interruption.
+        // The VIEW is released — but the service is still recording that
+        // meeting, and it says so in the outcome. A sleep now must pause the
+        // meeting that was recording, not shrug because nothing is on screen:
+        // leaving it `.recording` in SwiftData was how a recording became
+        // unresumable after the user navigated away before the sleep.
         env.fireStart(.systemSleep, atOffset: 10)
         await env.flush()
-        XCTAssertEqual(env.meeting.status, .recording)
+        XCTAssertEqual(env.meeting.status, .pausedRecording)
+    }
+
+    /// The F4 case: the user navigates to ANOTHER meeting before the Mac sleeps.
+    /// The service finalizes the recording it actually holds, so the coordinator
+    /// has to pause and resume that one — the viewed meeting is only the
+    /// indicator's business.
+    func testSleepWhileViewingAnotherMeetingPausesAndResumesTheRecordingMeeting() async {
+        let env = makeEnv()
+        let recording = env.meeting
+        let viewed = Meeting(title: "Different Meeting", date: .now, status: .notesOnly)
+        env.register(viewed)
+        env.coordinator.bind(meeting: viewed)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        XCTAssertEqual(recording.status, .pausedRecording, "The meeting that was recording is the one that pauses")
+        XCTAssertEqual(viewed.status, .notesOnly, "The meeting merely on screen is untouched")
+        XCTAssertEqual(env.notifier.posted.first?.title, "Recording paused")
+
+        env.advance(by: 120)
+        env.fireEnd(.systemSleep, atOffset: 120)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.service.resumedMeetingIDs, [recording.id], "…and the one that resumes")
+        XCTAssertEqual(recording.status, .recording)
+        XCTAssertEqual(viewed.status, .notesOnly)
+    }
+
+    /// Same, with the workspace closed altogether (the dashboard): there is no
+    /// bound meeting at all, and the recording must still pause and resume.
+    func testSleepWithNoBoundMeetingStillPausesAndResumesTheRecordingMeeting() async {
+        let env = makeEnv()
+        let recording = env.meeting
+        // Never bound — the user is on the dashboard.
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+
+        XCTAssertEqual(recording.status, .pausedRecording)
+
+        env.advance(by: 120)
+        env.fireEnd(.systemSleep, atOffset: 120)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(env.service.resumedMeetingIDs, [recording.id])
+        XCTAssertEqual(recording.status, .recording)
     }
 
     /// A sleep with a notes-only meeting open interrupts nothing, so the wake
@@ -775,6 +831,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
             endDate: Date(timeIntervalSince1970: 3600),
             status: .recording
         )
+        env.setRecordingMeeting(meeting)
         env.coordinator.bind(meeting: meeting)
 
         env.fireStart(.displayUnavailable, atOffset: 0)
@@ -874,18 +931,38 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         let meeting: Meeting
         var saveCount = 0
         var coordinator: RecordingInterruptionCoordinator!
+        /// What `ContentView` wires to `viewModel.fetchMeeting(byID:)`: the
+        /// meetings the model context can find, whether or not any of them is
+        /// the one on screen.
+        private var knownMeetings: [Meeting] = []
 
         init(meetingStatus: MeetingStatus = .recording, autoResumeWindow: TimeInterval = 30) {
             meeting = Meeting(title: "Weekly Sync", date: .now, status: meetingStatus)
+            knownMeetings = [meeting]
             let env = self
             coordinator = RecordingInterruptionCoordinator(
                 service: service,
                 monitor: monitor,
                 notifier: notifier,
+                lookupMeeting: { id in env.knownMeetings.first { $0.id == id } },
                 autoResumeWindow: autoResumeWindow,
                 now: { Date(timeIntervalSince1970: env.clock) },
                 save: { env.saveCount += 1 }
             )
+            // The service reports which meeting it finalized; by default that is
+            // the env's own recording meeting.
+            service.interruptOutcome = .segmentFinalized(meetingID: meeting.id, duration: 12)
+        }
+
+        /// Makes `meeting` findable by id, as an app-wide lookup would.
+        func register(_ meeting: Meeting) { knownMeetings.append(meeting) }
+
+        /// Makes `meeting` the one the service reports as recording (and
+        /// findable by id), for the tests that need a meeting with a particular
+        /// slot instead of the env's default one.
+        func setRecordingMeeting(_ meeting: Meeting) {
+            register(meeting)
+            service.interruptOutcome = .segmentFinalized(meetingID: meeting.id, duration: 12)
         }
 
         func bind(meeting: Meeting) { coordinator.bind(meeting: meeting) }
@@ -934,7 +1011,11 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         }
         var calls: [Call] = []
         var resumeError: Error?
-        var interruptOutcome: InterruptOutcome = .segmentFinalized(duration: 12)
+        /// Which meetings `resumeRecording` was actually asked for — the whole
+        /// point of the record-bound coordinator.
+        var resumedMeetingIDs: [UUID] = []
+        /// Overwritten by `CoordinatorEnv.init` with the env's meeting ID.
+        var interruptOutcome: InterruptOutcome = .nothingRecording
         /// Holds `handleSystemInterrupt` suspended so a test can act (user Stop,
         /// rebind) while the real finalize would still be in flight.
         var holdsInterrupt = false
@@ -960,6 +1041,7 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
 
         func resumeRecording(for meeting: Meeting) async throws {
             calls.append(.resume)
+            resumedMeetingIDs.append(meeting.id)
             if let error = resumeError { throw error }
         }
     }
