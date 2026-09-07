@@ -91,6 +91,9 @@ final class AudioRecordingService {
         errorMessage = nil
         audioLevel = 0
         elapsedTime = 0
+        /// The session this call published, if it got that far. Only its own
+        /// session may be cleared on failure.
+        var publishedSession: RecordingSessionControlling?
 
         do {
             refreshInputDevices()
@@ -137,6 +140,7 @@ final class AudioRecordingService {
             outputURL = session.outputURL
             isRecording = true
             isPreparing = false
+            publishedSession = session
             startTimer(from: session.startedAt)
             interruptionMonitor?.setActiveInputDevice(selectedInputDeviceID)
             surfaceSystemAudioFallbackIfNeeded(session)
@@ -152,10 +156,23 @@ final class AudioRecordingService {
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
-            session = nil
-            endSleepPrevention()
-            activeMeetingID = nil
-            outputURL = nil
+            // Only this call's OWN session, never whatever happens to be
+            // published. Publishing is the last step, so a failure here means
+            // this call published nothing — and the entry guard ran before
+            // `start()`'s suspension point, so another start or resume can have
+            // published in the meantime. Clearing unconditionally nil'd ITS
+            // session (and released ITS idle-sleep assertion), leaving a live
+            // `RecordingSession` with no owner: the next Stop took the
+            // `session == nil` branch, merged the manifest and deleted the
+            // directory that session was still writing into. The identity check
+            // stays as the invariant for any future throw after the publish.
+            if let publishedSession, self.session === publishedSession {
+                session = nil
+                endSleepPrevention()
+                activeMeetingID = nil
+                outputURL = nil
+                isRecording = false
+            }
             throw error
         }
     }
@@ -200,6 +217,9 @@ final class AudioRecordingService {
 
         isPreparing = true
         errorMessage = nil
+        /// See `startRecording`: a failing call may only clear what it
+        /// published itself.
+        var publishedSession: RecordingSessionControlling?
 
         do {
             // The manifest counter alone is not enough: it can point at a
@@ -236,6 +256,7 @@ final class AudioRecordingService {
             outputURL = segmentURL
             isRecording = true
             isPreparing = false
+            publishedSession = session
             // Continue the timer from the total already recorded in earlier
             // segments so resuming doesn't reset the display to 00:00.
             startTimer(from: session.startedAt, baseElapsed: persisted.segments.reduce(0) { $0 + $1.duration })
@@ -262,10 +283,23 @@ final class AudioRecordingService {
                 errorMessage = error.localizedDescription
             }
             isPreparing = false
-            session = nil
-            endSleepPrevention()
-            activeMeetingID = nil
-            outputURL = nil
+            // Only this call's OWN session, never whatever happens to be
+            // published. Publishing is the last step, so a failure here means
+            // this call published nothing — and the entry guard ran before
+            // `start()`'s suspension point, so another start or resume can have
+            // published in the meantime. Clearing unconditionally nil'd ITS
+            // session (and released ITS idle-sleep assertion), leaving a live
+            // `RecordingSession` with no owner: the next Stop took the
+            // `session == nil` branch, merged the manifest and deleted the
+            // directory that session was still writing into. The identity check
+            // stays as the invariant for any future throw after the publish.
+            if let publishedSession, self.session === publishedSession {
+                session = nil
+                endSleepPrevention()
+                activeMeetingID = nil
+                outputURL = nil
+                isRecording = false
+            }
             throw error
         }
     }

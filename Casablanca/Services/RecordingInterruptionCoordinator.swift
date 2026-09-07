@@ -220,11 +220,11 @@ final class RecordingInterruptionCoordinator {
         !activeReasons.isEmpty || startedAt != nil
     }
 
-    /// The meeting an interruption applies to. `nil` id means "nothing recorded
-    /// it yet", which falls back to the bound meeting; otherwise the bound
-    /// meeting is a fast path and the app-wide lookup is the real answer.
-    private func resolveMeeting(_ id: UUID?) -> Meeting? {
-        guard let id else { return meeting }
+    /// The meeting an interruption applies to. The bound meeting is a fast path
+    /// when the ids match; otherwise the app-wide lookup is the answer. Never
+    /// falls back to the bound meeting for an id it does not match — acting on
+    /// "whatever is on screen" is the bug this resolution exists to fix.
+    private func resolveMeeting(_ id: UUID) -> Meeting? {
         if let meeting, meeting.id == id { return meeting }
         return lookupMeeting(id)
     }
@@ -370,15 +370,19 @@ final class RecordingInterruptionCoordinator {
         }
 
         // The RECORDING meeting, which the user may have navigated away from
-        // long before the sleep. `pausedMeetingID` is nil only when the pause
-        // itself has not landed yet (a finalize still in flight), in which case
-        // the bound meeting is still the best guess.
-        guard let meeting = resolveMeeting(pausedMeetingIDThisWindow) else {
+        // long before the sleep. `pausedMeetingID` is nil when the pause has not
+        // landed yet (a finalize still in flight) *or* when `handleStart`
+        // discarded its outcome, so the fallback is the outcome's own meeting —
+        // never the bound one: resuming whatever happened to be on screen
+        // toasted "Could not resume recording" about a meeting that was never
+        // recording. With neither, this fails closed.
+        guard let targetMeetingID = pausedMeetingIDThisWindow ?? outcomeThisWindow?.meetingID,
+              let meeting = resolveMeeting(targetMeetingID) else {
             Log.recording.notice(
                 """
                 Not resuming after \(String(describing: event.reason), privacy: .public): meeting \
-                \(pausedMeetingIDThisWindow?.uuidString ?? "none", privacy: .public) could not be \
-                found any more
+                \((pausedMeetingIDThisWindow ?? outcomeThisWindow?.meetingID)?.uuidString ?? "none", privacy: .public) \
+                is not a meeting this app can act on any more
                 """
             )
             return
@@ -535,6 +539,21 @@ final class RecordingInterruptionCoordinator {
                         """
                         Auto-resume for meeting \(capturedMeeting.id.uuidString, privacy: .public) was \
                         cancelled; the recording was stopped or the meeting unbound
+                        """
+                    )
+                    return
+                }
+                // Overtaken is not failed: another start or resume (the user
+                // pressing Resume while this one was still starting) published
+                // the segment first and is recording right now. A "Could not
+                // resume recording" toast over a live recording reads as a bug,
+                // and arming the unlock retry would open a second segment behind
+                // the user's back.
+                if case RecordingError.resumeOvertaken = error {
+                    Log.recording.notice(
+                        """
+                        Auto-resume for meeting \(capturedMeeting.id.uuidString, privacy: .public) was \
+                        overtaken by another session that is already recording; nothing to retry
                         """
                     )
                     return

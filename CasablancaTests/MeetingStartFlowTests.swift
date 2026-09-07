@@ -1619,6 +1619,72 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertEqual(events.first?.kind, .started)
     }
 
+    /// The same ownership rule for the resume that never publishes at all.
+    ///
+    /// Wake → the auto-resume is retrying because the engine is not ready → the
+    /// user presses Resume, which publishes → the auto-resume's last attempt
+    /// fails. Its GENERIC catch then nil'd `session`/`activeMeetingID`/
+    /// `outputURL` and released the idle-sleep assertion — all of which the
+    /// user's own recording had just set. That recording kept capturing with no
+    /// owner, and the next Stop took the `session == nil` branch: it merged the
+    /// manifest and deleted the directory the live session was still writing
+    /// into. A failing call may only clear what it published itself.
+    func testFailedResumeAfterAnotherSessionPublishedLeavesItIntact() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Resume Race", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        let gate = StartGate()
+        let vendor = GatedFirstStartVendor(gate: gate)
+        vendor.firstStartFailsAfterGate = true
+        let sleepPreventer = SleepPreventerSpy()
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in vendor.session(outputURL: outputURL) },
+            sleepPreventer: sleepPreventer,
+            startRetryDelays: [],
+            sleep: { _ in }
+        )
+
+        let autoResume = ResumeTaskBox()
+        autoResume.run { try await service.resumeRecording(for: meeting) }
+        await gate.waitUntilEntered()
+
+        // The user's own Resume gets there first and publishes.
+        try await service.resumeRecording(for: meeting)
+        XCTAssertTrue(service.isRecording)
+        let publishedURL = try XCTUnwrap(service.outputURL)
+        XCTAssertEqual(sleepPreventer.activeCount, 1)
+
+        // …and only then does the auto-resume's attempt fail.
+        gate.release()
+        do {
+            try await autoResume.value
+            XCTFail("A session whose start() throws must fail the resume")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 7)
+        }
+
+        XCTAssertTrue(service.isRecording, "The published recording must survive another call's failure")
+        XCTAssertEqual(service.activeMeetingID, meeting.id)
+        XCTAssertEqual(service.outputURL, publishedURL)
+        XCTAssertEqual(
+            sleepPreventer.activeCount, 1,
+            "The failing call never took an assertion, so it must not release the live one"
+        )
+        XCTAssertEqual(sleepPreventer.beginCount, 1)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: publishedURL.path),
+            "The live segment's files must be untouched"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstSegment.path))
+    }
+
     /// A pause whose finalize throws (a render/IO failure) used to leave
     /// `session` set on a session that was already stopped: `isRecording` stayed
     /// true, the timer kept ticking, the idle-sleep assertion stayed held, and
@@ -1963,6 +2029,11 @@ private final class GatedFirstStartVendor: @unchecked Sendable {
 
     var firstSessionWasStopped: Bool { firstSession?.stopCalled == true }
 
+    /// Whether the gated first `start()` throws once released instead of
+    /// succeeding — CoreAudio still not ready after the wake, which lands in the
+    /// generic catch rather than in the overtaken-discard path.
+    var firstStartFailsAfterGate = false
+
     @MainActor
     func session(outputURL: URL) -> RecordingSessionControlling {
         vended += 1
@@ -1976,7 +2047,11 @@ private final class GatedFirstStartVendor: @unchecked Sendable {
                 capturedFrames: 1
             )
         }
-        let session = GatedStartRecordingSession(outputURL: outputURL, gate: gate)
+        let session = GatedStartRecordingSession(
+            outputURL: outputURL,
+            gate: gate,
+            failsAfterGate: firstStartFailsAfterGate
+        )
         firstSession = session
         return session
     }
@@ -1989,15 +2064,20 @@ private final class GatedStartRecordingSession: RecordingSessionControlling, @un
     let hasCapturedFrames = false
     let systemAudioUnavailableError: Error? = nil
     private let gate: StartGate
+    private let failsAfterGate: Bool
     private(set) var stopCalled = false
 
-    init(outputURL: URL, gate: StartGate) {
+    init(outputURL: URL, gate: StartGate, failsAfterGate: Bool = false) {
         self.outputURL = outputURL
         self.gate = gate
+        self.failsAfterGate = failsAfterGate
     }
 
     func start() async throws {
         await gate.enter()
+        if failsAfterGate {
+            throw NSError(domain: "test.audio-engine", code: 7)
+        }
     }
 
     func stop() async throws -> RecordingResult {

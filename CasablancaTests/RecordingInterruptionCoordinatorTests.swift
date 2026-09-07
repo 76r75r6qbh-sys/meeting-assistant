@@ -694,6 +694,71 @@ final class RecordingInterruptionCoordinatorTests: XCTestCase {
         XCTAssertEqual(env.meeting.status, .pausedRecording)
     }
 
+    /// Being overtaken is not a failed resume. The user pressing Resume in the
+    /// workspace while the wake's auto-resume is still starting publishes the
+    /// segment first; the auto-resume then throws `.resumeOvertaken` having torn
+    /// down only its own attempt. Toasting "Could not resume recording" over a
+    /// recording that is running reads as a bug, and arming the unlock retry
+    /// would start a second segment behind the user's back.
+    func testOvertakenAutoResumeDoesNotToastOrArmRetry() async {
+        let env = makeEnv()
+        env.service.resumeError = RecordingError.resumeOvertaken
+        env.coordinator.bind(meeting: env.meeting)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        env.advance(by: 10)
+        env.fireEnd(.systemSleep, atOffset: 10)
+        await env.flush()
+
+        XCTAssertEqual(env.service.calls, [.handleSystemInterrupt(.systemSleep), .resume])
+        XCTAssertEqual(
+            env.notifier.posted.map(\.title), ["Recording paused"],
+            "The pause toast stands; there must be no \"Could not resume recording\" on top of it"
+        )
+
+        // The retry token must not have been armed.
+        env.service.resumeError = nil
+        env.fireSessionLock(false)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls.filter { $0 == .resume }.count, 1,
+            "An overtaken resume has nothing to retry: another session is already recording"
+        )
+    }
+
+    /// `handleStart` can discard its outcome (the meeting was deleted while the
+    /// finalize was in flight, or the user stopped it), which leaves
+    /// `pausedMeetingID` nil. Falling back to the BOUND meeting then resumed
+    /// whatever happened to be on screen — a meeting that was never recording,
+    /// so the service threw `.noResumableSession` and the user got "Could not
+    /// resume recording" about it. A wake with no known paused meeting must fail
+    /// closed.
+    func testWakeAfterDiscardedOutcomeDoesNotResumeTheBoundMeeting() async {
+        let env = makeEnv()
+        let viewed = Meeting(title: "Different Meeting", date: .now, status: .notesOnly)
+        env.register(viewed)
+        env.coordinator.bind(meeting: viewed)
+        // A meeting the app can no longer find: the outcome is discarded.
+        env.service.interruptOutcome = .segmentFinalized(meetingID: UUID(), duration: 12)
+
+        env.fireStart(.systemSleep, atOffset: 0)
+        await env.flush()
+        XCTAssertEqual(viewed.status, .notesOnly, "Nothing was paused")
+
+        env.advance(by: 60)
+        env.fireEnd(.systemSleep, atOffset: 60)
+        await env.flush()
+
+        XCTAssertEqual(
+            env.service.calls, [.handleSystemInterrupt(.systemSleep)],
+            "The meeting merely on screen must not be resumed in place of the one that was recording"
+        )
+        XCTAssertEqual(viewed.status, .notesOnly)
+        XCTAssertTrue(env.notifier.posted.isEmpty)
+    }
+
     /// The F4 case: the user navigates to ANOTHER meeting before the Mac sleeps.
     /// The service finalizes the recording it actually holds, so the coordinator
     /// has to pause and resume that one — the viewed meeting is only the

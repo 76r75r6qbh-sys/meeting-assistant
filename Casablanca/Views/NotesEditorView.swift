@@ -382,6 +382,18 @@ struct NotesEditorView: View {
             meeting.status = .recording
             interruptionCoordinator?.notifyMeetingTransitioned(to: .recording)
             save()
+        } catch RecordingError.resumeOvertaken {
+            // The wake's auto-resume (or another start) published the segment
+            // first and is recording right now — this call tore down only its
+            // own attempt. So there is nothing to report, and above all nothing
+            // to flip: writing `.pausedRecording` here would contradict a live
+            // recording and strand it as paused-with-a-running-session.
+            Log.recording.notice(
+                """
+                Resume for meeting \(meeting.id.uuidString, privacy: .public) was overtaken by \
+                another session that is already recording; leaving it alone
+                """
+            )
         } catch {
             // Without this the Resume button looked dead: the status flipped
             // back to paused and the user got no reason why. A cancelled resume
