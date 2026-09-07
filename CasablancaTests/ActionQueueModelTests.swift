@@ -14,10 +14,17 @@ import XCTest
 final class ActionQueueModelTests: XCTestCase {
     private let sentinel = "sentinel-not-reloaded"
 
+    /// An empty throwaway domain: no queue path configured, so an unexpected
+    /// reload can never reach the user's real action queue. Nothing is ever
+    /// written to it, so it leaves no plist behind.
+    private func scratchDefaults() -> UserDefaults {
+        TestVaultGuard.makeScratchDefaults(suiteName: "ActionQueueModelTests.\(UUID().uuidString)")
+    }
+
     func testStopWatchingBeforeDebounceFiresSkipsReload() async {
         // No watchSource is set (startWatching not called / pointed at a missing
         // dir), so the guard `watchSource != nil` must short-circuit the reload.
-        let model = ActionQueueModel(debounceInterval: .milliseconds(5))
+        let model = ActionQueueModel(debounceInterval: .milliseconds(5), userDefaults: scratchDefaults())
         model.loadError = sentinel
 
         let task = model.scheduleDebouncedReloadNow()
@@ -32,7 +39,7 @@ final class ActionQueueModelTests: XCTestCase {
     }
 
     func testStopWatchingCancelsPendingDebounceTask() async {
-        let model = ActionQueueModel(debounceInterval: .milliseconds(50))
+        let model = ActionQueueModel(debounceInterval: .milliseconds(50), userDefaults: scratchDefaults())
         model.loadError = sentinel
 
         let task = model.scheduleDebouncedReloadNow()
@@ -45,14 +52,17 @@ final class ActionQueueModelTests: XCTestCase {
 
     // MARK: - onPendingCountChange (Dock/menu-bar badge driver)
 
-    /// `reload()` reads `UserDefaults.standard` for the queue path, so point the
-    /// standard key at a temp file for the duration of the test and restore it
-    /// afterwards. Mirrors the store tests' temp-file fixture approach.
+    /// `reload()` reads the model's injected preference domain for the queue
+    /// path, so point a scratch domain at a temp file. The standard domain is off
+    /// limits: the test host shares the app's bundle id, so writing there would
+    /// repoint the user's own action queue (and a crash mid-test would leave it
+    /// pointing at a deleted temp file).
     func testOnPendingCountChangeFiresWithPendingCountOnReload() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ActionQueueModelTests.\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
+        TestVaultGuard.assertTemporary(tempDir, "action-queue directory")
 
         let queueURL = tempDir.appendingPathComponent("action-queue.json")
         // 3 pending + 2 non-pending (declined / completed). pendingCount == 3.
@@ -70,18 +80,12 @@ final class ActionQueueModelTests: XCTestCase {
         """
         try json.write(to: queueURL, atomically: true, encoding: .utf8)
 
-        let defaults = UserDefaults.standard
-        let previous = defaults.string(forKey: AppPreferenceKey.actionQueuePath)
+        let suiteName = "ActionQueueModelTests.\(UUID().uuidString)"
+        let defaults = TestVaultGuard.makeScratchDefaults(suiteName: suiteName)
         defaults.set(queueURL.path, forKey: AppPreferenceKey.actionQueuePath)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: AppPreferenceKey.actionQueuePath)
-            } else {
-                defaults.removeObject(forKey: AppPreferenceKey.actionQueuePath)
-            }
-        }
+        defer { TestVaultGuard.removeScratchDefaults(defaults, suiteName: suiteName) }
 
-        let model = ActionQueueModel()
+        let model = ActionQueueModel(userDefaults: defaults)
         var captured: Int?
         model.onPendingCountChange = { captured = $0 }
 

@@ -42,7 +42,7 @@ enum ExportService {
     ) async throws -> DestinationResult {
         switch AppPreferences.exportDestination(in: defaults) {
         case .obsidian:
-            return .obsidian(try ObsidianMeetingExporter.exportCompletedMeeting(meeting))
+            return .obsidian(try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults))
         case .appleNotes:
             let scripting = appleNotesScripting ?? NSAppleScriptAppleNotesScripting()
             let exporter = AppleNotesMeetingExporter(scripting: scripting)
@@ -59,7 +59,7 @@ enum ExportService {
     ) async throws -> DestinationResult {
         switch AppPreferences.exportDestination(in: defaults) {
         case .obsidian:
-            return .obsidian(try ObsidianMeetingExporter.exportRawNotes(meeting))
+            return .obsidian(try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults))
         case .appleNotes:
             let scripting = appleNotesScripting ?? NSAppleScriptAppleNotesScripting()
             let exporter = AppleNotesMeetingExporter(scripting: scripting)
