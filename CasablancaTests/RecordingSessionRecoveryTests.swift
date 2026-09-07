@@ -254,6 +254,117 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         XCTAssertEqual(try RecordingSessionRecovery.adoptOrphanedSegments(meetingID: meetingID, store: store), 0)
     }
 
+    // MARK: - Coordinator (what launch recovery actually does)
+
+    func testCoordinatorKeepsTheEmptySessionOfAPausedMeeting() throws {
+        // The only deletion recovery is allowed to make is `deleteSessionIfEmpty`
+        // on a `.disposable` finding — and not even that while a meeting is
+        // paused on it: Resume/Stop still read the manifest, and deleting it
+        // would strand the meeting on `RecordingError.noActiveRecording`.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            activeMeetingIDs: [meetingID]
+        )
+
+        XCTAssertEqual(outcome.deletedSessions, 0)
+        XCTAssertEqual(outcome.keptDisposableSessions, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertNotNil(try store.loadSession(for: meetingID))
+    }
+
+    func testCoordinatorDeletesTheEmptySessionNoMeetingIsOn() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            activeMeetingIDs: []
+        )
+
+        XCTAssertEqual(outcome.deletedSessions, 1)
+        XCTAssertEqual(outcome.keptDisposableSessions, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testCoordinatorRendersOrphanedPCMAndFlipsAStaleRecordingMeetingToPaused() throws {
+        // The scenario that made Resume fail with "There is no active recording
+        // to stop.": raw PCM on disk, nothing in the manifest. After recovery
+        // the audio is a manifest segment, so the meeting is genuinely resumable
+        // and its stale `.recording` status becomes `.pausedRecording`.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        try writeFloatSamples(count: 8_000, to: directory.appendingPathComponent("segment-001.mic.pcm"))
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            activeMeetingIDs: [meetingID]
+        )
+
+        XCTAssertEqual(outcome.renderedSegments, 1)
+        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        XCTAssertEqual(outcome.strandedSegments, 0)
+        let session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(session.segments.map(\.index), [1])
+        // `AudioRecordingService.hasResumableSession` is "manifest or audio", and
+        // recovery just produced both.
+        XCTAssertTrue(store.hasRecoverableAudio(for: meetingID))
+        XCTAssertEqual(
+            PausedRecordingRecovery.recoveredStatus(current: .recording, hasResumableSession: true),
+            .pausedRecording
+        )
+    }
+
+    func testCoordinatorAdoptsAStrayWavIntoTheManifest() throws {
+        // A finalized WAV the manifest never heard about would never reach a
+        // transcript, however healthy the audio is.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        try write(bytes: 2_048, to: "segment-001.wav", for: meetingID)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            activeMeetingIDs: []
+        )
+
+        XCTAssertEqual(outcome.adoptedSegments, 1)
+        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        let session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertEqual(session.segments.map(\.index), [1])
+    }
+
+    func testCoordinatorReportsStrandedPCMWithoutTouchingIt() throws {
+        // PCM next to a WAV that already carries samples: recovery can neither
+        // render nor delete it, so the count has to reach the user.
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let wavURL = directory.appendingPathComponent("segment-001.wav")
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        try Data(repeating: 0x41, count: 4_096).write(to: wavURL)
+        try writeFloatSamples(count: 800, to: micURL)
+
+        let outcome = RecordingSessionRecoveryCoordinator.repair(
+            findings: try RecordingSessionRecovery.scan(store: store),
+            store: store,
+            activeMeetingIDs: []
+        )
+
+        XCTAssertEqual(outcome.strandedSegments, 1)
+        XCTAssertEqual(outcome.resumableMeetingIDs, [meetingID])
+        XCTAssertEqual(try fileSize(of: wavURL), 4_096)
+        XCTAssertEqual(try fileSize(of: micURL), 800 * 4)
+    }
+
     // MARK: - Helpers
 
     private func write(bytes count: Int, to fileName: String, for meetingID: UUID) throws {

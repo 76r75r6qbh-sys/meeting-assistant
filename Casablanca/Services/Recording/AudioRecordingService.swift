@@ -179,7 +179,7 @@ final class AudioRecordingService {
             throw RecordingError.activeRecordingExists
         }
         guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
-            throw RecordingError.noActiveRecording
+            throw RecordingError.noResumableSession
         }
 
         isPreparing = true
@@ -263,7 +263,14 @@ final class AudioRecordingService {
             throw RecordingError.noActiveRecording
         }
 
-        let segmentURLs = persisted.segments.map { URL(fileURLWithPath: $0.filePath) }
+        // Sorted by `index`, never by array order: the manifest is
+        // append-ordered, and launch recovery appends a rendered or adopted
+        // segment *after* whatever was already listed — so `segment-001.wav`
+        // can sit behind `segment-002.wav`. Merging in array order would splice
+        // a recovered meeting's audio out of chronological order.
+        let segmentURLs = persisted.segments
+            .sorted { $0.index < $1.index }
+            .map { URL(fileURLWithPath: $0.filePath) }
         guard !segmentURLs.isEmpty else {
             // An empty manifest is NOT proof that nothing was captured: raw
             // `.pcm` from an interrupted segment is audio the manifest never

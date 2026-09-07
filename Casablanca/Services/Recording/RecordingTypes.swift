@@ -26,6 +26,11 @@ enum RecordingError: LocalizedError {
     case sessionAlreadyStopped
     case activeRecordingExists
     case noActiveRecording
+    /// Resume-specific counterpart of `noActiveRecording`: there is no session
+    /// to resume from. Telling someone who pressed *Resume* that there is
+    /// nothing "to stop" reads as a bug, and this is exactly the state launch
+    /// recovery repairs (raw PCM on disk, nothing in the manifest).
+    case noResumableSession
 
     var errorDescription: String? {
         switch self {
@@ -53,6 +58,8 @@ enum RecordingError: LocalizedError {
             return "A recording is already in progress."
         case .noActiveRecording:
             return "There is no active recording to stop."
+        case .noResumableSession:
+            return "There is no paused recording to resume."
         }
     }
 }
