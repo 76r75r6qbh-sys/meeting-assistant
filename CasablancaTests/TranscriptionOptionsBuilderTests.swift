@@ -126,14 +126,81 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertEqual(decoding.firstTokenLogProbThreshold, -1.5)
     }
 
-    func testChunkingStrategyNilWhenDroppingSilence() {
+    /// The silent-chunk filter chunks by VAD and then throws chunks away, so it
+    /// needs the chunking strategy to stay `.vad` — the flag is orthogonal to
+    /// `whisperChunking` rather than a second way to spell it.
+    func testDroppingSilenceKeepsVADChunking() {
         defaults.set(true, forKey: "whisperDropSilentChunks")
         defaults.set(0.05, forKey: "whisperSilentChunkEnergy")
 
         let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
         XCTAssertTrue(resolved.dropSilentChunks)
         XCTAssertEqual(resolved.silentChunkEnergyThreshold, 0.05)
-        XCTAssertNil(resolved.decoding.chunkingStrategy)
+        XCTAssertEqual(resolved.decoding.chunkingStrategy, .vad)
+    }
+
+    // MARK: - whisperChunking
+
+    func testChunkingDefaultsToVAD() {
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertEqual(resolved.decoding.chunkingStrategy, .vad)
+    }
+
+    func testChunkingNoneSelectsWhisperKitsSequentialSeekLoop() {
+        defaults.set("none", forKey: "whisperChunking")
+
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertEqual(resolved.decoding.chunkingStrategy, ChunkingStrategy.none)
+        XCTAssertNotNil(resolved.decoding.chunkingStrategy)
+    }
+
+    func testChunkingAcceptsMixedCaseAndPadding() {
+        defaults.set(" NONE ", forKey: "whisperChunking")
+        XCTAssertEqual(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.chunkingStrategy,
+            ChunkingStrategy.none
+        )
+
+        defaults.set("VAD", forKey: "whisperChunking")
+        XCTAssertEqual(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.chunkingStrategy,
+            .vad
+        )
+    }
+
+    func testBogusChunkingFallsBackToVAD() {
+        defaults.set("sequential", forKey: "whisperChunking")
+        XCTAssertEqual(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.chunkingStrategy,
+            .vad
+        )
+    }
+
+    func testChunkingNoneWithDropSilentChunksStillDecodesSequentially() {
+        defaults.set("none", forKey: "whisperChunking")
+        defaults.set(true, forKey: "whisperDropSilentChunks")
+
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertEqual(resolved.decoding.chunkingStrategy, ChunkingStrategy.none)
+        XCTAssertTrue(resolved.dropSilentChunks)
+    }
+
+    // MARK: - whisperSilentChunkEnergy
+
+    /// A threshold of zero marks every frame voiced and a negative one is
+    /// nonsense, so both mean "not set" rather than "filter nothing".
+    func testSilentChunkEnergyRejectsZeroAndNegative() {
+        defaults.set(0, forKey: "whisperSilentChunkEnergy")
+        XCTAssertEqual(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).silentChunkEnergyThreshold,
+            0.02
+        )
+
+        defaults.set(-0.5, forKey: "whisperSilentChunkEnergy")
+        XCTAssertEqual(
+            TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).silentChunkEnergyThreshold,
+            0.02
+        )
     }
 
     // MARK: - String-shaped overrides (the argument domain)
@@ -231,6 +298,15 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertTrue(summary.contains("dec=gpu"), summary)
         XCTAssertTrue(summary.contains("workers=3"), summary)
         XCTAssertTrue(summary.contains("dropSilent=true"), summary)
+        // Dropping silence no longer implies unchunked decoding, and the summary
+        // has to say what the run actually did.
+        XCTAssertTrue(summary.contains("chunking=vad"), summary)
+    }
+
+    func testSummaryLineReportsChunkingNoneTruthfully() {
+        defaults.set("none", forKey: "whisperChunking")
+
+        let summary = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).summaryLine
         XCTAssertTrue(summary.contains("chunking=none"), summary)
     }
 

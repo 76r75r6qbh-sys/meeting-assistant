@@ -86,6 +86,7 @@ struct TranscriptionOptionsBuilder {
         static let workers = "whisperWorkers"
         static let decoderCompute = "whisperDecoderCompute"
         static let encoderCompute = "whisperEncoderCompute"
+        static let chunking = "whisperChunking"
         static let dropSilentChunks = "whisperDropSilentChunks"
         static let silentChunkEnergy = "whisperSilentChunkEnergy"
         static let logProbThreshold = "whisperLogProbThreshold"
@@ -103,6 +104,7 @@ struct TranscriptionOptionsBuilder {
     private static let defaultCompressionRatioThreshold: Float = 2.4
     private static let defaultSilentChunkEnergy: Float = 0.02
     private static let defaultDropSilentChunks = false
+    private static let defaultChunking: ChunkingStrategy = .vad
     private static let defaultMelCompute: MLComputeUnits = .cpuAndGPU
     private static let defaultEncoderCompute: MLComputeUnits = .cpuAndNeuralEngine
     private static let defaultDecoderCompute: MLComputeUnits = .cpuAndNeuralEngine
@@ -114,9 +116,9 @@ struct TranscriptionOptionsBuilder {
     struct Resolved: Equatable {
         let decoding: DecodingOptions
         let compute: ModelComputeOptions
-        /// Whether near-silent chunks should be dropped before decoding. Resolved
-        /// here; the filter itself is a later task. While it is unimplemented the
-        /// flag only means "don't let WhisperKit chunk by VAD".
+        /// Whether near-silent chunks should be dropped before decoding.
+        /// Independent of the chunking strategy, but only meaningful with
+        /// `.vad`: the filter throws away chunks, so something has to make them.
         let dropSilentChunks: Bool
         let silentChunkEnergyThreshold: Float
         let summaryLine: String
@@ -169,14 +171,22 @@ struct TranscriptionOptionsBuilder {
         let workers = int(defaults, Key.workers).flatMap { $0 > 0 ? $0 : nil } ?? defaultWorkers
 
         let dropSilentChunks = bool(defaults, Key.dropSilentChunks, or: defaultDropSilentChunks)
-        let silentChunkEnergy = float(defaults, Key.silentChunkEnergy) ?? defaultSilentChunkEnergy
+        // A threshold of zero marks every frame voiced and a negative one is
+        // arithmetically meaningless against an RMS energy, so neither is a
+        // setting anyone means — treat both as "not set".
+        let silentChunkEnergy = float(defaults, Key.silentChunkEnergy)
+            .flatMap { $0 > 0 ? $0 : nil } ?? defaultSilentChunkEnergy
         let logProbThreshold = float(defaults, Key.logProbThreshold) ?? defaultLogProbThreshold
         let compressionRatioThreshold = float(defaults, Key.compressionRatioThreshold)
             ?? defaultCompressionRatioThreshold
 
-        // Dropping silent chunks means doing the chunking ourselves, so
-        // WhisperKit's own VAD chunking has to be off for that run.
-        let chunkingStrategy: ChunkingStrategy? = dropSilentChunks ? nil : .vad
+        // `.vad` splits every window at a silence in its second half, so chunks
+        // average ~21 s and each is padded back to 30 s — 44 % of the decode
+        // work on the benchmark meeting was padding. `.none` runs WhisperKit's
+        // native sequential seek loop instead, which fills its windows and
+        // carries prompt context between them. Which one wins is a measurement,
+        // so it is a key rather than a rewrite.
+        let chunkingStrategy = chunking(defaults, Key.chunking, or: defaultChunking)
 
         let decoding = DecodingOptions(
             verbose: false,
@@ -207,7 +217,9 @@ struct TranscriptionOptionsBuilder {
             "compression=\(compressionRatioThreshold)",
             "firstTokenLogProb=\(describe(decoding.firstTokenLogProbThreshold))",
             "noSpeech=\(describe(decoding.noSpeechThreshold))",
-            "chunking=\(decoding.chunkingStrategy?.rawValue ?? "none")",
+            // Read from the resolved value, not `decoding.chunkingStrategy`: an
+            // optional there would print "none" for both `.none` and unset.
+            "chunking=\(chunkingStrategy.rawValue)",
             "skipSpecialTokens=\(decoding.skipSpecialTokens)",
             "wordTimestamps=\(decoding.wordTimestamps)",
             "withoutTimestamps=\(decoding.withoutTimestamps)",
@@ -289,6 +301,20 @@ struct TranscriptionOptionsBuilder {
         case "ane": return .cpuAndNeuralEngine
         case "gpu": return .cpuAndGPU
         case "cpu": return .cpuOnly
+        default: return fallback
+        }
+    }
+
+    /// Same shape as `computeUnits`: an unrecognised spelling is a typo in a
+    /// benchmark argument, so it costs a comparison rather than the run.
+    private static func chunking(
+        _ defaults: UserDefaults,
+        _ key: String,
+        or fallback: ChunkingStrategy
+    ) -> ChunkingStrategy {
+        switch defaults.string(forKey: key).map({ trimmed($0).lowercased() }) {
+        case "vad": return .vad
+        case "none": return ChunkingStrategy.none
         default: return fallback
         }
     }

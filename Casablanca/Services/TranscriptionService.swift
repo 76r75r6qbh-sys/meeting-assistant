@@ -5,6 +5,21 @@ import WhisperKit
 
 private typealias WhisperPipeline = WhisperKit
 
+/// The pieces of one WhisperKit run that `performTranscription` consumes.
+///
+/// WhisperKit's own `TranscriptionResult` cannot be named inside this module:
+/// Casablanca declares a `TranscriptionResult` of its own, which wins
+/// unqualified lookup, and `WhisperKit.TranscriptionResult` resolves against
+/// the *class* `WhisperKit` rather than the module. So each decode path maps
+/// its results into this and everything downstream works off it.
+private struct WhisperRun {
+    /// WhisperKit's segments, for the transcript and the timing report.
+    let segments: [TranscriptionSegment]
+    /// One text per result, cleaned and joined into the transcript.
+    let texts: [String]
+    let chunkTimings: [TranscriptionTimings]
+}
+
 /// Transcription segment with timestamp
 struct TranscriptSegment: Identifiable, Codable {
     let id: UUID
@@ -461,16 +476,6 @@ final class TranscriptionService {
         let resolved = TranscriptionOptionsBuilder.resolve(
             language: Self.whisperLanguageCode(for: localeIdentifier)
         )
-        // `resolve` turns VAD chunking off when silence is to be dropped, because
-        // that filter will do its own chunking. It does not exist yet, so keep
-        // VAD chunking on rather than quietly decoding the whole file in one go.
-        var decodeOptions = resolved.decoding
-        if resolved.dropSilentChunks {
-            decodeOptions.chunkingStrategy = .vad
-            Log.transcription.notice(
-                "whisperDropSilentChunks is set but the silent-chunk filter is not implemented yet; keeping VAD chunking"
-            )
-        }
 
         let modelLoadStart = ContinuousClock.now
         let whisperKit = try await loadWhisperKit(compute: resolved.compute)
@@ -517,19 +522,12 @@ final class TranscriptionService {
         }
 
         let transcribeStart = ContinuousClock.now
-        let results = try await whisperKit.transcribe(
-            audioPath: fileURL.path,
-            decodeOptions: decodeOptions,
-            callback: { _ in
-                Task.isCancelled ? false : true
-            }
-        )
+        let run = try await Self.runWhisper(whisperKit, fileURL: fileURL, resolved: resolved)
         let transcribeWall = ContinuousClock.now - transcribeStart
 
         try Task.checkCancellation()
 
-        let segments = results
-            .flatMap(\.segments)
+        let segments = run.segments
             .compactMap { segment in
                 Self.makeTranscriptSegment(
                     startTime: TimeInterval(segment.start),
@@ -540,8 +538,7 @@ final class TranscriptionService {
         currentSegments = segments
         await updateStatus("Transcription complete", progress: 1.0)
 
-        let fullText = results
-            .map(\.text)
+        let fullText = run.texts
             .map(Self.cleanWhisperText)
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
@@ -551,14 +548,101 @@ final class TranscriptionService {
             modelLoadWall: modelLoadWall,
             transcribeWall: transcribeWall,
             pipelineTimings: whisperKit.currentTimings,
-            chunkTimings: results.map(\.timings),
-            segments: results.flatMap(\.segments)
+            chunkTimings: run.chunkTimings,
+            segments: run.segments
         )
         lastTimingReport = report
         Log.transcription.notice("transcription finished \(report.summaryLine, privacy: .public)")
         Log.transcription.notice("config \(resolved.summaryLine, privacy: .public)")
 
         return TranscriptionResult(segments: segments, fullText: fullText, duration: duration)
+    }
+
+    /// Decodes the recording, either in one WhisperKit call or — when the
+    /// silent-chunk filter is on — chunk by chunk with the silence removed.
+    ///
+    /// `nonisolated static`: it touches none of the service's observable state,
+    /// only its arguments, and decoding has no business hopping onto the main
+    /// actor — the live-segment callback already hops there by itself.
+    private nonisolated static func runWhisper(
+        _ whisperKit: WhisperPipeline,
+        fileURL: URL,
+        resolved: TranscriptionOptionsBuilder.Resolved
+    ) async throws -> WhisperRun {
+        let keepGoing: TranscriptionCallback = { _ in Task.isCancelled ? false : true }
+
+        // The filter drops chunks, so it needs something to have made them:
+        // with `chunking=none` WhisperKit seeks through the file itself and
+        // there is nothing to partition.
+        guard resolved.dropSilentChunks, resolved.decoding.chunkingStrategy == .vad else {
+            if resolved.dropSilentChunks {
+                // Say so rather than no-op silently: a benchmark run that set
+                // both keys would otherwise be filed as a filter measurement.
+                Log.transcription.notice(
+                    "whisperDropSilentChunks needs chunking=vad; ignoring it for this run"
+                )
+            }
+            let results = try await whisperKit.transcribe(
+                audioPath: fileURL.path,
+                decodeOptions: resolved.decoding,
+                callback: keepGoing
+            )
+            return WhisperRun(
+                segments: results.flatMap(\.segments),
+                texts: results.map(\.text),
+                chunkTimings: results.map(\.timings)
+            )
+        }
+
+        // This is WhisperKit's own `.vad` branch (`transcribe(audioArray:)`)
+        // with the filter spliced between chunking and decoding: load, chunk,
+        // drop the chunks that hold no speech, decode what is left, then put
+        // the survivors back on the meeting's clock.
+        let audioArray = try AudioProcessor.loadAudioAsFloatArray(
+            fromPath: fileURL.path,
+            channelMode: whisperKit.audioInputConfig.channelMode
+        )
+        // One VAD instance for both jobs: the chunker splits on the silences it
+        // finds, and the filter then judges the chunks by the same threshold.
+        let vad = EnergyVAD(energyThreshold: resolved.silentChunkEnergyThreshold)
+        let chunker = VADAudioChunker(vad: vad)
+        let chunks = try await chunker.chunkAll(
+            audioArray: audioArray,
+            // 480_000 samples — one 30 s decode window at 16 kHz.
+            maxChunkLength: whisperKit.featureExtractor.windowSamples ?? Constants.defaultWindowSamples,
+            decodeOptions: resolved.decoding
+        )
+        let outcome = SilentChunkFilter.partition(chunks, vad: vad)
+        let dropped = String(
+            format: "dropped=%d chunks / %.1f s of %d chunks",
+            outcome.droppedCount,
+            outcome.droppedSeconds,
+            chunks.count
+        )
+        Log.transcription.notice("silent-chunk filter \(dropped, privacy: .public)")
+
+        // Every kept chunk is at most one window, so it decodes in a single
+        // pass: no second round of chunking, and `chunkAll` has already applied
+        // the seek clips, so leaving them in would clip each chunk again.
+        var chunkOptions = resolved.decoding
+        chunkOptions.chunkingStrategy = ChunkingStrategy.none
+        chunkOptions.clipTimestamps = []
+
+        let chunkedResults = await whisperKit.transcribeWithOptions(
+            audioArrays: outcome.kept.map(\.audioSamples),
+            decodeOptionsArray: Array(repeating: chunkOptions, count: outcome.kept.count),
+            seekOffsets: outcome.kept.map(\.seekOffsetIndex),
+            callback: keepGoing
+        )
+        let results = chunker.updateSeekOffsetsForResults(
+            chunkedResults: chunkedResults,
+            audioChunks: outcome.kept
+        )
+        return WhisperRun(
+            segments: results.flatMap(\.segments),
+            texts: results.map(\.text),
+            chunkTimings: results.map(\.timings)
+        )
     }
 
     private func loadWhisperKit(compute: ModelComputeOptions) async throws -> WhisperPipeline {
