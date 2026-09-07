@@ -96,6 +96,19 @@ struct TranscriptionOptionsBuilder {
     // Defaults: exactly what the app did before this seam existed, except
     // `skipSpecialTokens`, which only removes tokens `cleanWhisperText` already
     // strips by regex.
+    //
+    // These values are measured, not guessed. The 2026-09-04/07 benchmark
+    // campaign (Apple M4 Pro, macOS 27, WhisperKit d447d308,
+    // `openai_whisper-large-v3`, a 44-minute Dutch meeting) A/B'd the compute
+    // units, worker count, temperature fallbacks and chunking strategy against
+    // this configuration and found nothing faster: the pipeline is ANE-bound at
+    // ~4x realtime, GPU decoding is 1.4-1.6x slower, and `chunkingStrategy
+    // .none` is 46% slower because it decodes one window at a time. See
+    // `docs/transcription-benchmarks.md` for the tables and the reasoning.
+    //
+    // Do not change a default here without re-running the harness (README,
+    // "Benchmarking transcription"): the run-to-run noise floor is 0.56% word
+    // disagreement, so an argument that isn't a measurement isn't evidence.
     private static let defaultFallbackCount = 5
     /// WhisperKit's own macOS default (`DecodingOptions.init`), spelled out so a
     /// change on their side shows up as a test failure rather than a silent shift.

@@ -115,6 +115,8 @@ It ignores the header, timestamps, case and punctuation, and reports the word-le
 
 WhisperKit is pinned to an exact revision in `project.pbxproj` rather than tracking `main`, so the engine cannot move between two runs being compared. Bumping it is a deliberate change: update the revision, re-run the benchmark, and treat the new numbers as a new baseline.
 
+The knobs have been measured: [`docs/transcription-benchmarks.md`](docs/transcription-benchmarks.md) records the 2026-09-04/07 campaign on a 44-minute Dutch meeting (Apple M4 Pro, `openai_whisper-large-v3`). **No default was changed as a result** — nothing tested beat the shipped configuration of `ane`/`ane` compute, 16 workers, 5 temperature fallbacks and `vad` chunking, and `chunkingStrategy none` turned out to be 46 % slower rather than faster. The pipeline is ANE-bound at roughly 4× realtime for this model, the run-to-run noise floor is 0.56 % word disagreement, and the keys stay in place so the next idea can be measured instead of argued.
+
 ## Notes
 
 - Each GitHub release ships a zipped `.app` bundle.
