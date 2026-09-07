@@ -1477,6 +1477,215 @@ final class AudioRecordingServicePauseResumeTests: XCTestCase {
         XCTAssertNil(try store.loadSession(for: meeting.id))
     }
 
+    /// A resume that gets overtaken must take only ITSELF down.
+    ///
+    /// Resume A sits in `startWithRetry` (or in `start()` itself) while a second
+    /// resume publishes session B — the `session == nil` guard let it through
+    /// because A had published nothing yet. When A's attempt finally succeeds,
+    /// `discardStartedSessionIfNoLongerPublishable` correctly tears A's own
+    /// segment down; the catch that followed then cleared `session`,
+    /// `activeMeetingID`, `outputURL` and released the idle-sleep assertion —
+    /// B's bookkeeping. B kept capturing with nobody owning it, and the next
+    /// Stop merged the manifest and deleted the directory B was still writing
+    /// into.
+    func testOvertakenResumeDoesNotClearThePublishedSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Overtaken Resume", date: .now, status: .pausedRecording)
+        let firstSegment = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: firstSegment.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: firstSegment)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+        _ = try store.appendSegment(for: meeting.id, segmentURL: firstSegment, duration: 12)
+
+        let gate = StartGate()
+        let vendor = GatedFirstStartVendor(gate: gate)
+        let sleepPreventer = SleepPreventerSpy()
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in vendor.session(outputURL: outputURL) },
+            sleepPreventer: sleepPreventer,
+            startRetryDelays: [],
+            sleep: { _ in }
+        )
+
+        let resumeA = ResumeTaskBox()
+        resumeA.run { try await service.resumeRecording(for: meeting) }
+        // A is now suspended inside its `start()`, having published nothing.
+        await gate.waitUntilEntered()
+        XCTAssertFalse(service.isRecording, "A has not published yet")
+
+        // The second resume overtakes A and publishes session B.
+        try await service.resumeRecording(for: meeting)
+        XCTAssertTrue(service.isRecording)
+        let publishedURL = try XCTUnwrap(service.outputURL)
+        XCTAssertEqual(sleepPreventer.activeCount, 1)
+
+        gate.release()
+        do {
+            try await resumeA.value
+            XCTFail("An overtaken resume must not publish a session")
+        } catch RecordingError.resumeOvertaken {
+            // Expected: A discarded its own segment and said so.
+        }
+
+        XCTAssertTrue(vendor.firstSessionWasStopped, "A must tear its own just-started segment down")
+        XCTAssertTrue(service.isRecording, "B is still capturing; its bookkeeping must survive A's failure")
+        XCTAssertEqual(service.activeMeetingID, meeting.id)
+        XCTAssertEqual(service.outputURL, publishedURL, "B's segment URL must still be the published one")
+        XCTAssertEqual(
+            sleepPreventer.activeCount, 1,
+            "B is recording, so the Mac must still be held awake"
+        )
+        XCTAssertEqual(sleepPreventer.beginCount, 1, "One live segment, one assertion")
+        XCTAssertNil(
+            service.errorMessage,
+            "Being overtaken is bookkeeping, not something to put a modal in front of the user for"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: publishedURL.path),
+            "B's segment file must be untouched"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstSegment.path), "The earlier segment must survive")
+    }
+
+    /// A stream failure belongs to the segment it happened in.
+    ///
+    /// After a sleep, Task 4's bounded stop abandons a hung `SCStream`;
+    /// ScreenCaptureKit can deliver its `didStopWithError` minutes later, once
+    /// the auto-resume has already opened a NEW segment. Forwarded blindly, that
+    /// late failure reached the monitor as `.streamFailure` — a reason that
+    /// never auto-resumes — and hard-paused the freshly resumed recording with
+    /// "System audio capture failed" on screen. The service must forward only
+    /// the failures of the session it is actually holding.
+    func testStreamFailureFromASupersededSessionIsIgnored() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Woke Up Recording", date: .now, status: .recording)
+
+        var streamFatalHandlers: [(Error) -> Void] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, onStreamFatal in
+                streamFatalHandlers.append(onStreamFatal)
+                try FileManager.default.createDirectory(
+                    at: outputURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data("captured audio".utf8).write(to: outputURL)
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] }
+        )
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+        service.interruptionMonitor = monitor
+
+        // Segment 1, then the sleep's pause and the wake's resume: segment 2 is
+        // the live one now.
+        try await service.startRecording(for: meeting)
+        _ = try await service.pauseRecording()
+        try await service.resumeRecording(for: meeting)
+        XCTAssertEqual(streamFatalHandlers.count, 2)
+        XCTAssertTrue(service.isRecording)
+
+        // ScreenCaptureKit finally reporting the stream the pre-sleep segment
+        // abandoned.
+        streamFatalHandlers[0](RecordingError.systemAudioCaptureFailed("System audio capture failed"))
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertNil(
+            service.errorMessage,
+            "A superseded segment's stream failure must not put a modal over a healthy recording"
+        )
+        XCTAssertTrue(events.isEmpty, "…and must not reach the interruption monitor")
+        XCTAssertTrue(service.isRecording)
+
+        // Control: the LIVE session's failure is still real news.
+        streamFatalHandlers[1](RecordingError.systemAudioCaptureFailed("System audio capture failed"))
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertNotNil(service.errorMessage, "The live session's stream failure is still surfaced")
+        XCTAssertEqual(events.count, 1, "…and still reaches the monitor")
+        XCTAssertEqual(events.first?.kind, .started)
+    }
+
+    /// A pause whose finalize throws (a render/IO failure) used to leave
+    /// `session` set on a session that was already stopped: `isRecording` stayed
+    /// true, the timer kept ticking, the idle-sleep assertion stayed held, and
+    /// every later start/resume hit `.activeRecordingExists` while the mic
+    /// engine was already down. Stop and the interrupt handler both clear their
+    /// state in a `defer`; pause has to as well.
+    func testPauseRecordingClearsActiveStateEvenWhenFinalizeThrows() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Pause With A Full Disk", date: .now, status: .recording)
+
+        let sleepPreventer = SleepPreventerSpy()
+        var builtURLs: [URL] = []
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                builtURLs.append(outputURL)
+                try FileManager.default.createDirectory(
+                    at: outputURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data("captured audio".utf8).write(to: outputURL)
+                // Only the first segment's finalize fails; the resume below must
+                // be able to open a second one.
+                if builtURLs.count == 1 {
+                    return ThrowingFakeRecordingSession(outputURL: outputURL)
+                }
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 3),
+                    capturedFrames: 1
+                )
+            },
+            sleepPreventer: sleepPreventer
+        )
+
+        try await service.startRecording(for: meeting)
+        XCTAssertEqual(sleepPreventer.activeCount, 1)
+        let firstSegment = try XCTUnwrap(builtURLs.first)
+
+        do {
+            _ = try await service.pauseRecording()
+            XCTFail("Expected pauseRecording to rethrow the finalize failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "test.disk-write")
+        }
+
+        XCTAssertFalse(service.isRecording, "The session is stopped; the service must not read as recording")
+        XCTAssertFalse(service.isPreparing)
+        XCTAssertNil(service.activeMeetingID, "A failed pause must still release the active meeting")
+        XCTAssertEqual(
+            sleepPreventer.activeCount, 0,
+            "Nothing is capturing any more, so the Mac must not be held awake"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: firstSegment.path),
+            "The captured segment stays on disk for recovery"
+        )
+
+        // The whole point of clearing: continuing must still be possible.
+        try await service.resumeRecording(for: meeting)
+        XCTAssertTrue(service.isRecording, "A resume after a failed pause must not be blocked")
+        XCTAssertEqual(service.activeMeetingID, meeting.id)
+        XCTAssertEqual(builtURLs.count, 2)
+        XCTAssertNotEqual(builtURLs[0], builtURLs[1], "The resume must open a fresh segment")
+    }
+
     func testStopRecordingClearsActiveStateEvenWhenFinalizeThrows() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
@@ -1708,6 +1917,97 @@ final class AutoPauseIndicatorPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.summary.contains("microphone"))
         XCTAssertTrue(presentation.summary.contains("Resume"))
     }
+}
+
+/// Suspends the first `start()` a vendor hands out until the test releases it,
+/// so a second resume can overtake it exactly the way a real one does — inside
+/// `start()`, before anything is published.
+@MainActor
+private final class StartGate {
+    private var didEnter = false
+    private var isReleased = false
+    private var enteredWaiter: CheckedContinuation<Void, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    /// Called from inside the gated `start()`.
+    func enter() async {
+        didEnter = true
+        enteredWaiter?.resume()
+        enteredWaiter = nil
+        guard !isReleased else { return }
+        await withCheckedContinuation { releaseWaiter = $0 }
+    }
+
+    func waitUntilEntered() async {
+        guard !didEnter else { return }
+        await withCheckedContinuation { enteredWaiter = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+}
+
+/// First session out: `start()` waits on the gate. Every later one starts
+/// immediately, so the overtaking resume publishes while the first is held.
+private final class GatedFirstStartVendor: @unchecked Sendable {
+    private let gate: StartGate
+    private var vended = 0
+    private var firstSession: GatedStartRecordingSession?
+
+    init(gate: StartGate) {
+        self.gate = gate
+    }
+
+    var firstSessionWasStopped: Bool { firstSession?.stopCalled == true }
+
+    @MainActor
+    func session(outputURL: URL) -> RecordingSessionControlling {
+        vended += 1
+        guard vended == 1 else {
+            // The real session creates its files as it is built, so the test can
+            // prove the overtaken resume left them alone.
+            try? Data("live segment".utf8).write(to: outputURL)
+            return FakeRecordingSession(
+                outputURL: outputURL,
+                stopResult: RecordingResult(outputURL: outputURL, duration: 0),
+                capturedFrames: 1
+            )
+        }
+        let session = GatedStartRecordingSession(outputURL: outputURL, gate: gate)
+        firstSession = session
+        return session
+    }
+}
+
+private final class GatedStartRecordingSession: RecordingSessionControlling, @unchecked Sendable {
+    let outputURL: URL
+    let startedAt = Date()
+    /// No frames: `start()` has only just returned when the discard happens.
+    let hasCapturedFrames = false
+    let systemAudioUnavailableError: Error? = nil
+    private let gate: StartGate
+    private(set) var stopCalled = false
+
+    init(outputURL: URL, gate: StartGate) {
+        self.outputURL = outputURL
+        self.gate = gate
+    }
+
+    func start() async throws {
+        await gate.enter()
+    }
+
+    func stop() async throws -> RecordingResult {
+        stopCalled = true
+        // Mirrors the real session: nothing was captured, so it reports that and
+        // removes nothing anyone else owns.
+        throw RecordingError.noCapturedAudio
+    }
+    func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {}
+    func setSystemAudioEnabled(_ enabled: Bool) {}
 }
 
 /// Vends recording sessions whose `start()` throws for the first

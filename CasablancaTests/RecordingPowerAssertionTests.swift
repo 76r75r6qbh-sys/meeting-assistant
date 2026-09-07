@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import SwiftData
 import XCTest
 @testable import Casablanca
 
@@ -146,7 +147,86 @@ final class RecordingPowerAssertionTests: XCTestCase {
         )
     }
 
+    /// The 37-minute freeze was a lid-close during transcription — and the
+    /// assertion used to be released in `transcribe()`'s `defer`, i.e. BEFORE
+    /// the post-transcription pipeline. The AAC re-encode of a two-hour meeting
+    /// is minutes of unattended CPU work, and it ran with nothing holding the
+    /// Mac awake. The whole background run has to be covered, and the nested
+    /// `transcribe()` inside it must not take a second assertion nor release the
+    /// one the run is holding.
+    func testBackgroundTranscriptionHoldsAssertionThroughThePostPipeline() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let sleepPreventer = FakeSleepPreventer()
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Sprint Review", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = rootURL.appendingPathComponent("recording.wav").path
+        context.insert(meeting)
+
+        let service = TranscriptionService(
+            sleepPreventer: sleepPreventer,
+            memoryPressureMonitor: NoopMemoryPressureMonitor()
+        )
+
+        // An unreadable file, so the nested real `transcribe()` takes the
+        // assertion and then throws out of it — the release that used to end the
+        // whole run's protection.
+        let unreadableURL = rootURL.appendingPathComponent("unreadable.wav")
+        try Data(repeating: 0x41, count: 2_048).write(to: unreadableURL)
+
+        var activeDuringTranscribe: [Int] = []
+        service.transcribeOverrideForTesting = { _, _ in
+            _ = try? await service.transcribe(fileURL: unreadableURL)
+            activeDuringTranscribe.append(sleepPreventer.activeCount)
+            return TranscriptionResult(
+                segments: [TranscriptSegment(startTime: 0, endTime: 1, text: "hello")],
+                fullText: "hello",
+                duration: 1
+            )
+        }
+
+        var activeDuringPipeline: [Int] = []
+        service.pipelineOverrideForTesting = PostTranscriptionPipeline(
+            correctTerminology: { transcript, _ in transcript },
+            saveTranscript: { _, _ in
+                activeDuringPipeline.append(sleepPreventer.activeCount)
+                return URL(fileURLWithPath: "/dev/null")
+            },
+            export: { _ in activeDuringPipeline.append(sleepPreventer.activeCount) },
+            compress: { url in
+                activeDuringPipeline.append(sleepPreventer.activeCount)
+                return url
+            },
+            defaults: UserDefaults(suiteName: "power-assertion-\(UUID().uuidString)")!
+        )
+
+        service.transcribeInBackground(
+            meeting: meeting,
+            modelContext: context,
+            terminologyService: TerminologyService(),
+            exportReporter: nil
+        )
+        await service.waitForBackgroundWorkForTesting()
+
+        XCTAssertEqual(
+            activeDuringTranscribe, [1],
+            "The nested transcribe()'s own release must not drop the run's assertion"
+        )
+        XCTAssertEqual(
+            activeDuringPipeline, [1, 1, 1],
+            "Transcript save, export and the AAC re-encode must all run with the Mac held awake"
+        )
+        XCTAssertEqual(sleepPreventer.reasons, [Self.transcribingReason])
+        XCTAssertEqual(sleepPreventer.beginCount, 1, "One run, one assertion — never two stacked")
+        XCTAssertEqual(sleepPreventer.activeCount, 0, "…and it is released when the run ends")
+    }
+
     // MARK: - Helpers
+
+    private func makeInMemoryModelContext() throws -> ModelContext {
+        let schema = Schema([Meeting.self, TodoItem.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return ModelContext(try ModelContainer(for: schema, configurations: [configuration]))
+    }
 
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -175,6 +255,12 @@ private final class FakeSleepPreventer: SleepPreventing {
             self?.endCount += 1
         }
     }
+}
+
+/// Keeps `TranscriptionService.init` from installing a real
+/// `DispatchSource.makeMemoryPressureSource` in a test process.
+private final class NoopMemoryPressureMonitor: MemoryPressureMonitoring {
+    func start(handler: @escaping @Sendable () -> Void) {}
 }
 
 /// Minimal stand-in for a running capture session: `stop()` always reports a

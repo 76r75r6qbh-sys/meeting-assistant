@@ -143,6 +143,12 @@ final class AudioRecordingService {
             Log.recording.notice(
                 "Recording started for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
             )
+        } catch RecordingError.resumeOvertaken {
+            // Reached when this start turned into a resume (existing segments)
+            // that was then overtaken. See the identical clause in
+            // `resumeRecording`: every piece of state below belongs to the
+            // session that overtook us and is still capturing.
+            throw RecordingError.resumeOvertaken
         } catch {
             errorMessage = error.localizedDescription
             isPreparing = false
@@ -160,17 +166,27 @@ final class AudioRecordingService {
         }
 
         let meetingID = activeMeetingID
+        // In a `defer`, like `stopRecording` and `handleSystemInterrupt`: a
+        // finalize that throws (a render/IO failure) used to leave `session` set
+        // on a session that was already stopped — `isRecording` true, the timer
+        // ticking and the idle-sleep assertion held with the mic engine down,
+        // and every later start/resume refused with `.activeRecordingExists`
+        // while the captured audio sat unreachable on disk.
+        defer {
+            clearActiveSessionState()
+            // Show the cumulative recorded time (all segments), so the paused
+            // display matches where the timer resumes from. After the clear, so
+            // the cancelled timer cannot tick over it.
+            elapsedTime = accumulatedSegmentDuration(for: meetingID)
+        }
+
         let result = try await finalizeActiveSegment(session: session, meetingID: meetingID, dropIfEmpty: false)
-        clearActiveSessionState()
         Log.recording.notice(
             """
             Recording paused for meeting \(meetingID.uuidString, privacy: .public) at \
             \(result.outputURL.path, privacy: .public) after \(result.duration, privacy: .public)s
             """
         )
-        // Show the cumulative recorded time (all segments), so the paused display
-        // matches where the timer resumes from.
-        elapsedTime = accumulatedSegmentDuration(for: meetingID)
         return result
     }
 
@@ -228,6 +244,15 @@ final class AudioRecordingService {
             Log.recording.notice(
                 "Recording resumed for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
             )
+        } catch RecordingError.resumeOvertaken {
+            // Another start or resume published a session while this one was
+            // still inside `start()`. It has already torn its own segment down;
+            // `session`, `activeMeetingID`, `outputURL` and the idle-sleep
+            // assertion all belong to THAT session, which is still capturing.
+            // Clearing them here (the generic catch below) left a live
+            // `RecordingSession` with no owner: the next Stop merged the
+            // manifest and deleted the directory it was still writing into.
+            throw RecordingError.resumeOvertaken
         } catch {
             // A cancelled resume is the user pressing Stop, not a failure:
             // `errorMessage` drives a modal, and throwing one at someone who
@@ -539,16 +564,26 @@ final class AudioRecordingService {
         guard overtaken || Task.isCancelled else { return }
 
         _ = try? await session.stop()
+        if overtaken {
+            // `resumeOvertaken`, not `activeRecordingExists`: the caller must
+            // know that the only thing it owns is the segment just torn down
+            // here, so it clears none of the published session's state. Not an
+            // error worth a modal either — the recording the user is looking at
+            // is running.
+            Log.recording.notice(
+                """
+                Resume for meeting \(meetingID.uuidString, privacy: .public) started a segment but was \
+                overtaken by another session; tore its own segment down instead of publishing it
+                """
+            )
+            throw RecordingError.resumeOvertaken
+        }
         Log.recording.error(
             """
             Resume for meeting \(meetingID.uuidString, privacy: .public) started a segment but was \
-            \(overtaken ? "overtaken by another session" : "cancelled", privacy: .public); \
-            tore it down instead of publishing it
+            cancelled; tore it down instead of publishing it
             """
         )
-        if overtaken {
-            throw RecordingError.activeRecordingExists
-        }
         throw CancellationError()
     }
 
@@ -560,7 +595,12 @@ final class AudioRecordingService {
     ) throws -> RecordingSessionControlling {
         let effectiveInputDeviceID = selectedInputDeviceID ?? self.selectedInputDeviceID
         let audioDeviceID = availableInputDevices.first(where: { $0.id == effectiveInputDeviceID })?.deviceID
-        return try makeRecordingSession(
+        // Identifies the session this callback belongs to. Filled in below,
+        // because the session is what the factory returns — the closure cannot
+        // capture it directly. Weak, so the box never keeps a finished session
+        // alive: a session that is gone is by definition not the live one.
+        let owner = SessionOwnerBox()
+        let session = try makeRecordingSession(
             outputURL,
             meeting,
             audioDeviceID,
@@ -576,12 +616,31 @@ final class AudioRecordingService {
                 }
             },
             { [weak self] error in
-                Task { @MainActor [weak self] in
-                    self?.errorMessage = error.localizedDescription
-                    self?.forwardStreamFailure(error)
+                Task { @MainActor [weak self, owner] in
+                    guard let self else { return }
+                    // Only the session this service is holding right now may
+                    // raise a stream failure. After a sleep, the bounded stop
+                    // abandons a hung `SCStream` and ScreenCaptureKit can report
+                    // it long after the wake opened a new segment; forwarded, it
+                    // reached the monitor as `.streamFailure` (never
+                    // auto-resumable) and hard-paused the freshly resumed
+                    // recording.
+                    guard let built = owner.session, self.session === built else {
+                        Log.recording.notice(
+                            """
+                            Ignored stream failure from a superseded session: \
+                            \(error.localizedDescription, privacy: .public)
+                            """
+                        )
+                        return
+                    }
+                    self.errorMessage = error.localizedDescription
+                    self.forwardStreamFailure(error)
                 }
             }
         )
+        owner.session = session
+        return session
     }
 
     /// What a finalize does when `stop()` reports that the segment's finalize
@@ -792,4 +851,13 @@ final class AudioRecordingService {
         guard let persisted = try? sessionStore.loadSession(for: meetingID) else { return 0 }
         return persisted.segments.reduce(0) { $0 + $1.duration }
     }
+}
+
+/// Carries "which session was this callback built for?" into a closure that is
+/// created before the session exists. MainActor-isolated (so it is `Sendable`
+/// for the `Task { @MainActor … }` that reads it) and weak, so it never extends
+/// a finished session's life.
+@MainActor
+private final class SessionOwnerBox {
+    weak var session: (any RecordingSessionControlling)?
 }

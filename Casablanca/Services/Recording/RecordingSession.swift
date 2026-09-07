@@ -276,6 +276,13 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     /// lock-guarded a hung stop that resumes much later is a harmless no-op
     /// rather than a double resume (which would trap).
     private func stopSystemAudioBounded(_ unit: SystemAudioCapturing) async {
+        // BEFORE the await, not inside `unit.stop()`: a stop that times out
+        // never reaches its own disarm, and the abandoned `SCStream` can still
+        // deliver `didStopWithError` afterwards — which arrived at the service as
+        // a fresh `.streamFailure` (a reason that never auto-resumes) and hard-
+        // paused the segment the wake had just resumed.
+        unit.disarmStreamFailureReporting()
+
         let timeout = systemAudioStopTimeout
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let isClaimed = OSAllocatedUnfairLock<Bool>(initialState: false)

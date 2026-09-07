@@ -524,6 +524,44 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
         XCTAssertNotNil(events.first?.completion, "The event the coordinator gets must carry the deferral")
     }
 
+    /// The fallback exists for a will-sleep that never arrives. Once it HAS
+    /// arrived, arming it is pointless and actively misleading: 0.5 s later it
+    /// logged `.error` ("IOKit will-sleep did not arrive") about a deferral the
+    /// monitor was holding at that very moment, and re-emitted a `.started` that
+    /// only the de-dupe swallowed — during a finalize, exactly when the log is
+    /// the only thing an investigation has.
+    func testWorkspaceWillSleepAfterTheIOKitMessageDoesNotArmTheFallback() async {
+        let workspace = NotificationCenter()
+        let gate = FakeSleepGate()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { [] },
+            now: { Date(timeIntervalSince1970: 1_000) },
+            sleepGate: gate,
+            willSleepFallbackGrace: 0.05
+        )
+        monitor.start()
+
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        // The IOKit message first — the deferral is live and the recording is
+        // being finalized — and NSWorkspace's own willSleep right behind it.
+        gate.send(.willSleep(notificationID: 21))
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        XCTAssertFalse(
+            monitor.hasArmedWillSleepFallbackForTesting,
+            "The will-sleep the fallback waits for has already arrived; there is nothing to fall back to"
+        )
+
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(events.count, 1, "One sleep, one event")
+        XCTAssertNotNil(events.first?.completion, "…and it is the IOKit one, carrying the deferral")
+    }
+
     /// If the Mac sleeps before the grace period elapses, the timer resumes on
     /// wake -- where a `.started` would strand the meeting paused with nothing
     /// left to end it.

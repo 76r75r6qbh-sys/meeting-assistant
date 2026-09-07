@@ -187,6 +187,15 @@ final class TranscriptionService {
     /// however it ends.
     private let sleepPreventer: SleepPreventing
     private static let sleepPreventionReason = "Casablanca is transcribing a meeting"
+    /// One assertion for the whole run, reference-counted because two nested
+    /// holders take it: `transcribeInBackground` wraps the ENTIRE run (the
+    /// post-transcription pipeline's AAC re-encode and export are minutes of
+    /// unattended CPU on a long meeting, and used to run unprotected), and
+    /// `transcribe()` holds one for its own duration too, because the benchmark
+    /// harness calls it directly. Nesting must neither stack a second assertion
+    /// nor let the inner release end the outer one's protection.
+    private var sleepAssertion: SleepPreventionToken?
+    private var sleepAssertionHolders = 0
 
     /// Keeping the model resident between meetings is a convenience; the system
     /// needing that RAM outranks it, so pressure hands it straight back.
@@ -267,7 +276,13 @@ final class TranscriptionService {
         let runID = currentRunID
 
         backgroundTask = Task { @MainActor in
+            // Around the WHOLE run, not just the decode: the pipeline's export
+            // and AAC re-encode are the tail end of a job the user walked away
+            // from, and an idle sleep in the middle of them froze a run for 37
+            // minutes.
+            self.beginSleepPrevention()
             defer {
+                self.endSleepPrevention()
                 if self.currentRunID == runID {
                     self.transcribingMeetingID = nil
                 }
@@ -344,10 +359,7 @@ final class TranscriptionService {
             throw TranscriptionError.fileNotFound(fileURL.path)
         }
 
-        let sleepAssertion = sleepPreventer.begin(reason: Self.sleepPreventionReason)
-        Log.transcription.notice(
-            "Holding an idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
-        )
+        beginSleepPrevention()
 
         isTranscribing = true
         progress = 0
@@ -359,10 +371,7 @@ final class TranscriptionService {
         defer {
             isTranscribing = false
             stopProgressTicker()
-            sleepAssertion.end()
-            Log.transcription.notice(
-                "Released the idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
-            )
+            endSleepPrevention()
         }
 
         let locale = localeIdentifier
@@ -374,6 +383,29 @@ final class TranscriptionService {
         let result = try await task.value
         applyRetentionPolicy()
         return result
+    }
+
+    /// Takes the idle-sleep assertion, or joins the one already held.
+    private func beginSleepPrevention() {
+        sleepAssertionHolders += 1
+        guard sleepAssertion == nil else { return }
+        sleepAssertion = sleepPreventer.begin(reason: Self.sleepPreventionReason)
+        Log.transcription.notice(
+            "Holding an idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+        )
+    }
+
+    /// Releases it once the LAST holder is done, so a nested `transcribe()`
+    /// finishing does not leave the rest of a background run unprotected.
+    private func endSleepPrevention() {
+        guard sleepAssertionHolders > 0 else { return }
+        sleepAssertionHolders -= 1
+        guard sleepAssertionHolders == 0, let sleepAssertion else { return }
+        self.sleepAssertion = nil
+        sleepAssertion.end()
+        Log.transcription.notice(
+            "Released the idle-sleep assertion: \(Self.sleepPreventionReason, privacy: .public)"
+        )
     }
 
     /// Releases the cached Whisper model so its memory returns to the OS.

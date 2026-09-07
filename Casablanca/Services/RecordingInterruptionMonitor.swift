@@ -356,6 +356,20 @@ final class RecordingInterruptionMonitor {
     /// never arrives, pauses the recording the old (undeferrable) way rather
     /// than letting the sleep pass unhandled.
     private func armWillSleepFallback() {
+        // The IOKit will-sleep this fallback waits for has already arrived and
+        // its deferral is live. Arming anyway logged a misleading `.error` half a
+        // second into the finalize ("IOKit will-sleep did not arrive") and
+        // re-emitted a `.started` that only `emit`'s de-dupe swallowed.
+        if let pendingSleepNotificationID {
+            Log.recording.notice(
+                """
+                NSWorkspace willSleep after IOKit kIOMessageSystemWillSleep\
+                (\(pendingSleepNotificationID, privacy: .public)): the deferral is already \
+                held, so no fallback is armed
+                """
+            )
+            return
+        }
         willSleepFallbackTask?.cancel()
         let grace = willSleepFallbackGrace
         Log.recording.notice(
@@ -371,6 +385,14 @@ final class RecordingInterruptionMonitor {
             self.emit(.started, reason: .systemSleep)
         }
     }
+
+#if DEBUG
+    /// Whether the NSWorkspace will-sleep fallback timer is waiting right now.
+    /// The arming decision has no other observable effect — a fallback that
+    /// fires during a live deferral is swallowed by `emit`'s de-dupe — so this
+    /// is how the tests see it.
+    var hasArmedWillSleepFallbackForTesting: Bool { willSleepFallbackTask != nil }
+#endif
 
     private func cancelWillSleepFallback() {
         willSleepFallbackTask?.cancel()

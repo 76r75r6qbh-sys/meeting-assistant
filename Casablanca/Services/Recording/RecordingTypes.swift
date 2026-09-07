@@ -31,6 +31,12 @@ enum RecordingError: LocalizedError {
     /// nothing "to stop" reads as a bug, and this is exactly the state launch
     /// recovery repairs (raw PCM on disk, nothing in the manifest).
     case noResumableSession
+    /// A resume that started a segment while a *different* start or resume had
+    /// already published one. Distinct from `activeRecordingExists` on purpose:
+    /// the overtaken resume owns nothing but the segment it just tore down, so
+    /// its caller must clear no service state and must not put an error in
+    /// front of the user — the recording the user cares about is running.
+    case resumeOvertaken
 
     var errorDescription: String? {
         switch self {
@@ -60,6 +66,8 @@ enum RecordingError: LocalizedError {
             return "There is no active recording to stop."
         case .noResumableSession:
             return "There is no paused recording to resume."
+        case .resumeOvertaken:
+            return "Another recording segment was started first."
         }
     }
 }
@@ -89,6 +97,15 @@ protocol SystemAudioCapturing: AnyObject, Sendable {
     func beginAcceptingInput()
     func start() async throws
     func stop() async throws
+    /// Stops reporting stream failures for this unit, for good.
+    ///
+    /// Separate from `stop()` because a stop can hang: ScreenCaptureKit
+    /// sometimes never calls the `stopCapture()` completion after a sleep, and
+    /// the teardown then abandons the stream on a timeout. The `SCStream` can
+    /// still deliver `didStopWithError` afterwards, and reporting *that* as a
+    /// fresh failure hard-paused the segment the wake had already resumed. The
+    /// teardown therefore disarms before it awaits.
+    func disarmStreamFailureReporting()
     func setSystemAudioEnabled(_ enabled: Bool)
 }
 

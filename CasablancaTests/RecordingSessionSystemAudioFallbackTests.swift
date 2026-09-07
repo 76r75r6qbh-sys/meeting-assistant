@@ -26,6 +26,7 @@ final class RecordingSessionSystemAudioFallbackTests: XCTestCase {
         private(set) var beganAcceptingInput = false
         private(set) var startCalled = false
         private(set) var systemAudioDisabled = false
+        func disarmStreamFailureReporting() {}
         func beginAcceptingInput() { beganAcceptingInput = true }
         func start() async throws {
             startCalled = true
