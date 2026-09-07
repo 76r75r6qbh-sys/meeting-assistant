@@ -2,6 +2,41 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] — 2026-09-07
+
+Recordings now survive the laptop sleeping or locking, and unfinished recordings from earlier incidents are recovered at launch. The transcription pipeline was instrumented and benchmarked; the model and its defaults were deliberately left unchanged after measurement, but the transcript now appears sooner and the model no longer reloads for every meeting.
+
+### Fixed
+
+- **A recording is no longer lost when the Mac sleeps or the screen locks.** Finalizing a segment is now one-shot and decides "nothing was captured" from the bytes on disk, so an interrupted recording can no longer be deleted by a second stop racing the first. Segment numbers are reserved so a retry or a second start can never overwrite an earlier segment, and the app never deletes a session folder that still holds audio.
+- **Stop can no longer race an interruption.** A user Stop that arrives while the sleep handler is finalizing now waits for that finalize and merges every segment, instead of merging a truncated recording and deleting the rest.
+- **Sleep no longer strands the recording.** Casablanca holds an idle-sleep assertion while recording (and while transcribing), so an idle Mac stays awake without Amphetamine. When the lid closes anyway, the recording is finalized before the Mac suspends (via IOKit's power-change deferral), and on wake it resumes automatically as long as you are still within the meeting's slot plus 15 minutes (30 minutes after the pause for manual meetings). Beyond that it stays paused with Resume and Stop offered; nothing is deleted.
+- **Locking the screen or letting the display sleep no longer pauses a recording.**
+- **Resume failures are shown instead of silently ignored**, the audio engine is retried with backoff right after wake, and the paused timer shows the total already recorded after a relaunch. A paused meeting whose recording is still recoverable is no longer converted to notes-only.
+- **A dead system-audio stream can no longer hang the stop**, and a stale stream from before a sleep can no longer pause the resumed recording.
+- **Navigating away from a meeting during transcription no longer starts a second transcription** when you come back; the post-recording pipeline is owned by the app, not the view.
+
+### Added
+
+- **Recovery of unfinished recordings at launch.** Orphaned raw audio from earlier data-loss incidents is rendered into segments, stuck meetings are reconciled (paused where audio exists, notes-only where none does), and a one-time toast tells you what to Resume or Stop. Also available as Casablanca → Recover Unfinished Recordings…. Nothing is deleted until you press Stop.
+- **Transcription timing report and benchmark harness.** Each transcription logs per-phase timings and fallback counts; `--benchmark-transcription` measures a recording under any combination of hidden tuning keys, and `scripts/transcript-agreement.py` compares transcripts. See `docs/transcription-benchmarks.md`.
+- **Diagnostics.** Every interruption, finalize, resume attempt, recovery step and transcription run is logged under `nl.medicore.casablanca` so `log show` has evidence next time.
+
+### Changed
+
+- **The Whisper model stays loaded between meetings** when Claude Code is the language-model provider (Ollama and oMLX still unload it to free RAM), saving the 20–25 s reload per meeting. It is unloaded under memory pressure.
+- **The transcript appears before the recording is compressed**: AAC compression now runs after the transcript is saved and exported instead of before.
+- **Live transcript** entries merge per chunk with absolute timestamps instead of flickering between chunks.
+- **Transcription defaults are unchanged by design.** A benchmark campaign on this hardware showed `large-v3` is Neural-Engine-bound at ~4× realtime and that worker count, encoder placement, fallback count and chunking cannot improve it; details in `docs/transcription-benchmarks.md`. WhisperKit is now pinned to a fixed revision.
+
+### Internal
+
+- Tests can no longer write to the real Obsidian vault or the real preference domain (guarded by `TestVaultGuard` and a source scanner). 736 → 925 tests.
+
+### Verify on device
+
+The lid-close finalize, the 2-minute lock, idle sleep under `pmset sleep 1`, the 35-minute sleep policy and the launch recovery of existing session folders need confirmation on real hardware; see the plan's verification list.
+
 ## [0.15.0] — 2026-07-30
 
 Claude Code joins Ollama and oMLX as a language-model provider, so summaries can come from a frontier model billed against your existing Claude subscription instead of a model running on this Mac.
