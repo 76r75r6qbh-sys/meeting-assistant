@@ -18,6 +18,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
     @AppStorage(AppPreferenceKey.omlxModel) private var omlxModel = ""
     @AppStorage(AppPreferenceKey.omlxAPIKey) private var omlxAPIKey = ""
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
+    @AppStorage(AppPreferenceKey.claudeCLIModel) private var claudeCLIModel = "sonnet"
     @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
@@ -59,6 +61,8 @@ struct SettingsView: View {
         switch llmProvider {
         case .ollama: return Binding(get: { ollamaEndpoint }, set: { ollamaEndpoint = $0 })
         case .omlx: return Binding(get: { omlxEndpoint }, set: { omlxEndpoint = $0 })
+        // Carries the `claude` CLI path, not a URL. Empty means auto-detect.
+        case .claudeCode: return Binding(get: { claudeCLIPath }, set: { claudeCLIPath = $0 })
         }
     }
 
@@ -66,14 +70,19 @@ struct SettingsView: View {
         switch llmProvider {
         case .ollama: return Binding(get: { ollamaModel }, set: { ollamaModel = $0 })
         case .omlx: return Binding(get: { omlxModel }, set: { omlxModel = $0 })
+        case .claudeCode: return Binding(get: { claudeCLIModel }, set: { claudeCLIModel = $0 })
         }
     }
 
-    private var providerDisplayName: String {
-        switch llmProvider {
-        case .ollama: return "Ollama"
-        case .omlx: return "oMLX"
-        }
+    /// Empty for the local providers, which have no caveats worth a caption.
+    private var providerCaveats: String {
+        LLMProviderCopy.caveats(for: llmProvider)
+    }
+
+    /// Shown in the Terminology section rather than here, next to the toggle it is
+    /// actually about. Empty for the local providers.
+    private var terminologyCaveat: String {
+        LLMProviderCopy.terminologyCaveat(for: llmProvider)
     }
 
     var body: some View {
@@ -232,17 +241,18 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         Form {
-            Section("Local LLM (Summarization)") {
+            Section("Language Model (Summarization)") {
                 Picker("Provider", selection: $llmProviderRaw) {
                     Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
                     Text("oMLX").tag(LLMProviderKind.omlx.rawValue)
+                    Text("Claude Code").tag(LLMProviderKind.claudeCode.rawValue)
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: llmProviderRaw) { _, _ in
                     Task { await refreshModels() }
                 }
 
-                TextField("Endpoint", text: providerEndpointBinding)
+                TextField(LLMProviderCopy.locationFieldLabel(for: llmProvider), text: providerEndpointBinding)
                     .onSubmit {
                         Task { await refreshModels() }
                     }
@@ -264,7 +274,7 @@ struct SettingsView: View {
                             if availableModels.contains(model) {
                                 Text(model).tag(model)
                             } else {
-                                Text("\(model) (not installed)").tag(model)
+                                Text("\(model) \(LLMProviderCopy.modelUnavailableSuffix(for: llmProvider))").tag(model)
                             }
                         }
                     }
@@ -281,7 +291,7 @@ struct SettingsView: View {
                 if isLoadingModels {
                     HStack(spacing: CasaSpace.sm) {
                         ProgressView().controlSize(.small)
-                        Text("Loading installed \(providerDisplayName) models…")
+                        Text(LLMProviderCopy.modelLoadingLabel(for: llmProvider))
                     }
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
@@ -290,18 +300,26 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.red)
                 } else if availableModels.isEmpty {
-                    Text("No \(providerDisplayName) models were found at this endpoint yet.")
+                    Text(LLMProviderCopy.noModelsFound(for: llmProvider))
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 } else if !availableModels.contains(providerModelBinding.wrappedValue) {
-                    Text("The current model is not installed at this endpoint. Pick one of the detected models above.")
+                    Text(LLMProviderCopy.modelNotAvailable(for: llmProvider))
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                 }
 
-                Text("Casablanca loads the installed models from \(providerDisplayName) so summarization uses a valid local model.")
+                Text(LLMProviderCopy.summarizationFooter(for: llmProvider))
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !providerCaveats.isEmpty {
+                    Text(providerCaveats)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Summary Prompt") {
@@ -337,9 +355,17 @@ struct SettingsView: View {
                 }
                 .buttonStyle(SecondaryButtonStyle())
 
-                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature local LLM pass on each new transcript before summarization.")
+                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature pass through \(LLMProviderCopy.displayName(for: llmProvider)) on each new transcript before summarization.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !terminologyCaveat.isEmpty {
+                    Text(terminologyCaveat)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .formStyle(.grouped)
@@ -531,7 +557,7 @@ struct SettingsView: View {
 
     private var summaryPromptSheet: some View {
         sheetContainer(title: "Customize Summary Prompt") {
-            Text("This template is sent to \(providerDisplayName) whenever Casablanca generates a summary.")
+            Text("This template is sent to \(LLMProviderCopy.displayName(for: llmProvider)) whenever Casablanca generates a summary.")
                 .font(.subheadline)
                 .foregroundStyle(Color.textSecondary)
 

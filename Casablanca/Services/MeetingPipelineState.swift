@@ -320,3 +320,31 @@ enum StaleProcessingRecovery {
         return .completed
     }
 }
+
+/// Pure, testable launch-time recovery decision for a meeting the app left in a
+/// recording status. Nothing can be recording while the app boots, so a
+/// `.recording` meeting is by definition stale, and a `.pausedRecording` one is
+/// only honest while its session directory still holds audio.
+///
+/// Ten meetings sat in `.pausedRecording` on the author's Mac with nothing left
+/// to resume, each offering a Resume button that failed. `hasResumableSession`
+/// comes from `AudioRecordingService.hasResumableSession` (manifest present
+/// *or* audio on disk), so it errs towards keeping the recording affordance.
+/// Returns nil when no change is needed.
+enum PausedRecordingRecovery {
+    static func recoveredStatus(current: MeetingStatus, hasResumableSession: Bool) -> MeetingStatus? {
+        switch current {
+        case .pausedRecording:
+            // Audio present: the Resume/Stop decision is the user's to make,
+            // and nothing here may take it away from them.
+            return hasResumableSession ? nil : .notesOnly
+        case .recording:
+            // A recording that outlived the process. With audio it is really a
+            // paused one; without, only the notes survived.
+            return hasResumableSession ? .pausedRecording : .notesOnly
+        case .upcoming, .notesOnly, .processing, .completed:
+            // `.processing` belongs to `StaleProcessingRecovery`.
+            return nil
+        }
+    }
+}

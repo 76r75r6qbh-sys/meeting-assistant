@@ -12,8 +12,6 @@ struct TranscriptionView: View {
     private var terminologyService: TerminologyService { appModel.terminologyService }
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled = false
-    @State private var didStart = false
-    @State private var error: TranscriptionError?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -32,22 +30,31 @@ struct TranscriptionView: View {
                 .disabled(!transcriptionService.isTranscribing)
             }
         }
+        // The run belongs to the service, so this only asks for it: a re-appearing
+        // view re-triggers the task and the service ignores the duplicate.
         .task {
-            await startTranscription()
+            startTranscription()
+        }
+        // Completion no longer arrives as a return from this view's own task —
+        // the pipeline can outlive the view — so it arrives as service state.
+        .onChange(of: transcriptionService.lastCompletedMeetingID) { _, completedID in
+            if completedID == meeting.id {
+                onComplete()
+            }
         }
         .alert("Transcription Error", isPresented: errorBinding) {
             Button("Retry") {
-                didStart = false
-                error = nil
-                Task { await startTranscription() }
+                transcriptionService.clearError()
+                startTranscription()
             }
             Button("Skip Transcription", role: .cancel) {
+                transcriptionService.clearError()
                 meeting.status = .completed
                 save()
                 onComplete()
             }
         } message: {
-            Text(error?.localizedDescription ?? "An unknown error occurred.")
+            Text(transcriptionService.lastError?.localizedDescription ?? "An unknown error occurred.")
         }
     }
 
@@ -132,97 +139,21 @@ struct TranscriptionView: View {
 
     private var errorBinding: Binding<Bool> {
         Binding(
-            get: { error != nil },
-            set: { if !$0 { error = nil } }
+            get: { transcriptionService.lastError != nil },
+            set: { if !$0 { transcriptionService.clearError() } }
         )
     }
 
-    private func startTranscription() async {
-        guard !didStart else { return }
-        didStart = true
-
-        guard let recordingPath = meeting.recordingFileURL else {
-            error = .fileNotFound("No recording file available")
-            return
-        }
-
-        let fileURL = URL(fileURLWithPath: recordingPath)
-
-        do {
-            meeting.status = .processing
-            save()
-
-            let result = try await transcriptionService.transcribe(fileURL: fileURL, localeIdentifier: meeting.transcriptionLanguage)
-
-            let correctionEnabled = UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled)
-            let terminologyRaw = UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
-            let entries = correctionEnabled ? TerminologyService.parse(terminologyRaw) : []
-
-            let finalTranscript: String
-            if !entries.isEmpty {
-                meeting.rawTranscript = result.formattedTranscript
-                save()
-                let corrected = await terminologyService.correct(result.formattedTranscript, entries: entries)
-                // Guard against the meeting being deleted mid-correction.
-                guard meeting.modelContext != nil else { return }
-                finalTranscript = corrected
-            } else {
-                meeting.rawTranscript = nil
-                finalTranscript = result.formattedTranscript
-            }
-
-            meeting.transcript = finalTranscript
-            meeting.status = .completed
-            save()
-
-            // Transcription has finished reading the WAV. Now (and only now) is
-            // it safe to compress the recording to AAC/m4a and reclaim disk.
-            await compressRecordingIfEnabled(wavURL: fileURL)
-
-            _ = try? TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: appModel.exportStatusCenter)
-
-            onComplete()
-        } catch is CancellationError {
-            // User cancelled — handled by cancel button
-        } catch let transcriptionError as TranscriptionError {
-            error = transcriptionError
-            didStart = false
-        } catch {
-            self.error = .transcriptionFailed(error.localizedDescription)
-            didStart = false
-        }
-    }
-
-    /// Re-encodes the finished WAV mixdown to AAC/m4a and repoints the meeting
-    /// at the smaller file, deleting the WAV on success. Skipped entirely when
-    /// the user has opted to keep the original WAV. On any failure the WAV is
-    /// preserved and the meeting keeps pointing at it — the recording is never
-    /// lost.
-    private func compressRecordingIfEnabled(wavURL: URL) async {
-        guard !AppPreferences.keepOriginalWAV() else { return }
-        // Only compress lossless WAV input; never re-compress an already-m4a file.
-        guard wavURL.pathExtension.lowercased() == "wav" else { return }
-
-        do {
-            let m4aURL = try await RecordingCompressor.compress(wavURL: wavURL)
-
-            // The meeting may have been deleted mid-compression; if so, leave the
-            // newly written m4a to be cleaned up with the meeting's other files.
-            guard meeting.modelContext != nil else { return }
-
-            meeting.recordingFileURL = m4aURL.path
-            save()
-
-            // WAV is no longer referenced — reclaim its disk space.
-            bestEffort("delete WAV after compression", Log.recording) {
-                try FileManager.default.removeItem(at: wavURL)
-            }
-            Log.recording.info("Compressed recording to AAC/m4a; deleted original WAV.")
-        } catch {
-            // Keep the WAV and leave the meeting pointing at it.
-            Log.recording.error("Recording compression failed; keeping WAV: \(error.localizedDescription, privacy: .public)")
-        }
+    /// Asks the service to run the pipeline for this meeting. A no-op while a
+    /// run is already in flight, so re-entering the view cannot start a second
+    /// transcription on the same WhisperKit instance.
+    private func startTranscription() {
+        transcriptionService.transcribeInBackground(
+            meeting: meeting,
+            modelContext: modelContext,
+            terminologyService: terminologyService,
+            exportReporter: appModel.exportStatusCenter
+        )
     }
 
     private func save() {

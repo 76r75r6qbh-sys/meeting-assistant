@@ -178,14 +178,15 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
     }
 
     private func makeVault() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        makeScratchVault("todo-sync")
     }
 
+    /// Scratch preference domain pointed at a temporary vault. Never the
+    /// standard domain: this suite WRITES markdown, so a real vault path would
+    /// litter the user's vault (see `TestVaultGuard`).
     private func makeDefaults(vaultURL: URL) -> UserDefaults {
-        let defaults = UserDefaults(suiteName: "ObsidianTodoSyncServiceTests.\(UUID().uuidString)")!
-        defaults.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        let defaults = makeScratchDefaults(vaultRoot: vaultURL, label: "todo-sync")
+        assertScratchVault(defaults)
         return defaults
     }
 
@@ -198,6 +199,12 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         components.day = 12
         components.hour = 12
         return Meeting(title: "Weekly Sync", date: components.date!)
+    }
+
+    /// Local-only mode: no vault is consulted, but the domain still must not be
+    /// the standard one.
+    private func makeLocalModeDefaults() -> UserDefaults {
+        makeScratchDefaults(label: "todo-sync-local")
     }
 
     private func makeContainer() throws -> ModelContainer {
@@ -215,7 +222,7 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
 
     @MainActor
     func testCreateGenericTodoInLocalModePersistsSwiftDataOnly() throws {
-        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        let defaults = makeLocalModeDefaults()
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
         let context = try makeInMemoryModelContext()
@@ -235,7 +242,7 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
 
     @MainActor
     func testCreateMeetingTodoInLocalModePersistsSwiftDataOnly() throws {
-        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        let defaults = makeLocalModeDefaults()
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
         let context = try makeInMemoryModelContext()
@@ -257,7 +264,7 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
 
     @MainActor
     func testSetCompletedInLocalModeSkipsFilesystem() throws {
-        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        let defaults = makeLocalModeDefaults()
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let context = try makeInMemoryModelContext()
         // Pre-existing row with a stale source path that no longer corresponds to anything on disk.
@@ -272,7 +279,7 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
 
     @MainActor
     func testDeleteTodoInLocalModeSkipsFilesystem() throws {
-        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        let defaults = makeLocalModeDefaults()
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let context = try makeInMemoryModelContext()
         let todo = TodoItem(text: "Old", sourceFilePath: "/tmp/no-such-vault/Old.md")
@@ -285,7 +292,7 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
 
     @MainActor
     func testRefreshAllTodosInLocalModeIsNoop() throws {
-        let defaults = UserDefaults(suiteName: "todos-local-\(UUID().uuidString)")!
+        let defaults = makeLocalModeDefaults()
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         defaults.set("/tmp/no-such-vault", forKey: AppPreferenceKey.obsidianVaultPath)
         let context = try makeInMemoryModelContext()

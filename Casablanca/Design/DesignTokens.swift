@@ -47,6 +47,7 @@ enum CasaAnimation {
 
 enum CasaLayout {
     static let sidebarWidth: CGFloat = 220
+    static let sidebarMinWidth: CGFloat = 200
     static let sidebarCollapsedWidth: CGFloat = 60
     static let sidebarItemHeight: CGFloat = 28
     static let toolbarHeight: CGFloat = 52
@@ -59,6 +60,11 @@ enum CasaLayout {
     static let windowDefaultHeight: CGFloat = 720
     static let windowMinWidth: CGFloat = 480
     static let windowMinHeight: CGFloat = 500
+    /// Constant minimum width of the detail column. Sidebar minimum plus this
+    /// equals the window minimum, so the window can still be dragged below the
+    /// sidebar breakpoint (where the sidebar collapses) while content-heavy
+    /// screens are never squeezed to nothing by the sidebar or an inspector.
+    static let detailColumnMinWidth: CGFloat = windowMinWidth - sidebarMinWidth
     /// Below this window width the sidebar collapses to a controlled detail-only
     /// layout instead of being silently dropped by NavigationSplitView.
     static let layoutSidebarBreakpoint: CGFloat = 600
@@ -87,6 +93,27 @@ enum LayoutWidthClass {
         if width < CasaLayout.layoutSidebarBreakpoint { return .compact }
         if width < CasaLayout.layoutInspectorBreakpoint { return .regular }
         return .expanded
+    }
+}
+
+// MARK: - Split-Column Minimum Size
+
+extension View {
+    /// Makes a NavigationSplitView column (or an inspector column) report a
+    /// constant minimum size instead of one derived from its content.
+    ///
+    /// The column's hosting view publishes its content's minimum size to the
+    /// split view during AppKit's Update Constraints pass. When that minimum
+    /// depends on the content -- text that wraps with the column's width, a
+    /// card that appears when the calendar refreshes -- each change re-dirties
+    /// the pass it is computed in. Enough of those and AppKit aborts the app
+    /// ("more Update Constraints in Window passes than there are views"), which
+    /// is how 0.16.0 crashed shortly after launch and while shrinking the
+    /// window. A flexible frame with both a minimum and a maximum sizes itself
+    /// to the proposal, clamped, independent of its content, so the published
+    /// minimum never changes. The window's own minimum still applies.
+    func stableSplitColumnMinimumSize(minWidth: CGFloat = 0) -> some View {
+        frame(minWidth: minWidth, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
     }
 }
 

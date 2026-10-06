@@ -7,7 +7,12 @@ struct ContentView: View {
     @Environment(AppModel.self) private var appModel
     private var recordingService: AudioRecordingService { appModel.recordingService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
-    @State private var interruptionMonitor = RecordingInterruptionMonitor()
+    // The real IOKit gate is passed explicitly: its default is `nil` so a unit
+    // test never registers for system power notifications by accident. Nothing
+    // registers here -- this expression is re-evaluated on every ContentView
+    // value SwiftUI builds, so registration is deferred to the idempotent
+    // `start()` below, called once on the instance `@State` actually keeps.
+    @State private var interruptionMonitor = RecordingInterruptionMonitor(sleepGate: IOKitSystemSleepGate())
     @State private var interruptionNotifier = RecordingNotificationCenter()
     @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
     @State private var sidebarMeetings: SidebarMeetingsProvider?
@@ -42,9 +47,10 @@ struct ContentView: View {
                     SidebarPlaceholderView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
+            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
+                .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
         }
         .background {
             // Single source of truth for the window width that drives the
@@ -113,12 +119,22 @@ struct ContentView: View {
         }
         .task {
             if interruptionCoordinator == nil {
+                interruptionMonitor.start()
                 recordingService.interruptionMonitor = interruptionMonitor
+                // Note: system-audio-unavailable (no display) is handled as an
+                // auto-pause via the interruption monitor/coordinator below
+                // (`.displayUnavailable`), so we deliberately do NOT wire
+                // `onSystemAudioUnavailable` to a microphone-only notification —
+                // the recording pauses rather than silently continuing mic-only.
                 let context = modelContext
                 interruptionCoordinator = RecordingInterruptionCoordinator(
                     service: recordingService,
                     monitor: interruptionMonitor,
                     notifier: interruptionNotifier,
+                    // The coordinator acts on the meeting that is RECORDING,
+                    // which the user may have navigated away from before the
+                    // Mac slept; the bound meeting is then another one or none.
+                    lookupMeeting: { [viewModel] id in viewModel.fetchMeeting(byID: id) },
                     save: { try? context.save() }
                 )
             }

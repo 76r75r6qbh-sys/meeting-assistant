@@ -75,9 +75,23 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(AppPreferences.llmProvider(in: defaults), .ollama)
     }
 
+    func testLLMProviderReadsClaudeCodeStoredValue() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        XCTAssertEqual(AppPreferences.llmProvider(in: defaults), .claudeCode)
+    }
+
     func testSetLLMProviderWritesRawValue() {
         let defaults = makeDefaults()
         AppPreferences.setLLMProvider(.omlx, in: defaults)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.llmProvider), "omlx")
+    }
+
+    /// The raw value is persisted user data: changing it would silently reset every
+    /// existing Claude Code user back to Ollama on the next launch.
+    func testSetLLMProviderWritesClaudeCodeRawValue() {
+        let defaults = makeDefaults()
+        AppPreferences.setLLMProvider(.claudeCode, in: defaults)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.llmProvider), "claudeCode")
     }
 }

@@ -1,0 +1,266 @@
+import XCTest
+import AVFoundation
+@testable import Casablanca
+
+/// Regression coverage for total recording loss on interruption.
+///
+/// Context: `RecordingSession.stop()` stops the system-audio capture FIRST.
+/// When the machine sleeps or the input device disappears (e.g. closing the
+/// laptop lid), ScreenCaptureKit has often already torn the `SCStream` down, so
+/// `stopCapture()` throws. The throw used to escape `stop()` *before* the
+/// microphone writer was drained/closed and the mix-down rendered — orphaning
+/// the microphone PCM that had streamed to disk the whole meeting, which the
+/// resume store then deleted. Net effect: an interruption lost the entire
+/// recording even though the audio was on disk all along.
+///
+/// The fix makes the system-audio stop best-effort so finalization always
+/// proceeds. This test seeds a captured microphone track, injects a fake
+/// system-audio unit whose `stop()` throws, and asserts the recording is
+/// finalized instead of discarded.
+///
+/// NOT covered here: the narrower path where `render()` itself throws (genuine
+/// I/O failure) after a clean drain — `handleSystemInterrupt` still discards
+/// that segment. Recovering orphaned temp PCM on render failure is tracked as a
+/// separate follow-up; add a matching test when that lands.
+@MainActor
+final class RecordingSessionTeardownResilienceTests: XCTestCase {
+
+    /// A fake system-audio source whose `stop()` throws, mirroring an `SCStream`
+    /// already torn down by system sleep / device loss.
+    private final class ThrowingSystemAudioUnit: SystemAudioCapturing, @unchecked Sendable {
+        struct StopError: Error {}
+        private(set) var stopCalled = false
+        func disarmStreamFailureReporting() {}
+        func beginAcceptingInput() {}
+        func start() async throws {}
+        func stop() async throws {
+            stopCalled = true
+            throw StopError()
+        }
+        func setSystemAudioEnabled(_ enabled: Bool) {}
+    }
+
+    /// A fake system-audio source whose `stop()` suspends forever, mirroring an
+    /// `SCStream` that system sleep already tore down: ScreenCaptureKit never
+    /// calls the `stopCapture()` completion, so the continuation is never
+    /// resumed and the await can never finish.
+    private final class HangingSystemAudioUnit: SystemAudioCapturing, @unchecked Sendable {
+        private(set) var stopCalled = false
+        /// Held so the abandoned continuation is never deallocated — dropping it
+        /// would make the runtime log a continuation-leak warning.
+        private var heldContinuation: UnsafeContinuation<Void, Never>?
+        func disarmStreamFailureReporting() {}
+        func beginAcceptingInput() {}
+        func start() async throws {}
+        func stop() async throws {
+            stopCalled = true
+            await withUnsafeContinuation { continuation in
+                self.heldContinuation = continuation
+            }
+        }
+        func setSystemAudioEnabled(_ enabled: Bool) {}
+    }
+
+    /// The hanging unit again, but modelling what `SystemAudioCaptureUnit`
+    /// really does with its `SCStreamDelegate`: it holds the `onStreamFatal`
+    /// closure until something disarms it. `didStopWithError` can arrive long
+    /// after the bounded stop gave up on this stream.
+    private final class DisarmableHangingSystemAudioUnit: SystemAudioCapturing, @unchecked Sendable {
+        private(set) var stopCalled = false
+        private var onStreamFatal: ((Error) -> Void)?
+        private var heldContinuation: UnsafeContinuation<Void, Never>?
+
+        init(onStreamFatal: @escaping (Error) -> Void) {
+            self.onStreamFatal = onStreamFatal
+        }
+
+        /// ScreenCaptureKit finally calling `didStopWithError` for the stream
+        /// this teardown abandoned.
+        func deliverStreamStopped(_ error: Error) {
+            onStreamFatal?(error)
+        }
+
+        func beginAcceptingInput() {}
+        func start() async throws {}
+        func disarmStreamFailureReporting() {
+            onStreamFatal = nil
+        }
+        func stop() async throws {
+            stopCalled = true
+            await withUnsafeContinuation { continuation in
+                self.heldContinuation = continuation
+            }
+        }
+        func setSystemAudioEnabled(_ enabled: Bool) {}
+    }
+
+    private func makeSession(
+        outputURL: URL,
+        systemAudioStopTimeout: Duration = .seconds(5),
+        onStreamFatal: @escaping (Error) -> Void = { _ in }
+    ) throws -> RecordingSession {
+        let meeting = Meeting(title: "Teardown Resilience", date: .now, status: .recording)
+        return try RecordingSession(
+            outputURL: outputURL,
+            meeting: meeting,
+            inputDeviceID: nil,
+            systemAudioEnabled: true,
+            systemAudioStopTimeout: systemAudioStopTimeout,
+            onLevelUpdate: { _ in },
+            onFailure: { _ in },
+            onStreamFatal: onStreamFatal
+        )
+    }
+
+    /// One second of 16 kHz mono float32 audio matching the recorder's target
+    /// format, so the writer stores it verbatim (no conversion) and counts frames.
+    private func oneSecondMonoBuffer() -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        )!
+        let frames: AVAudioFrameCount = 16_000
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buffer.frameLength = frames
+        let samples = buffer.floatChannelData![0]
+        for index in 0..<Int(frames) {
+            samples[index] = 0.1
+        }
+        return buffer
+    }
+
+    func testStopFinalizesCapturedMicrophoneAudioWhenSystemAudioStopThrows() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let session = try makeSession(outputURL: outputURL)
+        let throwingSystemAudio = ThrowingSystemAudioUnit()
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: throwingSystemAudio)
+
+        // Microphone audio that streamed to disk before the interruption.
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        // Before the fix this threw `ThrowingSystemAudioUnit.StopError` and the
+        // captured audio was lost. It must now finalize the microphone track.
+        let result = try await session.stop()
+
+        XCTAssertTrue(throwingSystemAudio.stopCalled, "System-audio stop should have been attempted")
+        XCTAssertTrue(
+            session.hasCapturedFrames,
+            "Captured microphone frames must survive a system-audio stop failure"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: result.outputURL.path),
+            "A final WAV must be written from the captured microphone audio"
+        )
+        let size = (try FileManager.default.attributesOfItem(atPath: result.outputURL.path)[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 44, "Final WAV must contain audio beyond the 44-byte header")
+
+        try? FileManager.default.removeItem(at: result.outputURL)
+    }
+
+    /// The sleep variant of the same loss: ScreenCaptureKit has already torn the
+    /// `SCStream` down, so `stopCapture()` neither returns nor throws — its
+    /// continuation is simply never resumed. `stop()` used to await that
+    /// forever, so the facade kept `session != nil` (every later resume threw
+    /// `.activeRecordingExists`) and the UI sat on "Finalizing recording…" while
+    /// the captured microphone PCM was never rendered. The bounded wait must
+    /// abandon the hung stop and finalize the microphone track.
+    func testStopCompletesWhenSystemAudioStopNeverReturns() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let session = try makeSession(outputURL: outputURL, systemAudioStopTimeout: .milliseconds(200))
+        let hangingSystemAudio = HangingSystemAudioUnit()
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: hangingSystemAudio)
+
+        // Microphone audio that streamed to disk before the machine slept.
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        // `stop()` runs detached so a regression hangs the expectation instead
+        // of the test method: before the fix this never returned at all.
+        let finished = expectation(description: "stop() returns despite a hung system-audio stop")
+        Task {
+            do {
+                let result = try await session.stop()
+                XCTAssertEqual(result.outputURL, outputURL, "The finalized WAV must be the session's output")
+            } catch {
+                XCTFail("stop() must finalize the microphone track, but threw \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 3)
+
+        XCTAssertTrue(hangingSystemAudio.stopCalled, "System-audio stop should have been attempted")
+        XCTAssertTrue(
+            session.hasCapturedFrames,
+            "Captured microphone frames must survive a system-audio stop that never returns"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: outputURL.path),
+            "A final WAV must be written from the captured microphone audio"
+        )
+        let size = (try FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 44, "Final WAV must contain audio beyond the 44-byte header")
+
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+
+    /// The stream this teardown gave up on must never speak again.
+    ///
+    /// After the bounded stop abandons a hung `SCStream`, ScreenCaptureKit can
+    /// still deliver `didStopWithError` for it minutes later. The delegate was
+    /// armed in `SystemAudioCaptureUnit.init` and nothing ever disarmed it, so
+    /// that late callback reached the service as a fresh `.streamFailure` — a
+    /// reason that never auto-resumes — and hard-paused the segment the wake had
+    /// just resumed, with "System audio capture failed" on screen. The teardown
+    /// has to disarm the reporting BEFORE it awaits, or a stop that times out
+    /// leaves it armed.
+    func testAbandonedSystemAudioStopDoesNotReportLaterStreamFailures() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let failures = StreamFailureBox()
+        let report: (Error) -> Void = { failures.record($0) }
+        let session = try makeSession(
+            outputURL: outputURL,
+            systemAudioStopTimeout: .milliseconds(200),
+            onStreamFatal: report
+        )
+        let hangingSystemAudio = DisarmableHangingSystemAudioUnit(onStreamFatal: report)
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: hangingSystemAudio)
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        // Control: while the segment is live, a stream failure is real news.
+        hangingSystemAudio.deliverStreamStopped(StreamStopError())
+        XCTAssertEqual(failures.count, 1, "A live session must still hear about its stream dying")
+
+        let finished = expectation(description: "stop() returns despite a hung system-audio stop")
+        Task {
+            _ = try? await session.stop()
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 3)
+        XCTAssertTrue(hangingSystemAudio.stopCalled)
+
+        // ScreenCaptureKit catching up on the stream nobody owns any more.
+        hangingSystemAudio.deliverStreamStopped(StreamStopError())
+
+        XCTAssertEqual(
+            failures.count, 1,
+            "The abandoned stream's late didStopWithError must not be reported as a new failure"
+        )
+
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+
+    private struct StreamStopError: Error {}
+
+    /// Counts the stream failures that reached the session's owner.
+    private final class StreamFailureBox: @unchecked Sendable {
+        private(set) var count = 0
+        func record(_ error: Error) { count += 1 }
+    }
+}

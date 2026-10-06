@@ -62,4 +62,56 @@ final class LLMProviderFactoryTests: XCTestCase {
         let provider = LLMProviderFactory.current(defaults: defaults) as? OMLXProvider
         XCTAssertEqual(provider?.apiKey, "")
     }
+
+    func testClaudeCodeSelectionReturnsClaudeCLIProvider() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        let provider = LLMProviderFactory.current(defaults: defaults)
+        XCTAssertTrue(provider is ClaudeCLIProvider, "expected ClaudeCLIProvider, got \(type(of: provider))")
+    }
+
+    func testClaudeCLIProviderReadsPathAndModel() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        defaults.set("/opt/homebrew/bin/claude", forKey: AppPreferenceKey.claudeCLIPath)
+        defaults.set("opus", forKey: AppPreferenceKey.claudeCLIModel)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? ClaudeCLIProvider
+        XCTAssertEqual(provider?.endpoint, "/opt/homebrew/bin/claude")
+        XCTAssertEqual(provider?.model, "opus")
+    }
+
+    /// First run: no path stored yet. Empty means "auto-detect on the next fetch",
+    /// so it must not be substituted with a guess here.
+    func testClaudeCLIProviderDefaultsPathToEmptyForAutoDetect() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? ClaudeCLIProvider
+        XCTAssertEqual(provider?.endpoint, "")
+    }
+
+    func testClaudeCLIProviderDefaultsModelToSonnet() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? ClaudeCLIProvider
+        XCTAssertEqual(provider?.model, "sonnet")
+    }
+
+    /// A stored-but-empty model would sail past `?? "sonnet"` and ship `--model ""`
+    /// to the CLI, failing every call.
+    func testClaudeCLIProviderTreatsStoredEmptyModelAsAbsent() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        defaults.set("", forKey: AppPreferenceKey.claudeCLIModel)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? ClaudeCLIProvider
+        XCTAssertEqual(provider?.model, "sonnet")
+    }
+
+    /// The provider writes its detected path back through `defaults`; handing it
+    /// `.standard` instead would leak into the user's real preferences under test.
+    func testClaudeCLIProviderReceivesTheInjectedDefaults() {
+        let defaults = makeDefaults()
+        defaults.set("claudeCode", forKey: AppPreferenceKey.llmProvider)
+        let provider = LLMProviderFactory.current(defaults: defaults) as? ClaudeCLIProvider
+        XCTAssertIdentical(provider?.defaults, defaults)
+    }
 }

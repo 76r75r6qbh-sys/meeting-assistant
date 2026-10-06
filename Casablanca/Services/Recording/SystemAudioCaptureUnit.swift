@@ -16,7 +16,7 @@ import os
 /// SCStream sample-handler queue can read them race-free. `@unchecked
 /// Sendable`: the locks guard the shared flags, the `SCStream` is touched only
 /// from the MainActor facade.
-final class SystemAudioCaptureUnit: @unchecked Sendable {
+final class SystemAudioCaptureUnit: SystemAudioCapturing, @unchecked Sendable {
     private let pipeline: DeferredRecordingPipeline
     private let targetFormat: AVAudioFormat
     private let streamQueue = DispatchQueue(label: "com.casablanca.recording.stream")
@@ -48,7 +48,7 @@ final class SystemAudioCaptureUnit: @unchecked Sendable {
         self.systemAudioEnabled = OSAllocatedUnfairLock(initialState: systemAudioEnabled)
         self.onSampleBuffer = onSampleBuffer
         self.onSystemDisabled = onSystemDisabled
-        streamDelegate.onStop = { error in
+        streamDelegate.arm { error in
             onStreamFatal(error)
         }
     }
@@ -111,10 +111,23 @@ final class SystemAudioCaptureUnit: @unchecked Sendable {
         }
     }
 
+    /// Closes the sample-handler gate and stops reporting stream failures.
+    ///
+    /// Called first thing in `stop()`, and separately by the session's *bounded*
+    /// stop before it awaits: an `SCStream` that system sleep tore down can
+    /// deliver `didStopWithError` long after the teardown gave up waiting for
+    /// `stopCapture()`, and reporting that as a fresh failure hard-paused the
+    /// segment the wake had already resumed.
+    func disarmStreamFailureReporting() {
+        isAcceptingInput.withLock { $0 = false }
+        streamDelegate.disarm()
+        Log.recording.notice("System-audio stream failure reporting disarmed for this segment")
+    }
+
     /// Stops the stream and tears down outputs. After this, the
     /// sample-handler gate is closed and the serial queue is drained.
     func stop() async throws {
-        isAcceptingInput.withLock { $0 = false }
+        disarmStreamFailureReporting()
 
         if let stream {
             try await stream.stopCapture()
@@ -176,10 +189,29 @@ private final class ScreenStreamOutput: NSObject, SCStreamOutput {
     }
 }
 
+/// Forwards `didStopWithError` while armed, and nothing at all once disarmed.
+///
+/// `isArmed` is an `OSAllocatedUnfairLock<Bool>` (the same pattern as
+/// `isAcceptingInput` above) because the SCStream delegate callback arrives on
+/// ScreenCaptureKit's own thread while the teardown disarms from the recording
+/// facade. `onStop` itself is written once, before `arm` publishes it through
+/// the lock, and never mutated again — so the reader that sees `isArmed == true`
+/// also sees the closure.
 private final class StreamLifecycleDelegate: NSObject, SCStreamDelegate {
-    var onStop: ((Error) -> Void)?
+    private var onStop: ((Error) -> Void)?
+    private let isArmed = OSAllocatedUnfairLock<Bool>(initialState: false)
+
+    func arm(_ handler: @escaping (Error) -> Void) {
+        onStop = handler
+        isArmed.withLock { $0 = true }
+    }
+
+    func disarm() {
+        isArmed.withLock { $0 = false }
+    }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
+        guard isArmed.withLock({ $0 }) else { return }
         onStop?(error)
     }
 }

@@ -131,11 +131,21 @@ struct NotesEditorView: View {
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
             loadPrepMarkdown()
 
-            if meeting.status == .pausedRecording && !recordingService.hasResumableSession(for: meeting.id) {
-                recordingActionPhase = .resume
-                recordingService.setErrorMessage("This paused recording can no longer be resumed.")
-                meeting.status = .notesOnly
-                save()
+            if meeting.status == .pausedRecording {
+                // `hasResumableSession` is true while a manifest *or* any
+                // recoverable audio survives, so a meeting whose files are
+                // still on disk is never demoted to notes-only.
+                if recordingService.hasResumableSession(for: meeting.id) {
+                    // Nothing ticks the timer across an app relaunch, so the
+                    // paused display would read 00:00 instead of the total
+                    // already captured.
+                    recordingService.refreshElapsed(for: meeting.id)
+                } else {
+                    recordingActionPhase = .resume
+                    recordingService.setErrorMessage("This paused recording can no longer be resumed.")
+                    meeting.status = .notesOnly
+                    save()
+                }
             }
         }
         .onDisappear {
@@ -237,6 +247,7 @@ struct NotesEditorView: View {
                         prepPresentation: prepPresentation,
                         inspectorTab: $inspectorTab
                     )
+                    .stableSplitColumnMinimumSize()
                     .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
                 }
         }
@@ -372,7 +383,26 @@ struct NotesEditorView: View {
             meeting.status = .recording
             interruptionCoordinator?.notifyMeetingTransitioned(to: .recording)
             save()
+        } catch RecordingError.resumeOvertaken {
+            // The wake's auto-resume (or another start) published the segment
+            // first and is recording right now — this call tore down only its
+            // own attempt. So there is nothing to report, and above all nothing
+            // to flip: writing `.pausedRecording` here would contradict a live
+            // recording and strand it as paused-with-a-running-session.
+            Log.recording.notice(
+                """
+                Resume for meeting \(meeting.id.uuidString, privacy: .public) was overtaken by \
+                another session that is already recording; leaving it alone
+                """
+            )
         } catch {
+            // Without this the Resume button looked dead: the status flipped
+            // back to paused and the user got no reason why. A cancelled resume
+            // is the user's own Stop, so it stays silent — see
+            // `AudioRecordingService.resumeRecording`.
+            if !(error is CancellationError) {
+                recordingService.setErrorMessage(error.localizedDescription)
+            }
             meeting.status = .pausedRecording
             save()
         }

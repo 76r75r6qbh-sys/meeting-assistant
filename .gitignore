@@ -12,3 +12,6 @@ DerivedData/
 
 ## Conductor workspace
 .context/
+
+## Coverage artifacts
+default.profraw

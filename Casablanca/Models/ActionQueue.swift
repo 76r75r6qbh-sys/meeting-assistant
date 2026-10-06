@@ -52,17 +52,21 @@ enum ActionDraftType: Codable, Hashable, CaseIterable {
     case email
     case jira
     case teams
+    case calendar
+    case topdesk
     case other
     /// An unrecognized value from the agent's file; preserved verbatim.
     case unknown(String)
 
-    static let allCases: [ActionDraftType] = [.email, .jira, .teams, .other]
+    static let allCases: [ActionDraftType] = [.email, .jira, .teams, .calendar, .topdesk, .other]
 
     var rawValue: String {
         switch self {
         case .email: return "email"
         case .jira: return "jira"
         case .teams: return "teams"
+        case .calendar: return "calendar"
+        case .topdesk: return "topdesk"
         case .other: return "other"
         case .unknown(let raw): return raw
         }
@@ -73,6 +77,8 @@ enum ActionDraftType: Codable, Hashable, CaseIterable {
         case "email": self = .email
         case "jira": self = .jira
         case "teams": self = .teams
+        case "calendar": self = .calendar
+        case "topdesk": self = .topdesk
         case "other": self = .other
         default: self = .unknown(rawValue)
         }
@@ -195,6 +201,90 @@ enum ActionItemStatus: Codable, Hashable, CaseIterable {
     }
 }
 
+/// Workflow bucket an item belongs to. A missing bucket means "General".
+/// RawValues match the JSON contract.
+enum ActionBucket: Codable, Hashable, CaseIterable {
+    case partnerApiReply
+    case ticketDraft
+    case topdeskResponse
+    case refinementPrep
+    case calendarEvent
+    case roadmapCommitment
+    case todo
+    /// An unrecognized value from the agent's file; preserved verbatim.
+    case unknown(String)
+
+    // Declaration order is the fixed display order and matches `sortOrder`.
+    static let allCases: [ActionBucket] = [
+        .partnerApiReply, .ticketDraft, .topdeskResponse, .refinementPrep,
+        .calendarEvent, .roadmapCommitment, .todo,
+    ]
+
+    var rawValue: String {
+        switch self {
+        case .partnerApiReply: return "partner_api_reply"
+        case .ticketDraft: return "ticket_draft"
+        case .topdeskResponse: return "topdesk_response"
+        case .refinementPrep: return "refinement_prep"
+        case .roadmapCommitment: return "roadmap_commitment"
+        case .calendarEvent: return "calendar_event"
+        case .todo: return "todo"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    init(rawValue: String) {
+        switch rawValue {
+        case "partner_api_reply": self = .partnerApiReply
+        case "ticket_draft": self = .ticketDraft
+        case "topdesk_response": self = .topdeskResponse
+        case "refinement_prep": self = .refinementPrep
+        case "roadmap_commitment": self = .roadmapCommitment
+        case "calendar_event": self = .calendarEvent
+        case "todo": self = .todo
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    /// Human-readable label for display.
+    var displayName: String {
+        switch self {
+        case .partnerApiReply: return "Partner API reply"
+        case .ticketDraft: return "Ticket draft"
+        case .topdeskResponse: return "Topdesk response"
+        case .refinementPrep: return "Refinement prep"
+        case .roadmapCommitment: return "Roadmap commitment"
+        case .calendarEvent: return "Calendar event"
+        case .todo: return "To-do"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    /// Fixed display order; unknown buckets sort last.
+    var sortOrder: Int {
+        switch self {
+        case .partnerApiReply: return 0
+        case .ticketDraft: return 1
+        case .topdeskResponse: return 2
+        case .refinementPrep: return 3
+        case .calendarEvent: return 4
+        case .roadmapCommitment: return 5
+        case .todo: return 6
+        case .unknown: return 7
+        }
+    }
+}
+
 // MARK: - Item
 
 struct ActionQueueItem: Codable, Identifiable, Hashable {
@@ -217,6 +307,16 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
     var decidedAt: Date?
     var executedAt: Date?
     var executionResult: String?
+    /// Workflow bucket grouping. Missing => nil ("General"); unrecognized value
+    /// decodes to `.unknown(_)` and round-trips verbatim.
+    var bucket: ActionBucket?
+    /// Paths/identifiers of attachments associated with this item.
+    var attachments: [String]?
+    /// An opaque external reference (e.g. `forta:x`) tying the item to an
+    /// upstream system.
+    var externalRef: String?
+    /// IDs of other action-queue items this one is linked to.
+    var linkedItemIds: [String]?
     /// Keys present in the agent's JSON that this build's schema doesn't model.
     /// Preserved verbatim and re-emitted on save so the whole-document rewrite
     /// never silently drops fields the agent added (forward-compatibility).
@@ -226,6 +326,7 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         case id, kind, draftType, title, priority, target, source, rationale
         case body, proposedAction, status, decisionNote, revisionPrompt, createdAt
         case decidedAt, executedAt, executionResult
+        case bucket, attachments, externalRef, linkedItemIds
     }
 
     /// Dynamic key used to read/write keys outside the fixed schema.
@@ -256,6 +357,10 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         decidedAt: Date? = nil,
         executedAt: Date? = nil,
         executionResult: String? = nil,
+        bucket: ActionBucket? = nil,
+        attachments: [String]? = nil,
+        externalRef: String? = nil,
+        linkedItemIds: [String]? = nil,
         extraKeys: [String: JSONValue] = [:]
     ) {
         self.extraKeys = extraKeys
@@ -276,6 +381,10 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         self.decidedAt = decidedAt
         self.executedAt = executedAt
         self.executionResult = executionResult
+        self.bucket = bucket
+        self.attachments = attachments
+        self.externalRef = externalRef
+        self.linkedItemIds = linkedItemIds
     }
 
     /// `true` when any enum field fell back to `unknown(_)` during decode — the
@@ -286,6 +395,7 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         if case .unknown = priority { return true }
         if case .unknown = status { return true }
         if case .unknown? = draftType { return true }
+        if case .unknown? = bucket { return true }
         return false
     }
 
@@ -331,6 +441,10 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         decidedAt = try c.decodeIfPresent(Date.self, forKey: .decidedAt)
         executedAt = try c.decodeIfPresent(Date.self, forKey: .executedAt)
         executionResult = try c.decodeIfPresent(String.self, forKey: .executionResult)
+        bucket = try c.decodeIfPresent(ActionBucket.self, forKey: .bucket)
+        attachments = try c.decodeIfPresent([String].self, forKey: .attachments)
+        externalRef = try c.decodeIfPresent(String.self, forKey: .externalRef)
+        linkedItemIds = try c.decodeIfPresent([String].self, forKey: .linkedItemIds)
 
         // Capture any keys outside the fixed schema so the rewrite preserves them.
         var extras: [String: JSONValue] = [:]
@@ -360,6 +474,10 @@ struct ActionQueueItem: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(decidedAt, forKey: .decidedAt)
         try c.encodeIfPresent(executedAt, forKey: .executedAt)
         try c.encodeIfPresent(executionResult, forKey: .executionResult)
+        try c.encodeIfPresent(bucket, forKey: .bucket)
+        try c.encodeIfPresent(attachments, forKey: .attachments)
+        try c.encodeIfPresent(externalRef, forKey: .externalRef)
+        try c.encodeIfPresent(linkedItemIds, forKey: .linkedItemIds)
 
         // Re-emit preserved unknown keys verbatim.
         if !extraKeys.isEmpty {

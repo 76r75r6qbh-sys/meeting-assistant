@@ -2,9 +2,9 @@ import Foundation
 import os
 
 /// Observable owner of the action queue for the UI. Reads the configured path
-/// from `UserDefaults.standard`, loads via `ActionQueueStore`, and watches the
-/// queue file's PARENT DIRECTORY so atomic writes (which replace the file's
-/// inode) keep triggering reloads.
+/// from its `userDefaults` (the standard domain in the app), loads via
+/// `ActionQueueStore`, and watches the queue file's PARENT DIRECTORY so atomic
+/// writes (which replace the file's inode) keep triggering reloads.
 @MainActor
 @Observable
 final class ActionQueueModel {
@@ -15,6 +15,11 @@ final class ActionQueueModel {
     /// The queue still loads and works; this just informs the user.
     private(set) var loadWarning: String?
 
+    /// Invoked at the end of every `reload()` with the current `pendingCount`.
+    /// The app supplies this to drive the Dock/menu-bar badge, keeping Services
+    /// free of AppKit. Always fires exactly once per reload (success or failure).
+    @ObservationIgnored var onPendingCountChange: ((Int) -> Void)?
+
     @ObservationIgnored private var watchSource: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedFD: CInt = -1
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
@@ -23,8 +28,14 @@ final class ActionQueueModel {
     /// tests can drive the debounce with a tiny interval; defaults to 250 ms.
     @ObservationIgnored private let debounceInterval: Duration
 
-    init(debounceInterval: Duration = .milliseconds(250)) {
+    /// Preference domain the queue path is read from. Injectable so tests never
+    /// have to write the app's real `actionQueuePath` (the test host shares the
+    /// app's bundle id, so that would repoint the user's own queue).
+    @ObservationIgnored private let userDefaults: UserDefaults
+
+    init(debounceInterval: Duration = .milliseconds(250), userDefaults: UserDefaults = .standard) {
         self.debounceInterval = debounceInterval
+        self.userDefaults = userDefaults
     }
 
     var pendingCount: Int {
@@ -35,13 +46,17 @@ final class ActionQueueModel {
 
     func reload() {
         do {
-            let doc = try ActionQueueStore.load(userDefaults: .standard)
+            let doc = try ActionQueueStore.load(userDefaults: userDefaults)
             items = Self.sorted(doc.items)
             loadError = nil
             loadWarning = Self.warning(for: doc)
         } catch {
             loadError = error.localizedDescription
         }
+        // Fire once per reload, on both paths, so a load failure can't leave a
+        // stale badge. On error `items` is unchanged, so `pendingCount` reflects
+        // the last good load.
+        onPendingCountChange?(pendingCount)
     }
 
     /// Build a non-fatal warning for items that couldn't be parsed or carried
@@ -78,31 +93,37 @@ final class ActionQueueModel {
     // MARK: - Mutations (store then reload)
 
     func approve(id: String, editedBody: String? = nil) {
-        perform { try ActionQueueStore.approve(id: id, editedBody: editedBody) }
+        perform { try ActionQueueStore.approve(id: id, editedBody: editedBody, userDefaults: userDefaults) }
     }
 
     func decline(id: String, note: String? = nil) {
-        perform { try ActionQueueStore.decline(id: id, note: note) }
+        perform { try ActionQueueStore.decline(id: id, note: note, userDefaults: userDefaults) }
     }
 
     func requestRevision(id: String, prompt: String) {
-        perform { try ActionQueueStore.requestRevision(id: id, prompt: prompt) }
+        perform { try ActionQueueStore.requestRevision(id: id, prompt: prompt, userDefaults: userDefaults) }
     }
 
     func postpone(id: String) {
-        perform { try ActionQueueStore.postpone(id: id) }
+        perform { try ActionQueueStore.postpone(id: id, userDefaults: userDefaults) }
     }
 
     func complete(id: String) {
-        perform { try ActionQueueStore.complete(id: id) }
+        perform { try ActionQueueStore.complete(id: id, userDefaults: userDefaults) }
+    }
+
+    /// Mark a local-only item (e.g. a `todo` bucket item) complete in the app,
+    /// recording `executedAt` and an execution result.
+    func completeLocally(id: String) {
+        perform { try ActionQueueStore.completeLocally(id: id, userDefaults: userDefaults) }
     }
 
     func reopen(id: String) {
-        perform { try ActionQueueStore.reopen(id: id) }
+        perform { try ActionQueueStore.reopen(id: id, userDefaults: userDefaults) }
     }
 
     func updateBody(_ body: String, id: String) {
-        perform { try ActionQueueStore.updateBody(body, for: id) }
+        perform { try ActionQueueStore.updateBody(body, for: id, userDefaults: userDefaults) }
     }
 
     private func perform(_ action: () throws -> Void) {
@@ -125,7 +146,7 @@ final class ActionQueueModel {
     func startWatching() {
         stopWatching()
 
-        guard let fileURL = ActionQueueStore.fileURL(userDefaults: .standard) else { return }
+        guard let fileURL = ActionQueueStore.fileURL(userDefaults: userDefaults) else { return }
         let dirURL = fileURL.deletingLastPathComponent()
 
         // Watch the parent directory: atomic writes swap the file's inode, so a

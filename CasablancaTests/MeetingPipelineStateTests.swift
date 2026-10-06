@@ -270,4 +270,49 @@ final class MeetingPipelineStateTests: XCTestCase {
             currentStatus: .processing, hasTranscript: false, hasUserNotes: false, isAnyPipelineActive: false
         ), .completed)
     }
+
+    // MARK: - Stuck recording/paused recovery (pure)
+
+    func testPausedMeetingWithoutSessionBecomesNotesOnly() {
+        // The session directory is gone (merged, deleted, never written): there
+        // is nothing left to resume, so the meeting must stop offering Resume.
+        XCTAssertEqual(
+            PausedRecordingRecovery.recoveredStatus(current: .pausedRecording, hasResumableSession: false),
+            .notesOnly
+        )
+    }
+
+    func testPausedMeetingWithSessionIsLeftAlone() {
+        // Audio is still on disk — the user's Resume/Stop decision, not ours.
+        XCTAssertNil(
+            PausedRecordingRecovery.recoveredStatus(current: .pausedRecording, hasResumableSession: true)
+        )
+    }
+
+    func testStaleRecordingMeetingWithSessionBecomesPaused() {
+        // Nothing can be recording at launch, so a `.recording` meeting whose
+        // audio survived is really a paused one that never got the chance to say so.
+        XCTAssertEqual(
+            PausedRecordingRecovery.recoveredStatus(current: .recording, hasResumableSession: true),
+            .pausedRecording
+        )
+    }
+
+    func testStaleRecordingMeetingWithoutSessionBecomesNotesOnly() {
+        XCTAssertEqual(
+            PausedRecordingRecovery.recoveredStatus(current: .recording, hasResumableSession: false),
+            .notesOnly
+        )
+    }
+
+    func testOtherStatusesAreNeverRecovered() {
+        for status: MeetingStatus in [.upcoming, .notesOnly, .processing, .completed] {
+            for hasSession in [true, false] {
+                XCTAssertNil(
+                    PausedRecordingRecovery.recoveredStatus(current: status, hasResumableSession: hasSession),
+                    "\(status) must be left alone (session: \(hasSession))"
+                )
+            }
+        }
+    }
 }

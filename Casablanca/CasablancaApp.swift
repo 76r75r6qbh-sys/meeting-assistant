@@ -12,6 +12,9 @@ struct CasablancaApp: App {
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @State private var storeFailure: StoreFailure?
     private let sharedModelContainer: ModelContainer
+    /// True when launched with `--benchmark-transcription`: the process measures
+    /// one transcription and exits, so it must not run the normal launch work.
+    private let isBenchmarkRun: Bool
 
     /// Unrecoverable persistence failure surfaced to the user instead of a crash.
     private struct StoreFailure: Identifiable {
@@ -20,6 +23,19 @@ struct CasablancaApp: App {
     }
 
     init() {
+        // Benchmark mode is decided before anything else: a measurement run must
+        // not open (and so never migrate or mutate) the real meeting database.
+        // The scene still needs *a* container, so it gets an in-memory one that
+        // never reaches disk, and the run exits the process when it finishes.
+        if let request = TranscriptionBenchmark.requestedRun(from: CommandLine.arguments) {
+            isBenchmarkRun = true
+            sharedModelContainer = Self.inMemoryContainer()
+            _appModel = State(initialValue: AppModel())
+            Task { @MainActor in exit(await TranscriptionBenchmark.run(request)) }
+            return
+        }
+        isBenchmarkRun = false
+
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
         do {
             let result = try PersistenceController.makeAppContainer()
@@ -38,17 +54,7 @@ struct CasablancaApp: App {
             // in-memory store so the window can still open and present the
             // failure, rather than crashing on launch.
             Log.persistence.error("Falling back to in-memory store: \(error.localizedDescription)")
-            do {
-                let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-                sharedModelContainer = try ModelContainer(
-                    for: Meeting.self, TodoItem.self, configurations: configuration
-                )
-            } catch {
-                // In-memory creation should never fail for a valid schema; if it
-                // does, the schema itself is broken and there is nothing to do.
-                Log.persistence.error("In-memory ModelContainer creation failed: \(error.localizedDescription)")
-                fatalError("Unrecoverable persistence failure: \(error.localizedDescription)")
-            }
+            sharedModelContainer = Self.inMemoryContainer()
             _storeFailure = State(initialValue: StoreFailure(
                 message: "Casablanca could not open or recreate its meeting database. "
                     + "It is running in a temporary mode and changes will not be saved. "
@@ -58,12 +64,30 @@ struct CasablancaApp: App {
         }
     }
 
+    /// A container that never reaches disk, for the two cases that must not use
+    /// the real store: a benchmark run, and a store that could not be opened or
+    /// recreated. In-memory creation only fails if the schema itself is broken,
+    /// and then there is nothing left to fall back to.
+    private static func inMemoryContainer() -> ModelContainer {
+        do {
+            let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+            return try ModelContainer(for: Meeting.self, TodoItem.self, configurations: configuration)
+        } catch {
+            Log.persistence.error("In-memory ModelContainer creation failed: \(error.localizedDescription)")
+            fatalError("Unrecoverable persistence failure: \(error.localizedDescription)")
+        }
+    }
+
     var body: some Scene {
         WindowGroup(id: Self.mainWindowID) {
             ContentView(viewModel: appModel.meetingListViewModel)
                 .environment(appModel)
                 .frame(minWidth: CasaLayout.windowMinWidth, minHeight: CasaLayout.windowMinHeight)
                 .task {
+                    // A benchmark run measures transcription alone: launch
+                    // housekeeping, calendar access and update checks would only
+                    // add noise to the numbers (and prompts to the screen).
+                    guard !isBenchmarkRun else { return }
                     await appModel.bootstrap(modelContext: sharedModelContainer.mainContext)
                 }
                 .sheet(isPresented: Binding(
@@ -125,6 +149,18 @@ struct CasablancaApp: App {
                     appModel.meetingListViewModel.beginManualMeeting()
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                Divider()
+
+                // The same sweep launch runs, for the user who did not relaunch
+                // — or who wants to check after plugging a drive back in.
+                Button("Recover Unfinished Recordings…") {
+                    let modelContext = sharedModelContainer.mainContext
+                    Task { await appModel.recoverOrphanedRecordingSessions(modelContext: modelContext) }
+                }
+                // Off-limits mid-capture: recovery and the capture units would
+                // be reaching for the same raw PCM files.
+                .disabled(appModel.recordingService.isRecording || appModel.recordingService.isPreparing)
             }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
@@ -139,8 +175,17 @@ struct CasablancaApp: App {
             }
         }
 
-        MenuBarExtra("Casablanca", systemImage: "record.circle") {
+        MenuBarExtra {
             MenuBarMeetingView(viewModel: appModel.meetingListViewModel)
+        } label: {
+            // Reading pendingCount here keeps the menu-bar item reactive: it
+            // updates whenever the action queue reloads (launch, file watcher,
+            // in-app mutation). Image + trailing Text keeps the record.circle
+            // glyph and shows the count beside it when there are pending items.
+            Image(systemName: "record.circle")
+            if appModel.actionQueueModel.pendingCount > 0 {
+                Text("\(appModel.actionQueueModel.pendingCount)")
+            }
         }
         .modelContainer(sharedModelContainer)
         .menuBarExtraStyle(.window)
@@ -233,10 +278,18 @@ final class AppModel {
         // launch, so downgrade them off `.processing`.
         if let modelContext {
             recoverStaleProcessingMeetings(modelContext: modelContext)
+            // Then the recording half: session directories a crash left behind,
+            // and the meetings stuck in `.recording`/`.pausedRecording` on top
+            // of them. Nine orphaned directories and ten stuck meetings had
+            // accumulated before this ran at launch.
+            await recoverOrphanedRecordingSessions(modelContext: modelContext)
         }
 
         // Populate the approvals badge and start watching early — before the
-        // (potentially slow) calendar permission check.
+        // (potentially slow) calendar permission check. The callback is set
+        // before the first reload so launch, watcher-driven reloads, and every
+        // in-app mutation all refresh the Dock badge (even with no window open).
+        actionQueueModel.onPendingCountChange = { count in DockBadge.apply(count: count) }
         actionQueueModel.reload()
         actionQueueModel.startWatching()
 
@@ -283,6 +336,140 @@ final class AppModel {
             try? modelContext.save()
             Log.persistence.notice("Recovered \(recovered) stale .processing meeting(s) on launch.")
         }
+    }
+
+    /// Repairs the recording-session directories a crash or force quit left
+    /// behind, then reconciles the meetings stuck in a recording status on top
+    /// of them. Thin glue: the ordering, the repair and the toast wording all
+    /// live in `RecordingSessionRecoveryCoordinator` / `RecoveryToastMessage`,
+    /// which are tested directly.
+    ///
+    /// Also reachable from "Recover Unfinished Recordings…", so it has to be
+    /// safe to run while the app is live. Two things make it so: the live set
+    /// is read AFTER the scan (a recording that starts in between is filtered
+    /// out, one that starts later is not in the findings at all), and the
+    /// repair leaves any directory whose raw PCM was written seconds ago alone.
+    ///
+    /// Nothing destructive happens here. The only deletion is
+    /// `deleteSessionIfEmpty` on a directory holding no recoverable byte;
+    /// captured audio is merged away only when the user presses Stop.
+    func recoverOrphanedRecordingSessions(modelContext: ModelContext) async {
+        // Rendering the orphaned PCM one of these directories holds is a
+        // synchronous ~65 MB write, so both filesystem phases run off the main
+        // actor. Only the exclusion snapshot, the SwiftData writes and the
+        // toast stay on it.
+        let outcome = await RecordingSessionRecoveryCoordinator.sweep(
+            scan: {
+                await Task.detached(priority: .utility) { () -> [RecordingSessionRecovery.Finding] in
+                    do {
+                        return try RecordingSessionRecovery.scan(store: RecordingResumeSessionStore())
+                    } catch {
+                        Log.recording.error(
+                            "Recording recovery could not scan the session directories: \(error.localizedDescription, privacy: .public)"
+                        )
+                        return []
+                    }
+                }.value
+            },
+            exclusions: {
+                (
+                    live: self.liveCaptureMeetingIDs(),
+                    recordingStatus: Self.meetingIDsInARecordingStatus(in: modelContext)
+                )
+            },
+            repair: { findings, recordingStatusMeetingIDs in
+                await Task.detached(priority: .utility) {
+                    RecordingSessionRecoveryCoordinator.repair(
+                        findings: findings,
+                        store: RecordingResumeSessionStore(),
+                        recordingStatusMeetingIDs: recordingStatusMeetingIDs
+                    )
+                }.value
+            }
+        )
+
+        let reconciled = reconcileStuckRecordingMeetings(
+            modelContext: modelContext,
+            excluding: liveCaptureMeetingIDs()
+        )
+        // Only meetings the user can actually act on are counted: a session
+        // this sweep repaired, or one whose stale `.recording` became
+        // `.pausedRecording`. A meeting downgraded to `.notesOnly` lost its
+        // audio — telling the user to "open it to Resume or Stop" would send
+        // them to a screen with neither button. Those are logged instead.
+        let stillResumable = Set(reconciled.filter { $0.value == .pausedRecording }.keys)
+        let cleared = reconciled.count - stillResumable.count
+        if cleared > 0 {
+            Log.recording.notice(
+                "Recording recovery: \(cleared, privacy: .public) meeting(s) had no recording left and are now notes-only"
+            )
+        }
+
+        let recovered = Set(outcome.repairedMeetingIDs).union(stillResumable)
+        if let message = RecoveryToastMessage.compose(
+            recoveredRecordings: recovered.count,
+            strandedSegments: outcome.strandedSegments
+        ) {
+            toastCenter.show(message: message, duration: 8)
+        }
+    }
+
+    /// The meeting being captured right now, if any: the one directory recovery
+    /// must not touch at all. Read fresh at every use — a stale answer is the
+    /// whole hazard.
+    private func liveCaptureMeetingIDs() -> Set<UUID> {
+        guard recordingService.isRecording || recordingService.isPreparing,
+              let meetingID = recordingService.activeMeetingID else { return [] }
+        return [meetingID]
+    }
+
+    /// The meetings SwiftData reports as `.recording`/`.pausedRecording` — the
+    /// sessions whose manifest recovery may not delete, because Resume and Stop
+    /// both read it.
+    private static func meetingIDsInARecordingStatus(in modelContext: ModelContext) -> Set<UUID> {
+        guard let all = try? modelContext.fetch(FetchDescriptor<Meeting>()) else { return [] }
+        return Set(
+            all
+                .filter { $0.status == .recording || $0.status == .pausedRecording }
+                .map(\.id)
+        )
+    }
+
+    /// Applies `PausedRecordingRecovery` to every meeting left in a recording
+    /// status: one whose audio is gone stops offering a Resume that fails, and a
+    /// `.recording` meeting that outlived the process becomes the paused one it
+    /// really is. Returns what changed, so the caller can report it.
+    @discardableResult
+    private func reconcileStuckRecordingMeetings(
+        modelContext: ModelContext,
+        excluding liveMeetingIDs: Set<UUID>
+    ) -> [UUID: MeetingStatus] {
+        guard let all = try? modelContext.fetch(FetchDescriptor<Meeting>()) else { return [:] }
+        // Enum-typed stored properties don't filter reliably in SwiftData
+        // predicates, so filter in memory — and narrowing first matters here:
+        // `hasResumableSession` touches the filesystem, which must not happen
+        // once per completed meeting ever recorded.
+        let candidates = all.filter {
+            ($0.status == .recording || $0.status == .pausedRecording) && !liveMeetingIDs.contains($0.id)
+        }
+        guard !candidates.isEmpty else { return [:] }
+
+        var changes: [UUID: MeetingStatus] = [:]
+        for meeting in candidates {
+            guard let newStatus = PausedRecordingRecovery.recoveredStatus(
+                current: meeting.status,
+                hasResumableSession: recordingService.hasResumableSession(for: meeting.id)
+            ) else { continue }
+            meeting.status = newStatus
+            changes[meeting.id] = newStatus
+        }
+        if !changes.isEmpty {
+            try? modelContext.save()
+            Log.recording.notice(
+                "Recording recovery: reconciled \(changes.count, privacy: .public) stuck meeting status(es)"
+            )
+        }
+        return changes
     }
 
     /// Install the shared notification delegate + category and wire the calendar

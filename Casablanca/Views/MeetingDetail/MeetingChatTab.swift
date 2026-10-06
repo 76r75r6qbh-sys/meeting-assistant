@@ -161,7 +161,9 @@ struct MeetingChatTab: View {
     private var typingIndicator: some View {
         HStack(spacing: CasaSpace.sm) {
             ProgressView().controlSize(.small)
-            Text("Thinking…")
+            // A retry replaces the label, so a question that is being reattempted
+            // says so instead of showing the same spinner for minutes.
+            Text(chatService.statusMessage ?? "Thinking…")
                 .font(.subheadline)
                 .foregroundStyle(Color.textSecondary)
             Spacer()
@@ -172,7 +174,7 @@ struct MeetingChatTab: View {
         .padding(CasaSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: CasaRadius.lg))
-        .accessibilityLabel("Generating answer")
+        .accessibilityLabel(chatService.statusMessage ?? "Generating answer")
     }
 
     @ViewBuilder

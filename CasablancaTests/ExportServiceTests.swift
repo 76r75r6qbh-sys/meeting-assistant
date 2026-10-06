@@ -2,97 +2,46 @@ import Foundation
 import XCTest
 @testable import Casablanca
 
+/// Every case here writes real files, so the vault root is a per-test temporary
+/// directory reached through a scratch preference domain. The standard domain is
+/// off limits: the test host shares the app's bundle id, so writing there would
+/// repoint the user's own Obsidian vault setting (and, before the exporter took
+/// an injectable domain, export straight into the user's real vault).
+@MainActor
 final class ExportServiceTests: XCTestCase {
+    /// Scratch vault + scratch preference domain, both torn down for us, with
+    /// the resolved vault root proven to be outside the user's folders.
+    private func makeGuardedDefaults() -> UserDefaults {
+        let defaults = makeScratchDefaults(vaultRoot: makeScratchVault("export"), label: "export")
+        defaults.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
+        assertScratchVault(defaults)
+        return defaults
+    }
+
     func testExportRawNotesRendersFreeformSection() async throws {
-        let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
         meeting.userNotes = "Freeform notes go here."
 
-        let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
-        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
-        UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
-        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
-        defer {
-            if let previousVaultPath {
-                UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
-            }
-            if let previousDestination {
-                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
-            }
-        }
-
-        let result = try await ExportService.exportRawNotes(meeting)
-        guard case .obsidian(let export) = result else {
-            return XCTFail("Expected obsidian destination by default")
-        }
-        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
+        let markdown = try await exportRawNotesMarkdown(for: meeting, defaults: makeGuardedDefaults())
 
         XCTAssertTrue(markdown.contains("## Freeform Notes"))
         XCTAssertTrue(markdown.contains("Freeform notes go here."))
     }
 
     func testExportRawNotesUsesPlaceholderWhenNoFreeformNotesExist() async throws {
-        let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Planning", date: .now)
 
-        let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
-        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
-        UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
-        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
-        defer {
-            if let previousVaultPath {
-                UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
-            }
-            if let previousDestination {
-                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
-            }
-        }
-
-        let result = try await ExportService.exportRawNotes(meeting)
-        guard case .obsidian(let export) = result else {
-            return XCTFail("Expected obsidian destination by default")
-        }
-        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
+        let markdown = try await exportRawNotesMarkdown(for: meeting, defaults: makeGuardedDefaults())
 
         XCTAssertTrue(markdown.contains("## Freeform Notes"))
         XCTAssertTrue(markdown.contains("_No freeform notes captured._"))
     }
 
     func testFrontmatterIncludesTagsWhenPresent() async throws {
-        let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Tagged Sync", date: .now)
         meeting.setTags(["wegiz", "orchestra"])
 
-        let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
-        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
-        UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
-        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
-        defer {
-            if let previousVaultPath {
-                UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
-            }
-            if let previousDestination {
-                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
-            }
-        }
-
-        let result = try await ExportService.exportRawNotes(meeting)
-        guard case .obsidian(let export) = result else {
-            return XCTFail("Expected obsidian destination by default")
-        }
-        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
+        let markdown = try await exportRawNotesMarkdown(for: meeting, defaults: makeGuardedDefaults())
 
         XCTAssertTrue(markdown.contains("tags:"), "Frontmatter must include a tags key when present")
         XCTAssertTrue(markdown.contains("- \"wegiz\""))
@@ -100,31 +49,9 @@ final class ExportServiceTests: XCTestCase {
     }
 
     func testFrontmatterOmitsTagsWhenEmpty() async throws {
-        let vaultURL = makeTemporaryVaultURL()
         let meeting = Meeting(title: "Untagged Sync", date: .now)
 
-        let previousVaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)
-        let previousDestination = UserDefaults.standard.string(forKey: AppPreferenceKey.exportDestination)
-        UserDefaults.standard.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
-        UserDefaults.standard.set(ExportDestination.obsidian.rawValue, forKey: AppPreferenceKey.exportDestination)
-        defer {
-            if let previousVaultPath {
-                UserDefaults.standard.set(previousVaultPath, forKey: AppPreferenceKey.obsidianVaultPath)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.obsidianVaultPath)
-            }
-            if let previousDestination {
-                UserDefaults.standard.set(previousDestination, forKey: AppPreferenceKey.exportDestination)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppPreferenceKey.exportDestination)
-            }
-        }
-
-        let result = try await ExportService.exportRawNotes(meeting)
-        guard case .obsidian(let export) = result else {
-            return XCTFail("Expected obsidian destination by default")
-        }
-        let markdown = try String(contentsOf: export.notesURL, encoding: .utf8)
+        let markdown = try await exportRawNotesMarkdown(for: meeting, defaults: makeGuardedDefaults())
 
         XCTAssertFalse(markdown.contains("tags:"), "Frontmatter must omit the tags key when there are no tags")
     }
@@ -139,10 +66,21 @@ final class ExportServiceTests: XCTestCase {
         XCTAssertEqual(ObsidianMeetingExporter.tagsFrontmatterLine(for: empty), "")
     }
 
-    private func makeTemporaryVaultURL() -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    /// Export through `ExportService` (so the routing + injection path is
+    /// exercised) and hand back the raw-notes markdown, asserting on the way
+    /// that nothing landed outside the scratch vault.
+    private func exportRawNotesMarkdown(
+        for meeting: Meeting,
+        defaults: UserDefaults,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> String {
+        let result = try await ExportService.exportRawNotes(meeting, defaults: defaults)
+        guard case .obsidian(let export) = result else {
+            XCTFail("Expected obsidian destination", file: file, line: line)
+            return ""
+        }
+        TestVaultGuard.assertTemporary(export.notesURL, "exported notes file", file: file, line: line)
+        return try String(contentsOf: export.notesURL, encoding: .utf8)
     }
 }

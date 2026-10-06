@@ -11,26 +11,59 @@ enum SummaryResponseParser {
         let rawMarkdown: String      // full original response, for persistence + re-parse on display
     }
 
+    // MARK: - Section alias map
+
+    /// Canonical field → set of accepted header titles (case-insensitive, whitespace-trimmed,
+    /// trailing `:` stripped, typographic apostrophe U+2019 treated equal to ASCII `'`).
+    private static let sectionAliases: [String: [String]] = [
+        "decisions": ["Decisions", "Besluiten"],
+        "todoTexts": ["Action Items", "Actiepunten", "Actielijst"],
+        "risks":     ["Risks and Blockers", "Risks", "Risico\u{2019}s en blockers", "Risico\u{2019}s"],
+        "followUps": ["Follow-ups", "Followups", "Follow ups", "Opvolging", "Vervolgacties"],
+    ]
+
+    /// Normalizes a section title for alias comparison:
+    /// lowercased, whitespace-trimmed, trailing `:` stripped,
+    /// typographic apostrophe (U+2019) replaced with ASCII `'`.
+    private static func normalizeTitle(_ title: String) -> String {
+        var s = title.trimmingCharacters(in: .whitespaces)
+        if s.hasSuffix(":") { s = String(s.dropLast()) }
+        s = s.replacingOccurrences(of: "\u{2019}", with: "'")
+        return s.lowercased()
+    }
+
     static func parse(_ response: String) -> ParsedResponse {
         let sections = splitSections(response)   // [title: body]; "__intro__" = text before first "## "
 
-        func bullets(_ title: String) -> [String] {
-            guard let body = sections[title] else { return [] }
-            return body.components(separatedBy: "\n").compactMap { line in
-                let t = line.trimmingCharacters(in: .whitespaces)
-                guard t.hasPrefix("- ") else { return nil }
-                let text = String(t.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? nil : text
+        // Build a lookup: normalized title → body, for alias resolution.
+        let normalizedSections: [String: String] = Dictionary(
+            sections.map { (normalizeTitle($0.key), $0.value) },
+            uniquingKeysWith: { first, _ in first }  // first occurrence wins (matches splitSections semantics)
+        )
+
+        func bullets(forField field: String) -> [String] {
+            let aliases = sectionAliases[field] ?? []
+            // Find the first alias that matches a section in the document.
+            for alias in aliases {
+                let key = normalizeTitle(alias)
+                guard let body = normalizedSections[key] else { continue }
+                return body.components(separatedBy: "\n").compactMap { line in
+                    let t = line.trimmingCharacters(in: .whitespaces)
+                    guard t.hasPrefix("- ") else { return nil }
+                    let text = String(t.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    return text.isEmpty ? nil : text
+                }
             }
+            return []
         }
 
         return ParsedResponse(
             summary: sections["__intro__"]?.trimmingCharacters(in: .whitespacesAndNewlines)
                      ?? response.trimmingCharacters(in: .whitespacesAndNewlines),
-            decisions: bullets("Decisions"),
-            todoTexts: bullets("Action Items"),
-            risks: bullets("Risks and Blockers"),
-            followUps: bullets("Follow-ups"),
+            decisions: bullets(forField: "decisions"),
+            todoTexts: bullets(forField: "todoTexts"),
+            risks:     bullets(forField: "risks"),
+            followUps: bullets(forField: "followUps"),
             rawMarkdown: response
         )
     }

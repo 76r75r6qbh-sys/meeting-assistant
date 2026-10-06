@@ -20,7 +20,7 @@ final class LLMPromptSupportTests: XCTestCase {
     // MARK: - Token budget (matches the previous inline behavior)
 
     func testTokenBudgetCappedWhenThinkingOff() {
-        XCTAssertEqual(LLMPromptSupport.tokenBudget(thinkingEnabled: false), 2000)
+        XCTAssertEqual(LLMPromptSupport.tokenBudget(thinkingEnabled: false), 3500)
         XCTAssertEqual(LLMPromptSupport.tokenBudget(thinkingEnabled: false), LLMPromptSupport.cappedOutputTokens)
     }
 
@@ -30,7 +30,7 @@ final class LLMPromptSupportTests: XCTestCase {
 
     func testSummarizationServiceMaxTokensForwardsToHelper() {
         XCTAssertEqual(SummarizationService.maxSummaryTokens, LLMPromptSupport.cappedOutputTokens)
-        XCTAssertEqual(SummarizationService.maxSummaryTokens, 2000)
+        XCTAssertEqual(SummarizationService.maxSummaryTokens, 3500)
     }
 
     // MARK: - stripReasoning parity (forwards to the shared copy)

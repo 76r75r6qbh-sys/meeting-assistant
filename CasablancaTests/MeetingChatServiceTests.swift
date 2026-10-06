@@ -149,6 +149,109 @@ final class MeetingChatServiceTests: XCTestCase {
 
     // MARK: - Conversation state
 
+    // MARK: - Asking: timeout and retry feedback
+
+    /// Collects what the service was showing at the start of each attempt. A
+    /// `@MainActor` class so the stub's main-actor hook can reach it without a lock,
+    /// and so it can hold the service the hook has to read.
+    @MainActor
+    private final class Observer {
+        weak var service: MeetingChatService?
+        var statusAtEachAttempt: [String?] = []
+
+        func record() {
+            statusAtEachAttempt.append(service?.statusMessage)
+        }
+    }
+
+    private func makeMeeting() -> Meeting {
+        let meeting = Meeting(title: "Weekly Sync", date: .now, status: .completed)
+        meeting.transcript = "Alice: We ship Friday."
+        return meeting
+    }
+
+    /// Drains the in-flight answer. `ask` runs in a service-owned task, so the test
+    /// has to wait for it rather than assume it finished.
+    private func waitForAnswer(_ service: MeetingChatService) async throws {
+        for _ in 0..<1000 {
+            if !service.isAnswering { return }
+            await Task.yield()
+        }
+        XCTFail("the answer never completed")
+    }
+
+    /// The provider's own budget must reach `generate`. The hardcoded 120s here was
+    /// chosen for a local model, and for a provider billed per call a timeout costs
+    /// `maxAttempts` generations rather than one.
+    func testAskUsesTheProvidersPreferredTimeoutWhenItHasOne() async throws {
+        let stub = StubLLMProvider(preferredTimeout: 300, outcomes: [.success("Friday.")])
+        let service = MeetingChatService(providerFactory: { stub })
+
+        service.ask("When do we ship?", meeting: makeMeeting())
+        try await waitForAnswer(service)
+
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(stub.calls.first?.timeout, 300)
+    }
+
+    /// A provider without a preference leaves the call site's own number alone.
+    func testAskKeepsItsOwnTimeoutForAProviderWithoutAPreference() async throws {
+        let stub = StubLLMProvider(preferredTimeout: nil, outcomes: [.success("Friday.")])
+        let service = MeetingChatService(providerFactory: { stub })
+
+        service.ask("When do we ship?", meeting: makeMeeting())
+        try await waitForAnswer(service)
+
+        XCTAssertEqual(stub.calls.first?.timeout, 120)
+    }
+
+    /// Without this the user sees only a spinner while up to three attempts run,
+    /// which for a slow provider is minutes of silence with nothing to explain it.
+    func testAskSurfacesARetryStatusMessageBetweenAttempts() async throws {
+        let observer = Observer()
+        let stub = StubLLMProvider(
+            displayName: "Claude Code",
+            outcomes: [.failure(StubLLMProvider.transientFailure()), .success("Friday.")],
+            onGenerate: { [observer] in observer.record() }
+        )
+        let service = MeetingChatService(
+            providerFactory: { stub },
+            // No real backoff: the point is the message, not the wait.
+            retryPolicy: LLMRetryPolicy(maxAttempts: 3, baseDelay: 0, sleep: { _ in })
+        )
+        observer.service = service
+
+        service.ask("When do we ship?", meeting: makeMeeting())
+        try await waitForAnswer(service)
+
+        XCTAssertEqual(stub.calls.count, 2, "the transient failure should have been retried")
+        XCTAssertEqual(
+            observer.statusAtEachAttempt,
+            [nil, "Claude Code request failed, retrying (2/3)…"],
+            "nothing to say on the first attempt; the retry must be visible while it runs"
+        )
+        // The answer landed, so the transient status must not linger.
+        XCTAssertNil(service.statusMessage)
+        XCTAssertEqual(service.messages.last?.text, "Friday.")
+    }
+
+    /// A failed answer clears the status too, so the error row is not shown beside a
+    /// stale "retrying" label.
+    func testStatusMessageIsClearedAfterAllAttemptsFail() async throws {
+        let stub = StubLLMProvider(outcomes: [.failure(StubLLMProvider.transientFailure())])
+        let service = MeetingChatService(
+            providerFactory: { stub },
+            retryPolicy: LLMRetryPolicy(maxAttempts: 2, baseDelay: 0, sleep: { _ in })
+        )
+
+        service.ask("When do we ship?", meeting: makeMeeting())
+        try await waitForAnswer(service)
+
+        XCTAssertEqual(stub.calls.count, 2)
+        XCTAssertNil(service.statusMessage)
+        XCTAssertNotNil(service.errorMessage)
+    }
+
     func testActivateClearsHistoryOnMeetingChange() {
         let service = MeetingChatService()
         let a = UUID()

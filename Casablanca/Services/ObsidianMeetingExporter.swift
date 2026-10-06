@@ -1,8 +1,13 @@
 import Foundation
 
 enum ObsidianMeetingExporter {
-    static func exportCompletedMeeting(_ meeting: Meeting) throws -> ExportResult {
-        let directory = try meetingNotesDirectory()
+    /// - Parameter userDefaults: the domain the vault path is read from. Tests
+    ///   MUST pass a scratch domain; the app-facing default is the standard one.
+    static func exportCompletedMeeting(
+        _ meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) throws -> ExportResult {
+        let directory = try meetingNotesDirectory(userDefaults: userDefaults)
         let notesURL = rawNotesURL(for: meeting, in: directory)
         let summaryURL = summaryURL(for: meeting, in: directory)
         let shouldExportSummary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -18,8 +23,11 @@ enum ObsidianMeetingExporter {
         return ExportResult(summaryURL: shouldExportSummary ? summaryURL : nil, notesURL: notesURL)
     }
 
-    static func exportRawNotes(_ meeting: Meeting) throws -> ExportResult {
-        let directory = try meetingNotesDirectory()
+    static func exportRawNotes(
+        _ meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) throws -> ExportResult {
+        let directory = try meetingNotesDirectory(userDefaults: userDefaults)
         let notesURL = rawNotesURL(for: meeting, in: directory)
 
         try rawNotesMarkdown(for: meeting, summaryFileName: nil)
@@ -30,8 +38,8 @@ enum ObsidianMeetingExporter {
 
     // MARK: - Private (moved verbatim from ExportService)
 
-    private static func meetingNotesDirectory() throws -> URL {
-        let vaultPath = UserDefaults.standard.string(forKey: AppPreferenceKey.obsidianVaultPath)?
+    private static func meetingNotesDirectory(userDefaults: UserDefaults) throws -> URL {
+        let vaultPath = userDefaults.string(forKey: AppPreferenceKey.obsidianVaultPath)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         guard !vaultPath.isEmpty else {

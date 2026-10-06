@@ -2,10 +2,14 @@ import Foundation
 import XCTest
 @testable import Casablanca
 
+/// Prep notes are written into the vault, so every case here resolves its vault
+/// root from a scratch preference domain pointed at a temporary directory —
+/// never the standard domain, which in this test host is the user's own.
 final class MeetingPrepServiceTests: XCTestCase {
     func testPrepURLUsesMeetingNotesFolderAndPrepSuffix() {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.path-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-path")
         defaults.set("/tmp/obsidian-vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
 
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())
 
@@ -18,11 +22,12 @@ final class MeetingPrepServiceTests: XCTestCase {
     }
 
     func testLoadPrepMarkdownReturnsContentsWhenPrepFileExists() throws {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.exists-\(UUID().uuidString)")!
-        let vaultURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = makeScratchDefaults(label: "prep-exists")
+        let vaultURL = makeScratchVault("prep")
         let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
         try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
         defaults.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
 
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())
         let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
@@ -34,7 +39,7 @@ final class MeetingPrepServiceTests: XCTestCase {
     }
 
     func testLoadPrepMarkdownReturnsNilWhenVaultPathMissing() {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.missing-vault-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-missing-vault")
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())
 
         XCTAssertNil(MeetingPrepService.prepURL(for: meeting, userDefaults: defaults))
@@ -42,19 +47,21 @@ final class MeetingPrepServiceTests: XCTestCase {
     }
 
     func testLoadPrepMarkdownReturnsNilWhenPrepFileMissing() {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.missing-file-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-missing-file")
         defaults.set("/tmp/obsidian-vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())
 
         XCTAssertNil(MeetingPrepService.loadPrepMarkdown(for: meeting, userDefaults: defaults))
     }
 
     func testLoadPrepMarkdownMatchesTrimmedPrepFilenameWhenMeetingTitleHasTrailingWhitespace() throws {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.trailing-space-\(UUID().uuidString)")!
-        let vaultURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = makeScratchDefaults(label: "prep-trailing-space")
+        let vaultURL = makeScratchVault("prep")
         let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
         try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
         defaults.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
 
         let meeting = Meeting(title: "Sessie RAG-architecturen ", date: makeDate())
         let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Sessie RAG-architecturen - Prep.md")
@@ -66,11 +73,12 @@ final class MeetingPrepServiceTests: XCTestCase {
     }
 
     func testCanonicalMeetingTodoTargetPrefersPrepFileOverNotesFile() throws {
-        let defaults = UserDefaults(suiteName: "MeetingPrepServiceTests.canonical-\(UUID().uuidString)")!
-        let vaultURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = makeScratchDefaults(label: "prep-canonical")
+        let vaultURL = makeScratchVault("prep")
         let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
         try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
         defaults.set(vaultURL.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
 
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())
         let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
@@ -84,24 +92,27 @@ final class MeetingPrepServiceTests: XCTestCase {
     }
 
     func testPrepURLReturnsNilInLocalMode() {
-        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-local")
         defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let meeting = Meeting(title: "Sync", date: .now)
         XCTAssertNil(MeetingPrepService.prepURL(for: meeting, userDefaults: defaults))
     }
 
     func testLoadPrepMarkdownReturnsNilInLocalMode() {
-        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-local")
         defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let meeting = Meeting(title: "Sync", date: .now)
         XCTAssertNil(MeetingPrepService.loadPrepMarkdown(for: meeting, userDefaults: defaults))
     }
 
     func testHasPrepReturnsFalseInLocalMode() {
-        let defaults = UserDefaults(suiteName: "prep-local-\(UUID().uuidString)")!
+        let defaults = makeScratchDefaults(label: "prep-local")
         defaults.set("/tmp/vault", forKey: AppPreferenceKey.obsidianVaultPath)
+        assertScratchVault(defaults)
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let meeting = Meeting(title: "Sync", date: .now)
         XCTAssertFalse(MeetingPrepService.hasPrep(for: meeting, userDefaults: defaults))

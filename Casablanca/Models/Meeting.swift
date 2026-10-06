@@ -9,6 +9,10 @@ enum AppPreferenceKey {
     static let omlxEndpoint = "omlxEndpoint"
     static let omlxModel = "omlxModel"
     static let omlxAPIKey = "omlxAPIKey"
+    /// Path to the `claude` binary. Empty means "auto-detect"; `ClaudeCLIProvider`
+    /// writes the path it detected back here so Settings can show it.
+    static let claudeCLIPath = "claudeCLIPath"
+    static let claudeCLIModel = "claudeCLIModel"
     static let whisperModel = "whisperModel"
     static let defaultTranscriptionLanguage = "defaultTranscriptionLanguage"
     static let summaryPromptTemplate = "summaryPromptTemplate"

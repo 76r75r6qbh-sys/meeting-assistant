@@ -1,6 +1,6 @@
 # Casablanca
 
-Casablanca is a local-first macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions with Whisper, generating summaries with a local LLM (Ollama or oMLX), and exporting meeting notes to Obsidian or Apple Notes.
+Casablanca is a macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions on-device with Whisper, generating summaries through a selectable LLM provider — a local model via Ollama or oMLX, or Claude Code billed against your Claude subscription — and exporting meeting notes to Obsidian or Apple Notes. Recording and transcription always stay on your Mac; with Claude Code selected, the transcript is sent to Anthropic for summarization.
 
 ## What `v0.8.0` includes
 
@@ -8,7 +8,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Live meeting workspace with freeform notes by default and optional timestamped capture
 - Local meeting recording with microphone and optional system audio capture
 - Local transcription through WhisperKit
-- Local summary generation through a selectable LLM provider — Ollama (default) or oMLX — with per-provider endpoint and model settings and optional oMLX API-key authentication
+- Summary generation through a selectable LLM provider — a local model via Ollama (default) or oMLX, or Claude Code (headless `claude -p`, no API key) — with per-provider endpoint / CLI-path and model settings and optional oMLX API-key authentication
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
 - **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
@@ -33,7 +33,7 @@ Casablanca is a local-first macOS meeting assistant for capturing notes during m
 - Xcode 16 or later
 - Microphone permission
 - Screen Recording permission if you want system audio capture
-- Optional: a local LLM server for summaries — [Ollama](https://ollama.com) (default) or [oMLX](https://github.com/jundot/omlx)
+- Optional, for summaries — either a local LLM server ([Ollama](https://ollama.com), the default, or [oMLX](https://github.com/jundot/omlx)) or the [Claude Code](https://claude.com/claude-code) CLI with an active Claude subscription
 
 ## Build
 
@@ -86,6 +86,36 @@ xcodebuild test -project Casablanca.xcodeproj \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY=''
 ```
+
+## Benchmarking transcription
+
+Transcription speed can only be judged on a real recording, so the app can transcribe one file and exit. Put the audio in `~/Library/Application Support/Casablanca/Benchmarks/` and run the built binary directly:
+
+```bash
+/Applications/Casablanca.app/Contents/MacOS/Casablanca \
+  --benchmark-transcription "$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.m4a" \
+  --benchmark-variant baseline \
+  -whisperFallbackCount 5 -whisperWorkers 16
+```
+
+The run transcribes in Dutch (`nl-NL`), prints the timing summary to stdout, and writes `<yyyyMMdd-HHmmss>-<variant>.json` (timings plus the decoding options the run resolved to) and `<yyyyMMdd-HHmmss>-<variant>.txt` (the transcript, in the same format as a saved transcript) into that same `Benchmarks` folder. Nothing is recorded and the meeting database is never opened.
+
+The `-whisper…` arguments are hidden tuning knobs read from the argument domain of `UserDefaults` (see `TranscriptionOptionsBuilder.Key`), so any combination can be A/B'd without a rebuild: `whisperFallbackCount`, `whisperWorkers`, `whisperEncoderCompute` / `whisperDecoderCompute` (`ane` | `gpu` | `cpu`), `whisperLogProbThreshold`, `whisperCompressionRatioThreshold`, `whisperChunking` (`vad` | `none` — `none` runs WhisperKit's sequential seek loop instead of splitting on silence), `whisperDropSilentChunks` (drops the VAD chunks with no speech in them; only applies to `whisperChunking vad`), `whisperSilentChunkEnergy`.
+
+A faster run is only a win if the transcript holds up, so compare it against a reference transcript of the same recording:
+
+```bash
+scripts/transcript-agreement.py \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.reference.txt" \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/20260903-140501-baseline.txt"
+# disagreement=4.21% ref_words=6021 cand_words=6010 edits=253
+```
+
+It ignores the header, timestamps, case and punctuation, and reports the word-level Levenshtein distance as a percentage of the reference. `scripts/transcript-agreement.py --self-test` checks the script itself.
+
+WhisperKit is pinned to an exact revision in `project.pbxproj` rather than tracking `main`, so the engine cannot move between two runs being compared. Bumping it is a deliberate change: update the revision, re-run the benchmark, and treat the new numbers as a new baseline.
+
+The knobs have been measured: [`docs/transcription-benchmarks.md`](docs/transcription-benchmarks.md) records the 2026-09-04/07 campaign on a 44-minute Dutch meeting (Apple M4 Pro, `openai_whisper-large-v3`). **No default was changed as a result** — nothing tested beat the shipped configuration of `ane`/`ane` compute, 16 workers, 5 temperature fallbacks and `vad` chunking, and `chunkingStrategy none` turned out to be 46 % slower rather than faster. The pipeline is ANE-bound at roughly 4× realtime for this model, the run-to-run noise floor is 0.56 % word disagreement, and the keys stay in place so the next idea can be measured instead of argued.
 
 ## Notes
 
