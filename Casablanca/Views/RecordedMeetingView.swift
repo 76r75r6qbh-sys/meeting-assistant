@@ -56,6 +56,7 @@ struct RecordedMeetingView: View {
         // Native trailing inspector (AppKit-driven resize, HIG-compliant).
         .inspector(isPresented: $showInspector) {
             MeetingDetailInspector(meeting: meeting, canExport: canExport, onSelectMeeting: onSelectMeeting)
+                .stableSplitColumnMinimumSize()
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
         }
         // Show the inspector by default only when the window is wide enough.

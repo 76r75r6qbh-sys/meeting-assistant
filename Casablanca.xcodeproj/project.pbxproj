@@ -245,6 +245,8 @@
 		CHAT0004 /* MeetingChatServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0104 /* MeetingChatServiceTests.swift */; };
 		CHAT0005 /* LLMPromptSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0105 /* LLMPromptSupportTests.swift */; };
 		D3C2F918BEBC44D5F95091D0 /* SleepPreventer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED040940F5803E66DD0C95A /* SleepPreventer.swift */; };
+		D69B7C5158BA16D36B9215CE /* SplitLayoutStabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */; };
+		DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */; };
 		DBA9D1B7DEB384F9DCBDEEF6 /* ActionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */; };
 		DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F665A23474FE05E8763B831 /* DockBadge.swift */; };
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
@@ -292,6 +294,7 @@
 		22AEEB414DDE0F2F58F46BFF /* TestVaultGuard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestVaultGuard.swift; sourceTree = "<group>"; };
 		22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/DockBadgeTests.swift; sourceTree = SOURCE_ROOT; };
 		23A222AA67614DF883F5F76C /* RefinementPrepCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RefinementPrepCard.swift; sourceTree = SOURCE_ROOT; };
+		2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitLayoutStabilityTests.swift; sourceTree = SOURCE_ROOT; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
 		292F4D13FAFB622A7728511B /* WhisperModelRetentionPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelRetentionPolicyTests.swift; sourceTree = "<group>"; };
 		29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptSegmentMerger.swift; sourceTree = "<group>"; };
@@ -338,6 +341,7 @@
 		8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		8E28628B25302DC000E13FC8 /* RecordingResumeAndStopContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeAndStopContractTests.swift; sourceTree = "<group>"; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
+		9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitColumnMinimumSizeProbe.swift; sourceTree = SOURCE_ROOT; };
 		97A0DB917B9C016522E34862 /* RecordingSessionRecoveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingSessionRecoveryTests.swift; sourceTree = "<group>"; };
 		9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TerminologyServiceTests.swift; sourceTree = SOURCE_ROOT; };
 		9EA64A703B1FFD5F73A0370B /* LLMProviderCopy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/LLM/LLMProviderCopy.swift; sourceTree = SOURCE_ROOT; };
@@ -921,6 +925,8 @@
 				292F4D13FAFB622A7728511B /* WhisperModelRetentionPolicyTests.swift */,
 				8851A8BFCD60597DC28A0954 /* PostTranscriptionPipelineTests.swift */,
 				1E06AF39045D1D5D3C1D3185 /* SilentChunkFilterTests.swift */,
+				2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */,
+				9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1368,6 +1374,8 @@
 				20B2077035789E9F04F1CA25 /* WhisperModelRetentionPolicyTests.swift in Sources */,
 				3239D887F91409B4F9F382C2 /* PostTranscriptionPipelineTests.swift in Sources */,
 				68696410DE06E1AEB1D25145 /* SilentChunkFilterTests.swift in Sources */,
+				D69B7C5158BA16D36B9215CE /* SplitLayoutStabilityTests.swift in Sources */,
+				DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -114,6 +114,7 @@ struct DashboardView: View {
                         .textCase(.uppercase)
                         .kerning(0.6)
                         .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
                 }
 
                 Text(presentation.title)
@@ -124,7 +125,11 @@ struct DashboardView: View {
                 Text(presentation.detailLine)
                     .font(.footnote)
                     .foregroundStyle(Color.textSecondary)
+                    .lineLimit(1)
             }
+            // Keep the one-line eyebrow and time readable when the window is
+            // narrow, without taking width from the buttons at normal sizes.
+            .frame(minWidth: 120, alignment: .leading)
 
             Spacer(minLength: CasaSpace.sm)
 

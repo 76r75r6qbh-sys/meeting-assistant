@@ -247,6 +247,7 @@ struct NotesEditorView: View {
                         prepPresentation: prepPresentation,
                         inspectorTab: $inspectorTab
                     )
+                    .stableSplitColumnMinimumSize()
                     .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
                 }
         }

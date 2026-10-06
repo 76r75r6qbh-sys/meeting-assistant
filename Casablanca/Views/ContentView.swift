@@ -47,9 +47,10 @@ struct ContentView: View {
                     SidebarPlaceholderView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: CasaLayout.sidebarWidth, max: 260)
+            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: 260)
         } detail: {
             detailView
+                .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
         }
         .background {
             // Single source of truth for the window width that drives the
