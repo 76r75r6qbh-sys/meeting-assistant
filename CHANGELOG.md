@@ -2,6 +2,19 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] — 2026-10-06
+
+Fixes a crash that could take Casablanca down shortly after launch or while making the window smaller.
+
+### Fixed
+
+- **No more crash shortly after launch or when shrinking the window.** The main window's detail column reported a minimum size that depended on its content, such as the dashboard's "Up next" card appearing after a calendar refresh, or text re-wrapping as the window narrowed. Each change re-triggered AppKit's layout pass from inside that pass. In a small, tiled or background window this could repeat until macOS aborted the app ("more Update Constraints in Window passes than there are views"). The detail column and both inspectors now report a fixed minimum size. The window minimum stays 480 × 500, and the sidebar still collapses below 600 pt.
+- **The dashboard's "Up next" card no longer wraps one character per line in a narrow window.** The label and time line stay on one line, and the buttons shrink to icons before the text truncates.
+
+### Internal
+
+- `SplitLayoutStabilityTests` hosts the main window's split layout in a real window. It counts the exact AppKit call path from the crash report while the dashboard's content changes at small window sizes. It first checks that the layout without the fix is still detected on the current macOS; with the fix the count is zero. 925 → 926 tests.
+
 ## [0.16.0] — 2026-09-07
 
 Recordings now survive the laptop sleeping or locking, and unfinished recordings from earlier incidents are recovered at launch. The transcription pipeline was instrumented and benchmarked; the model and its defaults were deliberately left unchanged after measurement, but the transcript now appears sooner and the model no longer reloads for every meeting.
