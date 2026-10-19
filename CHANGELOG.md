@@ -2,6 +2,19 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] — 2026-10-19
+
+Fixes the "Your meeting database could not be opened and may have been corrupted" alert and the lost meetings that came with it. The database was not corrupt: another app was writing to the same file.
+
+### Fixed
+
+- **Another app can no longer overwrite Casablanca's meeting database.** Casablanca stored its database at SwiftData's shared default location, `~/Library/Application Support/default.store`. Any other app without the macOS sandbox that uses SwiftData's default writes to that same file. One such app replaced it, and Casablanca's corrupt-store recovery then set the other app's database aside and started empty, so both apps lost data. The database now lives at `~/Library/Application Support/Casablanca/Casablanca.store`. Backups and corrupt-store recovery only ever touch that file.
+- **Existing data moves over once, as a copy.** On first launch, Casablanca copies the old `default.store` only if it actually contains Casablanca's tables and passes an integrity check. The copy is written as one self-contained file and synced to disk before it is put in place. The old file is never opened, changed or deleted. A marker file records that the move was decided, so old data is never imported twice. If the old database belongs to Casablanca but cannot be copied, Casablanca starts a new database and names the old file's path in an alert. If copying fails because of a filesystem error, Casablanca runs in temporary mode for that launch and tries again on the next one.
+
+### Internal
+
+- The unit-test host now uses an in-memory store and skips launch work, so a test run can no longer open, back up or prune the real database, or clean up real recording sessions. 926 → 943 tests.
+
 ## [0.17.0] — 2026-10-06
 
 Fixes a crash that could take Casablanca down shortly after launch or while making the window smaller.
