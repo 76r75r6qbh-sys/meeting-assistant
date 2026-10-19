@@ -15,6 +15,9 @@ struct CasablancaApp: App {
     /// True when launched with `--benchmark-transcription`: the process measures
     /// one transcription and exits, so it must not run the normal launch work.
     private let isBenchmarkRun: Bool
+    /// True when this process is the host of the unit tests: it must stay inert,
+    /// so it never opens the real store and never runs launch housekeeping.
+    private let isHostingTests: Bool
 
     /// Unrecoverable persistence failure surfaced to the user instead of a crash.
     private struct StoreFailure: Identifiable {
@@ -29,12 +32,24 @@ struct CasablancaApp: App {
         // never reaches disk, and the run exits the process when it finishes.
         if let request = TranscriptionBenchmark.requestedRun(from: CommandLine.arguments) {
             isBenchmarkRun = true
+            isHostingTests = false
             sharedModelContainer = Self.inMemoryContainer()
             _appModel = State(initialValue: AppModel())
             Task { @MainActor in exit(await TranscriptionBenchmark.run(request)) }
             return
         }
         isBenchmarkRun = false
+
+        // The unit tests are hosted in this app. The host must not touch real
+        // user data: no store open/migration/backup, no preference migration,
+        // and (see `body`) no bootstrap housekeeping or recording recovery.
+        isHostingTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        if isHostingTests {
+            Log.persistence.info("Hosting unit tests: using an in-memory store and skipping launch work.")
+            sharedModelContainer = Self.inMemoryContainer()
+            _appModel = State(initialValue: AppModel())
+            return
+        }
 
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
         do {
@@ -46,6 +61,20 @@ struct CasablancaApp: App {
                         + "A fresh database has been created so Casablanca can keep working. "
                         + "Your previous data has been backed up (not deleted) and may be recoverable:\n\n"
                         + backups.map(\.lastPathComponent).joined(separator: "\n")
+                ))
+            }
+            if case .migrationFailed(let legacyStoreURL) = result.recovery {
+                _storeFailure = State(initialValue: StoreFailure(
+                    message: "Casablanca could not copy your meeting database from its old location:\n\n"
+                        + legacyStoreURL.path + "\n\n"
+                        + "It is running in a temporary mode and changes will not be saved. "
+                        + "The old database was not changed; Casablanca will try again the next time it starts."
+                ))
+            }
+            if case .legacyStoreNotCopied(let legacyStoreURL) = result.recovery {
+                _storeFailure = State(initialValue: StoreFailure(
+                    message: "Your previous meeting database at " + legacyStoreURL.path
+                        + " could not be copied and was left unchanged. A new database has been created."
                 ))
             }
             _appModel = State(initialValue: AppModel())
@@ -64,10 +93,10 @@ struct CasablancaApp: App {
         }
     }
 
-    /// A container that never reaches disk, for the two cases that must not use
-    /// the real store: a benchmark run, and a store that could not be opened or
-    /// recreated. In-memory creation only fails if the schema itself is broken,
-    /// and then there is nothing left to fall back to.
+    /// A container that never reaches disk, for the cases that must not use the
+    /// real store: a benchmark run, the unit-test host, and a store that could not
+    /// be opened or recreated. In-memory creation only fails if the schema itself
+    /// is broken, and then there is nothing left to fall back to.
     private static func inMemoryContainer() -> ModelContainer {
         do {
             let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
@@ -87,7 +116,8 @@ struct CasablancaApp: App {
                     // A benchmark run measures transcription alone: launch
                     // housekeeping, calendar access and update checks would only
                     // add noise to the numbers (and prompts to the screen).
-                    guard !isBenchmarkRun else { return }
+                    // The unit-test host must not touch real files either.
+                    guard !isBenchmarkRun, !isHostingTests else { return }
                     await appModel.bootstrap(modelContext: sharedModelContainer.mainContext)
                 }
                 .sheet(isPresented: Binding(

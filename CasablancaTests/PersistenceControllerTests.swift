@@ -1,5 +1,6 @@
 import XCTest
 import SwiftData
+import SQLite3
 @testable import Casablanca
 
 final class PersistenceControllerTests: XCTestCase {
@@ -193,6 +194,350 @@ final class PersistenceControllerTests: XCTestCase {
         }
         XCTAssertTrue(kept.allSatisfy { stamps.contains($0) }, "newest 3 stamps must be kept")
         XCTAssertTrue(pruned.allSatisfy { !stamps.contains($0) }, "oldest 2 stamps must be pruned")
+    }
+
+    // MARK: - Namespaced store location
+
+    func test_appStoreURL_isNamespacedUnderCasablanca_notTheSharedDefault() {
+        let url = PersistenceController.storeURL
+        XCTAssertEqual(url.lastPathComponent, "Casablanca.store")
+        XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "Casablanca")
+        XCTAssertNotEqual(url.standardizedFileURL, PersistenceController.legacyStoreURL.standardizedFileURL)
+        XCTAssertEqual(PersistenceController.legacyStoreURL.lastPathComponent, "default.store")
+    }
+
+    // MARK: - One-time legacy migration
+
+    private var legacyURL: URL { tempDir.appending(path: "legacy/default.store") }
+    private var newURL: URL { tempDir.appending(path: "new/Casablanca/Casablanca.store") }
+    private var newDir: URL { newURL.deletingLastPathComponent() }
+    private var markerURL: URL { newDir.appending(path: PersistenceController.legacyMigrationMarkerName) }
+
+    /// Snapshot of every existing legacy file's bytes, keyed by file name.
+    private func snapshot(of storeURL: URL) throws -> [String: Data] {
+        var result: [String: Data] = [:]
+        for url in PersistenceController.storeFileURLs(for: storeURL)
+        where FileManager.default.fileExists(atPath: url.path) {
+            result[url.lastPathComponent] = try Data(contentsOf: url)
+        }
+        return result
+    }
+
+    private func newDirContents() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: newDir.path)) ?? []).sorted()
+    }
+
+    private func makeLegacyDirectory() throws {
+        try FileManager.default.createDirectory(
+            at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+    }
+
+    /// Opens (creating) a raw SQLite database at `url` and runs `sql`. The caller
+    /// owns the returned handle and must close it.
+    private func openRawStore(at url: URL, sql: String) throws -> OpaquePointer? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        var message: UnsafeMutablePointer<CChar>?
+        guard sqlite3_exec(db, sql, nil, nil, &message) == SQLITE_OK else {
+            let text = message.map { String(cString: $0) } ?? "?"
+            sqlite3_free(message)
+            sqlite3_close(db)
+            throw NSError(domain: "sqlite", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
+        }
+        return db
+    }
+
+    /// Creates a raw SQLite database at `url` with only the given tables, standing
+    /// in for another app's (or a partial) SwiftData store at the shared path.
+    private func makeRawStore(at url: URL, tables: [String]) throws {
+        let sql = tables.map { "CREATE TABLE \($0) (Z_PK INTEGER PRIMARY KEY, ZVALUE VARCHAR);" }.joined()
+        sqlite3_close(try openRawStore(at: url, sql: sql))
+    }
+
+    /// Minimal Casablanca-shaped schema: the Meeting/TodoItem tables plus the
+    /// Core Data `Z_PRIMARYKEY` entity registry, with one meeting row.
+    private let casablancaShapedSQL = """
+        CREATE TABLE ZMEETING (Z_PK INTEGER PRIMARY KEY, ZTITLE VARCHAR);
+        CREATE TABLE ZTODOITEM (Z_PK INTEGER PRIMARY KEY, ZTEXT VARCHAR);
+        CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER PRIMARY KEY, Z_NAME VARCHAR, Z_SUPER INTEGER, Z_MAX INTEGER);
+        INSERT INTO Z_PRIMARYKEY VALUES (1, 'Meeting', 0, 1), (2, 'TodoItem', 0, 0);
+        INSERT INTO ZMEETING VALUES (1, 'WAL-only meeting');
+        """
+
+    private func meetingTitles(inRawStoreAt url: URL) -> [String] {
+        var db: OpaquePointer?
+        defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return [] }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, "SELECT ZTITLE FROM ZMEETING ORDER BY Z_PK;", -1, &statement, nil) == SQLITE_OK else { return [] }
+        var titles: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            titles.append(String(cString: sqlite3_column_text(statement, 0)))
+        }
+        return titles
+    }
+
+    func test_migration_copiesCasablancaLegacyStore_asSingleFile_andLeavesLegacyUntouched() throws {
+        try makeLegacyDirectory()
+        let seededTitle = "Legacy weekly sync"
+        try autoreleasepool {
+            let config = ModelConfiguration(url: legacyURL)
+            let container = try ModelContainer(
+                for: Meeting.self, TodoItem.self,
+                migrationPlan: CasablancaMigrationPlan.self,
+                configurations: config
+            )
+            let context = ModelContext(container)
+            context.insert(Meeting(title: seededTitle, date: Date(timeIntervalSince1970: 1_700_000_000)))
+            try context.save()
+        }
+        let before = try snapshot(of: legacyURL)
+        XCTAssertNotNil(before["default.store"])
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .migrated)
+        // Exactly one self-contained store file plus the decision marker: no
+        // sidecars, no staging leftovers.
+        XCTAssertEqual(newDirContents(), [PersistenceController.legacyMigrationMarkerName, "Casablanca.store"].sorted())
+        // Legacy files are byte-identical: copied, never moved, opened or modified.
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+
+        let container = try ModelContainer(
+            for: Meeting.self, TodoItem.self,
+            migrationPlan: CasablancaMigrationPlan.self,
+            configurations: ModelConfiguration(url: newURL)
+        )
+        let meetings = try ModelContext(container).fetch(FetchDescriptor<Meeting>())
+        XCTAssertEqual(meetings.map(\.title), [seededTitle])
+    }
+
+    func test_migration_schemaOnlyInWAL_withLiveConnection_migrates_andLegacyUnchanged() throws {
+        try makeLegacyDirectory()
+        // A live writer in WAL mode that never checkpoints: the whole schema and
+        // data exist only in the -wal file while we migrate.
+        let liveDB = try openRawStore(
+            at: legacyURL,
+            sql: "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;" + casablancaShapedSQL
+        )
+        defer { sqlite3_close(liveDB) }
+        let before = try snapshot(of: legacyURL)
+        XCTAssertNotNil(before["default.store-wal"], "precondition: data must live in the WAL")
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .migrated)
+        XCTAssertEqual(meetingTitles(inRawStoreAt: newURL), ["WAL-only meeting"])
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    func test_migration_foreignStore_isSkipped_nothingCreated_markerWritten() throws {
+        try makeLegacyDirectory()
+        try makeRawStore(at: legacyURL, tables: ["ZAPIREQUESTMODEL"])
+        let before = try snapshot(of: legacyURL)
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedForeignStore)
+        XCTAssertEqual(newDirContents(), [PersistenceController.legacyMigrationMarkerName])
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    func test_migration_meetingTableWithoutTodoTable_isForeign() throws {
+        try makeLegacyDirectory()
+        try makeRawStore(at: legacyURL, tables: ["ZMEETING"])
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedForeignStore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newURL.path))
+    }
+
+    func test_migration_notSQLiteLegacyFile_isForeign_markerWritten() throws {
+        try makeLegacyDirectory()
+        try Data(repeating: 0xAB, count: 8192).write(to: legacyURL)
+        let before = try snapshot(of: legacyURL)
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedForeignStore)
+        XCTAssertEqual(newDirContents(), [PersistenceController.legacyMigrationMarkerName])
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    /// A Casablanca-shaped store whose schema reads fine but whose data pages are
+    /// damaged, so `PRAGMA quick_check` fails. Rollback-journal mode keeps every
+    /// page in the main file so the damage is deterministic.
+    private func makeDamagedCasablancaStore(at url: URL) throws {
+        let rows = (2...400).map { "(\($0), '\(String(repeating: "x", count: 500))')" }.joined(separator: ",")
+        sqlite3_close(try openRawStore(
+            at: url,
+            sql: "PRAGMA page_size=4096; PRAGMA journal_mode=DELETE;" + casablancaShapedSQL
+                + "INSERT INTO ZMEETING VALUES \(rows);"
+        ))
+        var bytes = try Data(contentsOf: url)
+        let pageSize = 4096
+        let pageCount = bytes.count / pageSize
+        XCTAssertGreaterThan(pageCount, 20, "precondition: enough data pages to damage one")
+        // Trash a data page near the end, far away from page 1 (sqlite_master)
+        // and the tables' early root pages.
+        let start = (pageCount - 2) * pageSize
+        bytes.replaceSubrange(start..<(start + pageSize), with: Data(repeating: 0xFF, count: pageSize))
+        try bytes.write(to: url)
+    }
+
+    /// Counts copies of the legacy main file, i.e. staging attempts.
+    private final class CountingFileManager: FileManager {
+        var mainFileCopies = 0
+        override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+            if srcURL.lastPathComponent == "default.store" { mainFileCopies += 1 }
+            try super.copyItem(at: srcURL, to: dstURL)
+        }
+    }
+
+    func test_migration_damagedCasablancaStore_retriesOnce_thenSkipsWithMarker_legacyUnchanged() throws {
+        try makeLegacyDirectory()
+        try makeDamagedCasablancaStore(at: legacyURL)
+        let before = try snapshot(of: legacyURL)
+        let fileManager = CountingFileManager()
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(
+            from: legacyURL, to: newURL, fileManager: fileManager
+        )
+
+        XCTAssertEqual(outcome, .skippedUnreadableCasablancaStore)
+        XCTAssertEqual(fileManager.mainFileCopies, 2, "a torn copy is retried exactly once")
+        XCTAssertEqual(newDirContents(), [PersistenceController.legacyMigrationMarkerName])
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    func test_appContainer_damagedCasablancaStore_opensFreshOnDiskStore_andReportsIt() throws {
+        try makeLegacyDirectory()
+        try makeDamagedCasablancaStore(at: legacyURL)
+        let before = try snapshot(of: legacyURL)
+
+        let result = try PersistenceController.makeAppContainer(storeURL: newURL, legacyStoreURL: legacyURL)
+
+        XCTAssertEqual(result.recovery, .legacyStoreNotCopied(legacyStoreURL: legacyURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newURL.path), "a fresh on-disk store, not in-memory")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    /// Lets the copy succeed but fails the final move into place.
+    private final class FailingMoveFileManager: FileManager {
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+    }
+
+    func test_migration_moveFailure_fails_leavesNothingAtDestination() throws {
+        try makeLegacyDirectory()
+        sqlite3_close(try openRawStore(at: legacyURL, sql: casablancaShapedSQL))
+        let before = try snapshot(of: legacyURL)
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(
+            from: legacyURL, to: newURL, fileManager: FailingMoveFileManager()
+        )
+
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(newDirContents(), [])
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+    }
+
+    func test_migration_markerPresent_isSkipped_evenWithAValidLegacyStore() throws {
+        try makeLegacyDirectory()
+        sqlite3_close(try openRawStore(at: legacyURL, sql: casablancaShapedSQL))
+        try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
+        try Data().write(to: markerURL)
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedAlreadyDecided)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newURL.path), "stale legacy data must not be re-imported")
+    }
+
+    func test_migration_newStoreAlreadyExists_isSkipped_notOverwritten_markerWritten() throws {
+        try makeLegacyDirectory()
+        sqlite3_close(try openRawStore(at: legacyURL, sql: casablancaShapedSQL))
+        try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
+        let existing = Data("existing new store".utf8)
+        try existing.write(to: newURL)
+
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedNewStoreExists)
+        XCTAssertEqual(try Data(contentsOf: newURL), existing)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func test_migration_noLegacyStore_isSkipped_markerWritten() throws {
+        let outcome = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertEqual(outcome, .skippedNoLegacyStore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func test_migration_sweepsLeftoverStagingDirectories() throws {
+        let leftover = newDir.appending(path: ".legacy-store-migration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: leftover.appending(path: "Casablanca.store"))
+
+        _ = PersistenceController.migrateLegacyStoreIfNeeded(from: legacyURL, to: newURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+        XCTAssertEqual(newDirContents(), [PersistenceController.legacyMigrationMarkerName])
+    }
+
+    // MARK: - App container + migration
+
+    func test_appContainer_filesystemFailure_usesInMemoryStore_andCreatesNothing() throws {
+        try makeLegacyDirectory()
+        sqlite3_close(try openRawStore(at: legacyURL, sql: casablancaShapedSQL))
+        let before = try snapshot(of: legacyURL)
+
+        let result = try PersistenceController.makeAppContainer(
+            storeURL: newURL, legacyStoreURL: legacyURL, fileManager: FailingMoveFileManager()
+        )
+        XCTAssertEqual(try snapshot(of: legacyURL), before)
+
+        XCTAssertEqual(result.recovery, .migrationFailed(legacyStoreURL: legacyURL))
+        // No empty store (it would block the retry forever) and no marker.
+        XCTAssertEqual(newDirContents(), [])
+        // The in-memory container still works.
+        let context = ModelContext(result.container)
+        context.insert(Meeting(title: "temp", date: .now))
+        XCTAssertNoThrow(try context.save())
+        XCTAssertEqual(newDirContents(), [])
+    }
+
+    func test_appContainer_notSQLiteLegacy_opensFreshStoreCleanly() throws {
+        try makeLegacyDirectory()
+        try Data(repeating: 0xAB, count: 8192).write(to: legacyURL)
+
+        let result = try PersistenceController.makeAppContainer(storeURL: newURL, legacyStoreURL: legacyURL)
+
+        XCTAssertEqual(result.recovery, .clean)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func test_migrationMarker_doesNotShareTheStagingPrefix() {
+        XCTAssertEqual(PersistenceController.legacyMigrationMarkerName, ".casablanca-legacy-migration-done")
+    }
+
+    func test_appContainer_noLegacy_opensNamespacedStoreCleanly() throws {
+        let result = try PersistenceController.makeAppContainer(storeURL: newURL, legacyStoreURL: legacyURL)
+
+        XCTAssertEqual(result.recovery, .clean)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
     }
 
     /// Mirror of PersistenceController's private stamp format for assertions.
