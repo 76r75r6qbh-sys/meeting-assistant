@@ -2,6 +2,20 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] — 2026-10-19
+
+Fixes to-dos disappearing from a meeting's Obsidian notes after the meeting was edited.
+
+### Fixed
+
+- **Editing a meeting no longer removes its to-dos from Obsidian.** With auto-export on, every save rewrote the meeting's `- Notes.md` file without its "Action Items" section. For a meeting without a Prep file, that section is where its to-dos live. They disappeared from the vault, and the next to-do added to that meeting made Casablanca delete the old ones. Exports now keep the existing to-dos with their IDs and checked state.
+- **To-dos you type under your own "## Action Items" heading are kept.** They are added after the existing to-dos instead of being replaced by them.
+- **An unreadable Notes file is no longer overwritten.** If the existing file can't be read (an encoding or permission problem, or an iCloud file that isn't downloaded), the export now fails and shows an error, and the file is left as it is.
+
+### Internal
+
+- 943 → 950 tests.
+
 ## [0.18.0] — 2026-10-19
 
 Fixes the "Your meeting database could not be opened and may have been corrupted" alert and the lost meetings that came with it. The database was not corrupt: another app was writing to the same file.
