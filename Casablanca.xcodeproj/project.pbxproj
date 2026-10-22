@@ -54,6 +54,7 @@
 		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
 		61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */; };
 		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
+		68475463F02EB9FA882801C0 /* RecordingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69661D517D8526A2AF843463 /* RecordingFiles.swift */; };
 		68696410DE06E1AEB1D25145 /* SilentChunkFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E06AF39045D1D5D3C1D3185 /* SilentChunkFilterTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
@@ -228,6 +229,7 @@
 		A8FA62DBB7CD4046DD1FCC81 /* UpdateLaunchHousekeeping.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEDC99ABCEE1E1DF4190DB03 /* UpdateLaunchHousekeeping.swift */; };
 		AACD71C8C2C46990F3D87FAA /* ApplicationsLocationCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */; };
 		AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E7D3EB2A3ABED36DDB1955 /* TranscriptSegmentMergeTests.swift */; };
+		AF66FB3E85AFE2D65104582F /* MicrophoneCaptureUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13AFDDCB4971B8DBB1498E89 /* MicrophoneCaptureUnitTests.swift */; };
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
 		B5410AFB7ACFB3702A9B7C70 /* ActionQueueModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */; };
 		B68E23B6D59110583203BB20 /* ActionCardBodyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */; };
@@ -295,6 +297,7 @@
 		0E2C0929459E2C9A521A42C2 /* TicketDraftCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/TicketDraftCard.swift; sourceTree = SOURCE_ROOT; };
 		108FBBE803A2166EC0F75BB4 /* build-fixtures.sh */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.script.sh; path = "build-fixtures.sh"; sourceTree = "<group>"; };
 		1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/PrepInspectorAutoOpenTests.swift; sourceTree = SOURCE_ROOT; };
+		13AFDDCB4971B8DBB1498E89 /* MicrophoneCaptureUnitTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/MicrophoneCaptureUnitTests.swift; sourceTree = SOURCE_ROOT; };
 		1B2C3D4E5F60718293A4B5E8 /* ProgressTrickle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProgressTrickle.swift; sourceTree = "<group>"; };
 		1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstallerScriptTests.swift; sourceTree = "<group>"; };
 		1D7DD089A8677407D36F5A37 /* PartnerApiReplyCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/PartnerApiReplyCard.swift; sourceTree = SOURCE_ROOT; };
@@ -341,6 +344,7 @@
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
 		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
+		69661D517D8526A2AF843463 /* RecordingFiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/RecordingFiles.swift; sourceTree = SOURCE_ROOT; };
 		6A10EB29639B23646888C040 /* RefinementPrepBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RefinementPrepBody.swift; sourceTree = SOURCE_ROOT; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		70A686D86A50999F7D642EE8 /* RoadmapCommitmentBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RoadmapCommitmentBody.swift; sourceTree = SOURCE_ROOT; };
@@ -954,6 +958,7 @@
 				47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */,
 				1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */,
 				A3A158FF2F563C8CEDAA0235 /* MeetingPrepSaveTests.swift */,
+				13AFDDCB4971B8DBB1498E89 /* MicrophoneCaptureUnitTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1004,6 +1009,7 @@
 				28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */,
 				44536E4AAC3CBEBE0EABBAEB /* TeamsAudioActivitySource.swift */,
 				8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */,
+				69661D517D8526A2AF843463 /* RecordingFiles.swift */,
 			);
 			name = Recording;
 			path = Recording;
@@ -1313,6 +1319,7 @@
 				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
 				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
 				E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */,
+				68475463F02EB9FA882801C0 /* RecordingFiles.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1416,6 +1423,7 @@
 				53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */,
 				96B6EF4530ECB70A2C53EFC5 /* PrepInspectorAutoOpenTests.swift in Sources */,
 				3C8DA02E3052008449165D26 /* MeetingPrepSaveTests.swift in Sources */,
+				AF66FB3E85AFE2D65104582F /* MicrophoneCaptureUnitTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

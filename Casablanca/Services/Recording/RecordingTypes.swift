@@ -19,7 +19,6 @@ enum RecordingError: LocalizedError {
     case systemAudioPermissionRequiresRestart
     case systemAudioCaptureFailed(String)
     case noDisplayAvailable
-    case unableToCreateOutputDirectory
     case failedToCreateAudioFile
     case failedToFinalizeRecording(String)
     case noCapturedAudio
@@ -50,8 +49,6 @@ enum RecordingError: LocalizedError {
             return message
         case .noDisplayAvailable:
             return "No active display was found for system audio capture."
-        case .unableToCreateOutputDirectory:
-            return "Casablanca could not create its recordings folder."
         case .failedToCreateAudioFile:
             return "Casablanca could not create the recording file."
         case .failedToFinalizeRecording(let message):

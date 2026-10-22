@@ -16,19 +16,27 @@ struct RecordingMixdownRenderer {
     let expectedOutputFrames: AVAudioFramePosition
 
     func render() throws {
-        let microphoneBytes = Self.fileSize(at: microphoneURL)
-        let systemAudioBytes = Self.fileSize(at: systemAudioURL)
+        let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneURL)
+        let systemAudioBytes = RecordingFiles.trackByteCount(at: systemAudioURL)
 
         Log.recording.debug(
             "Finalizing recording: micFrames=\(self.microphoneFrames) micBytes=\(microphoneBytes) systemFrames=\(self.systemAudioFrames) systemBytes=\(systemAudioBytes)"
         )
 
-        let microphoneHandle = microphoneFrames > 0
-            ? try? FileHandle(forReadingFrom: microphoneURL)
-            : nil
-        let systemAudioHandle = systemAudioFrames > 0
-            ? try? FileHandle(forReadingFrom: systemAudioURL)
-            : nil
+        // A counted track that will not open fails the render. Skipping it
+        // (`try?`) used to mix the other track alone and then delete the
+        // unread one below as if it had been consumed -- the microphone audio
+        // of the segment, gone for good.
+        let microphoneHandle: FileHandle?
+        let systemAudioHandle: FileHandle?
+        do {
+            microphoneHandle = microphoneFrames > 0 ? try FileHandle(forReadingFrom: microphoneURL) : nil
+            systemAudioHandle = systemAudioFrames > 0 ? try FileHandle(forReadingFrom: systemAudioURL) : nil
+        } catch {
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not reopen its temporary recordings: \(Self.describeFinalizationError(error)). micFrames=\(microphoneFrames), micBytes=\(microphoneBytes), systemFrames=\(systemAudioFrames), systemBytes=\(systemAudioBytes)."
+            )
+        }
 
         guard microphoneHandle != nil || systemAudioHandle != nil else {
             throw RecordingError.failedToFinalizeRecording(
@@ -52,7 +60,7 @@ struct RecordingMixdownRenderer {
         var mixedAudioByteCount = 0
 
         do {
-            try outputHandle.write(contentsOf: Data(repeating: 0, count: 44))
+            try outputHandle.write(contentsOf: Data(repeating: 0, count: WAVCodec.headerByteCount))
         } catch {
             bestEffort("close output handle", Log.recording) { try outputHandle.close() }
             throw RecordingError.failedToFinalizeRecording(
@@ -113,8 +121,14 @@ struct RecordingMixdownRenderer {
             )
         }
 
-        bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneURL) }
-        bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioURL) }
+        // Only what the loop above read to its end is now in the WAV. A track
+        // that was not read is removed only when it holds no whole sample.
+        if microphoneHandle != nil || microphoneBytes < Int64(MemoryLayout<Float>.size) {
+            bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneURL) }
+        }
+        if systemAudioHandle != nil || systemAudioBytes < Int64(MemoryLayout<Float>.size) {
+            bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioURL) }
+        }
     }
 
     // Test seam (Phase 1b golden-fixture pinning): the per-frame mixing
@@ -140,11 +154,6 @@ struct RecordingMixdownRenderer {
             mixedSamples[index] = Int16((clamped * Float(Int16.max)).rounded())
         }
         return mixedSamples
-    }
-
-    private static func fileSize(at url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values?.fileSize ?? 0)
     }
 
     private static func describeFinalizationError(_ error: Error) -> String {

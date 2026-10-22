@@ -112,3 +112,93 @@ final class RecordingMixdownTests: XCTestCase {
         )
     }
 }
+
+/// What `render()` may delete. The temp PCM tracks are the only copy of the
+/// segment's audio until the WAV holds it, so a track that was counted but
+/// could not be read must survive -- and fail the render -- instead of being
+/// silently skipped and then removed after a "successful" mix.
+final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MixdownFileSafety-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: mic.path)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func writeFloats(_ floats: [Float], to url: URL) throws {
+        try floats.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: url)
+    }
+
+    func testUnreadableCountedMicrophoneTrackFailsTheRenderAndIsKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2, 0.3, 0.4], to: mic)
+        try writeFloats([0.1, 0.1, 0.1, 0.1], to: system)
+        // Counted, but unopenable.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: mic.path)
+
+        let renderer = RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 4,
+            systemAudioFrames: 4,
+            outputURL: output,
+            expectedOutputFrames: 4
+        )
+
+        XCTAssertThrowsError(try renderer.render())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path), "The unread microphone audio must not be deleted")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: system.path), "A failed render deletes nothing")
+    }
+
+    func testSuccessfulRenderRemovesBothFullyReadTracks() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        XCTAssertEqual(try Data(contentsOf: output).count, 44 + 2 * MemoryLayout<Int16>.size)
+    }
+
+    /// A track whose frames were not counted is not read; if it nevertheless
+    /// holds whole samples, it is not this render's to delete.
+    func testUncountedTrackWithSamplesIsKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 0,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2
+        ).render()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+    }
+}

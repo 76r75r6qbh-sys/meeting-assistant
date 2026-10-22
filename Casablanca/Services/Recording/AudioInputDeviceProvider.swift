@@ -29,7 +29,43 @@ extension AudioRecordingService {
             return devices.first(where: { $0.deviceID == defaultDeviceID })?.id
         }
 
-        return devices.first(where: { $0.id == storedPreference })?.id
+        return resolveInputDevice(storedPreference, in: devices)?.id
+    }
+
+    /// Finds the device a persisted ID (preference or resume manifest) refers
+    /// to. IDs are CoreAudio device UIDs, which survive a reconnect or a
+    /// reboot; builds before that stored the numeric `AudioDeviceID`, which
+    /// does not. Such a legacy ID is matched numerically as a best effort and
+    /// otherwise resolves to `nil` -- the caller then records from the system
+    /// default rather than failing or pausing over a number that went stale.
+    static func resolveInputDevice(_ storedID: String?, in devices: [AudioInputDevice]) -> AudioInputDevice? {
+        guard let storedID, !storedID.isEmpty else { return nil }
+        if let device = devices.first(where: { $0.id == storedID }) {
+            return device
+        }
+        guard let legacyDeviceID = AudioDeviceID(storedID) else { return nil }
+        return devices.first(where: { $0.deviceID == legacyDeviceID })
+    }
+
+    /// The device ID to arm device-loss detection with for a segment recorded
+    /// from `storedID`. When that no longer resolves, the segment records from
+    /// the system default, so that is what must be watched: arming with the
+    /// stale ID made the very next device-list change (any USB plug, any
+    /// Bluetooth headset waking up) read as "your mic is gone" and hard-pause
+    /// a perfectly healthy recording.
+    static func monitoredInputDeviceID(
+        forStoredID storedID: String?,
+        in devices: [AudioInputDevice],
+        defaultDeviceID: AudioDeviceID?,
+        fallback: String
+    ) -> String {
+        if let device = resolveInputDevice(storedID, in: devices) {
+            return device.id
+        }
+        if let defaultDeviceID, let device = devices.first(where: { $0.deviceID == defaultDeviceID }) {
+            return device.id
+        }
+        return fallback
     }
 
     static func fetchInputDevices() -> [AudioInputDevice] {
@@ -64,8 +100,10 @@ extension AudioRecordingService {
                 return nil
             }
 
+            // The UID is the persisted identity: an `AudioDeviceID` is handed
+            // out per connection and changes across a reconnect or a reboot.
             return AudioInputDevice(
-                id: String(deviceID),
+                id: deviceUID(deviceID) ?? String(deviceID),
                 name: name,
                 deviceID: deviceID
             )
@@ -100,8 +138,17 @@ extension AudioRecordingService {
     }
 
     static func deviceName(_ deviceID: AudioDeviceID) -> String? {
+        stringProperty(kAudioObjectPropertyName, of: deviceID)
+    }
+
+    /// `kAudioDevicePropertyDeviceUID`: stable across reconnects and reboots.
+    static func deviceUID(_ deviceID: AudioDeviceID) -> String? {
+        stringProperty(kAudioDevicePropertyDeviceUID, of: deviceID)
+    }
+
+    private static func stringProperty(_ selector: AudioObjectPropertySelector, of deviceID: AudioDeviceID) -> String? {
         var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )

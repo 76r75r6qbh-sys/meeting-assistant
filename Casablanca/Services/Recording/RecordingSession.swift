@@ -68,6 +68,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
     private let lifecycle = OSAllocatedUnfairLock<Lifecycle>(initialState: .live)
 
+    /// Both temp tracks are written at this rate (the writers convert to it),
+    /// matching the 16 kHz WAV the mixdown renders.
+    private static let trackSampleRate: Double = 16_000
+
     init(
         outputURL: URL,
         meeting: Meeting,
@@ -205,8 +209,8 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // larger so a counter that is merely behind can still only *raise* the
         // count, never lower it. Integer division truncates a torn trailing
         // partial frame, and a missing file measures as 0 bytes.
-        let microphoneBytes = Self.fileSize(at: microphoneTempURL)
-        let systemAudioBytes = Self.fileSize(at: systemAudioTempURL)
+        let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneTempURL)
+        let systemAudioBytes = RecordingFiles.trackByteCount(at: systemAudioTempURL)
         let microphoneFrames = max(
             microphoneWriter?.frames ?? 0,
             AVAudioFramePosition(microphoneBytes / Int64(MemoryLayout<Float>.size))
@@ -253,7 +257,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
             "Segment finalize: micFrames=\(microphoneFrames, privacy: .public) sysFrames=\(systemAudioFrames, privacy: .public) micBytes=\(microphoneBytes, privacy: .public) sysBytes=\(systemAudioBytes, privacy: .public) renderMs=\(renderMilliseconds, privacy: .public)"
         )
 
-        let duration = Date().timeIntervalSince(startedAt)
+        // The audio actually captured, as recovery measures it. Wall-clock
+        // since `init` also billed the permission prompts, a system-audio stop
+        // timeout and the render as recorded time.
+        let duration = Double(max(microphoneFrames, systemAudioFrames)) / Self.trackSampleRate
         return RecordingResult(outputURL: outputURL, duration: duration)
     }
 
@@ -312,12 +319,24 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         }
     }
 
+    /// The setters run on the main actor while `stop()` tears the units down
+    /// (and nils them) on the cooperative pool. Reading a unit only under the
+    /// lifecycle lock, and only while `.live`, orders that read before the
+    /// stop claims the session: once finalizing has begun a setting change is
+    /// moot and is ignored. The units synchronize their own work from there.
+    private func liveUnits() -> (microphone: MicrophoneCaptureUnit?, systemAudio: SystemAudioCapturing?)? {
+        lifecycle.withLock { state in
+            guard case .live = state else { return nil }
+            return (microphoneUnit, systemAudioUnit)
+        }
+    }
+
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {
-        try microphoneUnit?.setInputDevice(deviceID)
+        try liveUnits()?.microphone?.setInputDevice(deviceID)
     }
 
     func setSystemAudioEnabled(_ enabled: Bool) {
-        systemAudioUnit?.setSystemAudioEnabled(enabled)
+        liveUnits()?.systemAudio?.setSystemAudioEnabled(enabled)
     }
 
     private func configure() throws {
@@ -327,7 +346,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         let microphoneUnit = MicrophoneCaptureUnit(
             inputDeviceID: initialInputDeviceID,
             onLevel: { buffer in levelAggregator.publishMicrophoneLevel(from: buffer) },
-            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) }
+            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) },
+            // A mic engine that could not come back after a hardware format
+            // change is as fatal as a dead SCStream: pause, don't record silence.
+            onFatal: onStreamFatal
         )
         let systemAudioUnit = SystemAudioCaptureUnit(
             pipeline: pipeline,
@@ -353,7 +375,7 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private func makeTrackWriters() throws -> (AVAudioFormat, PCMTrackWriter, PCMTrackWriter) {
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
+            sampleRate: Self.trackSampleRate,
             channels: 1,
             interleaved: false
         ) else {
@@ -447,12 +469,6 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         case .denied:
             throw RecordingError.systemAudioPermissionDenied
         }
-    }
-
-    /// Bytes currently on disk for a temp track, or 0 when the file is missing.
-    private static func fileSize(at url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values?.fileSize ?? 0)
     }
 
     private static func makeTemporaryURL(for outputURL: URL, suffix: String) -> URL {

@@ -180,7 +180,7 @@ struct RecordingSessionRecovery {
         // The renderer starts by removing its output file, so this guard is
         // what stands between a finished recording and deletion. The size is
         // read fresh here, not taken from the inventory.
-        if let existingByteCount = fileByteCount(of: outputURL), existingByteCount > wavHeaderByteCount {
+        if let existingByteCount = RecordingFiles.byteCount(of: outputURL), existingByteCount > WAVCodec.headerByteCount {
             Log.recording.notice(
                 "Recording recovery: \(outputURL.lastPathComponent, privacy: .public) already exists with \(existingByteCount, privacy: .public) bytes for meeting \(meetingID.uuidString, privacy: .public); leaving its raw PCM in place"
             )
@@ -228,10 +228,10 @@ struct RecordingSessionRecovery {
 
         var adoptedCount = 0
         for wavURL in inventory.adoptableWAVs {
-            let byteCount = fileByteCount(of: wavURL) ?? 0
-            guard byteCount > wavHeaderByteCount else { continue }
+            let byteCount = RecordingFiles.byteCount(of: wavURL) ?? 0
+            guard byteCount > WAVCodec.headerByteCount else { continue }
             // Our WAVs are always 16 kHz mono Int16 (see `WAVCodec.header`).
-            let duration = Double(byteCount - wavHeaderByteCount) / Double(bytesPerInt16Sample) / sampleRate
+            let duration = Double(byteCount - WAVCodec.headerByteCount) / Double(bytesPerInt16Sample) / sampleRate
             try store.appendSegment(for: meetingID, segmentURL: wavURL, duration: duration)
             adoptedCount += 1
             Log.recording.notice(
@@ -267,7 +267,7 @@ struct RecordingSessionRecovery {
         }
 
         var holdsPCMAudio: Bool { microphonePCMByteCount > 0 || systemAudioPCMByteCount > 0 }
-        var wavHoldsAudio: Bool { wavByteCount > RecordingSessionRecovery.wavHeaderByteCount }
+        var wavHoldsAudio: Bool { wavByteCount > WAVCodec.headerByteCount }
     }
 
     private struct Inventory {
@@ -326,8 +326,8 @@ struct RecordingSessionRecovery {
 
         for file in try store.sessionFiles(for: meetingID) {
             let fileName = file.lastPathComponent
-            let byteCount = fileByteCount(of: file) ?? 0
-            let segmentNumber = Self.segmentNumber(inFileName: fileName)
+            let byteCount = RecordingFiles.byteCount(of: file) ?? 0
+            let segmentNumber = RecordingFiles.segmentNumber(inFileName: fileName)
 
             if fileName.hasSuffix(microphonePCMSuffix), let segmentNumber {
                 var slot = inventory.slots[segmentNumber] ?? SegmentSlot()
@@ -349,7 +349,7 @@ struct RecordingSessionRecovery {
                 // folder move still points at the segment it recorded.
                 let inManifest = manifestFileNames.contains(fileName)
                     || segmentNumber.map(manifestIndices.contains) == true
-                if byteCount > wavHeaderByteCount, !inManifest {
+                if byteCount > WAVCodec.headerByteCount, !inManifest {
                     inventory.adoptableWAVs.append(file)
                 }
             }
@@ -424,27 +424,6 @@ struct RecordingSessionRecovery {
     private static let sampleRate = 16_000.0
     private static let bytesPerFloatSample = MemoryLayout<Float>.size
     private static let bytesPerInt16Sample = MemoryLayout<Int16>.size
-    /// A WAV at or below its canonical 44-byte RIFF header carries no samples.
-    private static let wavHeaderByteCount = 44
     private static let microphonePCMSuffix = ".mic.pcm"
     private static let systemAudioPCMSuffix = ".system.pcm"
-    private static let segmentFileNamePrefix = "segment-"
-
-    /// Parses the number out of `segment-007.wav`, `segment-007.mic.pcm`, …
-    private static func segmentNumber(inFileName fileName: String) -> Int? {
-        guard fileName.hasPrefix(segmentFileNamePrefix) else { return nil }
-        let digits = fileName
-            .dropFirst(segmentFileNamePrefix.count)
-            .prefix { $0.isASCII && $0.isNumber }
-        guard !digits.isEmpty else { return nil }
-        return Int(digits)
-    }
-
-    /// The file's size in bytes, or `nil` when it cannot be determined.
-    private static func fileByteCount(of url: URL) -> Int? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
-            return nil
-        }
-        return attributes[.size] as? Int
-    }
 }
