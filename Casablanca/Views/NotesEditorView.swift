@@ -156,6 +156,11 @@ struct NotesEditorView: View {
             // inside the initial constraint pass is how 0.16.0 crashed).
             await loadPrepAndAutoOpenInspector()
         }
+        // The coordinator is created once by `AppModel.bootstrap`; an editor
+        // that appeared before that binds as soon as it exists.
+        .onChange(of: interruptionCoordinator.map(ObjectIdentifier.init)) { _, _ in
+            interruptionCoordinator?.bind(meeting: meeting)
+        }
         .onDisappear {
             interruptionCoordinator?.bind(meeting: nil)
         }

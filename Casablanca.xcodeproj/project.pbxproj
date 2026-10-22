@@ -253,6 +253,7 @@
 		CHAT0005 /* LLMPromptSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0105 /* LLMPromptSupportTests.swift */; };
 		D3C2F918BEBC44D5F95091D0 /* SleepPreventer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED040940F5803E66DD0C95A /* SleepPreventer.swift */; };
 		D69B7C5158BA16D36B9215CE /* SplitLayoutStabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */; };
+		D842024D95808C61F2BC10F9 /* RecordingInterruptionHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E245460A1EA003B67878DC /* RecordingInterruptionHandling.swift */; };
 		DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */; };
 		DBA9D1B7DEB384F9DCBDEEF6 /* ActionQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48DF0F45188DE554F17F6F2 /* ActionQueueStore.swift */; };
 		DD1A50D7FBBBBDAC75236528 /* DockBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F665A23474FE05E8763B831 /* DockBadge.swift */; };
@@ -340,6 +341,7 @@
 		57896A2F7F0787F58D67E20C /* RecordingResumeSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStoreTests.swift; sourceTree = "<group>"; };
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
 		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
+		61E245460A1EA003B67878DC /* RecordingInterruptionHandling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/RecordingInterruptionHandling.swift; sourceTree = SOURCE_ROOT; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6A10EB29639B23646888C040 /* RefinementPrepBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RefinementPrepBody.swift; sourceTree = SOURCE_ROOT; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
@@ -769,6 +771,7 @@
 				4C90D69BDCEB5CF065A0FD56 /* Transcription */,
 				7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */,
 				E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */,
+				61E245460A1EA003B67878DC /* RecordingInterruptionHandling.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1313,6 +1316,7 @@
 				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
 				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
 				8F0ECDF2A6D866CC07774F4A /* RunOnceGate.swift in Sources */,
+				D842024D95808C61F2BC10F9 /* RecordingInterruptionHandling.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

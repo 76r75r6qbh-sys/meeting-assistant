@@ -253,6 +253,12 @@ final class AppModel {
     private let autoRecordNotifier = RecordingNotificationCenter()
     private let housekeeping: UpdateLaunchHousekeeping
     @ObservationIgnored private var bootstrapGate = RunOnceGate()
+    /// Sleep/lock/device auto-pause for the whole app run, created once at
+    /// bootstrap. Owned here rather than by a window so it keeps working with
+    /// the main window closed (Teams auto-recordings) and is never duplicated
+    /// when the window is reopened. Observed, so the editor picks it up once set.
+    private var interruptionHandling: RecordingInterruptionHandling?
+    var interruptionCoordinator: RecordingInterruptionCoordinator? { interruptionHandling?.coordinator }
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init() {
@@ -312,6 +318,9 @@ final class AppModel {
     /// menu bar; the gate turns those later calls into no-ops.
     func bootstrap(modelContext: ModelContext? = nil) async {
         guard bootstrapGate.claim() else { return }
+        // First and synchronous: before any suspension point, so an editor that
+        // appears while the rest of bootstrap awaits already finds it.
+        installRecordingInterruptionHandling()
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
         installMeetingStartNotifications()
@@ -353,6 +362,25 @@ final class AppModel {
         updateTeamsCallMonitoring()
         await applicationsLocationCheck.runOnceIfNeeded()
         updateService.startScheduling()
+    }
+
+    /// Creates the app-lifetime interruption handling and registers it for
+    /// system power and session-lock notifications. Only reached through
+    /// `bootstrap`, so the unit-test host never registers with IOKit.
+    private func installRecordingInterruptionHandling() {
+        guard interruptionHandling == nil else { return }
+        let viewModel = meetingListViewModel
+        let handling = RecordingInterruptionHandling(
+            service: recordingService,
+            // The real IOKit gate is passed explicitly: its default is `nil` so
+            // a unit test never registers for system power notifications.
+            monitor: RecordingInterruptionMonitor(sleepGate: IOKitSystemSleepGate()),
+            notifier: RecordingNotificationCenter(),
+            lookupMeeting: { [viewModel] id in viewModel.fetchMeeting(byID: id) },
+            save: { [viewModel] in try? viewModel.currentModelContext?.save() }
+        )
+        handling.start()
+        interruptionHandling = handling
     }
 
     /// Sweeps SwiftData for meetings stuck in `.processing` and downgrades them
