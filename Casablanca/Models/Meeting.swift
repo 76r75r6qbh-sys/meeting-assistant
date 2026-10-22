@@ -18,8 +18,6 @@ enum AppPreferenceKey {
     static let summaryPromptTemplate = "summaryPromptTemplate"
     static let autoExportEnabled = "autoExportEnabled"
     static let legacyAutoExportNotesToObsidian = "autoExportNotesToObsidian"
-    @available(*, deprecated, message: "Use autoExportEnabled. This alias exists only until Task 9 of the apple-notes-export plan migrates the remaining call sites.")
-    static let autoExportNotesToObsidian = "autoExportNotesToObsidian"
     static let autoSummarizeAfterTranscription = "autoSummarizeAfterTranscription"
     static let defaultRecordingInputDeviceID = "defaultRecordingInputDeviceID"
     static let recordingWorkspaceFocusMode = "recordingWorkspaceFocusMode"
@@ -175,10 +173,21 @@ final class Meeting {
     }
 
     var obsidianFileName: String {
+        "\(Self.obsidianDateString(from: date)) \(sanitizedTitle)"
+    }
+
+    /// `YYYY-MM-DD` in the user's time zone, as used in Obsidian file names
+    /// (`YYYY-MM-DD Meeting Name - Prep.md` / `- Notes.md`). Pinned to
+    /// `en_US_POSIX` + Gregorian so a Buddhist/Japanese calendar or non-Latin
+    /// digits in the user's locale cannot rename the files that existing vault
+    /// notes and external tools look up; for Gregorian locales the output is
+    /// unchanged.
+    static func obsidianDateString(from date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
-        let dateStr = formatter.string(from: date)
-        return "\(dateStr) \(sanitizedTitle)"
+        return formatter.string(from: date)
     }
 
     var sanitizedTitle: String {

@@ -90,9 +90,7 @@ struct ObsidianMeetingFiles {
     }
 
     private static func normalizedBaseName(for meeting: Meeting) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let dateString = formatter.string(from: meeting.date)
+        let dateString = Meeting.obsidianDateString(from: meeting.date)
         return "\(dateString) \(meeting.title.normalizedObsidianPathComponent)"
     }
 }
