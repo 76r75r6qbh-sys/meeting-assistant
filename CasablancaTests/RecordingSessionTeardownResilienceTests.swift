@@ -320,6 +320,26 @@ final class RecordingSessionTeardownResilienceTests: XCTestCase {
         try? FileManager.default.removeItem(at: outputURL)
     }
 
+    /// The segment duration is the audio captured, not the wall-clock since
+    /// the session object was built: that also counted permission prompts,
+    /// the system-audio stop timeout and the render, and the manifest summed
+    /// those into the meeting's recorded time.
+    func testSegmentDurationComesFromCapturedFramesNotWallClock() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let session = try makeSession(outputURL: outputURL)
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: nil)
+        // Two seconds of audio, captured in well under two seconds.
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        let result = try await session.stop()
+
+        XCTAssertEqual(result.duration, 2.0, accuracy: 1e-9)
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+
     private struct StreamStopError: Error {}
 
     /// Counts the stream failures that reached the session's owner.

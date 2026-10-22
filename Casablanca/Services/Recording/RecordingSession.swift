@@ -68,6 +68,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
 
     private let lifecycle = OSAllocatedUnfairLock<Lifecycle>(initialState: .live)
 
+    /// Both temp tracks are written at this rate (the writers convert to it),
+    /// matching the 16 kHz WAV the mixdown renders.
+    private static let trackSampleRate: Double = 16_000
+
     init(
         outputURL: URL,
         meeting: Meeting,
@@ -253,7 +257,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
             "Segment finalize: micFrames=\(microphoneFrames, privacy: .public) sysFrames=\(systemAudioFrames, privacy: .public) micBytes=\(microphoneBytes, privacy: .public) sysBytes=\(systemAudioBytes, privacy: .public) renderMs=\(renderMilliseconds, privacy: .public)"
         )
 
-        let duration = Date().timeIntervalSince(startedAt)
+        // The audio actually captured, as recovery measures it. Wall-clock
+        // since `init` also billed the permission prompts, a system-audio stop
+        // timeout and the render as recorded time.
+        let duration = Double(max(microphoneFrames, systemAudioFrames)) / Self.trackSampleRate
         return RecordingResult(outputURL: outputURL, duration: duration)
     }
 
@@ -368,7 +375,7 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
     private func makeTrackWriters() throws -> (AVAudioFormat, PCMTrackWriter, PCMTrackWriter) {
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
+            sampleRate: Self.trackSampleRate,
             channels: 1,
             interleaved: false
         ) else {
