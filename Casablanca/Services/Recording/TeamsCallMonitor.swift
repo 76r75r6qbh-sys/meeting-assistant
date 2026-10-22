@@ -7,8 +7,12 @@ import Foundation
 /// - Started: input has run continuously for `startThreshold`. Teams opens the
 ///   microphone briefly for the pre-join preview and device checks; those blips
 ///   must not start a recording.
-/// - Ended: input has been off for `endThreshold`. Holds, device switches and
-///   a reconnect drop input for a few seconds mid-call; those must not stop one.
+/// - Ended: neither input nor output for `endThreshold`. Holds, device
+///   switches and a reconnect drop audio for a few seconds mid-call; those must
+///   not stop one. Output counts only once a call is running: the remote
+///   stream keeps it going while the user is muted (Teams may release the
+///   microphone then), but a notification sound or a video must never START a
+///   call.
 struct TeamsCallDebouncer: Equatable {
     enum Transition: Equatable {
         case callStarted
@@ -24,7 +28,7 @@ struct TeamsCallDebouncer: Equatable {
     private(set) var isInCall = false
     /// Start of the current unbroken stretch of input, while not yet in a call.
     private var activeSince: Date?
-    /// Start of the current stretch without input, while in a call.
+    /// Start of the current stretch without input or output, while in a call.
     private var inactiveSince: Date?
 
     init(
@@ -36,7 +40,11 @@ struct TeamsCallDebouncer: Equatable {
     }
 
     /// Feeds one observation. Returns a transition at most once per edge.
-    mutating func update(isInputActive: Bool, at now: Date) -> Transition? {
+    mutating func update(isInputActive: Bool, isOutputActive: Bool = false, at now: Date) -> Transition? {
+        if isInCall, isOutputActive {
+            inactiveSince = nil
+            return nil
+        }
         if isInputActive {
             inactiveSince = nil
             guard !isInCall else { return nil }
@@ -156,8 +164,11 @@ final class TeamsCallMonitor {
     /// drive it with a hand-moved clock.
     func evaluate() {
         guard isRunning else { return }
-        let isActive = source.isTeamsInputRunning()
-        let transition = debouncer.update(isInputActive: isActive, at: now())
+        let transition = debouncer.update(
+            isInputActive: source.isTeamsInputRunning(),
+            isOutputActive: source.isTeamsOutputRunning(),
+            at: now()
+        )
         scheduleDeadline()
         switch transition {
         case .callStarted:
