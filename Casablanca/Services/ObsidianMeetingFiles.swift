@@ -63,7 +63,8 @@ struct ObsidianMeetingFiles {
             .appendingPathComponent("meeting notes", isDirectory: true)
     }
 
-    private static func vaultRoot(userDefaults: UserDefaults) -> URL? {
+    /// The configured Obsidian vault root, or `nil` when no vault is set.
+    static func vaultRoot(userDefaults: UserDefaults = .standard) -> URL? {
         let vaultPath = userDefaults.string(forKey: AppPreferenceKey.obsidianVaultPath)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !vaultPath.isEmpty else {

@@ -8,16 +8,28 @@ import Foundation
 /// find the item, re-encode the FULL decoded item, atomic save) — never a
 /// partial patch and never holding a stale copy.
 enum ActionQueueStore {
-    /// Default queue location when the preference is empty.
-    static let defaultPath = "~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json"
+    /// Legacy queue location, used only when neither `actionQueuePath` nor an
+    /// Obsidian vault is configured. Since 2026-07-08 that folder holds only a
+    /// redirect stub — the memory system moved into the vault (`Memory/`).
+    static let legacyDefaultPath = "~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json"
 
-    /// Resolves the queue file URL. Uses `AppPreferenceKey.actionQueuePath`,
-    /// falling back to the default; expands a leading `~`.
+    /// Queue location relative to the Obsidian vault root.
+    static let vaultRelativePath = "Memory/action-queue.json"
+
+    /// Resolves the queue file URL, in priority order:
+    /// 1. an explicit `AppPreferenceKey.actionQueuePath` (leading `~` expanded),
+    /// 2. `<obsidianVaultPath>/Memory/action-queue.json` when a vault is set,
+    /// 3. the legacy `~/.claude/…/memory/action-queue.json`.
     static func fileURL(userDefaults: UserDefaults = .standard) -> URL? {
-        let configured = userDefaults.string(forKey: AppPreferenceKey.actionQueuePath) ?? ""
-        let raw = configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? defaultPath : configured
-        let expanded = (raw as NSString).expandingTildeInPath
-        return URL(fileURLWithPath: expanded)
+        let configured = (userDefaults.string(forKey: AppPreferenceKey.actionQueuePath) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty {
+            return URL(fileURLWithPath: (configured as NSString).expandingTildeInPath)
+        }
+        if let vaultRoot = ObsidianMeetingFiles.vaultRoot(userDefaults: userDefaults) {
+            return vaultRoot.appendingPathComponent(vaultRelativePath)
+        }
+        return URL(fileURLWithPath: (legacyDefaultPath as NSString).expandingTildeInPath)
     }
 
     /// Loads the document, returning an empty doc if the file is absent.
