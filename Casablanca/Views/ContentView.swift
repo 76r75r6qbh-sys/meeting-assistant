@@ -43,10 +43,13 @@ struct ContentView: View {
                     SidebarPlaceholderView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: 260)
+            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: CasaLayout.sidebarMaxWidth)
         } detail: {
             detailView
                 .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
+                // Trailing inspectors in the detail column read this to stay
+                // closed while the window is too narrow (`widthGatedInspector`).
+                .environment(\.layoutWidthClass, widthClass)
         }
         .background {
             // Single source of truth for the window width that drives the
@@ -189,7 +192,6 @@ struct ContentView: View {
                 case .completed:
                     RecordedMeetingView(
                         meeting: meeting,
-                        widthClass: widthClass,
                         onRecordAgain: {
                             viewModel.beginRecording(for: meeting)
                         },

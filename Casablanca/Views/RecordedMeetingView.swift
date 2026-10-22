@@ -3,9 +3,6 @@ import SwiftUI
 
 struct RecordedMeetingView: View {
     @Bindable var meeting: Meeting
-    /// Responsive width tier of the window. Defaults to `.expanded` so previews
-    /// and tests keep the inspector visible without extra wiring.
-    var widthClass: LayoutWidthClass = .expanded
     let onRecordAgain: () -> Void
     let onTranscribe: () -> Void
     /// Navigate to another meeting (used by the recurring-series prev/next links
@@ -39,6 +36,9 @@ struct RecordedMeetingView: View {
     // meeting id). No persistence in v1.
     @State private var chatService = MeetingChatService()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Responsive width tier of the window, published by ContentView. Defaults
+    /// to `.expanded` so previews and tests keep the inspector visible.
+    @Environment(\.layoutWidthClass) private var widthClass
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -57,11 +57,10 @@ struct RecordedMeetingView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // Native trailing inspector (AppKit-driven resize, HIG-compliant).
-        .inspector(isPresented: $showInspector) {
+        // Native trailing inspector (AppKit-driven resize, HIG-compliant),
+        // presented only while the window is wide enough to hold it.
+        .widthGatedInspector(isPresented: $showInspector, idealWidth: 320) {
             MeetingDetailInspector(meeting: meeting, canExport: canExport, onSelectMeeting: onSelectMeeting)
-                .stableSplitColumnMinimumSize()
-                .inspectorColumnWidth(min: 260, ideal: 320, max: 560)
         }
         // Show the inspector by default only when the window is wide enough.
         // Re-evaluated on tier crossings, so a manual toggle within a tier sticks.
@@ -82,7 +81,10 @@ struct RecordedMeetingView: View {
                 } label: {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
-                .help(showInspector ? "Hide inspector" : "Show inspector")
+                .disabled(!widthClass.allowsInspector)
+                .help(widthClass.allowsInspector
+                    ? (showInspector ? "Hide inspector" : "Show inspector")
+                    : "Widen the window to show the inspector")
 
                 secondaryActionsMenu
             }

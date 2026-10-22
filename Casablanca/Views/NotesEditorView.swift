@@ -13,6 +13,8 @@ struct NotesEditorView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
+    /// The window's width tier (ContentView); the inspector only opens at `.expanded`.
+    @Environment(\.layoutWidthClass) private var layoutWidthClass
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
@@ -123,7 +125,10 @@ struct NotesEditorView: View {
                         Label("Inspector", systemImage: "sidebar.right")
                     }
                     .toggleStyle(.button)
-                    .help(isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
+                    .disabled(!layoutWidthClass.allowsInspector)
+                    .help(layoutWidthClass.allowsInspector
+                        ? (isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
+                        : "Widen the window to show Prep & To-Dos")
 
                     Button {
                         recordingWorkspaceFocusMode.toggle()
@@ -275,15 +280,16 @@ struct NotesEditorView: View {
             // Native trailing inspector (AppKit-driven resize, HIG-compliant)
             // hosting Prep & To-Dos as tabs. The notes editor keeps its proven
             // bounded layout as the primary content.
+            // Presented only while the window is wide enough to hold it; an
+            // open request (the prep auto-open) made while it is too narrow is
+            // kept and shows once the window widens.
             notesColumn
-                .inspector(isPresented: $isInspectorPresented) {
+                .widthGatedInspector(isPresented: $isInspectorPresented, idealWidth: 340) {
                     NotesEditorInspector(
                         meeting: meeting,
                         prepPresentation: prepPresentation,
                         inspectorTab: $inspectorTab
                     )
-                    .stableSplitColumnMinimumSize()
-                    .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
                 }
         }
     }
