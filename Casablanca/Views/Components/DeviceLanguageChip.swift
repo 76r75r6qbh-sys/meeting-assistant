@@ -153,7 +153,7 @@ struct DeviceLanguageChip: View {
                 Spacer(minLength: CasaSpace.sm)
 
                 if isSelected {
-                    AudioLevelMeterView(level: recordingService.audioLevel)
+                    LiveAudioLevelMeter(recordingService: recordingService)
                         .frame(height: 14)
                 }
             }

@@ -38,7 +38,7 @@ struct NotesEditorView: View {
                         presentation: presentation,
                         autoPause: autoPauseIndicatorPresentation,
                         elapsed: formattedElapsed,
-                        audioLevel: recordingService.audioLevel,
+                        recordingService: recordingService,
                         isPreparing: recordingService.isPreparing,
                         isFinalizing: isFinalizingRecording,
                         isRecordingState: isRecordingState,
