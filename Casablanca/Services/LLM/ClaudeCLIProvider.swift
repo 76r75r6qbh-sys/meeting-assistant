@@ -346,10 +346,13 @@ struct ClaudeCLIProvider: LLMProvider {
             return nil
         }
         guard result.exitCode == 0 else { return nil }
+        // A login shell's profile can print banners, and `command -v` reports an
+        // alias or function as text rather than a path. Only an absolute path to
+        // an executable file is something we can launch.
         return result.standardOutput
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty }
+            .first { $0.hasPrefix("/") && isExecutable($0) }
     }
 
     // MARK: - Prompt and message shaping
