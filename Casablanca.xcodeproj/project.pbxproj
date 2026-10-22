@@ -263,6 +263,7 @@
 		F373A6A220EDD1B513D31EDE /* LLMRetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A08E713BAFBF47693EB1E99 /* LLMRetryPolicyTests.swift */; };
 		F3F970EC8BC6BB2C82B51E92 /* TodoCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60674D19219E3089C98327A /* TodoCard.swift */; };
 		F638A49C74CF2B49FDC39E86 /* TranscriptSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */; };
+		F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */; };
 		FC8C73351180353C5404A142 /* JiraMarkupText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C28106F02FDEE32B3DEF38 /* JiraMarkupText.swift */; };
 /* End PBXBuildFile section */
 
@@ -528,6 +529,7 @@
 		DA2157A780490BB80B8F29BE /* CompositeLinkedCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/CompositeLinkedCard.swift; sourceTree = SOURCE_ROOT; };
 		DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClient.swift; sourceTree = "<group>"; };
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
+		E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/TeamsAutoRecordCoordinator.swift; sourceTree = SOURCE_ROOT; };
 		E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-0.0.1-macOS.zip"; sourceTree = "<group>"; };
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
 		E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheckTests.swift; sourceTree = "<group>"; };
@@ -753,6 +755,7 @@
 				348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */,
 				5F665A23474FE05E8763B831 /* DockBadge.swift */,
 				4C90D69BDCEB5CF065A0FD56 /* Transcription */,
+				E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1289,6 +1292,7 @@
 				B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */,
 				417E9D3289ACEC06DC1A08D9 /* TeamsAudioActivitySource.swift in Sources */,
 				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
+				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -39,6 +39,8 @@ enum AppPreferenceKey {
     static let useNativeMarkdownEditor = "useNativeMarkdownEditor"
     static let meetingStartNotificationsEnabled = "meetingStartNotificationsEnabled"
     static let meetingStartNotificationLeadTime = "meetingStartNotificationLeadTime"
+    static let teamsAutoRecordEnabled = "teamsAutoRecordEnabled"
+    static let teamsAutoRecordStopWhenCallEnds = "teamsAutoRecordStopWhenCallEnds"
 }
 
 enum AppPreferenceValue {
