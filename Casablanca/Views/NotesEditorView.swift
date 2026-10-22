@@ -125,7 +125,9 @@ struct NotesEditorView: View {
                     } label: {
                         Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    // No .keyboardShortcut here: ⌘⇧F belongs to the View menu's
+                    // "Toggle Focus Mode" command, which works in every state
+                    // this button is shown in (and in focus mode, where it is not).
                     .help("Distraction-free notes (\u{2318}\u{21E7}F · Esc to exit)")
                 }
             }
