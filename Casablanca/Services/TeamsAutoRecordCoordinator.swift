@@ -108,6 +108,22 @@ enum TeamsAutoRecordPolicy {
         return linkedMeetingStatus == .pausedRecording && activeMeetingID != linkedMeetingID
     }
 
+    /// Whether a new recording must not start: something is capturing,
+    /// preparing or starting. A capture whose Stop is in flight is ignored —
+    /// it is going away, and the start waits for it to release the session.
+    static func isRecordingBusy(
+        isRecording: Bool,
+        isPreparing: Bool,
+        isStartInFlight: Bool,
+        activeMeetingID: UUID?,
+        stoppingMeetingIDs: Set<UUID>
+    ) -> Bool {
+        if isPreparing || isStartInFlight { return true }
+        guard isRecording else { return false }
+        guard let activeMeetingID else { return true }
+        return !stoppingMeetingIDs.contains(activeMeetingID)
+    }
+
     /// The monitor has work while either half of the feature is on.
     static func isMonitorNeeded(autoRecordEnabled: Bool, autoStopEnabled: Bool) -> Bool {
         autoRecordEnabled || autoStopEnabled
@@ -118,7 +134,13 @@ enum TeamsAutoRecordPolicy {
     /// recording it again — the call dropped and was re-joined after the
     /// auto-stop — would replace its recording and transcript. A paused one
     /// can; starting it resumes the session it already has.
-    static func canRecordInto(existingStatus: MeetingStatus) -> Bool {
+    ///
+    /// A meeting whose Stop is in flight counts as `.processing` even though
+    /// its status still reads `.recording`/`.pausedRecording` until the merge
+    /// finishes: the user stopped it, and a start into it is refused (and used
+    /// to flip it to `.notesOnly` mid-merge), so the call would go unrecorded.
+    static func canRecordInto(existingStatus: MeetingStatus, isStopInFlight: Bool = false) -> Bool {
+        if isStopInFlight { return false }
         switch existingStatus {
         case .upcoming, .notesOnly, .recording, .pausedRecording: return true
         case .processing, .completed: return false
@@ -144,6 +166,9 @@ protocol TeamsAutoRecordHost: AnyObject {
     var activeRecordingMeetingID: UUID? { get }
     var selectedMeetingStatus: MeetingStatus? { get }
     func meetingStatus(id: UUID) -> MeetingStatus?
+    /// The user (or an earlier auto-stop) already stopped this meeting and
+    /// its finalize/merge is running.
+    func isStopInFlight(meetingID: UUID) -> Bool
     func teamsCallCandidates() -> [TeamsCallEventCandidate]
     /// Starts recording the event's meeting, or a new manual meeting when
     /// `eventIdentifier` is nil. Returns the meeting ID once capture runs,
@@ -165,6 +190,13 @@ final class TeamsAutoRecordCoordinator {
     /// The meeting whose recording overlapped the current call. Last one wins:
     /// stopping one recording and starting another mid-call re-links.
     private(set) var linkedMeetingID: UUID?
+    /// Bumped by every call start and end (and `reset`). The monitor's
+    /// callbacks each run in their own Task, so `callEnded` can run while
+    /// `callStarted` is still awaiting a slow start (retries, a first-run
+    /// permission prompt); the start then compares generations to learn that
+    /// the call it was started for is over.
+    private var callGeneration = 0
+    private var isCallLive = false
 
     init(host: TeamsAutoRecordHost, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.host = host
@@ -176,9 +208,15 @@ final class TeamsAutoRecordCoordinator {
         guard let host else { return }
         // A new call supersedes whatever the last one left behind.
         linkedMeetingID = nil
+        callGeneration += 1
+        isCallLive = true
+        let generation = callGeneration
 
-        // Already recording when the call began: that recording is the call's.
-        if let active = host.activeRecordingMeetingID {
+        // Already recording when the call began: that recording is the call's —
+        // unless its Stop is already in flight. Linking a meeting the user just
+        // stopped left this call unrecorded: its end found the meeting
+        // `.processing` and stopped nothing.
+        if let active = host.activeRecordingMeetingID, !host.isStopInFlight(meetingID: active) {
             link(active, why: "was already recording when the call started")
             return
         }
@@ -202,20 +240,56 @@ final class TeamsAutoRecordCoordinator {
             Log.recording.notice("Teams call started; no matching calendar event, recording a manual meeting")
             started = await host.startAutoRecording(eventIdentifier: nil, manualTitle: title)
         }
-        if let started {
+        guard let started else { return }
+        guard generation != callGeneration else {
             link(started, why: "auto-started for the call")
+            return
         }
+        await handleStartThatOutlivedItsCall(started)
+    }
+
+    /// The start finished after the call it was made for ended. Linking it now
+    /// would tie it to no call (or the wrong one) and nothing would stop it.
+    private func handleStartThatOutlivedItsCall(_ meetingID: UUID) async {
+        guard let host else { return }
+        if isCallLive {
+            // A newer call is running: the recording overlaps it, so it is
+            // that call's (as `callTick` would decide on its next tick).
+            if linkedMeetingID == nil {
+                link(meetingID, why: "auto-start finished during a later call")
+            }
+            return
+        }
+        guard TeamsAutoRecordPolicy.shouldAutoStop(
+            linkedMeetingID: meetingID,
+            activeMeetingID: host.activeRecordingMeetingID,
+            isRecording: host.isRecording,
+            linkedMeetingStatus: host.meetingStatus(id: meetingID),
+            isStopEnabled: AppPreferences.teamsAutoRecordStopWhenCallEnds(in: defaults)
+        ), !host.isStopInFlight(meetingID: meetingID) else {
+            Log.recording.notice(
+                "Teams auto-start finished after the call ended; leaving meeting \(meetingID.uuidString, privacy: .public) as it is"
+            )
+            return
+        }
+        Log.recording.notice(
+            "Teams auto-start finished after the call ended; stopping meeting \(meetingID.uuidString, privacy: .public)"
+        )
+        await host.stopRecordingForEndedCall(meetingID: meetingID)
     }
 
     /// Called on every monitor evaluation during a call: ties a recording that
     /// started or resumed mid-call to it.
     func callTick() {
-        guard let host, let active = host.activeRecordingMeetingID, active != linkedMeetingID else { return }
+        guard let host, let active = host.activeRecordingMeetingID, active != linkedMeetingID,
+              !host.isStopInFlight(meetingID: active) else { return }
         link(active, why: "recording during the call")
     }
 
     func callEnded() async {
         guard let host else { return }
+        callGeneration += 1
+        isCallLive = false
         let meetingID = linkedMeetingID
         linkedMeetingID = nil
         guard let meetingID, TeamsAutoRecordPolicy.shouldAutoStop(
@@ -236,6 +310,8 @@ final class TeamsAutoRecordCoordinator {
     /// stop anything.
     func reset() {
         linkedMeetingID = nil
+        callGeneration += 1
+        isCallLive = false
     }
 
     private func link(_ meetingID: UUID, why: String) {

@@ -354,6 +354,29 @@ final class TeamsAutoRecordPolicyTests: XCTestCase {
         XCTAssertFalse(TeamsAutoRecordPolicy.canRecordInto(existingStatus: .completed))
     }
 
+    /// A meeting being stopped still reads `.recording` until its merge ends;
+    /// it must be treated as `.processing` so the call gets a "(continued)".
+    func testMeetingWhoseStopIsInFlightIsNotRecordedInto() {
+        XCTAssertFalse(TeamsAutoRecordPolicy.canRecordInto(existingStatus: .recording, isStopInFlight: true))
+        XCTAssertFalse(TeamsAutoRecordPolicy.canRecordInto(existingStatus: .pausedRecording, isStopInFlight: true))
+        XCTAssertTrue(TeamsAutoRecordPolicy.canRecordInto(existingStatus: .recording, isStopInFlight: false))
+    }
+
+    func testRecordingBusyIgnoresACaptureWhoseStopIsInFlight() {
+        let active = UUID()
+        func busy(recording: Bool = true, preparing: Bool = false, starting: Bool = false, stopping: Set<UUID>) -> Bool {
+            TeamsAutoRecordPolicy.isRecordingBusy(
+                isRecording: recording, isPreparing: preparing, isStartInFlight: starting,
+                activeMeetingID: recording ? active : nil, stoppingMeetingIDs: stopping
+            )
+        }
+        XCTAssertTrue(busy(stopping: []))
+        XCTAssertFalse(busy(stopping: [active]))
+        XCTAssertFalse(busy(recording: false, stopping: []))
+        XCTAssertTrue(busy(preparing: true, stopping: [active]))
+        XCTAssertTrue(busy(starting: true, stopping: [active]))
+    }
+
     func testAutoStopOnlyForTheLinkedRecording() {
         let linked = UUID()
         let other = UUID()
@@ -400,15 +423,20 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     var statuses: [UUID: MeetingStatus] = [:]
     var candidates: [TeamsCallEventCandidate] = []
     var nextStartedMeetingID: UUID? = UUID()
+    var stoppingMeetingIDs: Set<UUID> = []
+    /// Awaited inside `startAutoRecording` before capture "runs": a slow start.
+    var startDelay: (() async -> Void)?
 
     private(set) var startRequests: [(eventIdentifier: String?, manualTitle: String)] = []
     private(set) var stoppedMeetingIDs: [UUID] = []
 
     func meetingStatus(id: UUID) -> MeetingStatus? { statuses[id] }
+    func isStopInFlight(meetingID: UUID) -> Bool { stoppingMeetingIDs.contains(meetingID) }
     func teamsCallCandidates() -> [TeamsCallEventCandidate] { candidates }
 
     func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {
         startRequests.append((eventIdentifier, manualTitle))
+        if let startDelay { await startDelay() }
         if let id = nextStartedMeetingID {
             startRecording(id)
         }
@@ -590,6 +618,85 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         await coordinator.callEnded()
         XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
     }
+
+    // A call starts while the user's Stop of meeting X is still finalizing:
+    // X is not the call's recording; a new one is started and stopped later.
+    func testCallStartingWhileTheActiveMeetingIsStoppingRecordsANewMeeting() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let stopping = UUID()
+        host.startRecording(stopping)
+        host.stoppingMeetingIDs = [stopping]
+        let newMeeting = try XCTUnwrap(host.nextStartedMeetingID)
+
+        await coordinator.callStarted()
+        XCTAssertEqual(host.startRequests.count, 1, "The call must get its own recording")
+        XCTAssertEqual(coordinator.linkedMeetingID, newMeeting)
+
+        await coordinator.callEnded()
+        XCTAssertEqual(host.stoppedMeetingIDs, [newMeeting])
+    }
+
+    func testTickNeverLinksAMeetingWhoseStopIsInFlight() async {
+        setPreferences(autoRecord: false, autoStop: true)
+        await coordinator.callStarted()
+        let stopping = UUID()
+        host.startRecording(stopping)
+        host.stoppingMeetingIDs = [stopping]
+        coordinator.callTick()
+        XCTAssertNil(coordinator.linkedMeetingID)
+    }
+
+    // The start (retries, a permission prompt) outlives the call: the call's
+    // end found nothing linked, so the start itself must stop the recording.
+    func testStartThatFinishesAfterTheCallEndedIsStopped() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let gate = TestGate()
+        host.startDelay = { await gate.wait() }
+        let meetingID = try XCTUnwrap(host.nextStartedMeetingID)
+
+        let starting = Task { await coordinator.callStarted() }
+        while host.startRequests.isEmpty { await Task.yield() }
+        await coordinator.callEnded()
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty, "Nothing was capturing yet")
+
+        await gate.open()
+        await starting.value
+        XCTAssertEqual(host.stoppedMeetingIDs, [meetingID])
+        XCTAssertNil(coordinator.linkedMeetingID, "A finished call links nothing")
+    }
+
+    func testStartThatFinishesAfterTheCallEndedKeepsRunningWhenAutoStopIsOff() async {
+        setPreferences(autoRecord: true, autoStop: false)
+        let gate = TestGate()
+        host.startDelay = { await gate.wait() }
+
+        let starting = Task { await coordinator.callStarted() }
+        while host.startRequests.isEmpty { await Task.yield() }
+        await coordinator.callEnded()
+        await gate.open()
+        await starting.value
+
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
+        XCTAssertTrue(host.isRecording)
+        XCTAssertNil(coordinator.linkedMeetingID)
+    }
+}
+
+/// A one-shot latch for interleaving async steps in tests.
+private actor TestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
 }
 
 // MARK: - Recording controller
@@ -632,6 +739,123 @@ final class MeetingRecordingControllerTests: XCTestCase {
         _ = try? await service.stopRecording(for: meeting)
         try? FileManager.default.removeItem(at: rootURL)
     }
+
+    private struct Harness {
+        let rootURL: URL
+        let service: AudioRecordingService
+        let controller: MeetingRecordingController
+        let mergeGate: TestGate
+    }
+
+    /// A service whose merge waits on `mergeGate` and whose sessions take
+    /// `stopDelay` to finalize.
+    private func makeHarness(stopDelay: Duration = .zero) -> Harness {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        TestVaultGuard.assertTemporary(rootURL, "recording session root")
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let mergeGate = TestGate()
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                SlowStartRecordingSession(outputURL: outputURL, stopDelay: stopDelay)
+            },
+            makeFinalOutputURL: { meeting in rootURL.appendingPathComponent("\(meeting.id.uuidString).wav") },
+            mergeSegments: { _, outputURL in
+                await mergeGate.wait()
+                try Data("merged".utf8).write(to: outputURL)
+                return 1
+            }
+        )
+        let controller = MeetingRecordingController(
+            recordingService: service,
+            releasePollInterval: .milliseconds(5)
+        )
+        return Harness(rootURL: rootURL, service: service, controller: controller, mergeGate: mergeGate)
+    }
+
+    // Merge phase: a start for the meeting being stopped is refused and must
+    // not flip it to `.notesOnly` while its merge runs.
+    func testStartForAMeetingWhoseStopIsMergingLeavesItsStatusAlone() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let meeting = Meeting(title: "Refinement", date: .now, status: .recording)
+        let firstStart = await harness.controller.startRecording(for: meeting, save: {})
+        XCTAssertEqual(firstStart, .started)
+
+        let stopping = Task { try await harness.controller.stopRecording(for: meeting, save: {}) }
+        while harness.service.isRecording { await Task.yield() }
+        XCTAssertTrue(harness.controller.isStopInFlight(for: meeting.id))
+
+        let outcome = await harness.controller.startRecording(for: meeting, save: {})
+        XCTAssertEqual(outcome, .refusedWhileStopping)
+        XCTAssertEqual(meeting.status, .recording, "The Stop owns the status")
+
+        await harness.mergeGate.open()
+        _ = try await stopping.value
+        XCTAssertEqual(meeting.status, .processing)
+    }
+
+    // Finalize phase: the "(continued)" meeting's start waits for the stopping
+    // capture to release the session instead of failing on it.
+    func testStartOfAnotherMeetingWaitsForAStoppingCaptureToRelease() async throws {
+        let harness = makeHarness(stopDelay: .milliseconds(150))
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        await harness.mergeGate.open()
+        let stopped = Meeting(title: "Refinement", date: .now, status: .recording)
+        let continued = Meeting(title: "Refinement (continued)", date: .now, status: .recording)
+        let firstStart = await harness.controller.startRecording(for: stopped, save: {})
+        XCTAssertEqual(firstStart, .started)
+
+        let stopping = Task { try await harness.controller.stopRecording(for: stopped, save: {}) }
+        while !harness.controller.isStopInFlight(for: stopped.id) { await Task.yield() }
+        XCTAssertTrue(harness.service.isRecording, "Still finalizing the live segment")
+        XCTAssertFalse(harness.controller.isBusyForNewRecording, "A stopping capture is not busy")
+
+        let outcome = await harness.controller.startRecording(for: continued, save: {})
+        XCTAssertEqual(outcome, .started)
+        XCTAssertEqual(continued.status, .recording)
+        XCTAssertEqual(harness.service.activeMeetingID, continued.id)
+        _ = try await stopping.value
+        XCTAssertEqual(stopped.status, .processing)
+        _ = try? await harness.controller.stopRecording(for: continued, save: {})
+    }
+
+    // Every stop path ends interruption bookkeeping through this hook, once.
+    func testSuccessfulStopNotifiesOnceAndAFailedStopDoesNot() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        await harness.mergeGate.open()
+        var stopped: [UUID] = []
+        harness.controller.onMeetingStopped = { stopped.append($0) }
+        let meeting = Meeting(title: "Weekly", date: .now, status: .recording)
+
+        _ = await harness.controller.startRecording(for: meeting, save: {})
+        _ = try await harness.controller.stopRecording(for: meeting, save: {})
+        XCTAssertEqual(stopped, [meeting.id])
+
+        let never = Meeting(title: "Never recorded", date: .now, status: .recording)
+        _ = try? await harness.controller.stopRecording(for: never, save: {})
+        XCTAssertEqual(stopped, [meeting.id])
+    }
+
+    // A failed start reports its own error, not whatever the service held.
+    func testFailedStartReportsItsOwnError() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        await harness.mergeGate.open()
+        harness.service.setErrorMessage("stale error from an earlier recording")
+        let running = Meeting(title: "Running", date: .now, status: .recording)
+        let other = Meeting(title: "Other", date: .now, status: .recording)
+        _ = await harness.controller.startRecording(for: running, save: {})
+
+        let outcome = await harness.controller.startRecording(for: other, save: {})
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(
+            harness.controller.lastStartFailureMessage,
+            RecordingError.activeRecordingExists.localizedDescription
+        )
+        _ = try? await harness.controller.stopRecording(for: running, save: {})
+    }
 }
 
 /// A session whose `start()` suspends for a moment, so a second caller can
@@ -641,9 +865,11 @@ private final class SlowStartRecordingSession: RecordingSessionControlling, @unc
     let startedAt = Date()
     let hasCapturedFrames = true
     let systemAudioUnavailableError: Error? = nil
+    let stopDelay: Duration
 
-    init(outputURL: URL) {
+    init(outputURL: URL, stopDelay: Duration = .zero) {
         self.outputURL = outputURL
+        self.stopDelay = stopDelay
     }
 
     func start() async throws {
@@ -651,6 +877,7 @@ private final class SlowStartRecordingSession: RecordingSessionControlling, @unc
     }
 
     func stop() async throws -> RecordingResult {
+        if stopDelay > .zero { try await Task.sleep(for: stopDelay) }
         try Data("audio".utf8).write(to: outputURL)
         return RecordingResult(outputURL: outputURL, duration: 1)
     }
