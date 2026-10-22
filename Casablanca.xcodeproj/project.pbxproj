@@ -50,6 +50,7 @@
 		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
 		61D23AAF84E5A9417823F4F8 /* TranscriptionBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43FCBFD4AAC721F4AE3CDE7 /* TranscriptionBenchmark.swift */; };
 		640FE87019B5F60D48F20DF5 /* ActionQueueDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81DE825954737DCFD6CD255 /* ActionQueueDisplayTests.swift */; };
+		68475463F02EB9FA882801C0 /* RecordingFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69661D517D8526A2AF843463 /* RecordingFiles.swift */; };
 		68696410DE06E1AEB1D25145 /* SilentChunkFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E06AF39045D1D5D3C1D3185 /* SilentChunkFilterTests.swift */; };
 		6AC35E1EB4C8E95C8584EFB1 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C4B5781EA0827175F6ED04 /* MockURLProtocol.swift */; };
 		6E1E2F7514800BCAB9C28D07 /* CalendarEventBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA285706C73F4C9A7DE68B36 /* CalendarEventBody.swift */; };
@@ -328,6 +329,7 @@
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
 		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
 		68B1976A2F61FC0B008725A4 /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
+		69661D517D8526A2AF843463 /* RecordingFiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/RecordingFiles.swift; sourceTree = SOURCE_ROOT; };
 		6A10EB29639B23646888C040 /* RefinementPrepBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RefinementPrepBody.swift; sourceTree = SOURCE_ROOT; };
 		6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheck.swift; sourceTree = "<group>"; };
 		70A686D86A50999F7D642EE8 /* RoadmapCommitmentBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/RoadmapCommitmentBody.swift; sourceTree = SOURCE_ROOT; };
@@ -977,6 +979,7 @@
 				2ED040940F5803E66DD0C95A /* SleepPreventer.swift */,
 				B0A3C59D83667C487809FF56 /* RecordingSessionRecovery.swift */,
 				478DFBF32F408533A811CEA2 /* RecordingSessionRecoveryCoordinator.swift */,
+				69661D517D8526A2AF843463 /* RecordingFiles.swift */,
 			);
 			name = Recording;
 			path = Recording;
@@ -1280,6 +1283,7 @@
 				3127409D4B3D935ACE809817 /* WhisperModelRetentionPolicy.swift in Sources */,
 				9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */,
 				4584F76ED0D4069F65BE8870 /* SilentChunkFilter.swift in Sources */,
+				68475463F02EB9FA882801C0 /* RecordingFiles.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

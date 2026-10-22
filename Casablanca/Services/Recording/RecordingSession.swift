@@ -209,8 +209,8 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         // larger so a counter that is merely behind can still only *raise* the
         // count, never lower it. Integer division truncates a torn trailing
         // partial frame, and a missing file measures as 0 bytes.
-        let microphoneBytes = Self.fileSize(at: microphoneTempURL)
-        let systemAudioBytes = Self.fileSize(at: systemAudioTempURL)
+        let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneTempURL)
+        let systemAudioBytes = RecordingFiles.trackByteCount(at: systemAudioTempURL)
         let microphoneFrames = max(
             microphoneWriter?.frames ?? 0,
             AVAudioFramePosition(microphoneBytes / Int64(MemoryLayout<Float>.size))
@@ -469,12 +469,6 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         case .denied:
             throw RecordingError.systemAudioPermissionDenied
         }
-    }
-
-    /// Bytes currently on disk for a temp track, or 0 when the file is missing.
-    private static func fileSize(at url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values?.fileSize ?? 0)
     }
 
     private static func makeTemporaryURL(for outputURL: URL, suffix: String) -> URL {

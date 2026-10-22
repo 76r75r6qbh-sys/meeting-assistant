@@ -16,8 +16,8 @@ struct RecordingMixdownRenderer {
     let expectedOutputFrames: AVAudioFramePosition
 
     func render() throws {
-        let microphoneBytes = Self.fileSize(at: microphoneURL)
-        let systemAudioBytes = Self.fileSize(at: systemAudioURL)
+        let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneURL)
+        let systemAudioBytes = RecordingFiles.trackByteCount(at: systemAudioURL)
 
         Log.recording.debug(
             "Finalizing recording: micFrames=\(self.microphoneFrames) micBytes=\(microphoneBytes) systemFrames=\(self.systemAudioFrames) systemBytes=\(systemAudioBytes)"
@@ -60,7 +60,7 @@ struct RecordingMixdownRenderer {
         var mixedAudioByteCount = 0
 
         do {
-            try outputHandle.write(contentsOf: Data(repeating: 0, count: 44))
+            try outputHandle.write(contentsOf: Data(repeating: 0, count: WAVCodec.headerByteCount))
         } catch {
             bestEffort("close output handle", Log.recording) { try outputHandle.close() }
             throw RecordingError.failedToFinalizeRecording(
@@ -154,11 +154,6 @@ struct RecordingMixdownRenderer {
             mixedSamples[index] = Int16((clamped * Float(Int16.max)).rounded())
         }
         return mixedSamples
-    }
-
-    private static func fileSize(at url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values?.fileSize ?? 0)
     }
 
     private static func describeFinalizationError(_ error: Error) -> String {

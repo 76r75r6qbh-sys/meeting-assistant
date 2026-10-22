@@ -137,7 +137,7 @@ struct RecordingResumeSessionStore {
         }
         // The filename is the authority: a segment recorded as `segment-007.wav`
         // must be stored as index 7 even when the manifest counter drifted.
-        let index = Self.segmentNumber(inFileName: segmentURL.lastPathComponent) ?? session.nextSegmentNumber
+        let index = RecordingFiles.segmentNumber(inFileName: segmentURL.lastPathComponent) ?? session.nextSegmentNumber
         let segment = PersistedRecordingSegment(
             index: index,
             filePath: segmentURL.path,
@@ -212,12 +212,12 @@ struct RecordingResumeSessionStore {
             case "pcm":
                 audioThreshold = 0
             case "wav":
-                audioThreshold = Self.wavHeaderByteCount
+                audioThreshold = WAVCodec.headerByteCount
             default:
                 return false
             }
 
-            guard let size = fileSize(of: file) else {
+            guard let size = RecordingFiles.byteCount(of: file, fileManager: fileManager) else {
                 Log.recording.notice(
                     "hasRecoverableAudio could not read the size of \(file.path, privacy: .public) for meeting \(meetingID.uuidString, privacy: .public); assuming audio is present"
                 )
@@ -281,32 +281,5 @@ struct RecordingResumeSessionStore {
         }
     }
 
-    /// The file's size in bytes, or `nil` when it cannot be determined. Never
-    /// collapse that `nil` into 0: an unknown size must not read as "empty".
-    private func fileSize(of url: URL) -> Int? {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
-            return nil
-        }
-        return attributes[.size] as? Int
-    }
-
-    /// Parses the number out of `segment-007.wav`, `segment-007.mic.pcm`, …
-    private static func segmentNumber(inFileName fileName: String) -> Int? {
-        guard fileName.hasPrefix(segmentFileNamePrefix) else {
-            return nil
-        }
-        let digits = fileName
-            .dropFirst(segmentFileNamePrefix.count)
-            .prefix { $0.isASCII && $0.isNumber }
-        guard !digits.isEmpty else {
-            return nil
-        }
-        return Int(digits)
-    }
-
     private static let manifestFileName = "session.json"
-    private static let segmentFileNamePrefix = "segment-"
-    /// Byte count of the canonical 44-byte RIFF/WAVE header we write; a file
-    /// at or below it carries no samples.
-    private static let wavHeaderByteCount = 44
 }
