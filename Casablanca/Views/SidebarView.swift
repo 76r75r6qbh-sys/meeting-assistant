@@ -389,10 +389,14 @@ struct SidebarMeetingRow: View {
         }
     }
 
-    private var formattedDate: String {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
-        return formatter.string(from: meeting.date)
+        return formatter
+    }()
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: meeting.date)
     }
 }
 
