@@ -18,6 +18,7 @@ final class MicrophoneCaptureUnit: @unchecked Sendable {
     private let sinkNode = AVAudioSinkNode { _, _, _ in noErr }
     private let processingQueue = DispatchQueue(label: "com.casablanca.recording.microphone")
     private let notificationCenter: NotificationCenter
+    private let configurationQueue = DispatchQueue(label: "com.casablanca.recording.microphone.configuration")
 
     private let onLevel: (AVAudioPCMBuffer) -> Void
     private let onBuffer: (AVAudioPCMBuffer) -> Void
@@ -138,15 +139,19 @@ final class MicrophoneCaptureUnit: @unchecked Sendable {
     /// paused and nothing reported.
     private func installConfigurationObserverLocked() {
         guard configurationObserver == nil else { return }
-        // `queue: nil`: handled synchronously on the posting thread under
-        // `lock`, so a concurrent `stop()` either lands first (the handler then
-        // finds the observer gone) or waits for the restart to finish.
+        // Hopped onto a private serial queue rather than handled on the
+        // posting thread: that thread belongs to the engine, and restarting
+        // the engine from it -- or blocking it on `lock` while `stop()` holds
+        // the lock inside `engine.stop()` -- risks a deadlock. A change that
+        // lands after `stop()` finds the observer gone and does nothing.
         configurationObserver = notificationCenter.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: nil
         ) { [weak self] _ in
-            self?.handleConfigurationChange()
+            self?.configurationQueue.async { [weak self] in
+                self?.handleConfigurationChange()
+            }
         }
     }
 
@@ -186,6 +191,11 @@ final class MicrophoneCaptureUnit: @unchecked Sendable {
     /// Test seam: replaces the real engine restart so the configuration-change
     /// path can be driven without audio hardware.
     var restartEngineForTesting: (() throws -> Void)?
+
+    /// Waits for every configuration change posted so far to be handled.
+    func drainConfigurationChangesForTesting() {
+        configurationQueue.sync { }
+    }
 
     /// The engine whose configuration changes this unit observes.
     var engineForTesting: AVAudioEngine { engine }

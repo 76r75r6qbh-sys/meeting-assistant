@@ -32,6 +32,7 @@ final class MicrophoneCaptureUnitTests: XCTestCase {
         unit.markRunningForTesting()
 
         center.post(name: .AVAudioEngineConfigurationChange, object: unit.engineForTesting)
+        unit.drainConfigurationChangesForTesting()
 
         XCTAssertEqual(restarts, 1)
         XCTAssertTrue(unit.isRunning)
@@ -45,6 +46,7 @@ final class MicrophoneCaptureUnitTests: XCTestCase {
         unit.markRunningForTesting()
 
         center.post(name: .AVAudioEngineConfigurationChange, object: unit.engineForTesting)
+        unit.drainConfigurationChangesForTesting()
 
         XCTAssertEqual(fatals.count, 1)
         XCTAssertFalse(unit.isRunning)
@@ -60,6 +62,7 @@ final class MicrophoneCaptureUnitTests: XCTestCase {
 
         unit.stop()
         center.post(name: .AVAudioEngineConfigurationChange, object: unit.engineForTesting)
+        unit.drainConfigurationChangesForTesting()
 
         XCTAssertEqual(restarts, 0, "stop() must remove the observer")
         XCTAssertTrue(fatals.isEmpty)
@@ -73,6 +76,7 @@ final class MicrophoneCaptureUnitTests: XCTestCase {
         unit.markRunningForTesting()
 
         center.post(name: .AVAudioEngineConfigurationChange, object: AVAudioEngine())
+        unit.drainConfigurationChangesForTesting()
 
         XCTAssertEqual(restarts, 0)
     }
