@@ -256,6 +256,70 @@ final class RecordingSessionTeardownResilienceTests: XCTestCase {
         try? FileManager.default.removeItem(at: outputURL)
     }
 
+    /// A unit whose stop parks until the test releases it, and which records
+    /// every setting that still reaches it.
+    private final class ParkedStopSystemAudioUnit: SystemAudioCapturing, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _stopEntered = false
+        private var _settingCalls: [Bool] = []
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        var stopEntered: Bool { lock.withLock { _stopEntered } }
+        var settingCalls: [Bool] { lock.withLock { _settingCalls } }
+
+        func disarmStreamFailureReporting() {}
+        func beginAcceptingInput() {}
+        func start() async throws {}
+        func stop() async throws {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    self.continuation = continuation
+                    _stopEntered = true
+                }
+            }
+        }
+        func release() {
+            lock.withLock { continuation }?.resume()
+        }
+        func setSystemAudioEnabled(_ enabled: Bool) {
+            lock.withLock { _settingCalls.append(enabled) }
+        }
+    }
+
+    /// `stop()` tears the units down off the main actor while the settings
+    /// setters read them on it. Once finalizing has begun, a setter is ignored
+    /// rather than racing the teardown for the same unit.
+    func testSettingsChangesAreIgnoredOnceTheStopHasBegun() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        let session = try makeSession(outputURL: outputURL, systemAudioStopTimeout: .seconds(30))
+        let unit = ParkedStopSystemAudioUnit()
+        let microphoneWriter = try session.configureForTeardownTesting(systemAudioUnit: unit)
+        microphoneWriter.enqueue(buffer: oneSecondMonoBuffer())
+
+        // Control: a live session forwards the toggle.
+        session.setSystemAudioEnabled(false)
+        XCTAssertEqual(unit.settingCalls, [false])
+
+        let finished = expectation(description: "stop() returns")
+        Task.detached {
+            _ = try? await session.stop()
+            finished.fulfill()
+        }
+        while !unit.stopEntered {
+            await Task.yield()
+        }
+
+        session.setSystemAudioEnabled(true)
+        XCTAssertNoThrow(try session.setMicrophoneDevice(42))
+        XCTAssertEqual(unit.settingCalls, [false], "A setter must not reach a unit the stop is tearing down")
+
+        unit.release()
+        await fulfillment(of: [finished], timeout: 5)
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+
     private struct StreamStopError: Error {}
 
     /// Counts the stream failures that reached the session's owner.

@@ -312,12 +312,24 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         }
     }
 
+    /// The setters run on the main actor while `stop()` tears the units down
+    /// (and nils them) on the cooperative pool. Reading a unit only under the
+    /// lifecycle lock, and only while `.live`, orders that read before the
+    /// stop claims the session: once finalizing has begun a setting change is
+    /// moot and is ignored. The units synchronize their own work from there.
+    private func liveUnits() -> (microphone: MicrophoneCaptureUnit?, systemAudio: SystemAudioCapturing?)? {
+        lifecycle.withLock { state in
+            guard case .live = state else { return nil }
+            return (microphoneUnit, systemAudioUnit)
+        }
+    }
+
     func setMicrophoneDevice(_ deviceID: AudioDeviceID) throws {
-        try microphoneUnit?.setInputDevice(deviceID)
+        try liveUnits()?.microphone?.setInputDevice(deviceID)
     }
 
     func setSystemAudioEnabled(_ enabled: Bool) {
-        systemAudioUnit?.setSystemAudioEnabled(enabled)
+        liveUnits()?.systemAudio?.setSystemAudioEnabled(enabled)
     }
 
     private func configure() throws {
