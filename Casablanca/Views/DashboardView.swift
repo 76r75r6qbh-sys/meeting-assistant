@@ -10,7 +10,9 @@ struct DashboardView: View {
         Group {
             if !viewModel.calendarAuthorized {
                 calendarAccessView
-            } else if viewModel.isLoading {
+            } else if viewModel.isLoading && !viewModel.hasEvents {
+                // Skeleton only for the first load: a refresh keeps the list
+                // (and its scroll position) on screen instead of swapping it out.
                 loadingSkeleton
             } else if !viewModel.hasEvents {
                 emptyStateView
