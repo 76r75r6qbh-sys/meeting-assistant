@@ -107,6 +107,51 @@ final class MeetingPrepSaveTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: prepURL, encoding: .utf8), "## Goal\n")
     }
 
+    // The meeting-brief skill writes `- Prep.md` while the editor holds prep
+    // loaded from `localPrepNotes`: saving must not replace the skill's prose.
+    func testSaveNeverOverwritesAVaultPrepFileTheEditorDidNotLoad() throws {
+        let meeting = Meeting(title: "Weekly Sync", date: makeDate())
+        meeting.localPrepNotes = "## Goal\nmine\n"
+        let loaded = try XCTUnwrap(MeetingPrepService.loadPrep(for: meeting, userDefaults: defaults))
+        XCTAssertNil(loaded.sourceURL)
+
+        let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
+        let brief = "# Brief\n\nLast discussed: the release.\n"
+        try brief.write(to: prepURL, atomically: true, encoding: .utf8)
+
+        let saved = try MeetingPrepService.savePrepAndReload(
+            "## Goal\nmine, edited\n", loaded: loaded, for: meeting, userDefaults: defaults
+        )
+
+        let onDisk = try String(contentsOf: prepURL, encoding: .utf8)
+        XCTAssertTrue(onDisk.hasPrefix("# Brief\n\nLast discussed: the release."), "Skill prose kept")
+        XCTAssertTrue(onDisk.contains(MeetingPrepService.adoptedSeparator))
+        XCTAssertTrue(onDisk.hasSuffix("## Goal\nmine, edited\n"), "Editor text appended")
+        XCTAssertEqual(saved.markdown, onDisk)
+        XCTAssertEqual(saved.adoptedVaultFile?.path, prepURL.path)
+        XCTAssertEqual(saved.loaded, .init(markdown: onDisk, sourceURL: prepURL))
+        XCTAssertEqual(meeting.localPrepNotes, "## Goal\nmine, edited\n")
+
+        // From then on it is the editor's file: a second save writes it as is.
+        let second = try MeetingPrepService.savePrepAndReload(
+            saved.markdown + "more\n", loaded: saved.loaded, for: meeting, userDefaults: defaults
+        )
+        XCTAssertNil(second.adoptedVaultFile)
+        XCTAssertEqual(try String(contentsOf: prepURL, encoding: .utf8), onDisk + "more\n")
+    }
+
+    func testSaveWithNothingLoadedKeepsAVaultPrepFileThatAppeared() throws {
+        let meeting = Meeting(title: "Weekly Sync", date: makeDate())
+        let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
+        try "# Brief\n".write(to: prepURL, atomically: true, encoding: .utf8)
+
+        try MeetingPrepService.savePrep("## Goal\n", loaded: nil, for: meeting, userDefaults: defaults)
+
+        let onDisk = try String(contentsOf: prepURL, encoding: .utf8)
+        XCTAssertTrue(onDisk.hasPrefix("# Brief"))
+        XCTAssertTrue(onDisk.hasSuffix("## Goal\n"))
+    }
+
     func testLocalModeSavesOnMeeting() throws {
         defaults.set(PrepTodoStorage.local.rawValue, forKey: AppPreferenceKey.prepTodoStorage)
         let meeting = Meeting(title: "Weekly Sync", date: makeDate())

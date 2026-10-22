@@ -420,9 +420,15 @@ struct PrepEditorView: View {
 
     /// Writes back to the file the prep was loaded from, keeping to-dos that
     /// were added to (or toggled in) that file while the editor was open.
+    /// Never overwrites a vault prep file it did not load: if a skill wrote
+    /// one meanwhile, the editor's text is appended to it and that file is
+    /// what the editor holds from then on (see `savePrepAndReload`).
     private func save() {
         do {
-            prepText = try MeetingPrepService.savePrep(prepText, loaded: loadedPrep, for: meeting)
+            let saved = try MeetingPrepService.savePrepAndReload(prepText, loaded: loadedPrep, for: meeting)
+            prepText = saved.markdown
+            // The next save merges against what is on disk now, not the first load.
+            loadedPrep = saved.loaded
         } catch {
             saveError = error.localizedDescription
         }
