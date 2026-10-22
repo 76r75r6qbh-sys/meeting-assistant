@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
     @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.userNameAliases) private var userNameAliases = ""
+    @AppStorage(AppPreferenceKey.includeUnassignedActionItems) private var includeUnassignedActionItems = false
     @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
@@ -165,6 +167,26 @@ struct SettingsView: View {
                 Text(prepTodoStorage == .obsidian
                     ? "Prep notes are read from your Obsidian vault and todos sync to and from your vault."
                     : "Prep notes are hidden. Todos are stored only inside Casablanca.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Action Items") {
+                TextField(
+                    "Your name(s)",
+                    text: $userNameAliases,
+                    prompt: Text(AppPreferences.derivedUserNameAliases(fullName: NSFullUserName()).joined(separator: ", "))
+                )
+
+                Text("Action items assigned to these names become your to-dos. Separate aliases with commas.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Also add action items without an owner", isOn: $includeUnassignedActionItems)
+
+                Text("Action items for other people stay in the summary and exported notes, but are not added to your to-dos.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -337,7 +359,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
 
-                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{participants}}, {{user_name}}, {{transcript}}, {{freeform_notes}}.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
