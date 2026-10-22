@@ -226,6 +226,7 @@
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
 		B5410AFB7ACFB3702A9B7C70 /* ActionQueueModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */; };
 		B68E23B6D59110583203BB20 /* ActionCardBodyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */; };
+		B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */; };
 		BB259792844FF4683B8F7FD7 /* TicketDraftBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */; };
 		BB7624BC29C9CDD2E0EB88BD /* TicketDraftCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2C0929459E2C9A521A42C2 /* TicketDraftCard.swift */; };
 		BE6770583C1B1F8A8C67B418 /* OMLXProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE76844700FCF7A055497BB /* OMLXProvider.swift */; };
@@ -296,6 +297,7 @@
 		23A222AA67614DF883F5F76C /* RefinementPrepCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RefinementPrepCard.swift; sourceTree = SOURCE_ROOT; };
 		2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitLayoutStabilityTests.swift; sourceTree = SOURCE_ROOT; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
+		28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/MeetingRecordingController.swift; sourceTree = SOURCE_ROOT; };
 		292F4D13FAFB622A7728511B /* WhisperModelRetentionPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelRetentionPolicyTests.swift; sourceTree = "<group>"; };
 		29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptSegmentMerger.swift; sourceTree = "<group>"; };
 		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
@@ -974,6 +976,7 @@
 				2ED040940F5803E66DD0C95A /* SleepPreventer.swift */,
 				B0A3C59D83667C487809FF56 /* RecordingSessionRecovery.swift */,
 				478DFBF32F408533A811CEA2 /* RecordingSessionRecoveryCoordinator.swift */,
+				28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */,
 			);
 			name = Recording;
 			path = Recording;
@@ -1277,6 +1280,7 @@
 				3127409D4B3D935ACE809817 /* WhisperModelRetentionPolicy.swift in Sources */,
 				9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */,
 				4584F76ED0D4069F65BE8870 /* SilentChunkFilter.swift in Sources */,
+				B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -244,12 +244,16 @@ final class AppModel {
     let applicationsLocationCheck: ApplicationsLocationCheck
     let notificationCoordinator = AppNotificationCoordinator()
     let meetingStartNotifier: MeetingStartNotifier
+    /// The one place capture starts and stops, shared by the editor view and
+    /// the app's windowless paths, so recording works with no window open.
+    let recordingController: MeetingRecordingController
     private let housekeeping: UpdateLaunchHousekeeping
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init() {
         meetingListViewModel = MeetingListViewModel(calendarService: calendarService)
         meetingStartNotifier = MeetingStartNotifier(calendarService: calendarService)
+        recordingController = MeetingRecordingController(recordingService: recordingService)
 
         let paths = UpdatePaths.default
         housekeeping = UpdateLaunchHousekeeping(paths: paths)
@@ -307,6 +311,10 @@ final class AppModel {
         // crash/force-quit would otherwise spin forever. Nothing is running at
         // launch, so downgrade them off `.processing`.
         if let modelContext {
+            // The windowless recording paths persist through the list view
+            // model; give it the context now rather than relying on a view
+            // having appeared first.
+            meetingListViewModel.setModelContext(modelContext)
             recoverStaleProcessingMeetings(modelContext: modelContext)
             // Then the recording half: session directories a crash left behind,
             // and the meetings stuck in `.recording`/`.pausedRecording` on top
@@ -520,7 +528,8 @@ final class AppModel {
     /// meeting), otherwise begin recording and cancel the now-redundant prompt.
     private func startRecordingFromNotification(eventIdentifier: String) {
         // Suppression: never start a second recording over an active one.
-        guard !recordingService.isRecording else {
+        // Preparing counts too: a session is not published until it captures.
+        guard !recordingService.isRecording, !recordingService.isPreparing, !recordingController.isStartInFlight else {
             Log.recording.notice("Ignoring start-recording notification: a recording is already active.")
             return
         }
@@ -528,9 +537,30 @@ final class AppModel {
             Log.recording.error("Start-recording notification could not resolve event \(eventIdentifier, privacy: .public).")
             return
         }
-        meetingListViewModel.beginRecording(for: event)
+        guard let meeting = meetingListViewModel.findOrCreateMeeting(for: event),
+              let context = meetingListViewModel.currentModelContext else { return }
+        meetingListViewModel.beginRecording(for: meeting)
         // Don't fire the prompt again for this meeting.
         meetingStartNotifier.cancel(eventIdentifier: eventIdentifier)
+        // Capture used to start only once the editor appeared, so tapping the
+        // prompt with the main window closed recorded nothing. Start it here;
+        // if the editor is showing too, whichever comes second joins the first.
+        recordingService.refreshInputDevices(forcePreferredSelection: true)
+        Task {
+            _ = await recordingController.startRecording(
+                for: meeting,
+                save: { [weak self] in self?.persist(meeting, in: context) }
+            )
+        }
+    }
+
+    /// What the editor's `save()` does: persist, then auto-export if enabled.
+    private func persist(_ meeting: Meeting, in context: ModelContext) {
+        try? context.save()
+        let reporter = exportStatusCenter
+        Task { @MainActor in
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
+        }
     }
 
     private func registerSentinelCleanup() {

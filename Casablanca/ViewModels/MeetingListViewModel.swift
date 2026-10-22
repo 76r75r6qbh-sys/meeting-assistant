@@ -67,6 +67,10 @@ final class MeetingListViewModel {
         self.modelContext = context
     }
 
+    /// The context set by the first view (or `AppModel.bootstrap`), for app
+    /// code that persists outside any view.
+    var currentModelContext: ModelContext? { modelContext }
+
     func save() {
         guard let modelContext else { return }
         do {
