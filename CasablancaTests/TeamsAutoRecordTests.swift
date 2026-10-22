@@ -55,6 +55,36 @@ final class TeamsCallDebouncerTests: XCTestCase {
         XCTAssertFalse(debouncer.isInCall)
     }
 
+    func testMutedCallWithOnlyOutputRunningStaysActive() {
+        var debouncer = inCall()
+        // Muted: Teams may release the microphone, the remote stream plays on.
+        for second in stride(from: 100.0, through: 400.0, by: 10) {
+            XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: true, at: at(second)))
+        }
+        XCTAssertTrue(debouncer.isInCall)
+        XCTAssertNil(debouncer.nextDeadline, "Output running: no end pending")
+    }
+
+    func testCallEndsOnlyAfterBothInputAndOutputStopFor20Seconds() {
+        var debouncer = inCall()
+        XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: true, at: at(100)))
+        XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: false, at: at(110)))
+        XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: true, at: at(125)), "Output resets the countdown")
+        XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: false, at: at(130)))
+        XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: false, at: at(149)))
+        XCTAssertEqual(debouncer.update(isInputActive: false, isOutputActive: false, at: at(150)), .callEnded)
+    }
+
+    func testOutputWithoutAPriorCallNeverStartsOne() {
+        var debouncer = TeamsCallDebouncer()
+        // A notification sound or a video in a chat: output only, for minutes.
+        for second in stride(from: 0.0, through: 300.0, by: 5) {
+            XCTAssertNil(debouncer.update(isInputActive: false, isOutputActive: true, at: at(second)))
+        }
+        XCTAssertFalse(debouncer.isInCall)
+        XCTAssertNil(debouncer.nextDeadline)
+    }
+
     func testNextDeadlineTracksThePendingTransition() {
         var debouncer = TeamsCallDebouncer()
         XCTAssertNil(debouncer.nextDeadline)
@@ -80,9 +110,11 @@ final class TeamsCallDebouncerTests: XCTestCase {
 private final class FakeTeamsAudioActivitySource: TeamsAudioActivitySource {
     var isSupported = true
     var isActive = false
+    var isOutputActive = false
     private(set) var isObserving = false
 
     func isTeamsInputRunning() -> Bool { isActive }
+    func isTeamsOutputRunning() -> Bool { isOutputActive }
     func startObserving(onChange: @escaping @MainActor () -> Void) { isObserving = true }
     func stopObserving() { isObserving = false }
 }
@@ -122,6 +154,45 @@ final class TeamsCallMonitorTests: XCTestCase {
         clock += 20
         monitor.evaluate()
         XCTAssertEqual(events, ["start", "tick", "tick", "end"])
+        monitor.stop()
+    }
+
+    func testMutedCallKeepsRunningOnOutputAndOutputAloneNeverStartsOne() {
+        let source = FakeTeamsAudioActivitySource()
+        let monitor = makeMonitor(source)
+        var events: [String] = []
+        monitor.onCallStarted = { events.append("start") }
+        monitor.onCallEnded = { events.append("end") }
+        monitor.start()
+
+        // Output-only blip before any call: nothing starts.
+        source.isOutputActive = true
+        monitor.evaluate()
+        clock += 30
+        monitor.evaluate()
+        XCTAssertEqual(events, [])
+
+        // The call starts on input...
+        source.isActive = true
+        monitor.evaluate()
+        clock += 5
+        monitor.evaluate()
+        XCTAssertEqual(events, ["start"])
+
+        // ...the user mutes for a minute: input released, output keeps going.
+        source.isActive = false
+        monitor.evaluate()
+        clock += 60
+        monitor.evaluate()
+        XCTAssertEqual(events, ["start"])
+        XCTAssertTrue(monitor.isInCall)
+
+        // Hang up: both stop, and 20 s later the call has ended.
+        source.isOutputActive = false
+        monitor.evaluate()
+        clock += 20
+        monitor.evaluate()
+        XCTAssertEqual(events, ["start", "end"])
         monitor.stop()
     }
 

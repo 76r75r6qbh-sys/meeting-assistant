@@ -1,9 +1,10 @@
 import CoreAudio
 import Foundation
 
-/// Answers one question for `TeamsCallMonitor`: is Microsoft Teams capturing
-/// microphone input right now? Hidden behind a protocol so the debounce and the
-/// monitor's scheduling are testable without CoreAudio.
+/// Answers two questions for `TeamsCallMonitor`: is Microsoft Teams capturing
+/// microphone input right now, and is it playing audio? Input starts a call;
+/// either keeps one going (see `TeamsCallDebouncer`). Hidden behind a protocol
+/// so the debounce and the monitor's scheduling are testable without CoreAudio.
 @MainActor
 protocol TeamsAudioActivitySource: AnyObject {
     /// False when this macOS cannot report per-process audio activity; the
@@ -11,8 +12,10 @@ protocol TeamsAudioActivitySource: AnyObject {
     var isSupported: Bool { get }
     /// A fresh read, never a cached answer.
     func isTeamsInputRunning() -> Bool
-    /// Calls `onChange` (on the main actor) whenever the answer may have
-    /// changed. A hint only: the receiver re-reads `isTeamsInputRunning()`.
+    /// A fresh read: any Teams process running audio output.
+    func isTeamsOutputRunning() -> Bool
+    /// Calls `onChange` (on the main actor) whenever an answer may have
+    /// changed. A hint only: the receiver re-reads both.
     func startObserving(onChange: @escaping @MainActor () -> Void)
     func stopObserving()
 }
@@ -46,7 +49,11 @@ final class CoreAudioTeamsActivitySource: TeamsAudioActivitySource {
     }
 
     func isTeamsInputRunning() -> Bool {
-        Self.teamsProcessObjects().contains { Self.isRunningInput($0) }
+        Self.teamsProcessObjects().contains { Self.isRunning($0, kAudioProcessPropertyIsRunningInput) }
+    }
+
+    func isTeamsOutputRunning() -> Bool {
+        Self.teamsProcessObjects().contains { Self.isRunning($0, kAudioProcessPropertyIsRunningOutput) }
     }
 
     func startObserving(onChange: @escaping @MainActor () -> Void) {
@@ -92,8 +99,9 @@ final class CoreAudioTeamsActivitySource: TeamsAudioActivitySource {
         return value.takeRetainedValue() as String
     }
 
-    nonisolated static func isRunningInput(_ process: AudioObjectID) -> Bool {
-        var address = address(kAudioProcessPropertyIsRunningInput)
+    /// `kAudioProcessPropertyIsRunningInput` or `...IsRunningOutput`.
+    nonisolated static func isRunning(_ process: AudioObjectID, _ selector: AudioObjectPropertySelector) -> Bool {
+        var address = address(selector)
         var size = UInt32(MemoryLayout<UInt32>.size)
         var running: UInt32 = 0
         guard AudioObjectGetPropertyData(process, &address, 0, nil, &size, &running) == noErr else {
@@ -112,13 +120,15 @@ final class CoreAudioTeamsActivitySource: TeamsAudioActivitySource {
 }
 
 /// Owns the CoreAudio property listeners: one on the system object's process
-/// list, plus one `IsRunningInput` listener per Teams process. All state is
+/// list, plus one block per Teams process registered for both `IsRunningInput`
+/// and `IsRunningOutput`. All state is
 /// touched only on `queue` — the queue CoreAudio delivers the blocks on — which
 /// is what makes the `@unchecked Sendable` sound.
 private final class ProcessListenerRegistry: @unchecked Sendable {
     private let queue = DispatchQueue(label: "nl.medicore.casablanca.teams-audio-activity")
     private var processListBlock: AudioObjectPropertyListenerBlock?
-    private var inputBlocks: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
+    private var processBlocks: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
+    private static let processSelectors = [kAudioProcessPropertyIsRunningInput, kAudioProcessPropertyIsRunningOutput]
     private var onChange: (@MainActor () -> Void)?
 
     func install(onChange: @escaping @MainActor () -> Void) {
@@ -159,35 +169,39 @@ private final class ProcessListenerRegistry: @unchecked Sendable {
             AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue, block)
         }
         processListBlock = nil
-        for process in Array(inputBlocks.keys) {
-            removeInputListener(process)
+        for process in Array(processBlocks.keys) {
+            removeProcessListener(process)
         }
         onChange = nil
     }
 
-    /// Adds an `IsRunningInput` listener to every Teams process that has none
+    /// Adds the input/output listeners to every Teams process that has none
     /// yet and drops the ones whose process went away. Runs on `queue`.
     private func syncProcessListeners() {
         let current = Set(CoreAudioTeamsActivitySource.teamsProcessObjects())
-        for gone in Set(inputBlocks.keys).subtracting(current) {
-            removeInputListener(gone)
+        for gone in Set(processBlocks.keys).subtracting(current) {
+            removeProcessListener(gone)
         }
-        for process in current.subtracting(inputBlocks.keys) {
+        for process in current.subtracting(processBlocks.keys) {
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 self?.notify()
             }
-            var address = CoreAudioTeamsActivitySource.address(kAudioProcessPropertyIsRunningInput)
-            if AudioObjectAddPropertyListenerBlock(process, &address, queue, block) == noErr {
-                inputBlocks[process] = block
+            for selector in Self.processSelectors {
+                var address = CoreAudioTeamsActivitySource.address(selector)
+                AudioObjectAddPropertyListenerBlock(process, &address, queue, block)
             }
+            processBlocks[process] = block
         }
     }
 
-    private func removeInputListener(_ process: AudioObjectID) {
-        guard let block = inputBlocks.removeValue(forKey: process) else { return }
-        var address = CoreAudioTeamsActivitySource.address(kAudioProcessPropertyIsRunningInput)
-        // Fails harmlessly with a bad-object error once the process is gone.
-        AudioObjectRemovePropertyListenerBlock(process, &address, queue, block)
+    private func removeProcessListener(_ process: AudioObjectID) {
+        guard let block = processBlocks.removeValue(forKey: process) else { return }
+        for selector in Self.processSelectors {
+            var address = CoreAudioTeamsActivitySource.address(selector)
+            // Fails harmlessly with a bad-object error once the process is gone
+            // (or for a selector whose add failed).
+            AudioObjectRemovePropertyListenerBlock(process, &address, queue, block)
+        }
     }
 
     private func notify() {
