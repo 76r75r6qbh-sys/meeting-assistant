@@ -15,10 +15,35 @@ protocol UpdateDownloader {
 }
 
 final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownloadDelegate {
+    /// The code requirement a downloaded bundle must satisfy: our bundle id,
+    /// signed by an Apple-issued certificate of our team. Must match the
+    /// `designated` requirement in `scripts/casablanca.req` that release builds
+    /// are signed with (a test pins the two together). Plain
+    /// `codesign --verify` would also accept an ad-hoc signature by anyone.
+    static let releaseCodeRequirement =
+        #"identifier "com.casablanca.app" and anchor apple generic and certificate leaf[subject.OU] = "77YQ5E8KT3""#
+
+    /// Upper bound for `ditto` / `xattr` / `codesign` on a staged update.
+    private static let commandTimeout: TimeInterval = 300
+
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
+    private let codeRequirement: String
+    private let runner: CommandRunning
     private var progressContinuation: AsyncStream<Double>.Continuation?
     private var resultContinuation: CheckedContinuation<URL, Error>?
     private var destination: URL?
+    private var expectedByteCount: Int64 = -1
+
+    /// `codeRequirement` is injectable only so tests can verify ad-hoc-signed
+    /// fixtures; production always uses `releaseCodeRequirement`.
+    init(
+        codeRequirement: String = DefaultUpdateDownloader.releaseCodeRequirement,
+        runner: CommandRunning = ProcessCommandRunner()
+    ) {
+        self.codeRequirement = codeRequirement
+        self.runner = runner
+        super.init()
+    }
 
     func download(
         from url: URL,
@@ -34,6 +59,7 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
             try FileManager.default.removeItem(at: destination)
         }
         self.destination = destination
+        self.expectedByteCount = expectedByteCount
 
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
         let (stream, continuation) = AsyncStream<Double>.makeStream()
@@ -47,6 +73,9 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
             self.resultContinuation = cont
             let task = session.downloadTask(with: url)
             task.resume()
+            // A session retains its delegate until invalidated: let this one
+            // finish its task, then release us.
+            session.finishTasksAndInvalidate()
             _ = progressTask // keep alive
         }
     }
@@ -73,6 +102,16 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
         guard let destination = destination else { return }
         do {
             try FileManager.default.moveItem(at: location, to: destination)
+            // The release metadata states the asset size; a mismatch means a
+            // truncated or substituted download.
+            if expectedByteCount > 0 {
+                let size = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.int64Value
+                guard size == expectedByteCount else {
+                    logger.error("download size \(size ?? -1) != expected \(self.expectedByteCount)")
+                    progressContinuation?.finish()
+                    throw UpdateError.downloadFailed(URLError(.cannotDecodeContentData))
+                }
+            }
             progressContinuation?.yield(1.0)
             progressContinuation?.finish()
             resultContinuation?.resume(returning: destination)
@@ -99,11 +138,11 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
 
     func extract(zipAt source: URL, to destinationDir: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
-        try Self.run("/usr/bin/ditto", ["-x", "-k", source.path, destinationDir.path], errorOnFailure: .unzipFailed)
+        try await run("/usr/bin/ditto", ["-x", "-k", source.path, destinationDir.path], errorOnFailure: .unzipFailed)
         let appURL = destinationDir.appendingPathComponent("Casablanca.app", isDirectory: true)
         guard FileManager.default.fileExists(atPath: appURL.path) else { throw UpdateError.unzipFailed }
         do {
-            try Self.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", appURL.path], errorOnFailure: nil)
+            try await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", appURL.path], errorOnFailure: nil)
         } catch let error as UpdateError {
             throw error
         } catch {
@@ -112,27 +151,38 @@ final class DefaultUpdateDownloader: NSObject, UpdateDownloader, URLSessionDownl
         return appURL
     }
 
+    /// Runs a tool via `ProcessCommandRunner`, which drains stdout and stderr
+    /// while the child runs (waiting for exit first deadlocks once a pipe's
+    /// ~64 KB buffer fills, e.g. `ditto` or `codesign --deep` being verbose).
     @discardableResult
-    private static func run(_ launchPath: String, _ arguments: [String], errorOnFailure: UpdateError?) throws -> String {
-        let process = Process()
-        process.launchPath = launchPath
-        process.arguments = arguments
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        if process.terminationStatus != 0 {
-            if let error = errorOnFailure { throw error }
-            throw UpdateError.quarantineStripFailed("\(launchPath) exited \(process.terminationStatus): \(stderrText)")
+    private func run(_ launchPath: String, _ arguments: [String], errorOnFailure: UpdateError?) async throws -> String {
+        let result: CommandResult
+        do {
+            result = try await runner.run(
+                executable: launchPath,
+                arguments: arguments,
+                standardInput: "",
+                workingDirectory: nil,
+                timeout: Self.commandTimeout
+            )
+        } catch {
+            if let errorOnFailure { throw errorOnFailure }
+            throw UpdateError.quarantineStripFailed("\(launchPath) failed: \(error)")
         }
-        return String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if result.exitCode != 0 {
+            if let error = errorOnFailure { throw error }
+            throw UpdateError.quarantineStripFailed("\(launchPath) exited \(result.exitCode): \(result.standardError)")
+        }
+        return result.standardOutput
     }
 
     func verify(bundleAt url: URL, currentVersion: SemanticVersion) async throws -> SemanticVersion {
-        try Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", url.path], errorOnFailure: .codesignFailed)
+        // `-R` pins WHO signed it, not just that the seal is intact.
+        try await run(
+            "/usr/bin/codesign",
+            ["--verify", "--deep", "--strict", "-R", "=" + codeRequirement, url.path],
+            errorOnFailure: .codesignFailed
+        )
 
         let infoPlist = url.appendingPathComponent("Contents/Info.plist")
         guard

@@ -220,7 +220,7 @@ struct SettingsView: View {
                 }
 
                 if actionQueuePath.isEmpty {
-                    Text("Leave empty to use the default location (`~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json`). The Approvals inbox reads draft items from this file and writes back your decisions.")
+                    Text("Leave empty to use the default location: `Memory/action-queue.json` inside your Obsidian vault (or `~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json` when no vault is set). The Approvals inbox reads draft items from this file and writes back your decisions.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -255,6 +255,11 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: actionQueuePath) { _, _ in
+            appModel.actionQueueModel.refreshWatch()
+        }
+        .onChange(of: obsidianVaultPath) { _, _ in
+            // The default queue path lives inside the vault, so a vault change
+            // can move the queue file the inbox should read and watch.
             appModel.actionQueueModel.refreshWatch()
         }
         .onChange(of: prepTodoStorageRaw) { _, newValue in

@@ -39,6 +39,7 @@
 		3536DDAC6F96EC87D6CB57DF /* OMLXProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */; };
 		392C856CE65B9DC4F84D1D47 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD3C39F3B257B73C3B65A5E /* OllamaProvider.swift */; };
 		393AD5751692F21B16AC796F /* LLMProviderCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE1A651EBC4C04A50173199E /* LLMProviderCapabilityTests.swift */; };
+		3C8DA02E3052008449165D26 /* MeetingPrepSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A158FF2F563C8CEDAA0235 /* MeetingPrepSaveTests.swift */; };
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */; };
 		405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */; };
@@ -258,6 +259,7 @@
 		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
 		E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */; };
+		E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */; };
 		EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
@@ -364,6 +366,7 @@
 		A1B2C3D4E5F600000ON0FR02 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000ON0FR03 /* OnboardingCaptureStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingCaptureStatus.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* ActionQueueModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModelTests.swift; sourceTree = "<group>"; };
+		A3A158FF2F563C8CEDAA0235 /* MeetingPrepSaveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/MeetingPrepSaveTests.swift; sourceTree = SOURCE_ROOT; };
 		A3D480611A08BDB4705DD52C /* UpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
 		A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMRetryPolicy.swift; sourceTree = "<group>"; };
 		AA3C2D06998C45F4B9A6FBC4 /* TranscriptionOptionsBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptionOptionsBuilder.swift; sourceTree = "<group>"; };
@@ -540,6 +543,7 @@
 		E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/TeamsAutoRecordCoordinator.swift; sourceTree = SOURCE_ROOT; };
 		E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-0.0.1-macOS.zip"; sourceTree = "<group>"; };
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
+		E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Casablanca/Services/MeetingPrepService+Save.swift"; sourceTree = SOURCE_ROOT; };
 		E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheckTests.swift; sourceTree = "<group>"; };
 		F2CDA02D599E4AAF8158C692 /* JiraMarkupTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/JiraMarkupTests.swift; sourceTree = SOURCE_ROOT; };
 		F46E1332211EA769F8620C51 /* LegacyDraftEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/LegacyDraftEditor.swift; sourceTree = SOURCE_ROOT; };
@@ -765,6 +769,7 @@
 				4C90D69BDCEB5CF065A0FD56 /* Transcription */,
 				7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */,
 				E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */,
+				E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -948,6 +953,7 @@
 				3C9F3B5A9AFE489FB0A521DF /* ActionItemOwnershipTests.swift */,
 				47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */,
 				1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */,
+				A3A158FF2F563C8CEDAA0235 /* MeetingPrepSaveTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1306,6 +1312,7 @@
 				417E9D3289ACEC06DC1A08D9 /* TeamsAudioActivitySource.swift in Sources */,
 				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
 				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
+				E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1408,6 +1415,7 @@
 				1D617BCDD48D84EC20F3F25F /* ActionItemOwnershipTests.swift in Sources */,
 				53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */,
 				96B6EF4530ECB70A2C53EFC5 /* PrepInspectorAutoOpenTests.swift in Sources */,
+				3C8DA02E3052008449165D26 /* MeetingPrepSaveTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
