@@ -201,8 +201,18 @@ enum ObsidianMeetingExporter {
         return "\ntags:\(items)"
     }
 
-    private static func yamlEscaped(_ value: String) -> String {
-        let escaped = value.replacingOccurrences(of: "\"", with: "\\\"")
+    /// A YAML double-quoted scalar. Backslash first (so the escapes added after
+    /// it are not doubled), then the quote, then line breaks and tabs — a raw
+    /// newline in a title would otherwise end the scalar and break the
+    /// frontmatter.
+    static func yamlEscaped(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
     }
 }

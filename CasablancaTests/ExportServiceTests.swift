@@ -48,6 +48,22 @@ final class ExportServiceTests: XCTestCase {
         XCTAssertTrue(markdown.contains("- \"orchestra\""))
     }
 
+    func testYAMLEscapingHandlesBackslashQuoteAndNewlines() {
+        XCTAssertEqual(ObsidianMeetingExporter.yamlEscaped(#"C:\temp "x""#), #""C:\\temp \"x\"""#)
+        XCTAssertEqual(ObsidianMeetingExporter.yamlEscaped("a\nb\r\nc\td"), #""a\nb\nc\td""#)
+        XCTAssertEqual(ObsidianMeetingExporter.yamlEscaped(#"end\"#), #""end\\""#)
+    }
+
+    func testFrontmatterStaysValidForTitleWithBackslashAndNewline() async throws {
+        let meeting = Meeting(title: "Sync \\ review\nsecond line", date: .now)
+
+        let markdown = try await exportRawNotesMarkdown(for: meeting, defaults: makeGuardedDefaults())
+
+        XCTAssertTrue(markdown.contains(#"meeting_title: "Sync \\ review\nsecond line""#))
+        let frontmatter = markdown.components(separatedBy: "---")[1]
+        XCTAssertFalse(frontmatter.contains("\nsecond line"), "A raw newline would break the frontmatter")
+    }
+
     func testFrontmatterOmitsTagsWhenEmpty() async throws {
         let meeting = Meeting(title: "Untagged Sync", date: .now)
 
