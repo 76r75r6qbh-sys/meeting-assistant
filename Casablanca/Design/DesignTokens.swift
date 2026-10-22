@@ -23,16 +23,6 @@ enum CasaRadius {
     static let xl: CGFloat = 12
 }
 
-// MARK: - Animation Durations (legacy — prefer CasaAnimation springs)
-
-enum CasaDuration {
-    static let micro: Double = 0.1
-    static let fast: Double = 0.15
-    static let standard: Double = 0.2
-    static let emphasis: Double = 0.3
-    static let slow: Double = 0.4
-}
-
 // MARK: - Spring Animations (Apple HIG recommended)
 
 enum CasaAnimation {

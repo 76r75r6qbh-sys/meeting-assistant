@@ -10,7 +10,9 @@ struct DashboardView: View {
         Group {
             if !viewModel.calendarAuthorized {
                 calendarAccessView
-            } else if viewModel.isLoading {
+            } else if viewModel.isLoading && !viewModel.hasEvents {
+                // Skeleton only for the first load: a refresh keeps the list
+                // (and its scroll position) on screen instead of swapping it out.
                 loadingSkeleton
             } else if !viewModel.hasEvents {
                 emptyStateView
@@ -305,16 +307,25 @@ struct DashboardView: View {
             return "Tomorrow"
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
+        return Self.weekdayFormatter.string(from: date)
     }
 
     private func dayChipSubtitle(for date: Date) -> String {
+        Self.dayMonthFormatter.string(from: date)
+    }
+
+    // Built once: these run for every day chip on every body pass.
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+
+    private static let dayMonthFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "d MMM"
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 
     private func meetingCountLabel(for count: Int) -> String {
         count == 1 ? "1 meeting" : "\(count) meetings"
