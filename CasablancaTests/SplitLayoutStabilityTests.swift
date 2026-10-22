@@ -52,6 +52,66 @@ final class SplitLayoutStabilityTests: XCTestCase {
         )
     }
 
+    /// Opening a meeting with prep opens the notes inspector on its Prep tab
+    /// programmatically, right after the asynchronous prep load. Hosts the real
+    /// `NotesEditorInspector` and notes editor in NotesEditorView's inspector
+    /// layout inside the split and opens it the same way, at regular window
+    /// sizes. An AppKit constraint-pass abort kills the test process, so
+    /// reaching the end is part of the assertion.
+    func testInspectorAutoOpenedAfterPrepLoadOpensOnceWithoutAborting() {
+        let (window, openCount) = makeAutoOpenedInspectorWindow()
+        XCTAssertEqual(openCount(), 1, "The inspector should auto-open once the prep has loaded")
+
+        for size in [CGSize(width: 900, height: 600), CGSize(width: 1200, height: 800), CGSize(width: 1080, height: 720)] {
+            resize(window, to: size)
+            pump(window)
+        }
+
+        XCTAssertEqual(openCount(), 1, "Re-renders and resizes must not re-open the inspector")
+    }
+
+    /// KNOWN, PRE-EXISTING crash (not caused by auto-open): with ANY open
+    /// `.inspector` in the split's detail column, shrinking the window toward
+    /// its minimum (480–620 pt wide) aborts AppKit with "more Update Constraints
+    /// in Window passes than there are views". Reproduced in this harness
+    /// regardless of how the inspector was opened (presented from the start or
+    /// programmatically later), of its content (real inspector, web viewer
+    /// only, segmented picker only, or `Color.clear`), and of its
+    /// `inspectorColumnWidth` (range, ideal-only, fixed, none); hosting the same
+    /// layout WITHOUT the NavigationSplitView did not abort. RecordedMeetingView
+    /// uses the same inspector pattern. Skipped because it kills the test
+    /// process; remove the skip to reproduce.
+    func testOpenInspectorSurvivesShrinkingTheWindowToItsMinimum() throws {
+        try XCTSkipIf(true, "Known pre-existing AppKit constraint-pass abort for an open inspector in a narrow window")
+
+        let (window, _) = makeAutoOpenedInspectorWindow()
+        for size in [CGSize(width: 700, height: 552), CGSize(width: 480, height: 500),
+                     CGSize(width: 620, height: 500), CGSize(width: 900, height: 600)] {
+            resize(window, to: size)
+            pump(window)
+        }
+    }
+
+    private func makeAutoOpenedInspectorWindow() -> (NSWindow, () -> Int) {
+        final class Counter { var value = 0 }
+        let counter = Counter()
+        let window = makeWindow(
+            ResponsiveSplitHarness(
+                stabilized: true,
+                detail: PrepAutoOpenInspectorHarness(
+                    meeting: Meeting(title: "Wegiz BgZ refinement", date: Date()),
+                    prep: "# Prep\n\n- Agree on the BgZ scope\n- Partner timeline",
+                    onOpen: { counter.value += 1 }
+                )
+            ),
+            size: CGSize(width: 1080, height: 720)
+        )
+        // Let the detached prep load return and the inspector open.
+        let deadline = Date().addingTimeInterval(2)
+        while counter.value == 0 && Date() < deadline { pump(window) }
+        return (window, { counter.value })
+    }
+
     // MARK: - Scenarios
 
     private func redirtiesWhileDashboardContentChanges(stabilized: Bool) -> Int {
@@ -156,6 +216,62 @@ final class SplitLayoutStabilityTests: XCTestCase {
             events.append(event)
         }
         service.events = events
+    }
+}
+
+/// NotesEditorView's inspector layout (notes column + `.inspector` hosting
+/// `NotesEditorInspector`), opened exactly as NotesEditorView does it: from the
+/// view's task, after the prep has been read off the main actor. NotesEditorView
+/// itself needs the recording service, AppModel and a model store, so its
+/// layout is mirrored here.
+///
+/// One deviation: the real view starts with no prep, so the hidden inspector
+/// first builds the To-Dos panel, which needs the full AppModel in the
+/// environment. The harness therefore starts on the Prep tab with the prep
+/// already set; the async load then re-assigns it and opens the inspector, as
+/// the real view does.
+private struct PrepAutoOpenInspectorHarness: View {
+    let meeting: Meeting
+    let prep: String
+    let onOpen: () -> Void
+    @State private var isInspectorPresented = false
+    @State private var inspectorTab: InspectorTab = .prep
+    @State private var prepMarkdown: String?
+
+    init(meeting: Meeting, prep: String, onOpen: @escaping () -> Void) {
+        self.meeting = meeting
+        self.prep = prep
+        self.onOpen = onOpen
+        _prepMarkdown = State(initialValue: prep)
+    }
+
+    var body: some View {
+        ToastMarkdownEditor(text: .constant("Notes"), placeholder: "Type your notes here...")
+            .padding(CasaSpace.lg)
+            .inspector(isPresented: $isInspectorPresented) {
+                NotesEditorInspector(
+                    meeting: meeting,
+                    prepPresentation: MeetingPrepPresentation(markdown: prepMarkdown, isExpanded: isInspectorPresented),
+                    inspectorTab: $inspectorTab
+                )
+                .stableSplitColumnMinimumSize()
+                .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
+            }
+            .task(id: meeting.id) {
+                let source = MeetingPrepService.PrepSource(candidateURLs: [], localNotes: prep)
+                let markdown = await Task.detached { MeetingPrepService.resolvedPrepMarkdown(from: source) }.value
+                prepMarkdown = markdown
+                let decision = PrepInspectorAutoOpenDecision(
+                    isEnabled: true,
+                    hasPrep: MeetingPrepService.hasPrepContent(markdown),
+                    isFocusModeActive: false
+                )
+                if decision.shouldOpenPrep {
+                    inspectorTab = .prep
+                    isInspectorPresented = true
+                    onOpen()
+                }
+            }
     }
 }
 

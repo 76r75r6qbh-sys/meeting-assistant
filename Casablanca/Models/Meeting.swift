@@ -43,6 +43,9 @@ enum AppPreferenceKey {
     static let includeUnassignedActionItems = "includeUnassignedActionItems"
     static let teamsAutoRecordEnabled = "teamsAutoRecordEnabled"
     static let teamsAutoRecordStopWhenCallEnds = "teamsAutoRecordStopWhenCallEnds"
+    /// Open the notes inspector on its Prep tab when a meeting with prep is
+    /// opened. Default on.
+    static let autoOpenMeetingPrep = "autoOpenMeetingPrep"
 }
 
 enum AppPreferenceValue {

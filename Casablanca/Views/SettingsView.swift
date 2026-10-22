@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
     @AppStorage(AppPreferenceKey.userNameAliases) private var userNameAliases = ""
     @AppStorage(AppPreferenceKey.includeUnassignedActionItems) private var includeUnassignedActionItems = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
     @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
@@ -168,7 +169,14 @@ struct SettingsView: View {
 
                 Text(prepTodoStorage == .obsidian
                     ? "Prep notes are read from your Obsidian vault and todos sync to and from your vault."
-                    : "Prep notes are hidden. Todos are stored only inside Casablanca.")
+                    : "Prep notes and todos are stored only inside Casablanca.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Open meeting prep automatically in notes", isOn: $autoOpenMeetingPrep)
+
+                Text("When a meeting has prep, its notes open with the Prep panel showing. Not in focus mode.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
