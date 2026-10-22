@@ -20,7 +20,11 @@ struct RecordedMeetingView: View {
     private var terminologyService: TerminologyService { appModel.terminologyService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
     private var exportStatusCenter: ExportStatusCenter { appModel.exportStatusCenter }
-    @State private var didTriggerAutomaticSummary = false
+    /// The meeting the automatic summary was already requested for. Keyed by
+    /// id, not a Bool: ContentView shows every completed meeting in this same
+    /// view instance, so a Bool set for meeting A kept B from ever
+    /// auto-summarizing.
+    @State private var automaticSummaryTriggeredFor: UUID?
     @State private var selectedTab: DetailTab = .summary
     // Real initial value is owned by `.onChange(of: widthClass, initial: true)`,
     // which opens the inspector only when the window is wide enough.
@@ -84,6 +88,14 @@ struct RecordedMeetingView: View {
             }
         }
         .task(id: meeting.id) {
+            // This view instance is reused across completed meetings, so the
+            // per-meeting state is reset here rather than by `.id(meeting.id)`,
+            // which would also rebuild the inspector and reset its visibility,
+            // the selected tab and the scroll position on every navigation.
+            // A pending debounced save is let run (not cancelled): it saves the
+            // previous meeting's edit, and the next edit must not cancel it.
+            isEditingNotes = false
+            saveTask = nil
             terminologyService.clearWarning()
             await triggerAutomaticSummaryIfNeeded()
         }
@@ -476,17 +488,36 @@ struct RecordedMeetingView: View {
     }
 
     private func triggerAutomaticSummaryIfNeeded() async {
-        guard !didTriggerAutomaticSummary,
-              autoSummarizeAfterTranscription,
-              meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-              meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-        else {
+        guard AutomaticSummaryTrigger.shouldTrigger(
+            meetingID: meeting.id,
+            alreadyTriggeredFor: automaticSummaryTriggeredFor,
+            isEnabled: autoSummarizeAfterTranscription,
+            transcript: meeting.transcript,
+            summary: meeting.summary
+        ) else {
             return
         }
 
-        didTriggerAutomaticSummary = true
+        automaticSummaryTriggeredFor = meeting.id
         // Runs in a service-owned background task — keeps going if the user
         // leaves this screen, and silently saves extracted to-dos on completion.
         summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
+    }
+}
+
+/// Whether the detail view should request the automatic summary for a meeting.
+/// Pure, so the per-meeting rule is testable without SwiftUI.
+enum AutomaticSummaryTrigger {
+    static func shouldTrigger(
+        meetingID: UUID,
+        alreadyTriggeredFor: UUID?,
+        isEnabled: Bool,
+        transcript: String?,
+        summary: String?
+    ) -> Bool {
+        guard isEnabled, alreadyTriggeredFor != meetingID else { return false }
+        let hasTranscript = transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasSummary = summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        return hasTranscript && !hasSummary
     }
 }

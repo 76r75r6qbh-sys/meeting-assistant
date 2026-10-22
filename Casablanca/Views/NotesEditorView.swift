@@ -17,7 +17,11 @@ struct NotesEditorView: View {
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
     @State private var saveTask: Task<Void, Never>?
-    @State private var didTriggerStart = false
+    /// The meeting this view already asked the controller to start. Keyed by
+    /// id, not a Bool: ContentView reuses this view instance across workspace
+    /// meetings, and a flag left set by meeting A made a later Record on
+    /// meeting B a silent no-op (status `.recording`, nothing capturing).
+    @State private var startTriggeredForMeetingID: UUID?
     @State private var prepMarkdown: String?
     // Native trailing inspector hosting Prep + To-Dos as tabs. Resizing and the
     // toggle state are handled by AppKit (smooth + HIG-compliant).
@@ -164,7 +168,10 @@ struct NotesEditorView: View {
         .onDisappear {
             interruptionCoordinator?.bind(meeting: nil)
         }
-        .task(id: autoStartRecording) {
+        // Keyed by meeting too: moving between two meetings that both want
+        // capture must re-run it. A start for a meeting already capturing (or
+        // in flight via the Teams monitor) is a no-op/joined by the controller.
+        .task(id: AutoStartKey(meetingID: meeting.id, autoStart: autoStartRecording)) {
             guard autoStartRecording else { return }
             recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startRecordingIfNeeded()
@@ -173,7 +180,7 @@ struct NotesEditorView: View {
             if recordingActionPhase == .start {
                 Button("Retry") {
                     recordingService.clearError()
-                    didTriggerStart = false
+                    startTriggeredForMeetingID = nil
                     Task {
                         await startRecordingIfNeeded()
                     }
@@ -198,6 +205,11 @@ struct NotesEditorView: View {
         } message: {
             Text(recordingService.errorMessage ?? "Unable to start recording.")
         }
+    }
+
+    private struct AutoStartKey: Hashable {
+        let meetingID: UUID
+        let autoStart: Bool
     }
 
     private var presentation: MeetingWorkspacePresentation {
@@ -445,20 +457,20 @@ struct NotesEditorView: View {
     }
 
     private func startRecordingIfNeeded() async {
-        guard !didTriggerStart else { return }
+        guard startTriggeredForMeetingID != meeting.id else { return }
 
         if recordingService.isRecording && recordingService.activeMeetingID == meeting.id {
             return
         }
 
         recordingActionPhase = .start
-        didTriggerStart = true
+        startTriggeredForMeetingID = meeting.id
 
         // The controller owns the start (and the status flip), so a start the
         // Teams monitor kicked off for this same meeting is joined, not doubled.
         let outcome = await appModel.recordingController.startRecording(for: meeting, save: { save() })
         if outcome == .failed {
-            didTriggerStart = false
+            startTriggeredForMeetingID = nil
         }
     }
 
