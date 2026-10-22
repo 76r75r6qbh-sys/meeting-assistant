@@ -154,26 +154,37 @@ final class AudioRecordingService {
             // session that overtook us and is still capturing.
             throw RecordingError.resumeOvertaken
         } catch {
-            errorMessage = error.localizedDescription
-            isPreparing = false
-            // Only this call's OWN session, never whatever happens to be
-            // published. Publishing is the last step, so a failure here means
-            // this call published nothing — and the entry guard ran before
-            // `start()`'s suspension point, so another start or resume can have
-            // published in the meantime. Clearing unconditionally nil'd ITS
-            // session (and released ITS idle-sleep assertion), leaving a live
-            // `RecordingSession` with no owner: the next Stop took the
-            // `session == nil` branch, merged the manifest and deleted the
-            // directory that session was still writing into. The identity check
-            // stays as the invariant for any future throw after the publish.
-            if let publishedSession, self.session === publishedSession {
-                session = nil
-                endSleepPrevention()
-                activeMeetingID = nil
-                outputURL = nil
-                isRecording = false
-            }
+            rollBackFailedStart(error, publishedSession: publishedSession)
             throw error
+        }
+    }
+
+    /// The shared failure path of `startRecording` and `resumeRecording`.
+    private func rollBackFailedStart(_ error: Error, publishedSession: RecordingSessionControlling?) {
+        // A cancelled start or resume is the user pressing Stop, not a failure:
+        // `errorMessage` drives a modal, and throwing one at someone who just
+        // stopped the recording would be nonsense. The teardown below still
+        // runs.
+        if !(error is CancellationError) {
+            errorMessage = error.localizedDescription
+        }
+        isPreparing = false
+        // Only this call's OWN session, never whatever happens to be
+        // published. Publishing is the last step, so a failure here means
+        // this call published nothing — and the entry guard ran before
+        // `start()`'s suspension point, so another start or resume can have
+        // published in the meantime. Clearing unconditionally nil'd ITS
+        // session (and released ITS idle-sleep assertion), leaving a live
+        // `RecordingSession` with no owner: the next Stop took the
+        // `session == nil` branch, merged the manifest and deleted the
+        // directory that session was still writing into. The identity check
+        // stays as the invariant for any future throw after the publish.
+        if let publishedSession, self.session === publishedSession {
+            session = nil
+            endSleepPrevention()
+            activeMeetingID = nil
+            outputURL = nil
+            isRecording = false
         }
     }
 
@@ -285,31 +296,7 @@ final class AudioRecordingService {
             // manifest and deleted the directory it was still writing into.
             throw RecordingError.resumeOvertaken
         } catch {
-            // A cancelled resume is the user pressing Stop, not a failure:
-            // `errorMessage` drives a modal, and throwing one at someone who
-            // just stopped the recording would be nonsense. The teardown below
-            // still runs.
-            if !(error is CancellationError) {
-                errorMessage = error.localizedDescription
-            }
-            isPreparing = false
-            // Only this call's OWN session, never whatever happens to be
-            // published. Publishing is the last step, so a failure here means
-            // this call published nothing — and the entry guard ran before
-            // `start()`'s suspension point, so another start or resume can have
-            // published in the meantime. Clearing unconditionally nil'd ITS
-            // session (and released ITS idle-sleep assertion), leaving a live
-            // `RecordingSession` with no owner: the next Stop took the
-            // `session == nil` branch, merged the manifest and deleted the
-            // directory that session was still writing into. The identity check
-            // stays as the invariant for any future throw after the publish.
-            if let publishedSession, self.session === publishedSession {
-                session = nil
-                endSleepPrevention()
-                activeMeetingID = nil
-                outputURL = nil
-                isRecording = false
-            }
+            rollBackFailedStart(error, publishedSession: publishedSession)
             throw error
         }
     }
