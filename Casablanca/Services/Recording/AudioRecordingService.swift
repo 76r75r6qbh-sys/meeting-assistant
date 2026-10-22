@@ -28,6 +28,8 @@ final class AudioRecordingService {
     /// back and ran on to merge and delete the session *before* the in-flight
     /// finalize could append its segment — a short recording plus deleted audio.
     private var pendingFinalize: (sessionID: ObjectIdentifier, task: Task<RecordingResult, Error>)?
+    /// Meetings whose Stop is merging (and will then delete the session).
+    private var mergingMeetingIDs: Set<UUID> = []
 
     private let sessionStore: RecordingResumeSessionStore
     private let makeRecordingSession: RecordingSessionFactory
@@ -86,6 +88,7 @@ final class AudioRecordingService {
         guard session == nil else {
             throw RecordingError.activeRecordingExists
         }
+        try refuseWhileStopping(meeting.id)
 
         isPreparing = true
         errorMessage = nil
@@ -159,6 +162,17 @@ final class AudioRecordingService {
         }
     }
 
+    /// A start or resume for a meeting whose Stop is merging. Thrown as a
+    /// cancellation: the user stopped this recording, so it is neither an
+    /// error modal nor a "Could not resume" toast.
+    private func refuseWhileStopping(_ meetingID: UUID) throws {
+        guard mergingMeetingIDs.contains(meetingID) else { return }
+        Log.recording.notice(
+            "Refusing to start a segment for meeting \(meetingID.uuidString, privacy: .public): its Stop is merging"
+        )
+        throw CancellationError()
+    }
+
     /// The shared failure path of `startRecording` and `resumeRecording`.
     private func rollBackFailedStart(_ error: Error, publishedSession: RecordingSessionControlling?) {
         // A cancelled start or resume is the user pressing Stop, not a failure:
@@ -222,6 +236,7 @@ final class AudioRecordingService {
         guard session == nil else {
             throw RecordingError.activeRecordingExists
         }
+        try refuseWhileStopping(meeting.id)
         guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
             throw RecordingError.noResumableSession
         }
@@ -342,7 +357,12 @@ final class AudioRecordingService {
         }
 
         let finalURL = try makeFinalOutputURL(meeting)
-        // Off the main actor by default (see `mergeInBackground`).
+        // Off the main actor by default (see `mergeInBackground`), so a start
+        // or resume can run while it is awaited: `mergingMeetingIDs` makes
+        // them refuse instead of opening a segment in the directory deleted
+        // right below.
+        mergingMeetingIDs.insert(meeting.id)
+        defer { mergingMeetingIDs.remove(meeting.id) }
         let duration = try await mergeSegments(segmentURLs, finalURL)
         try sessionStore.deleteSession(for: meeting.id)
 
@@ -608,7 +628,10 @@ final class AudioRecordingService {
         meetingID: UUID
     ) async throws {
         let overtaken = self.session != nil
-        guard overtaken || Task.isCancelled else { return }
+        // A Stop that began merging while this start was in flight is about
+        // to delete the directory the segment lives in: as good as cancelled.
+        let stopping = mergingMeetingIDs.contains(meetingID)
+        guard overtaken || stopping || Task.isCancelled else { return }
 
         _ = try? await session.stop()
         if overtaken {
