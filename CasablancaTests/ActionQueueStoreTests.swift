@@ -450,6 +450,53 @@ final class ActionQueueStoreTests: XCTestCase {
         return makeDefaults(path: queueURL.path)
     }
 
+    // MARK: - Concurrent writers
+
+    /// A Claude skill appends an item while the app is between reading and
+    /// writing the queue: the app's decision must land on top of the skill's
+    /// version instead of overwriting it with the stale copy.
+    func testMutationRetriesOnTopOfAConcurrentWrite() throws {
+        let defaults = try seedSingle()
+        var invocations = 0
+
+        try ActionQueueStore.mutate(userDefaults: defaults) { doc in
+            invocations += 1
+            if invocations == 1 {
+                // The other process rewrites the file after our read.
+                try self.write("""
+                {"version": 1, "items": [
+                  {"id": "AQ-1", "kind": "draft", "title": "Item one", "status": "pending", "body": "original body"},
+                  {"id": "AQ-2", "kind": "draft", "title": "Added by skill", "status": "pending"}
+                ]}
+                """)
+            }
+            guard let index = doc.items.firstIndex(where: { $0.id == "AQ-1" }) else { return false }
+            doc.items[index].status = .approved
+            return true
+        }
+
+        XCTAssertEqual(invocations, 2)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items.map(\.id), ["AQ-1", "AQ-2"])
+        XCTAssertEqual(doc.items.first?.status, .approved)
+    }
+
+    func testMutationGivesUpWhenTheFileNeverSettles() throws {
+        let defaults = try seedSingle()
+        var invocations = 0
+
+        XCTAssertThrowsError(
+            try ActionQueueStore.mutate(userDefaults: defaults) { doc in
+                invocations += 1
+                try self.write(#"{"version": 1, "items": [], "updatedAt": "2026-05-30T09:0\#(invocations):00Z"}"#)
+                return true
+            }
+        ) { error in
+            XCTAssertEqual(error as? ActionQueueStore.StoreError, .concurrentModification)
+        }
+        XCTAssertEqual(invocations, ActionQueueStore.maxWriteAttempts)
+    }
+
     func testApproveSetsStatusAndDecidedAt() throws {
         let defaults = try seedSingle()
         try ActionQueueStore.approve(id: "AQ-1", userDefaults: defaults)
