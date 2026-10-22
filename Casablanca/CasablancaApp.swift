@@ -321,6 +321,12 @@ final class AppModel {
         // First and synchronous: before any suspension point, so an editor that
         // appears while the rest of bootstrap awaits already finds it.
         installRecordingInterruptionHandling()
+        // Every stop path (editor, notification, Teams auto-stop) ends the
+        // interruption bookkeeping once, here — the windowless ones used to
+        // skip it, so a later wake could try to resume a stopped meeting.
+        recordingController.onMeetingStopped = { [weak self] _ in
+            self?.interruptionCoordinator?.notifyMeetingTransitioned(to: .processing)
+        }
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
         installMeetingStartNotifications()
@@ -589,6 +595,11 @@ final class AppModel {
         }
         guard let meeting = meetingListViewModel.findOrCreateMeeting(for: event),
               let context = meetingListViewModel.currentModelContext else { return }
+        // Its Stop is merging: the status is the Stop's to set.
+        guard !recordingController.isStopInFlight(for: meeting.id) else {
+            Log.recording.notice("Ignoring start-recording notification: that meeting is being stopped.")
+            return
+        }
         meetingListViewModel.beginRecording(for: meeting)
         // Don't fire the prompt again for this meeting.
         meetingStartNotifier.cancel(eventIdentifier: eventIdentifier)
@@ -730,14 +741,24 @@ final class AppModel {
 
 extension AppModel: TeamsAutoRecordHost {
     var isRecordingBusy: Bool {
-        recordingService.isRecording || recordingService.isPreparing || recordingController.isStartInFlight
+        recordingController.isBusyForNewRecording
     }
 
     var isRecording: Bool { recordingService.isRecording }
 
     var activeRecordingMeetingID: UUID? { recordingService.activeMeetingID }
 
-    var selectedMeetingStatus: MeetingStatus? { meetingListViewModel.selectedMeeting?.status }
+    /// A selected meeting whose Stop is in flight reads as `.processing`: its
+    /// status stays `.recording` until the merge finishes, and the user is
+    /// usually looking at exactly the meeting they just stopped.
+    var selectedMeetingStatus: MeetingStatus? {
+        guard let selected = meetingListViewModel.selectedMeeting else { return nil }
+        return recordingController.isStopInFlight(for: selected.id) ? .processing : selected.status
+    }
+
+    func isStopInFlight(meetingID: UUID) -> Bool {
+        recordingController.isStopInFlight(for: meetingID)
+    }
 
     func teamsCallCandidates() -> [TeamsCallEventCandidate] {
         calendarService.events.compactMap(TeamsCallEventCandidate.init(event:))
@@ -753,7 +774,10 @@ extension AppModel: TeamsAutoRecordHost {
         var meeting: Meeting?
         if let eventIdentifier, let event = calendarService.event(withIdentifier: eventIdentifier) {
             let existing = viewModel.findOrCreateMeeting(for: event)
-            if let existing, TeamsAutoRecordPolicy.canRecordInto(existingStatus: existing.status) {
+            if let existing, TeamsAutoRecordPolicy.canRecordInto(
+                existingStatus: existing.status,
+                isStopInFlight: recordingController.isStopInFlight(for: existing.id)
+            ) {
                 meeting = existing
             } else {
                 meeting = viewModel.createManualMeeting(title: "\(event.title ?? "Teams call") (continued)")
@@ -788,7 +812,17 @@ extension AppModel: TeamsAutoRecordHost {
         case .failed:
             autoRecordNotifier.post(
                 title: "Could not record the Teams call",
-                body: recordingService.errorMessage ?? "The recording did not start."
+                // The controller's own message, never the service's
+                // `errorMessage`: that can be a stale error from earlier.
+                body: recordingController.lastStartFailureMessage ?? "The recording did not start."
+            )
+            return nil
+        case .refusedWhileStopping:
+            // Only reachable for a meeting whose Stop began after the check
+            // above; its status is the Stop's to set.
+            autoRecordNotifier.post(
+                title: "Could not record the Teams call",
+                body: "“\(meeting.title)” was being stopped."
             )
             return nil
         case .alreadyRecording, .alreadyStarting:

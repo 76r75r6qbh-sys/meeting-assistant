@@ -44,4 +44,23 @@ final class PerMeetingViewStateTests: XCTestCase {
             transcript: "Hello", summary: "Done"
         ))
     }
+
+    // MARK: - Editor Stop is per meeting
+
+    /// The reported bug: Stop on A, then the reused editor shows B — B must
+    /// not show finalizing chrome, and B's Stop must not be swallowed.
+    func testStopOnMeetingADoesNotFinalizeOrBlockMeetingB() {
+        var gate = EditorStopGate()
+        XCTAssertTrue(gate.begin(meetingA))
+        XCTAssertTrue(gate.isFinalizing(meetingA))
+        XCTAssertFalse(gate.isFinalizing(meetingB))
+        XCTAssertTrue(gate.begin(meetingB), "B's Stop runs while A's is in flight")
+        XCTAssertFalse(gate.begin(meetingA), "A double-click on A is ignored")
+
+        gate.end(meetingA)
+        XCTAssertFalse(gate.isFinalizing(meetingA))
+        XCTAssertTrue(gate.isFinalizing(meetingB))
+        gate.end(meetingB)
+        XCTAssertEqual(gate, EditorStopGate())
+    }
 }

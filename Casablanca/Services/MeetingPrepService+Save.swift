@@ -42,6 +42,21 @@ extension MeetingPrepService {
         return LoadedPrep(markdown: meeting.localPrepNotes, sourceURL: nil)
     }
 
+    /// The outcome of a save: the text written, and what the editor should
+    /// treat as loaded from now on (so the next save merges against it).
+    struct SavedPrep: Equatable {
+        let markdown: String
+        let loaded: LoadedPrep
+        /// Set when the editor's prep did not come from the vault but a vault
+        /// prep file appeared meanwhile (a skill wrote one): the editor's text
+        /// was appended to that file under `adoptedSeparator`, never over it.
+        let adoptedVaultFile: URL?
+    }
+
+    /// Heads the editor's text when it is appended to a vault prep file the
+    /// editor did not load (see `savePrepAndReload`).
+    static let adoptedSeparator = "\n\n---\n\n<!-- Added from Casablanca's prep editor -->\n\n"
+
     /// Saves the editor's `markdown`. In Obsidian mode it writes back to the
     /// file it was loaded from (else the canonical Prep path), merging task
     /// lines changed on disk since `loaded` (see the type comment). Returns the
@@ -54,25 +69,77 @@ extension MeetingPrepService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws -> String {
+        try savePrepAndReload(
+            markdown, loaded: loaded, for: meeting, userDefaults: userDefaults, fileManager: fileManager
+        ).markdown
+    }
+
+    /// `savePrep`, plus the state the editor should hold afterwards.
+    ///
+    /// Zero data loss when the editor's prep did not come from a vault file
+    /// (`loaded` is nil or came from `localPrepNotes`) but one exists now — the
+    /// meeting-brief skill writes `- Prep.md` while the app is open: that file
+    /// is never overwritten. If it has prose, the editor's text is appended
+    /// after `adoptedSeparator` (skipped when empty or already contained), the
+    /// editor's text is also kept in `localPrepNotes`, and the vault file
+    /// becomes the editor's source from then on.
+    static func savePrepAndReload(
+        _ markdown: String,
+        loaded: LoadedPrep?,
+        for meeting: Meeting,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) throws -> SavedPrep {
         guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian,
-              let url = loaded?.sourceURL ?? prepURL(for: meeting, userDefaults: userDefaults) else {
+              let url = loaded?.sourceURL
+                ?? existingVaultPrepURL(for: meeting, userDefaults: userDefaults)
+                ?? prepURL(for: meeting, userDefaults: userDefaults) else {
             meeting.localPrepNotes = markdown
-            return markdown
+            return SavedPrep(markdown: markdown, loaded: LoadedPrep(markdown: markdown, sourceURL: nil), adoptedVaultFile: nil)
         }
 
         var output = markdown
+        var adopted: URL?
         if fileManager.fileExists(atPath: url.path) {
             // Never treat an unreadable file as empty: that would overwrite it.
             let onDisk = try String(contentsOf: url, encoding: .utf8)
-            let baseline = loaded?.sourceURL == nil ? "" : (loaded?.markdown ?? "")
-            if onDisk != baseline {
-                output = mergingDiskTasks(into: markdown, onDisk: onDisk, baseline: baseline)
+            let hasDiskProse = !onDisk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if loaded?.sourceURL == nil, hasDiskProse {
+                // Not the file the editor loaded: keep it whole, add ours below.
+                meeting.localPrepNotes = markdown
+                output = appendingEditorText(markdown, to: onDisk)
+                adopted = url
+                Log.export.notice(
+                    "Prep save: a vault prep file appeared since the editor loaded; appended instead of overwriting \(url.lastPathComponent, privacy: .public)"
+                )
+            } else {
+                let baseline = loaded?.sourceURL == nil ? "" : (loaded?.markdown ?? "")
+                if onDisk != baseline {
+                    output = mergingDiskTasks(into: markdown, onDisk: onDisk, baseline: baseline)
+                }
             }
         } else {
             try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         }
         try output.write(to: url, atomically: true, encoding: .utf8)
-        return output
+        return SavedPrep(markdown: output, loaded: LoadedPrep(markdown: output, sourceURL: url), adoptedVaultFile: adopted)
+    }
+
+    /// The first non-empty prep candidate already in the vault — the file
+    /// `loadPrep` would read now.
+    private static func existingVaultPrepURL(for meeting: Meeting, userDefaults: UserDefaults) -> URL? {
+        guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults) else { return nil }
+        return files.prepCandidates.first { url in
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private static func appendingEditorText(_ editorText: String, to onDisk: String) -> String {
+        let trimmed = editorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !onDisk.contains(trimmed) else { return onDisk }
+        let base = onDisk.hasSuffix("\n") ? String(onDisk.dropLast()) : onDisk
+        return base + adoptedSeparator + trimmed + "\n"
     }
 
     /// Pure merge step of `savePrep`; exposed for tests.
