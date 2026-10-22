@@ -74,6 +74,28 @@ struct RecordingResumeSessionStore {
         return session
     }
 
+    /// Records a capture setting changed mid-recording. The resume after a
+    /// sleep builds its segment from the manifest, so a mic switch or a system
+    /// audio toggle that never reached it was silently undone on wake. `nil`
+    /// leaves that setting as it is.
+    func updateSettings(
+        for meetingID: UUID,
+        systemAudioEnabled: Bool? = nil,
+        selectedInputDeviceID: String? = nil
+    ) throws {
+        guard var session = try loadSession(for: meetingID) else {
+            throw RecordingResumeSessionStoreError.sessionNotFound(meetingID)
+        }
+        if let systemAudioEnabled {
+            session.systemAudioEnabled = systemAudioEnabled
+        }
+        if let selectedInputDeviceID {
+            session.selectedInputDeviceID = selectedInputDeviceID
+        }
+        session.updatedAt = Date()
+        try persist(session)
+    }
+
     func nextSegmentURL(for meetingID: UUID, segmentNumber: Int) throws -> URL {
         try sessionDirectory(for: meetingID)
             .appendingPathComponent(String(format: "segment-%03d.wav", segmentNumber))

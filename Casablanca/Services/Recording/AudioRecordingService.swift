@@ -463,6 +463,7 @@ final class AudioRecordingService {
             try session?.setMicrophoneDevice(device.deviceID)
             selectedInputDeviceID = device.id
             interruptionMonitor?.setActiveInputDevice(device.id)
+            persistActiveSettings(selectedInputDeviceID: device.id)
         } catch {
             errorMessage = error.localizedDescription
             refreshInputDevices()
@@ -472,6 +473,20 @@ final class AudioRecordingService {
     func toggleSystemAudioEnabled() {
         isSystemAudioEnabled.toggle()
         session?.setSystemAudioEnabled(isSystemAudioEnabled)
+        persistActiveSettings(systemAudioEnabled: isSystemAudioEnabled)
+    }
+
+    /// Writes a setting changed mid-recording to the resume manifest, so the
+    /// resume after a sleep continues with it instead of the start's settings.
+    private func persistActiveSettings(systemAudioEnabled: Bool? = nil, selectedInputDeviceID: String? = nil) {
+        guard session != nil, let activeMeetingID else { return }
+        bestEffort("persist changed recording settings", Log.recording) {
+            try sessionStore.updateSettings(
+                for: activeMeetingID,
+                systemAudioEnabled: systemAudioEnabled,
+                selectedInputDeviceID: selectedInputDeviceID
+            )
+        }
     }
 
     static func availableRecordingInputDevices() -> [AudioInputDevice] {

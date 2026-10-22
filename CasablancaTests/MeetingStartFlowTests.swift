@@ -1814,6 +1814,69 @@ final class StopRecordingErrorPathTests: XCTestCase {
     }
 }
 
+/// A setting changed mid-recording has to reach the resume manifest: the
+/// resume after a sleep builds its segment from the manifest, and used to
+/// revert to whatever the recording was started with.
+@MainActor
+final class MidRecordingSettingsPersistenceTests: XCTestCase {
+    private func makeService(store: RecordingResumeSessionStore) -> AudioRecordingService {
+        AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+    }
+
+    func testSystemAudioToggleWhileRecordingIsWrittenToTheManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Toggle", date: .now, status: .recording)
+        let service = makeService(store: store)
+        let initial = service.isSystemAudioEnabled
+
+        try await service.startRecording(for: meeting)
+        service.toggleSystemAudioEnabled()
+
+        XCTAssertEqual(try store.loadSession(for: meeting.id)?.systemAudioEnabled, !initial)
+    }
+
+    func testMicrophoneSwitchWhileRecordingIsWrittenToTheManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Switch", date: .now, status: .recording)
+        let service = makeService(store: store)
+        guard let target = service.availableInputDevices.first(where: { $0.id != service.selectedInputDeviceID })
+            ?? service.availableInputDevices.first
+        else {
+            throw XCTSkip("No audio input device on this machine")
+        }
+
+        try await service.startRecording(for: meeting)
+        try store.updateSettings(for: meeting.id, selectedInputDeviceID: "something-else")
+        await service.selectInputDevice(target.id)
+
+        XCTAssertEqual(try store.loadSession(for: meeting.id)?.selectedInputDeviceID, target.id)
+    }
+
+    func testChangingSettingsWithoutARecordingWritesNoManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let service = makeService(store: store)
+
+        service.toggleSystemAudioEnabled()
+
+        XCTAssertEqual(try store.meetingIDs(), [])
+    }
+}
+
 private final class FakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
     let outputURL: URL
     let startedAt = Date()
