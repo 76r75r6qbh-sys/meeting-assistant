@@ -327,7 +327,10 @@ final class RecordingSession: NSObject, RecordingSessionControlling, @unchecked 
         let microphoneUnit = MicrophoneCaptureUnit(
             inputDeviceID: initialInputDeviceID,
             onLevel: { buffer in levelAggregator.publishMicrophoneLevel(from: buffer) },
-            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) }
+            onBuffer: { buffer in microphoneWriter.enqueue(buffer: buffer) },
+            // A mic engine that could not come back after a hardware format
+            // change is as fatal as a dead SCStream: pause, don't record silence.
+            onFatal: onStreamFatal
         )
         let systemAudioUnit = SystemAudioCaptureUnit(
             pipeline: pipeline,
