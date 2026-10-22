@@ -27,8 +27,13 @@ struct NotesEditorView: View {
     // toggle state are handled by AppKit (smooth + HIG-compliant).
     @State private var isInspectorPresented = false
     @State private var inspectorTab: InspectorTab = .prep
-    @State private var isFinalizingRecording = false
+    /// Which meeting's Stop this view is finalizing. Keyed, not a Bool: the
+    /// view is reused across meetings, and a flag left set by A's stop showed
+    /// finalizing chrome on B and turned B's Stop into a no-op.
+    @State private var stopGate = EditorStopGate()
     @State private var recordingActionPhase: RecordingActionPhase = .start
+
+    private var isFinalizingRecording: Bool { stopGate.isFinalizing(meeting.id) }
 
     var body: some View {
         ZStack {
@@ -134,6 +139,9 @@ struct NotesEditorView: View {
         }
         .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
         .task(id: meeting.id) {
+            // The previous meeting's last action (its Stop, say) must not pick
+            // this meeting's error-alert buttons.
+            recordingActionPhase = .start
             interruptionCoordinator?.bind(meeting: meeting)
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
             // Never show the previous meeting's prep while this one loads.
@@ -477,23 +485,18 @@ struct NotesEditorView: View {
     }
 
     private func stopRecording() async {
-        guard !isFinalizingRecording else { return }
-
+        // `meeting` is the one on screen now; by the time the stop returns the
+        // view may show another, so everything below is keyed by this id.
+        let meetingID = meeting.id
+        guard stopGate.begin(meetingID) else { return }
         recordingActionPhase = .stop
-        isFinalizingRecording = true
+        defer { stopGate.end(meetingID) }
 
-        do {
-            // `nil`: a stop for this meeting is already running elsewhere (the
-            // Teams monitor's auto-stop); it moves the meeting on by itself.
-            guard try await appModel.recordingController.stopRecording(for: meeting, save: { save() }) != nil else {
-                isFinalizingRecording = false
-                return
-            }
-            interruptionCoordinator?.notifyMeetingTransitioned(to: .processing)
-        } catch {
-            // The controller already surfaced the error and reset the status.
-            isFinalizingRecording = false
-        }
+        // `nil`: a stop for this meeting is already running elsewhere (the
+        // Teams monitor's auto-stop); it moves the meeting on by itself. On
+        // success the controller ends the interruption bookkeeping; on failure
+        // it has already surfaced the error and reset the status.
+        _ = try? await appModel.recordingController.stopRecording(for: meeting, save: { save() })
     }
 
     /// Loads the meeting's prep (vault file, else local prep notes) and, once
@@ -576,5 +579,26 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
+    }
+}
+
+/// The editor's Stop, per meeting. One editor instance shows many meetings in
+/// turn, so "a stop is finalizing" has to say which meeting: A's stop still in
+/// flight must neither show finalizing chrome on B nor swallow B's Stop.
+struct EditorStopGate: Equatable {
+    private(set) var finalizingMeetingIDs: Set<UUID> = []
+
+    func isFinalizing(_ meetingID: UUID) -> Bool { finalizingMeetingIDs.contains(meetingID) }
+
+    /// Claims the stop for `meetingID`. False when that meeting's stop is
+    /// already running (a double-click). A stop for another meeting still in
+    /// flight does not block it.
+    mutating func begin(_ meetingID: UUID) -> Bool {
+        finalizingMeetingIDs.insert(meetingID).inserted
+    }
+
+    /// Ends `meetingID`'s stop, whatever happened to the others.
+    mutating func end(_ meetingID: UUID) {
+        finalizingMeetingIDs.remove(meetingID)
     }
 }
