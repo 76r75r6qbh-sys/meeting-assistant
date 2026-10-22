@@ -356,23 +356,6 @@ final class MeetingListViewModel {
         try modelContext.save()
     }
 
-    func dayLabel(for date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE, MMMM d, yyyy"
-            return "Today \u{00B7} \(formatter.string(from: date))"
-        } else if calendar.isDateInTomorrow(date) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE, MMMM d, yyyy"
-            return "Tomorrow \u{00B7} \(formatter.string(from: date))"
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE, MMMM d, yyyy"
-            return formatter.string(from: date)
-        }
-    }
-
     func isNextUpcoming(_ event: EKEvent) -> Bool {
         let now = Date()
         return event.startDate > now && calendarService.events

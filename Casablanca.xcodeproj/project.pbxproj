@@ -98,7 +98,6 @@
 		A10012 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* SidebarView.swift */; };
 		A10013 /* NotesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NotesEditorView.swift */; };
 		A10014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* SettingsView.swift */; };
-		A10016 /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* RecordingView.swift */; };
 		A10017 /* AudioLevelMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* AudioLevelMeterView.swift */; };
 		A10018 /* RecordedMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* RecordedMeetingView.swift */; };
 		A10019 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* TranscriptionService.swift */; };
@@ -111,8 +110,6 @@
 		A10026 /* TodoItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TodoItem.swift */; };
 		A10027 /* SummaryResponseParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* SummaryResponseParser.swift */; };
 		A10028 /* SummaryResponseParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028 /* SummaryResponseParserTests.swift */; };
-		A10029 /* PendingTodoReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029 /* PendingTodoReview.swift */; };
-		A10030 /* TodoReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* TodoReviewSheet.swift */; };
 		A10031 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TodosView.swift */; };
 		A10032 /* MarkdownConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* MarkdownConverter.swift */; };
 		A10033 /* MarkdownEditorBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MarkdownEditorBundleTests.swift */; };
@@ -393,7 +390,6 @@
 		B10013 /* NotesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesEditorView.swift; sourceTree = "<group>"; };
 		B10014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10015 /* Casablanca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Casablanca.entitlements; sourceTree = "<group>"; };
-		B10017 /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
 		B10018 /* AudioLevelMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelMeterView.swift; sourceTree = "<group>"; };
 		B10019 /* RecordedMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordedMeetingView.swift; sourceTree = "<group>"; };
 		B10020 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
@@ -405,8 +401,6 @@
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
 		B10027 /* SummaryResponseParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParser.swift; sourceTree = "<group>"; };
 		B10028 /* SummaryResponseParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryResponseParserTests.swift; sourceTree = "<group>"; };
-		B10029 /* PendingTodoReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTodoReview.swift; sourceTree = "<group>"; };
-		B10030 /* TodoReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewSheet.swift; sourceTree = "<group>"; };
 		B10031 /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
 		B10032 /* MarkdownConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownConverter.swift; sourceTree = "<group>"; };
 		B10033 /* MarkdownEditorBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorBundleTests.swift; sourceTree = "<group>"; };
@@ -720,7 +714,6 @@
 				B10003 /* Meeting.swift */,
 				B10260 /* CasablancaSchema.swift */,
 				B10026 /* TodoItem.swift */,
-				B10029 /* PendingTodoReview.swift */,
 				B10053 /* AppPreferences.swift */,
 				42DC02442B940A212DC35C19 /* ActionQueue.swift */,
 				F6A6F0A2654F3EDF84DB2B13 /* ActionCardBodies */,
@@ -802,12 +795,10 @@
 				B10013 /* NotesEditorView.swift */,
 				E10200 /* NotesEditor */,
 				E10210 /* MeetingDetail */,
-				B10017 /* RecordingView.swift */,
 				B10019 /* RecordedMeetingView.swift */,
 				B10021 /* TranscriptionView.swift */,
 				B10025 /* MenuBarMeetingView.swift */,
 				B10014 /* SettingsView.swift */,
-				B10030 /* TodoReviewSheet.swift */,
 				B10031 /* TodosView.swift */,
 				E10011 /* Components */,
 				78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */,
@@ -1208,7 +1199,6 @@
 				A10619 /* SystemAudioCaptureUnit.swift in Sources */,
 				A1061A /* RecordingMixdownRenderer.swift in Sources */,
 				A1061B /* RecordingCompressor.swift in Sources */,
-				A10016 /* RecordingView.swift in Sources */,
 				A10017 /* AudioLevelMeterView.swift in Sources */,
 				A10018 /* RecordedMeetingView.swift in Sources */,
 				A10019 /* TranscriptionService.swift in Sources */,
@@ -1226,8 +1216,6 @@
 				A10027 /* SummaryResponseParser.swift in Sources */,
 				A10100 /* MeetingTimeBucket.swift in Sources */,
 				A10102 /* MeetingSearchIndex.swift in Sources */,
-				A10029 /* PendingTodoReview.swift in Sources */,
-				A10030 /* TodoReviewSheet.swift in Sources */,
 				A10031 /* TodosView.swift in Sources */,
 				A10032 /* MarkdownConverter.swift in Sources */,
 				A10600 /* Logging.swift in Sources */,
