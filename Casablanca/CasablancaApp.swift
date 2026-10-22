@@ -252,6 +252,7 @@ final class AppModel {
     private var teamsAutoRecordCoordinator: TeamsAutoRecordCoordinator?
     private let autoRecordNotifier = RecordingNotificationCenter()
     private let housekeeping: UpdateLaunchHousekeeping
+    @ObservationIgnored private var bootstrapGate = RunOnceGate()
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init() {
@@ -306,7 +307,11 @@ final class AppModel {
         )
     }
 
+    /// Launch work, run once per process. It is called from the main window's
+    /// `.task`, which fires again every time the window is reopened from the
+    /// menu bar; the gate turns those later calls into no-ops.
     func bootstrap(modelContext: ModelContext? = nil) async {
+        guard bootstrapGate.claim() else { return }
         housekeeping.runOnLaunch()
         registerSentinelCleanup()
         installMeetingStartNotifications()
