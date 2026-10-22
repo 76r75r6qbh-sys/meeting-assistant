@@ -42,8 +42,27 @@ enum ObsidianTodoMarkdown {
         """
     }
 
-    static func renderMeetingDocument(_ markdown: String, actionItems: [TaskLine]) -> String {
-        let replacementLines = meetingSectionLines(tasks: actionItems)
+    /// Non-task lines under `## Action Items` (outer blank lines trimmed), or
+    /// nil when the markdown has no such heading.
+    static func meetingActionItemsNonTaskLines(_ markdown: String) -> [String]? {
+        let lines = markdown.components(separatedBy: .newlines)
+        guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == "## Action Items" }) else {
+            return nil
+        }
+        var nonTaskLines = section(named: "Action Items", from: markdown)
+            .components(separatedBy: .newlines)
+            .filter { parseTaskLine($0) == nil }
+        while nonTaskLines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { nonTaskLines.removeFirst() }
+        while nonTaskLines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { nonTaskLines.removeLast() }
+        return nonTaskLines
+    }
+
+    static func renderMeetingDocument(_ markdown: String, actionItems: [TaskLine], trailingLines: [String] = []) -> String {
+        var replacementLines = meetingSectionLines(tasks: actionItems)
+        if !trailingLines.isEmpty {
+            replacementLines.append("")
+            replacementLines.append(contentsOf: trailingLines)
+        }
         let lines = markdown.components(separatedBy: .newlines)
 
         guard let startIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "## Action Items" }) else {

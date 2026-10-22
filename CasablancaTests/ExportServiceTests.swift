@@ -66,6 +66,99 @@ final class ExportServiceTests: XCTestCase {
         XCTAssertEqual(ObsidianMeetingExporter.tagsFrontmatterLine(for: empty), "")
     }
 
+    // MARK: - Action Items kept in the Notes file survive a re-export
+
+    private static let actionItemsFixture = """
+    # Raw Notes
+
+    ## Freeform Notes
+
+    old notes
+
+    ## Action Items
+
+    - [ ] Send roadmap <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->
+    - [x] Book room <!-- casablanca-todo: 660E8400-E29B-41D4-A716-446655440000 -->
+    """
+
+    func testExportCompletedMeetingPreservesActionItemsInExistingNotesFile() throws {
+        let defaults = makeGuardedDefaults()
+        let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.userNotes = "new notes"
+        meeting.summary = "A summary."
+        let notesURL = try existingNotesURL(for: meeting, defaults: defaults, contents: Self.actionItemsFixture)
+
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+
+        let markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("new notes"))
+        XCTAssertFalse(markdown.contains("old notes"))
+        XCTAssertTrue(markdown.contains("## Action Items"))
+        XCTAssertTrue(markdown.contains("- [ ] Send roadmap <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->"))
+        XCTAssertTrue(markdown.contains("- [x] Book room <!-- casablanca-todo: 660E8400-E29B-41D4-A716-446655440000 -->"))
+    }
+
+    func testExportRawNotesPreservesActionItemsInExistingNotesFile() throws {
+        let defaults = makeGuardedDefaults()
+        let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.userNotes = "new notes"
+        let notesURL = try existingNotesURL(for: meeting, defaults: defaults, contents: Self.actionItemsFixture)
+
+        _ = try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults)
+
+        let markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("new notes"))
+        XCTAssertTrue(markdown.contains("- [ ] Send roadmap <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->"))
+        XCTAssertTrue(markdown.contains("- [x] Book room <!-- casablanca-todo: 660E8400-E29B-41D4-A716-446655440000 -->"))
+    }
+
+    func testExportWithoutExistingActionItemsWritesSameOutputAsFreshExport() throws {
+        let defaults = makeGuardedDefaults()
+        let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.userNotes = "new notes"
+
+        let fresh = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        let freshMarkdown = try String(contentsOf: fresh.notesURL, encoding: .utf8)
+        XCTAssertFalse(freshMarkdown.contains("## Action Items"))
+
+        try "# Stale\n\n## Freeform Notes\n\nold notes".write(to: fresh.notesURL, atomically: true, encoding: .utf8)
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        XCTAssertEqual(try String(contentsOf: fresh.notesURL, encoding: .utf8), freshMarkdown)
+
+        try "# Stale".write(to: fresh.notesURL, atomically: true, encoding: .utf8)
+        _ = try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults)
+        let rawMarkdown = try String(contentsOf: fresh.notesURL, encoding: .utf8)
+        XCTAssertFalse(rawMarkdown.contains("## Action Items"))
+        XCTAssertFalse(rawMarkdown.contains("# Stale"))
+    }
+
+    /// A Notes file that exists but cannot be read must fail the export, not be
+    /// treated as absent and overwritten (which would wipe its Action Items).
+    func testExportThrowsAndLeavesUnreadableNotesFileUntouched() throws {
+        let defaults = makeGuardedDefaults()
+        let meeting = Meeting(title: "Weekly Sync", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.userNotes = "new notes"
+        let notesURL = try existingNotesURL(for: meeting, defaults: defaults, contents: "")
+        let invalidUTF8 = Data([0x23, 0x20, 0xFF, 0xFE, 0xFD, 0x0A])
+        try invalidUTF8.write(to: notesURL)
+
+        XCTAssertThrowsError(try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults))
+        XCTAssertEqual(try Data(contentsOf: notesURL), invalidUTF8)
+
+        XCTAssertThrowsError(try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults))
+        XCTAssertEqual(try Data(contentsOf: notesURL), invalidUTF8)
+    }
+
+    /// Seeds the meeting's Notes file in the scratch vault and returns its URL.
+    private func existingNotesURL(for meeting: Meeting, defaults: UserDefaults, contents: String) throws -> URL {
+        let directory = try XCTUnwrap(ObsidianMeetingFiles.meetingNotesDirectory(userDefaults: defaults))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("\(meeting.obsidianFileName) - Notes.md")
+        TestVaultGuard.assertTemporary(url, "seeded notes file")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     /// Export through `ExportService` (so the routing + injection path is
     /// exercised) and hand back the raw-notes markdown, asserting on the way
     /// that nothing landed outside the scratch vault.

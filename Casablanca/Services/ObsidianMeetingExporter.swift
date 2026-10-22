@@ -12,8 +12,11 @@ enum ObsidianMeetingExporter {
         let summaryURL = summaryURL(for: meeting, in: directory)
         let shouldExportSummary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
-        try rawNotesMarkdown(for: meeting, summaryFileName: shouldExportSummary ? summaryURL.deletingPathExtension().lastPathComponent : nil)
-            .write(to: notesURL, atomically: true, encoding: .utf8)
+        try preservingActionItems(
+            in: notesURL,
+            rawNotesMarkdown(for: meeting, summaryFileName: shouldExportSummary ? summaryURL.deletingPathExtension().lastPathComponent : nil)
+        )
+        .write(to: notesURL, atomically: true, encoding: .utf8)
 
         if shouldExportSummary {
             try summaryMarkdown(for: meeting, notesFileName: notesURL.deletingPathExtension().lastPathComponent)
@@ -30,10 +33,36 @@ enum ObsidianMeetingExporter {
         let directory = try meetingNotesDirectory(userDefaults: userDefaults)
         let notesURL = rawNotesURL(for: meeting, in: directory)
 
-        try rawNotesMarkdown(for: meeting, summaryFileName: nil)
+        try preservingActionItems(in: notesURL, rawNotesMarkdown(for: meeting, summaryFileName: nil))
             .write(to: notesURL, atomically: true, encoding: .utf8)
 
         return ExportResult(summaryURL: nil, notesURL: notesURL)
+    }
+
+    /// The Notes file doubles as the meeting's todo file when there is no Prep
+    /// file (`ObsidianMeetingFiles.canonicalTodoWriteURL`), so a re-export must
+    /// carry over the `## Action Items` already on disk. The file as it is now is
+    /// the source of truth: deletes and toggles have already been written there.
+    /// Only a missing file counts as "nothing to keep"; any other read failure
+    /// throws so the export fails instead of overwriting the file.
+    private static func preservingActionItems(in notesURL: URL, _ markdown: String) throws -> String {
+        guard FileManager.default.fileExists(atPath: notesURL.path) else { return markdown }
+        let existing = try String(contentsOf: notesURL, encoding: .utf8)
+        let actionItems = ObsidianTodoMarkdown.parseMeetingActionItems(existing)
+        guard !actionItems.isEmpty else { return markdown }
+
+        // The user's own notes carry an `## Action Items` heading: merge, so
+        // newly typed tasks and the lines around them are not dropped.
+        guard let typedNonTaskLines = ObsidianTodoMarkdown.meetingActionItemsNonTaskLines(markdown) else {
+            return ObsidianTodoMarkdown.renderMeetingDocument(markdown, actionItems: actionItems)
+        }
+        let knownTexts = Set(actionItems.map(\.text))
+        let typedTasks = ObsidianTodoMarkdown.parseMeetingActionItems(markdown).filter { !knownTexts.contains($0.text) }
+        return ObsidianTodoMarkdown.renderMeetingDocument(
+            markdown,
+            actionItems: actionItems + typedTasks,
+            trailingLines: typedNonTaskLines
+        )
     }
 
     // MARK: - Private (moved verbatim from ExportService)

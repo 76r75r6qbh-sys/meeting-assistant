@@ -177,6 +177,112 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertTrue(todos[0].isCompleted)
     }
 
+    /// Regression: with no Prep file, meeting todos live in the Notes file, and an
+    /// auto-export after a notes edit used to rewrite that file without its
+    /// Action Items. The next new todo then made refresh delete the old rows.
+    func testNotesFileTodosSurviveAutoExportAndLaterNewTodo() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        meeting.userNotes = "first note"
+        context.insert(meeting)
+        try context.save()
+
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Todo A", meeting: meeting, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Todo B", meeting: meeting, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        let todoA = try XCTUnwrap(context.fetch(FetchDescriptor<TodoItem>()).first { $0.text == "Todo A" })
+        try ObsidianTodoSyncService.setCompleted(true, for: todoA, in: context, userDefaults: defaults)
+
+        meeting.userNotes += "\nedited"
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Todo C", meeting: meeting, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>(sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(todos.map(\.text), ["Todo A", "Todo B", "Todo C"])
+        XCTAssertEqual(todos.map(\.isCompleted), [true, false, false])
+        XCTAssertEqual(todos[0].id, todoA.id)
+
+        let notesURL = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults)).notesURL
+        let markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("edited"))
+    }
+
+    /// Preservation reads the file as it is on disk, which the delete path has
+    /// already rewritten, so a deleted todo must not come back on re-export.
+    func testTodoDeletedInAppStaysDeletedAfterReExport() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Keep me", meeting: meeting, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Delete me", meeting: meeting, in: context, userDefaults: defaults)
+        let doomed = try XCTUnwrap(context.fetch(FetchDescriptor<TodoItem>()).first { $0.text == "Delete me" })
+
+        try ObsidianTodoSyncService.deleteTodo(doomed, in: context, userDefaults: defaults)
+        meeting.userNotes = "edited after delete"
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        _ = try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(todos.map(\.text), ["Keep me"])
+        let notesURL = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults)).notesURL
+        let markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("Keep me"))
+        XCTAssertFalse(markdown.contains("Delete me"))
+        XCTAssertTrue(markdown.contains("edited after delete"))
+    }
+
+    /// When the user's own notes contain an `## Action Items` heading, the export
+    /// merges instead of replacing: file todos keep ID and state, newly typed
+    /// tasks are added, and non-task lines under the heading are kept.
+    func testExportMergesUserTypedActionItemsHeadingWithExistingTodos() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "Ask Bob", meeting: meeting, in: context, userDefaults: defaults)
+        let bob = try XCTUnwrap(context.fetch(FetchDescriptor<TodoItem>()).first)
+        try ObsidianTodoSyncService.setCompleted(true, for: bob, in: context, userDefaults: defaults)
+
+        meeting.userNotes = "## Action Items\n- [ ] Ask Carol\nsome paragraph"
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+
+        let notesURL = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults)).notesURL
+        var markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("- [x] Ask Bob <!-- casablanca-todo: \(bob.id.uuidString.uppercased()) -->"))
+        XCTAssertTrue(markdown.contains("- [ ] Ask Carol"))
+        XCTAssertTrue(markdown.contains("some paragraph"))
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        let todos = try context.fetch(FetchDescriptor<TodoItem>(sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(todos.map(\.text), ["Ask Bob", "Ask Carol"])
+        XCTAssertEqual(todos[0].id, bob.id)
+        XCTAssertTrue(todos[0].isCompleted)
+
+        // A later save must not duplicate Carol now that the file carries her ID.
+        _ = try ObsidianMeetingExporter.exportRawNotes(meeting, userDefaults: defaults)
+        markdown = try String(contentsOf: notesURL, encoding: .utf8)
+        XCTAssertEqual(markdown.components(separatedBy: "Ask Carol").count - 1, 1)
+        XCTAssertTrue(markdown.contains("some paragraph"))
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<TodoItem>()), 2)
+    }
+
     private func makeVault() throws -> URL {
         makeScratchVault("todo-sync")
     }
