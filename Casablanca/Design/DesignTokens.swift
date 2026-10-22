@@ -68,8 +68,8 @@ enum CasaLayout {
     static let inspectorColumnMaxWidth: CGFloat = 560
     /// Narrowest window in which an open inspector fits beside a full-width
     /// sidebar and the detail column's minimum. `layoutInspectorBreakpoint`
-    /// must not be below this (enforced by a test), so the notes or reading
-    /// column never gets less than `detailColumnMinWidth` beside an inspector.
+    /// must not be below this (enforced by a test); the panel additionally caps
+    /// its width so the column beside it keeps `detailColumnMinWidth`.
     static let inspectorMinimumWindowWidth: CGFloat = sidebarMaxWidth + detailColumnMinWidth + inspectorColumnMinWidth
     static let popoverWidth: CGFloat = 288
 
@@ -176,13 +176,20 @@ private struct InspectorPanelModifier<Inspector: View>: ViewModifier {
     @State private var draggedWidth: CGFloat?
     @State private var dragStartWidth: CGFloat?
     @State private var isHoveringHandle = false
+    /// Width the detail column gives content + panel together.
+    @State private var availableWidth: CGFloat?
 
     private var isShown: Bool {
         isPresented && (!respectsWidthClass || widthClass.allowsInspector)
     }
 
+    /// The ideal or dragged width, within the inspector limits, and never so
+    /// wide that the content beside it gets less than `detailColumnMinWidth`.
     private var panelWidth: CGFloat {
-        Self.clamped(draggedWidth ?? idealWidth)
+        let width = Self.clamped(draggedWidth ?? idealWidth)
+        guard let availableWidth else { return width }
+        let roomLeft = availableWidth - CasaLayout.detailColumnMinWidth - 1
+        return min(width, max(CasaLayout.inspectorColumnMinWidth, roomLeft))
     }
 
     func body(content: Content) -> some View {
@@ -193,6 +200,8 @@ private struct InspectorPanelModifier<Inspector: View>: ViewModifier {
                 .stableSplitColumnMinimumSize()
             if isShown {
                 resizeHandle
+                    // Above the panel, so its full hit area reaches the handle.
+                    .zIndex(1)
                 inspector()
                     .frame(width: panelWidth)
                     .frame(maxHeight: .infinity)
@@ -200,6 +209,13 @@ private struct InspectorPanelModifier<Inspector: View>: ViewModifier {
             }
         }
         .animation(reduceMotion ? nil : CasaAnimation.fast, value: isShown)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
+                    availableWidth = width
+                }
+            }
+        }
     }
 
     /// A hairline divider with a wider invisible hit area that drags the
