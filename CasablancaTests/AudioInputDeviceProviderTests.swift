@@ -106,6 +106,85 @@ final class AudioInputDeviceProviderTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    // MARK: - Persisted IDs (UIDs, with legacy numeric fallback)
+
+    func testStoredUIDResolvesEvenWhenTheAudioDeviceIDChanged() {
+        // Reconnected: same UID, new AudioDeviceID.
+        let devices = [
+            device(id: "BuiltInMicrophoneDevice", deviceID: 91),
+            device(id: "AppleUSBAudioEngine:Jabra:1", deviceID: 140),
+        ]
+        let resolved = AudioRecordingService.resolveInputDevice("AppleUSBAudioEngine:Jabra:1", in: devices)
+        XCTAssertEqual(resolved?.deviceID, 140)
+    }
+
+    func testLegacyNumericIDStillResolvesWhileItMatches() {
+        let devices = [device(id: "BuiltInMicrophoneDevice", deviceID: 91)]
+        XCTAssertEqual(AudioRecordingService.resolveInputDevice("91", in: devices)?.id, "BuiltInMicrophoneDevice")
+    }
+
+    func testStaleLegacyNumericIDResolvesToNothing() {
+        let devices = [device(id: "BuiltInMicrophoneDevice", deviceID: 91)]
+        XCTAssertNil(AudioRecordingService.resolveInputDevice("57", in: devices))
+        XCTAssertNil(AudioRecordingService.resolveInputDevice("", in: devices))
+        XCTAssertNil(AudioRecordingService.resolveInputDevice(nil, in: devices))
+    }
+
+    func testLegacyNumericPreferenceIsHonouredAsTheMatchingUID() {
+        let devices = [
+            device(id: "BuiltInMicrophoneDevice", deviceID: 91),
+            device(id: "AppleUSBAudioEngine:Jabra:1", deviceID: 140),
+        ]
+        let result = AudioRecordingService.preferredInputDeviceID(
+            in: devices,
+            storedPreference: "140",
+            defaultDeviceIDProvider: { 91 }
+        )
+        XCTAssertEqual(result, "AppleUSBAudioEngine:Jabra:1")
+    }
+
+    /// The segment of a stale ID records from the system default, so device
+    /// loss must watch the default -- not the stale ID, which reads as "gone"
+    /// on the next device-list change and hard-pauses a healthy recording.
+    func testMonitoringFallsBackToTheSystemDefaultForAStaleID() {
+        let devices = [
+            device(id: "BuiltInMicrophoneDevice", deviceID: 91),
+            device(id: "AppleUSBAudioEngine:Jabra:1", deviceID: 140),
+        ]
+        let monitored = AudioRecordingService.monitoredInputDeviceID(
+            forStoredID: "57",
+            in: devices,
+            defaultDeviceID: 91,
+            fallback: "AppleUSBAudioEngine:Jabra:1"
+        )
+        XCTAssertEqual(monitored, "BuiltInMicrophoneDevice")
+    }
+
+    func testMonitoringUsesTheResolvedUID() {
+        let devices = [device(id: "AppleUSBAudioEngine:Jabra:1", deviceID: 140)]
+        XCTAssertEqual(
+            AudioRecordingService.monitoredInputDeviceID(
+                forStoredID: "140",
+                in: devices,
+                defaultDeviceID: nil,
+                fallback: "x"
+            ),
+            "AppleUSBAudioEngine:Jabra:1"
+        )
+    }
+
+    func testMonitoringWithoutAnyMatchUsesTheFallback() {
+        XCTAssertEqual(
+            AudioRecordingService.monitoredInputDeviceID(
+                forStoredID: "57",
+                in: [],
+                defaultDeviceID: 91,
+                fallback: "current"
+            ),
+            "current"
+        )
+    }
+
     // MARK: - First-match semantics
 
     func testSystemDefaultPicksFirstMatchingDeviceIDInListOrder() {

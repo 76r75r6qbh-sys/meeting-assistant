@@ -222,6 +222,9 @@ final class AudioRecordingService {
         var publishedSession: RecordingSessionControlling?
 
         do {
+            // The wake path: the device list (and every `AudioDeviceID` in it)
+            // may have changed while the Mac slept.
+            refreshInputDevices()
             // The manifest counter alone is not enough: it can point at a
             // number whose WAV or raw PCM is still on disk (a crash mid-segment,
             // a manifest write that never landed). Reserving probes the
@@ -260,7 +263,14 @@ final class AudioRecordingService {
             // Continue the timer from the total already recorded in earlier
             // segments so resuming doesn't reset the display to 00:00.
             startTimer(from: session.startedAt, baseElapsed: persisted.segments.reduce(0) { $0 + $1.duration })
-            interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
+            interruptionMonitor?.setActiveInputDevice(
+                Self.monitoredInputDeviceID(
+                    forStoredID: persisted.selectedInputDeviceID ?? selectedInputDeviceID,
+                    in: availableInputDevices,
+                    defaultDeviceID: Self.defaultInputDeviceID(),
+                    fallback: selectedInputDeviceID
+                )
+            )
             surfaceSystemAudioFallbackIfNeeded(session)
             Log.recording.notice(
                 "Recording resumed for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
@@ -439,7 +449,7 @@ final class AudioRecordingService {
             return
         }
 
-        if let selected = devices.first(where: { $0.id == selectedInputDeviceID }) {
+        if let selected = Self.resolveInputDevice(selectedInputDeviceID, in: devices) {
             selectedInputDeviceID = selected.id
             return
         }
@@ -628,7 +638,14 @@ final class AudioRecordingService {
         systemAudioEnabled: Bool
     ) throws -> RecordingSessionControlling {
         let effectiveInputDeviceID = selectedInputDeviceID ?? self.selectedInputDeviceID
-        let audioDeviceID = availableInputDevices.first(where: { $0.id == effectiveInputDeviceID })?.deviceID
+        // Unresolvable (unplugged, or a legacy numeric ID gone stale across a
+        // reboot) records from the system default rather than failing.
+        let audioDeviceID = Self.resolveInputDevice(effectiveInputDeviceID, in: availableInputDevices)?.deviceID
+        if audioDeviceID == nil, !effectiveInputDeviceID.isEmpty {
+            Log.recording.notice(
+                "Input device \(effectiveInputDeviceID, privacy: .public) is not available; recording from the system default input"
+            )
+        }
         // Identifies the session this callback belongs to. Filled in below,
         // because the session is what the factory returns — the closure cannot
         // capture it directly. Weak, so the box never keeps a finished session
