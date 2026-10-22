@@ -2,11 +2,12 @@ import SwiftUI
 
 /// Self-authored preparation mode: write meeting prep in-app before a meeting.
 ///
-/// Loads any existing prep (`MeetingPrepService.loadPrepMarkdown` → falls back
-/// to `meeting.localPrepNotes`), edits it with the shared markdown editor +
+/// Loads any existing prep (`MeetingPrepService.loadPrep` → falls back to
+/// `meeting.localPrepNotes`), edits it with the shared markdown editor +
 /// formatting toolbar + appearance controls, and saves it back via
-/// `MeetingPrepService.writePrep` (vault `- Prep.md` when storage is Obsidian,
-/// else `meeting.localPrepNotes`). Designed to be presented as a `.sheet`.
+/// `MeetingPrepService.savePrep` (the vault `- Prep.md` it was loaded from when
+/// storage is Obsidian, merging to-dos written there meanwhile; else
+/// `meeting.localPrepNotes`). Designed to be presented as a `.sheet`.
 struct PrepEditorView: View {
     let meeting: Meeting
     /// Begin recording for this meeting. When non-nil the primary button reads
@@ -31,6 +32,9 @@ struct PrepEditorView: View {
     /// `NativeMarkdownEditor` when that editor is on screen; nil otherwise.
     @State private var nativeFormatter: MarkdownEditorFormatter?
     @State private var didLoad = false
+    /// What was loaded and from which file, so `save()` writes back there and
+    /// can merge to-dos written to that file meanwhile.
+    @State private var loadedPrep: MeetingPrepService.LoadedPrep?
     @State private var saveError: String?
     @State private var isDrafting = false
     @State private var draftError: String?
@@ -409,15 +413,16 @@ struct PrepEditorView: View {
     private func loadIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
-        let existing = MeetingPrepService.loadPrepMarkdown(for: meeting)
-            ?? (meeting.localPrepNotes.isEmpty ? nil : meeting.localPrepNotes)
-        prepText = existing ?? ""
+        loadedPrep = MeetingPrepService.loadPrep(for: meeting)
+        prepText = loadedPrep?.markdown ?? ""
         previousMeeting = MeetingSeriesResolver.previousOccurrence(of: meeting, in: modelContext)
     }
 
+    /// Writes back to the file the prep was loaded from, keeping to-dos that
+    /// were added to (or toggled in) that file while the editor was open.
     private func save() {
         do {
-            try MeetingPrepService.writePrep(prepText, for: meeting)
+            prepText = try MeetingPrepService.savePrep(prepText, loaded: loadedPrep, for: meeting)
         } catch {
             saveError = error.localizedDescription
         }
