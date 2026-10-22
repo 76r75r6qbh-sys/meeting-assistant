@@ -38,6 +38,7 @@ enum CasaAnimation {
 enum CasaLayout {
     static let sidebarWidth: CGFloat = 220
     static let sidebarMinWidth: CGFloat = 200
+    static let sidebarMaxWidth: CGFloat = 260
     static let sidebarCollapsedWidth: CGFloat = 60
     static let sidebarItemHeight: CGFloat = 28
     static let toolbarHeight: CGFloat = 52
@@ -61,6 +62,15 @@ enum CasaLayout {
     /// At/above this window width the meeting-detail trailing inspector is shown
     /// by default; below it the inspector hides so the sidebar stays visible.
     static let layoutInspectorBreakpoint: CGFloat = 880
+    /// Width limits of the trailing inspector panel (`widthGatedInspector`:
+    /// notes workspace Prep/To-Dos, recorded-meeting details).
+    static let inspectorColumnMinWidth: CGFloat = 260
+    static let inspectorColumnMaxWidth: CGFloat = 560
+    /// Narrowest window in which an open inspector fits beside a full-width
+    /// sidebar and the detail column's minimum. `layoutInspectorBreakpoint`
+    /// must not be below this (enforced by a test); the panel additionally caps
+    /// its width so the column beside it keeps `detailColumnMinWidth`.
+    static let inspectorMinimumWindowWidth: CGFloat = sidebarMaxWidth + detailColumnMinWidth + inspectorColumnMinWidth
     static let popoverWidth: CGFloat = 288
 
     // Modal / sheet widths — standard tiers so sheets don't carry magic numbers.
@@ -83,6 +93,164 @@ enum LayoutWidthClass {
         if width < CasaLayout.layoutSidebarBreakpoint { return .compact }
         if width < CasaLayout.layoutInspectorBreakpoint { return .regular }
         return .expanded
+    }
+
+    /// Whether a trailing inspector may be open at this width. Only `.expanded`
+    /// is wide enough (see `CasaLayout.inspectorMinimumWindowWidth`).
+    var allowsInspector: Bool { self == .expanded }
+}
+
+private struct LayoutWidthClassKey: EnvironmentKey {
+    static let defaultValue: LayoutWidthClass = .expanded
+}
+
+extension EnvironmentValues {
+    /// The main window's responsive width tier, published by ContentView to its
+    /// detail column. Defaults to `.expanded` outside the split (previews, tests).
+    var layoutWidthClass: LayoutWidthClass {
+        get { self[LayoutWidthClassKey.self] }
+        set { self[LayoutWidthClassKey.self] = newValue }
+    }
+}
+
+// MARK: - Width-Gated Inspector
+
+extension View {
+    /// A trailing inspector panel beside this view, shown only while the window
+    /// is wide enough to hold it (`LayoutWidthClass.allowsInspector`).
+    ///
+    /// Deliberately not SwiftUI's `.inspector`: inside the NavigationSplitView's
+    /// detail column that is a nested `NSSplitView` whose Auto Layout minimums
+    /// (content column + inspector column) are hard constraints SwiftUI does not
+    /// report through the detail column's (constant) minimum size. Whenever the
+    /// window offers the detail column less than that -- shrinking toward the
+    /// window minimum, the sidebar collapsing or expanding at the compact
+    /// breakpoint -- the two split views fight over the width and re-dirty the
+    /// constraint pass until AppKit aborts ("more Update Constraints in Window
+    /// passes than there are views"). A width gate alone does not prevent that:
+    /// it follows the window width a run-loop turn late, and the attached
+    /// nested split re-dirties the pass even while collapsed. This panel is
+    /// plain SwiftUI layout inside the detail column, so the only split view
+    /// left is the sidebar's, whose column minimums are constant.
+    ///
+    /// `isPresented` is the user's intent: it is never cleared by the gate, so
+    /// an inspector opened (or auto-opened) while the window is too narrow
+    /// shows once the window is wide enough again.
+    func widthGatedInspector<Inspector: View>(
+        isPresented: Binding<Bool>,
+        idealWidth: CGFloat,
+        @ViewBuilder content: @escaping () -> Inspector
+    ) -> some View {
+        modifier(InspectorPanelModifier(
+            isPresented: isPresented,
+            idealWidth: idealWidth,
+            respectsWidthClass: true,
+            inspector: content
+        ))
+    }
+
+    /// The same trailing panel without the width gate. Only for tests that
+    /// prove the panel itself keeps the split stable at every window width.
+    func ungatedInspectorPanel<Inspector: View>(
+        isPresented: Binding<Bool>,
+        idealWidth: CGFloat,
+        @ViewBuilder content: @escaping () -> Inspector
+    ) -> some View {
+        modifier(InspectorPanelModifier(
+            isPresented: isPresented,
+            idealWidth: idealWidth,
+            respectsWidthClass: false,
+            inspector: content
+        ))
+    }
+}
+
+private struct InspectorPanelModifier<Inspector: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let idealWidth: CGFloat
+    let respectsWidthClass: Bool
+    let inspector: () -> Inspector
+    @Environment(\.layoutWidthClass) private var widthClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The user's dragged width; nil until the first drag (then `idealWidth`).
+    @State private var draggedWidth: CGFloat?
+    @State private var dragStartWidth: CGFloat?
+    @State private var isHoveringHandle = false
+    /// Width the detail column gives content + panel together.
+    @State private var availableWidth: CGFloat?
+
+    private var isShown: Bool {
+        isPresented && (!respectsWidthClass || widthClass.allowsInspector)
+    }
+
+    /// The ideal or dragged width, within the inspector limits, and never so
+    /// wide that the content beside it gets less than `detailColumnMinWidth`.
+    private var panelWidth: CGFloat {
+        let width = Self.clamped(draggedWidth ?? idealWidth)
+        guard let availableWidth else { return width }
+        let roomLeft = availableWidth - CasaLayout.detailColumnMinWidth - 1
+        return min(width, max(CasaLayout.inspectorColumnMinWidth, roomLeft))
+    }
+
+    func body(content: Content) -> some View {
+        HStack(spacing: 0) {
+            // Constant minimum, so neither the notes editor nor the panel can
+            // push a content-derived minimum into the split's constraint pass.
+            content
+                .stableSplitColumnMinimumSize()
+            if isShown {
+                resizeHandle
+                    // Above the panel, so its full hit area reaches the handle.
+                    .zIndex(1)
+                inspector()
+                    .frame(width: panelWidth)
+                    .frame(maxHeight: .infinity)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : CasaAnimation.fast, value: isShown)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
+                    availableWidth = width
+                }
+            }
+        }
+    }
+
+    /// A hairline divider with a wider invisible hit area that drags the
+    /// panel's width between the inspector limits.
+    private var resizeHandle: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        guard inside != isHoveringHandle else { return }
+                        isHoveringHandle = inside
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .onDisappear {
+                        // Hidden while hovered (window narrowed, toggle): no exit event comes.
+                        if isHoveringHandle { NSCursor.pop() }
+                        isHoveringHandle = false
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                let start = dragStartWidth ?? panelWidth
+                                dragStartWidth = start
+                                draggedWidth = Self.clamped(start - value.translation.width)
+                            }
+                            .onEnded { _ in dragStartWidth = nil }
+                    )
+            }
+            .accessibilityHidden(true)
+    }
+
+    private static func clamped(_ width: CGFloat) -> CGFloat {
+        min(max(width, CasaLayout.inspectorColumnMinWidth), CasaLayout.inspectorColumnMaxWidth)
     }
 }
 
