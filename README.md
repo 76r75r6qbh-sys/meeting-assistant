@@ -11,6 +11,9 @@ Casablanca is a macOS meeting assistant for capturing notes during meetings, rec
 - Summary generation through a selectable LLM provider — a local model via Ollama (default) or oMLX, or Claude Code (headless `claude -p`, no API key) — with per-provider endpoint / CLI-path and model settings and optional oMLX API-key authentication
 - Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
 - Optional Local-only mode for prep notes and todos (no Obsidian vault required)
+- **Teams call recording** — optionally starts recording when a Microsoft Teams call starts (filed under the calendar event that is running) and stops it when the call ends
+- **Prep at hand** — a meeting's prep opens automatically beside the notes
+- **Your own to-dos only** — only action items assigned to you (Settings → Action Items → Your name(s)) become to-dos
 - **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
 
 ### New in `v0.8.0`
