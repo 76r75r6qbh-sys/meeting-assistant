@@ -41,6 +41,8 @@ enum AppPreferenceKey {
     static let meetingStartNotificationLeadTime = "meetingStartNotificationLeadTime"
     static let userNameAliases = "userNameAliases"
     static let includeUnassignedActionItems = "includeUnassignedActionItems"
+    static let teamsAutoRecordEnabled = "teamsAutoRecordEnabled"
+    static let teamsAutoRecordStopWhenCallEnds = "teamsAutoRecordStopWhenCallEnds"
 }
 
 enum AppPreferenceValue {

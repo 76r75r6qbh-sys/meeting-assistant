@@ -244,12 +244,20 @@ final class AppModel {
     let applicationsLocationCheck: ApplicationsLocationCheck
     let notificationCoordinator = AppNotificationCoordinator()
     let meetingStartNotifier: MeetingStartNotifier
+    /// The one place capture starts and stops, shared by the editor view and
+    /// the Teams monitor so either works with no window open.
+    let recordingController: MeetingRecordingController
+    let teamsCallMonitor = TeamsCallMonitor(source: CoreAudioTeamsActivitySource())
+    /// Created on first enable: it holds `self` (weakly) as its host.
+    private var teamsAutoRecordCoordinator: TeamsAutoRecordCoordinator?
+    private let autoRecordNotifier = RecordingNotificationCenter()
     private let housekeeping: UpdateLaunchHousekeeping
     private let logger = Logger(subsystem: "nl.medicore.casablanca", category: "update")
 
     init() {
         meetingListViewModel = MeetingListViewModel(calendarService: calendarService)
         meetingStartNotifier = MeetingStartNotifier(calendarService: calendarService)
+        recordingController = MeetingRecordingController(recordingService: recordingService)
 
         let paths = UpdatePaths.default
         housekeeping = UpdateLaunchHousekeeping(paths: paths)
@@ -307,6 +315,10 @@ final class AppModel {
         // crash/force-quit would otherwise spin forever. Nothing is running at
         // launch, so downgrade them off `.processing`.
         if let modelContext {
+            // The windowless recording paths (Teams auto-record, notification
+            // Stop) persist through the list view model; give it the context
+            // now rather than relying on a view having appeared first.
+            meetingListViewModel.setModelContext(modelContext)
             recoverStaleProcessingMeetings(modelContext: modelContext)
             // Then the recording half: session directories a crash left behind,
             // and the meetings stuck in `.recording`/`.pausedRecording` on top
@@ -331,6 +343,9 @@ final class AppModel {
         // Schedule prompts for whatever is already loaded (fetchUpcomingEvents
         // also fires onEventsRefreshed, but cover the no-access / cached path).
         meetingStartNotifier.reschedule()
+        // After recovery and the calendar fetch, so a call already running at
+        // launch is matched against settled meetings and events.
+        updateTeamsCallMonitoring()
         await applicationsLocationCheck.runOnceIfNeeded()
         updateService.startScheduling()
     }
@@ -508,6 +523,16 @@ final class AppModel {
         notificationCoordinator.onStartRecording = { [weak self] eventIdentifier in
             self?.startRecordingFromNotification(eventIdentifier: eventIdentifier)
         }
+        notificationCoordinator.onStopRecording = { [weak self] meetingID in
+            guard let self else { return }
+            // The notification may outlive its recording: only stop if this
+            // meeting is the one still capturing.
+            guard self.recordingService.isRecording, self.recordingService.activeMeetingID == meetingID else {
+                Log.recording.notice("Ignoring Stop notification: that meeting is no longer recording.")
+                return
+            }
+            Task { await self.stopRecordingWithoutWindow(meetingID: meetingID) }
+        }
         notificationCoordinator.install()
 
         calendarService.onEventsRefreshed = { [weak meetingStartNotifier] in
@@ -520,7 +545,8 @@ final class AppModel {
     /// meeting), otherwise begin recording and cancel the now-redundant prompt.
     private func startRecordingFromNotification(eventIdentifier: String) {
         // Suppression: never start a second recording over an active one.
-        guard !recordingService.isRecording else {
+        // Preparing counts too: a session is not published until it captures.
+        guard !isRecordingBusy else {
             Log.recording.notice("Ignoring start-recording notification: a recording is already active.")
             return
         }
@@ -528,9 +554,85 @@ final class AppModel {
             Log.recording.error("Start-recording notification could not resolve event \(eventIdentifier, privacy: .public).")
             return
         }
-        meetingListViewModel.beginRecording(for: event)
+        guard let meeting = meetingListViewModel.findOrCreateMeeting(for: event),
+              let context = meetingListViewModel.currentModelContext else { return }
+        meetingListViewModel.beginRecording(for: meeting)
         // Don't fire the prompt again for this meeting.
         meetingStartNotifier.cancel(eventIdentifier: eventIdentifier)
+        // Capture used to start only once the editor appeared, so tapping the
+        // prompt with the main window closed recorded nothing. Start it here;
+        // if the editor is showing too, whichever comes second joins the first.
+        recordingService.refreshInputDevices(forcePreferredSelection: true)
+        Task {
+            _ = await recordingController.startRecording(
+                for: meeting,
+                save: { [weak self] in self?.persist(meeting, in: context) }
+            )
+        }
+    }
+
+    // MARK: Teams auto-record
+
+    /// Starts or stops the Teams call monitor to match the preferences: it
+    /// runs while either auto-record or auto-stop is on (auto-stop alone still
+    /// needs to know when a call that overlapped a manual recording ends).
+    /// Called at bootstrap and whenever either Settings toggle changes.
+    func updateTeamsCallMonitoring() {
+        let isNeeded = TeamsAutoRecordPolicy.isMonitorNeeded(
+            autoRecordEnabled: AppPreferences.teamsAutoRecordEnabled(),
+            autoStopEnabled: AppPreferences.teamsAutoRecordStopWhenCallEnds()
+        )
+        if isNeeded {
+            let coordinator = teamsAutoRecordCoordinator ?? TeamsAutoRecordCoordinator(host: self)
+            teamsAutoRecordCoordinator = coordinator
+            teamsCallMonitor.onCallStarted = { Task { await coordinator.callStarted() } }
+            teamsCallMonitor.onCallTick = { coordinator.callTick() }
+            teamsCallMonitor.onCallEnded = { Task { await coordinator.callEnded() } }
+            teamsCallMonitor.start()
+        } else {
+            teamsCallMonitor.stop()
+            teamsAutoRecordCoordinator?.reset()
+        }
+    }
+
+    /// Stops a recording from outside the editor (auto-stop, notification
+    /// Stop) and starts the transcription pipeline itself: with no window open
+    /// there is no `TranscriptionView` to kick it off. If one is showing this
+    /// meeting, its own request is ignored as a duplicate.
+    private func stopRecordingWithoutWindow(meetingID: UUID, notificationTitle: String? = nil) async {
+        guard let meeting = meetingListViewModel.fetchMeeting(byID: meetingID),
+              let context = meetingListViewModel.currentModelContext else {
+            Log.recording.error("Stop without window: meeting \(meetingID.uuidString, privacy: .public) not found")
+            return
+        }
+        do {
+            guard try await recordingController.stopRecording(
+                for: meeting,
+                save: { [weak self] in self?.persist(meeting, in: context) }
+            ) != nil else { return }
+        } catch {
+            autoRecordNotifier.post(title: "Recording could not be stopped", body: error.localizedDescription)
+            return
+        }
+        transcriptionService.transcribeInBackground(
+            meeting: meeting,
+            modelContext: context,
+            terminologyService: terminologyService,
+            exportReporter: exportStatusCenter
+        )
+        autoRecordNotifier.post(
+            title: notificationTitle ?? "Recording stopped — \(meeting.title)",
+            body: notificationTitle == nil ? "Transcribing now." : "“\(meeting.title)” is being transcribed."
+        )
+    }
+
+    /// What the editor's `save()` does: persist, then auto-export if enabled.
+    private func persist(_ meeting: Meeting, in context: ModelContext) {
+        try? context.save()
+        let reporter = exportStatusCenter
+        Task { @MainActor in
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
+        }
     }
 
     private func registerSentinelCleanup() {
@@ -590,6 +692,84 @@ final class AppModel {
     func currentAlertError() -> UpdateError? {
         if case .error(let error, .alert) = updateService.state { return error }
         return nil
+    }
+}
+
+extension AppModel: TeamsAutoRecordHost {
+    var isRecordingBusy: Bool {
+        recordingService.isRecording || recordingService.isPreparing || recordingController.isStartInFlight
+    }
+
+    var isRecording: Bool { recordingService.isRecording }
+
+    var activeRecordingMeetingID: UUID? { recordingService.activeMeetingID }
+
+    var selectedMeetingStatus: MeetingStatus? { meetingListViewModel.selectedMeeting?.status }
+
+    func teamsCallCandidates() -> [TeamsCallEventCandidate] {
+        calendarService.events.compactMap(TeamsCallEventCandidate.init(event:))
+    }
+
+    func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {
+        let viewModel = meetingListViewModel
+        guard let context = viewModel.currentModelContext else {
+            Log.recording.error("Teams auto-record: no model context yet; not recording")
+            return nil
+        }
+
+        var meeting: Meeting?
+        if let eventIdentifier, let event = calendarService.event(withIdentifier: eventIdentifier) {
+            let existing = viewModel.findOrCreateMeeting(for: event)
+            if let existing, TeamsAutoRecordPolicy.canRecordInto(existingStatus: existing.status) {
+                meeting = existing
+            } else {
+                meeting = viewModel.createManualMeeting(title: "\(event.title ?? "Teams call") (continued)")
+            }
+            // Don't prompt to record a meeting that is already being recorded.
+            meetingStartNotifier.cancel(eventIdentifier: eventIdentifier)
+        } else {
+            let title = manualTitle.isEmpty ? TeamsAutoRecordPolicy.manualMeetingTitle(at: Date()) : manualTitle
+            meeting = viewModel.createManualMeeting(title: title)
+        }
+        guard let meeting else { return nil }
+
+        // No suspension point between the status flip and the controller's
+        // reservation: the editor `.task` the selection triggers (window open)
+        // runs on a later turn and finds the start already in flight.
+        // Selecting the meeting never activates the app, so Teams keeps focus.
+        viewModel.beginRecording(for: meeting)
+        recordingService.refreshInputDevices(forcePreferredSelection: true)
+        let outcome = await recordingController.startRecording(
+            for: meeting,
+            save: { [weak self] in self?.persist(meeting, in: context) }
+        )
+        switch outcome {
+        case .started:
+            autoRecordNotifier.post(
+                title: "Recording started — \(meeting.title)",
+                body: "Casablanca detected a Microsoft Teams call.",
+                categoryIdentifier: AppNotificationCoordinator.autoRecordingCategoryID,
+                userInfo: [AppNotificationCoordinator.meetingIDKey: meeting.id.uuidString]
+            )
+            return meeting.id
+        case .failed:
+            autoRecordNotifier.post(
+                title: "Could not record the Teams call",
+                body: recordingService.errorMessage ?? "The recording did not start."
+            )
+            return nil
+        case .alreadyRecording, .alreadyStarting:
+            // Someone else's start: theirs to stop, not ours.
+            return nil
+        }
+    }
+
+    func meetingStatus(id: UUID) -> MeetingStatus? {
+        meetingListViewModel.fetchMeeting(byID: id)?.status
+    }
+
+    func stopRecordingForEndedCall(meetingID: UUID) async {
+        await stopRecordingWithoutWindow(meetingID: meetingID, notificationTitle: "Recording stopped — Teams call ended")
     }
 }
 

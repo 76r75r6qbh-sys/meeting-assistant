@@ -42,10 +42,12 @@
 		3E29EC5FF869299653BB1F2B /* UpdateErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */; };
 		3F1576BE55E53EDE81D70D76 /* DockBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22EFB81075559E07FDBA2410 /* DockBadgeTests.swift */; };
 		405D580DB6CC9FCE6A5D2451 /* ActionBodyParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */; };
+		417E9D3289ACEC06DC1A08D9 /* TeamsAudioActivitySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44536E4AAC3CBEBE0EABBAEB /* TeamsAudioActivitySource.swift */; };
 		43C4F02725FE174F0D9146C5 /* UpdateError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79C7C11A5C52DE2A2694DF3 /* UpdateError.swift */; };
 		4584F76ED0D4069F65BE8870 /* SilentChunkFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3C096FEF404ECA189CEEDA /* SilentChunkFilter.swift */; };
 		4DC0903AB12D1870713DAA6C /* TranscriptionTimingReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE45252DEB27EB25A550D4D /* TranscriptionTimingReportTests.swift */; };
 		516C69B9F96966F24094766A /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5609E4DAE701D3E99C18ED /* CommandRunner.swift */; };
+		53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
 		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
@@ -227,6 +229,7 @@
 		B5266CDC7EFE27EE8647B0AE /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C2220C025C16945CB2AB2F /* UpdateInstaller.swift */; };
 		B5410AFB7ACFB3702A9B7C70 /* ActionQueueModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */; };
 		B68E23B6D59110583203BB20 /* ActionCardBodyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD8687385358413ABB013CE /* ActionCardBodyTests.swift */; };
+		B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */; };
 		BB259792844FF4683B8F7FD7 /* TicketDraftBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */; };
 		BB7624BC29C9CDD2E0EB88BD /* TicketDraftCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2C0929459E2C9A521A42C2 /* TicketDraftCard.swift */; };
 		BE6770583C1B1F8A8C67B418 /* OMLXProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE76844700FCF7A055497BB /* OMLXProvider.swift */; };
@@ -253,6 +256,7 @@
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
 		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
+		E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */; };
 		EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
@@ -262,6 +266,7 @@
 		F3F970EC8BC6BB2C82B51E92 /* TodoCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60674D19219E3089C98327A /* TodoCard.swift */; };
 		F638A49C74CF2B49FDC39E86 /* TranscriptSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */; };
 		F79FE2DA02FA962C69465CB7 /* ActionItemOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */; };
+		F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */; };
 		FC8C73351180353C5404A142 /* JiraMarkupText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C28106F02FDEE32B3DEF38 /* JiraMarkupText.swift */; };
 /* End PBXBuildFile section */
 
@@ -298,6 +303,7 @@
 		23A222AA67614DF883F5F76C /* RefinementPrepCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/RefinementPrepCard.swift; sourceTree = SOURCE_ROOT; };
 		2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitLayoutStabilityTests.swift; sourceTree = SOURCE_ROOT; };
 		245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/PartnerApiReplyBody.swift; sourceTree = SOURCE_ROOT; };
+		28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/MeetingRecordingController.swift; sourceTree = SOURCE_ROOT; };
 		292F4D13FAFB622A7728511B /* WhisperModelRetentionPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelRetentionPolicyTests.swift; sourceTree = "<group>"; };
 		29AC5B3B8FD90B93F8B950AB /* TranscriptSegmentMerger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TranscriptSegmentMerger.swift; sourceTree = "<group>"; };
 		2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionQueueDisplay.swift; sourceTree = SOURCE_ROOT; };
@@ -314,8 +320,10 @@
 		3DE000260E2EB933A458F5BC /* ActionBodyParsing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/ActionBodyParsing.swift; sourceTree = SOURCE_ROOT; };
 		3F3C096FEF404ECA189CEEDA /* SilentChunkFilter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SilentChunkFilter.swift; sourceTree = "<group>"; };
 		42DC02442B940A212DC35C19 /* ActionQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueue.swift; sourceTree = "<group>"; };
+		44536E4AAC3CBEBE0EABBAEB /* TeamsAudioActivitySource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/TeamsAudioActivitySource.swift; sourceTree = SOURCE_ROOT; };
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		478DFBF32F408533A811CEA2 /* RecordingSessionRecoveryCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingSessionRecoveryCoordinator.swift; sourceTree = "<group>"; };
+		47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TeamsAutoRecordTests.swift; sourceTree = SOURCE_ROOT; };
 		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
 		48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
 		4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionSystemAudioFallbackTests.swift; sourceTree = SOURCE_ROOT; };
@@ -344,6 +352,7 @@
 		8851A8BFCD60597DC28A0954 /* PostTranscriptionPipelineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipelineTests.swift; sourceTree = "<group>"; };
 		8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		8E28628B25302DC000E13FC8 /* RecordingResumeAndStopContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeAndStopContractTests.swift; sourceTree = "<group>"; };
+		8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/TeamsCallMonitor.swift; sourceTree = SOURCE_ROOT; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitColumnMinimumSizeProbe.swift; sourceTree = SOURCE_ROOT; };
 		97A0DB917B9C016522E34862 /* RecordingSessionRecoveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingSessionRecoveryTests.swift; sourceTree = "<group>"; };
@@ -526,6 +535,7 @@
 		DA2157A780490BB80B8F29BE /* CompositeLinkedCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/CompositeLinkedCard.swift; sourceTree = SOURCE_ROOT; };
 		DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClient.swift; sourceTree = "<group>"; };
 		DE2308EE9B78AC44C7B41D8E /* UpdateErrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateErrorTests.swift; sourceTree = "<group>"; };
+		E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/TeamsAutoRecordCoordinator.swift; sourceTree = SOURCE_ROOT; };
 		E137BABB61EEA16ED1A5A2C6 /* Casablanca-0.0.1-macOS.zip */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.zip; path = "Casablanca-0.0.1-macOS.zip"; sourceTree = "<group>"; };
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
 		E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheckTests.swift; sourceTree = "<group>"; };
@@ -752,6 +762,7 @@
 				5F665A23474FE05E8763B831 /* DockBadge.swift */,
 				4C90D69BDCEB5CF065A0FD56 /* Transcription */,
 				7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */,
+				E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -933,6 +944,7 @@
 				2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */,
 				9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */,
 				3C9F3B5A9AFE489FB0A521DF /* ActionItemOwnershipTests.swift */,
+				47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -980,6 +992,9 @@
 				2ED040940F5803E66DD0C95A /* SleepPreventer.swift */,
 				B0A3C59D83667C487809FF56 /* RecordingSessionRecovery.swift */,
 				478DFBF32F408533A811CEA2 /* RecordingSessionRecoveryCoordinator.swift */,
+				28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */,
+				44536E4AAC3CBEBE0EABBAEB /* TeamsAudioActivitySource.swift */,
+				8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */,
 			);
 			name = Recording;
 			path = Recording;
@@ -1284,6 +1299,10 @@
 				9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */,
 				4584F76ED0D4069F65BE8870 /* SilentChunkFilter.swift in Sources */,
 				F79FE2DA02FA962C69465CB7 /* ActionItemOwnership.swift in Sources */,
+				B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */,
+				417E9D3289ACEC06DC1A08D9 /* TeamsAudioActivitySource.swift in Sources */,
+				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
+				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1384,6 +1403,7 @@
 				D69B7C5158BA16D36B9215CE /* SplitLayoutStabilityTests.swift in Sources */,
 				DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */,
 				1D617BCDD48D84EC20F3F25F /* ActionItemOwnershipTests.swift in Sources */,
+				53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -55,6 +55,20 @@ enum AppPreferences {
         defaults.bool(forKey: AppPreferenceKey.keepOriginalWAV)
     }
 
+    /// Start a recording automatically when a Microsoft Teams call starts.
+    /// Default `false`: recording a call is something the user opts into.
+    static func teamsAutoRecordEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.teamsAutoRecordEnabled)
+    }
+
+    /// Stop a recording once the Teams call it overlapped ends — auto-started
+    /// or started by hand. Default `true` (absence of the key means on). A
+    /// recording that never overlapped a call is never stopped. Independent of
+    /// `teamsAutoRecordEnabled`.
+    static func teamsAutoRecordStopWhenCallEnds(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: AppPreferenceKey.teamsAutoRecordStopWhenCallEnds) as? Bool ?? true
+    }
+
     static func hasCompletedOnboarding(in defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding)
     }

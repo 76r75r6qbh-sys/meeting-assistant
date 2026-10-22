@@ -441,14 +441,11 @@ struct NotesEditorView: View {
         recordingActionPhase = .start
         didTriggerStart = true
 
-        do {
-            try await recordingService.startRecording(for: meeting)
-            meeting.status = .recording
-            save()
-        } catch {
+        // The controller owns the start (and the status flip), so a start the
+        // Teams monitor kicked off for this same meeting is joined, not doubled.
+        let outcome = await appModel.recordingController.startRecording(for: meeting, save: { save() })
+        if outcome == .failed {
             didTriggerStart = false
-            meeting.status = .notesOnly
-            save()
         }
     }
 
@@ -459,17 +456,16 @@ struct NotesEditorView: View {
         isFinalizingRecording = true
 
         do {
-            let result = try await recordingService.stopRecording(for: meeting)
-            meeting.recordingFileURL = result.outputURL.path
-            meeting.recordingDuration = result.duration
-            meeting.status = .processing
+            // `nil`: a stop for this meeting is already running elsewhere (the
+            // Teams monitor's auto-stop); it moves the meeting on by itself.
+            guard try await appModel.recordingController.stopRecording(for: meeting, save: { save() }) != nil else {
+                isFinalizingRecording = false
+                return
+            }
             interruptionCoordinator?.notifyMeetingTransitioned(to: .processing)
-            save()
         } catch {
+            // The controller already surfaced the error and reset the status.
             isFinalizingRecording = false
-            recordingService.setErrorMessage(error.localizedDescription)
-            meeting.status = recordingService.hasResumableSession(for: meeting.id) ? .pausedRecording : .notesOnly
-            save()
         }
     }
 

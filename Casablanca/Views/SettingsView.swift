@@ -33,6 +33,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @AppStorage(AppPreferenceKey.meetingStartNotificationsEnabled) private var meetingStartNotificationsEnabled = true
     @AppStorage(AppPreferenceKey.meetingStartNotificationLeadTime) private var meetingStartLeadTimeRaw = MeetingStartLeadTime.atStart.rawValue
+    @AppStorage(AppPreferenceKey.teamsAutoRecordEnabled) private var teamsAutoRecordEnabled = false
+    @AppStorage(AppPreferenceKey.teamsAutoRecordStopWhenCallEnds) private var teamsAutoRecordStopWhenCallEnds = true
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
@@ -478,6 +480,29 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Microsoft Teams") {
+                Toggle("Automatically record Microsoft Teams calls", isOn: $teamsAutoRecordEnabled)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Toggle("Stop recording automatically when a Teams call ends", isOn: $teamsAutoRecordStopWhenCallEnds)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Text("Auto-record starts once Teams has used your microphone for a few seconds, without bringing Casablanca to the front. The recording goes to the calendar meeting happening now, or to a new “Teams call” meeting when there is none; nothing starts while another recording is running.\nAuto-stop ends any recording that ran during a Teams call — also one you started yourself — about 20 seconds after the call ends, then transcribes it as usual. A recording that never overlapped a Teams call is never stopped.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !appModel.teamsCallMonitor.isSupported {
+                    Label(
+                        "This version of macOS does not report which apps are using the microphone, so Teams calls cannot be detected. Requires macOS 14 Sonoma or later.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("Editor") {
                 Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
 
@@ -493,6 +518,12 @@ struct SettingsView: View {
         }
         .onChange(of: meetingStartLeadTimeRaw) { _, _ in
             appModel.meetingStartNotifier.reschedule()
+        }
+        .onChange(of: teamsAutoRecordEnabled) { _, _ in
+            appModel.updateTeamsCallMonitoring()
+        }
+        .onChange(of: teamsAutoRecordStopWhenCallEnds) { _, _ in
+            appModel.updateTeamsCallMonitoring()
         }
         .task {
             await refreshNotificationAuthorizationStatus()
