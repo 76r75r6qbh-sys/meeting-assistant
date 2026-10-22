@@ -32,7 +32,7 @@ final class AudioRecordingService {
     private let sessionStore: RecordingResumeSessionStore
     private let makeRecordingSession: RecordingSessionFactory
     private let makeFinalOutputURL: (Meeting) throws -> URL
-    private let mergeSegments: ([URL], URL) throws -> TimeInterval
+    private let mergeSegments: ([URL], URL) async throws -> TimeInterval
 
     /// Held for as long as a segment is actually capturing. Without it the Mac
     /// idle-sleeps mid-recording once the display sleeps — macOS drops
@@ -65,7 +65,7 @@ final class AudioRecordingService {
         sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
         makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
-        mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge,
+        mergeSegments: @escaping ([URL], URL) async throws -> TimeInterval = RecordingSegmentMerger.mergeInBackground,
         sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer(),
         startRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)],
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
@@ -355,7 +355,8 @@ final class AudioRecordingService {
         }
 
         let finalURL = try makeFinalOutputURL(meeting)
-        let duration = try mergeSegments(segmentURLs, finalURL)
+        // Off the main actor by default (see `mergeInBackground`).
+        let duration = try await mergeSegments(segmentURLs, finalURL)
         try sessionStore.deleteSession(for: meeting.id)
 
         outputURL = finalURL
