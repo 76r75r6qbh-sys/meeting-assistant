@@ -69,6 +69,7 @@
 		8C62110A3E06299DF920ED3C /* LLMProviderCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 063A8661C7BD0A0EFCAB8993 /* LLMProviderCopyTests.swift */; };
 		8F1B6BE1746270361253A35D /* ActionQueueSectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 748180B7B3C466B0C35AA2F4 /* ActionQueueSectionStateTests.swift */; };
 		9360DE1FB664D7A47C863B61 /* RoadmapCommitmentCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D3C3AD74A9DB1208328F42 /* RoadmapCommitmentCard.swift */; };
+		96B6EF4530ECB70A2C53EFC5 /* PrepInspectorAutoOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */; };
 		98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */; };
 		9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */; };
 		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
@@ -284,6 +285,7 @@
 		0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/JiraLinkTests.swift; sourceTree = SOURCE_ROOT; };
 		0E2C0929459E2C9A521A42C2 /* TicketDraftCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/TicketDraftCard.swift; sourceTree = SOURCE_ROOT; };
 		108FBBE803A2166EC0F75BB4 /* build-fixtures.sh */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.script.sh; path = "build-fixtures.sh"; sourceTree = "<group>"; };
+		1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/PrepInspectorAutoOpenTests.swift; sourceTree = SOURCE_ROOT; };
 		1B2C3D4E5F60718293A4B5E8 /* ProgressTrickle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProgressTrickle.swift; sourceTree = "<group>"; };
 		1CBDC454B1E9FB4940FC277E /* UpdateInstallerScriptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateInstallerScriptTests.swift; sourceTree = "<group>"; };
 		1D7DD089A8677407D36F5A37 /* PartnerApiReplyCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/PartnerApiReplyCard.swift; sourceTree = SOURCE_ROOT; };
@@ -927,6 +929,7 @@
 				1E06AF39045D1D5D3C1D3185 /* SilentChunkFilterTests.swift */,
 				2446628071223BAA795BA84A /* SplitLayoutStabilityTests.swift */,
 				9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */,
+				1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1376,6 +1379,7 @@
 				68696410DE06E1AEB1D25145 /* SilentChunkFilterTests.swift in Sources */,
 				D69B7C5158BA16D36B9215CE /* SplitLayoutStabilityTests.swift in Sources */,
 				DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */,
+				96B6EF4530ECB70A2C53EFC5 /* PrepInspectorAutoOpenTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

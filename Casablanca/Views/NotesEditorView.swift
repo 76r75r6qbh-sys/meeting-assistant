@@ -15,6 +15,7 @@ struct NotesEditorView: View {
     @Environment(AppModel.self) private var appModel
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
     @State private var saveTask: Task<Void, Never>?
     @State private var didTriggerStart = false
     @State private var prepMarkdown: String?
@@ -129,7 +130,8 @@ struct NotesEditorView: View {
         .task(id: meeting.id) {
             interruptionCoordinator?.bind(meeting: meeting)
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
-            loadPrepMarkdown()
+            // Never show the previous meeting's prep while this one loads.
+            prepMarkdown = nil
 
             if meeting.status == .pausedRecording {
                 // `hasResumableSession` is true while a manifest *or* any
@@ -147,6 +149,12 @@ struct NotesEditorView: View {
                     save()
                 }
             }
+
+            // Last, and awaited: the vault read runs off the main actor, and
+            // the inspector is only opened once it returns — after the first
+            // layout pass, never during it (split/inspector columns changing
+            // inside the initial constraint pass is how 0.16.0 crashed).
+            await loadPrepAndAutoOpenInspector()
         }
         .onDisappear {
             interruptionCoordinator?.bind(meeting: nil)
@@ -473,8 +481,25 @@ struct NotesEditorView: View {
         }
     }
 
-    private func loadPrepMarkdown() {
-        prepMarkdown = MeetingPrepService.loadPrepMarkdown(for: meeting)
+    /// Loads the meeting's prep (vault file, else local prep notes) and, once
+    /// per meeting appearance, opens the inspector on the Prep tab when there
+    /// is prep. Runs from `.task(id: meeting.id)`, so closing the inspector
+    /// afterwards sticks until another meeting is opened.
+    private func loadPrepAndAutoOpenInspector() async {
+        let markdown = await MeetingPrepService.loadResolvedPrepMarkdown(for: meeting)
+        // The meeting changed (or the view went away) while reading.
+        guard !Task.isCancelled else { return }
+        prepMarkdown = markdown
+
+        let decision = PrepInspectorAutoOpenDecision(
+            isEnabled: autoOpenMeetingPrep,
+            hasPrep: MeetingPrepService.hasPrepContent(markdown),
+            isFocusModeActive: presentation.isFocusModeActive
+        )
+        if decision.shouldOpenPrep {
+            inspectorTab = .prep
+            isInspectorPresented = true
+        }
     }
 
     private func debouncedSave() {

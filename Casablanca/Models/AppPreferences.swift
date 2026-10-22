@@ -55,6 +55,11 @@ enum AppPreferences {
         defaults.bool(forKey: AppPreferenceKey.keepOriginalWAV)
     }
 
+    /// Default `true`: an unset key means the user never turned it off.
+    static func autoOpenMeetingPrep(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: AppPreferenceKey.autoOpenMeetingPrep) as? Bool ?? true
+    }
+
     static func hasCompletedOnboarding(in defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding)
     }

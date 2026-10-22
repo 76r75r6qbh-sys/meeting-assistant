@@ -39,6 +39,9 @@ enum AppPreferenceKey {
     static let useNativeMarkdownEditor = "useNativeMarkdownEditor"
     static let meetingStartNotificationsEnabled = "meetingStartNotificationsEnabled"
     static let meetingStartNotificationLeadTime = "meetingStartNotificationLeadTime"
+    /// Open the notes inspector on its Prep tab when a meeting with prep is
+    /// opened. Default on.
+    static let autoOpenMeetingPrep = "autoOpenMeetingPrep"
 }
 
 enum AppPreferenceValue {

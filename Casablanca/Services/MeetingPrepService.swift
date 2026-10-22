@@ -13,17 +13,75 @@ enum MeetingPrepService {
         for meeting: Meeting,
         userDefaults: UserDefaults = .standard
     ) -> String? {
-        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian else { return nil }
-        guard let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults) else {
-            return nil
-        }
+        readPrepMarkdown(from: prepSource(for: meeting, userDefaults: userDefaults).candidateURLs)
+    }
 
-        for prepURL in files.prepCandidates {
+    // MARK: - Resolved prep (vault file or local notes)
+
+    /// Plain-data snapshot of everywhere a meeting's prep can live. Captured on
+    /// the caller's actor (it reads the SwiftData model) so the file read can
+    /// then run on any thread.
+    struct PrepSource: Sendable, Equatable {
+        /// Vault prep files to try, in order. Empty unless prep storage is
+        /// Obsidian and a vault is configured.
+        let candidateURLs: [URL]
+        /// `meeting.localPrepNotes` — where `writePrep` puts prep when there is
+        /// no vault file to write (local storage, or no vault configured).
+        let localNotes: String
+    }
+
+    static func prepSource(
+        for meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) -> PrepSource {
+        var candidateURLs: [URL] = []
+        if AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian,
+           let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults) {
+            candidateURLs = files.prepCandidates
+        }
+        return PrepSource(candidateURLs: candidateURLs, localNotes: meeting.localPrepNotes)
+    }
+
+    /// The first candidate file with non-whitespace content. Synchronous file
+    /// I/O — keep it off the main thread where possible.
+    static func readPrepMarkdown(from candidateURLs: [URL]) -> String? {
+        for prepURL in candidateURLs {
             guard let markdown = try? String(contentsOf: prepURL, encoding: .utf8) else { continue }
-            let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return markdown }
+            if hasPrepContent(markdown) { return markdown }
         }
         return nil
+    }
+
+    /// The prep to show for a meeting: the vault prep file when one has
+    /// content, otherwise non-blank local prep notes — the same precedence
+    /// `PrepEditorView` uses when it opens a meeting's prep.
+    static func resolvedPrepMarkdown(from source: PrepSource) -> String? {
+        if let markdown = readPrepMarkdown(from: source.candidateURLs) { return markdown }
+        return hasPrepContent(source.localNotes) ? source.localNotes : nil
+    }
+
+    /// Whether `source` holds any prep worth showing (whitespace-only content
+    /// counts as none). Reads files.
+    static func hasPrepContent(_ source: PrepSource) -> Bool {
+        resolvedPrepMarkdown(from: source) != nil
+    }
+
+    static func hasPrepContent(_ markdown: String?) -> Bool {
+        !(markdown?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    /// `resolvedPrepMarkdown` with the vault read moved off the main actor.
+    /// The model is only touched here, on the main actor; the detached task
+    /// gets the Sendable snapshot.
+    @MainActor
+    static func loadResolvedPrepMarkdown(
+        for meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) async -> String? {
+        let source = prepSource(for: meeting, userDefaults: userDefaults)
+        return await Task.detached(priority: .userInitiated) {
+            resolvedPrepMarkdown(from: source)
+        }.value
     }
 
     static func writePrep(
