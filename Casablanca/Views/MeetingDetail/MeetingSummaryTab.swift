@@ -228,10 +228,15 @@ struct MeetingSummaryTab: View {
     // MARK: - Action item ↔ todo sync
 
     /// Finds the meeting-scoped `TodoItem` whose text matches a parsed action item.
+    /// To-dos created from the user's own items are stored without the
+    /// `**owner** —` prefix (see `ActionItemOwnership`), so both the full bullet
+    /// and its bare action text count as a match.
     private func matchingTodo(for text: String) -> TodoItem? {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let action = ActionItemOwnership.parse(target).action
         return meeting.todos.first {
-            $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == target
+            let todoText = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return todoText == target || todoText == action
         }
     }
 
