@@ -2,6 +2,38 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] — 2026-10-22
+
+Records Teams calls by itself, opens a meeting's prep next to the notes, and stops filling your to-do list with other people's action items. Also a broad code review: fixes for lost audio, lost Obsidian content and a crash when narrowing the window.
+
+### Added
+
+- **Record Teams calls automatically.** With *Settings → Automatically record Microsoft Teams calls* on (off by default), Casablanca starts recording when a Teams call has used the microphone for 5 seconds. The recording goes to the calendar event running at that moment (from 10 minutes before its start, preferring events with a Teams link); without one, it creates a "Teams call HH:mm" meeting. A notification with a Stop button confirms it. Recording also works with the main window closed, and doesn't bring Casablanca to the front.
+- **Stop recording when the Teams call ends** (on by default, independent of auto-record). A recording that overlapped a Teams call — auto-started, or started by hand — stops about 20 seconds after Teams stops using both the microphone and the speakers, then transcribes as usual. A long mute no longer ends the call. A recording that never overlapped a call is never stopped.
+- **Prep opens automatically.** Opening a meeting that has prep (a `- Prep.md` in the vault, or local prep notes) opens the side panel on the Prep tab. Can be turned off in Settings. Local prep notes now show in the panel too.
+- **Only your own action items become to-dos.** Set your name and aliases in *Settings → Action Items* (defaults to your account name). Action items for others stay in the summary and the exported notes but no longer land on your to-do list. Items without an owner are skipped unless you turn them on. The summary prompt now knows who the note-taker is.
+
+### Fixed
+
+- **The Approvals inbox reads the right queue.** It now defaults to `<vault>/Memory/action-queue.json` instead of a folder that no longer holds the queue. Concurrent writes by skills are no longer lost.
+- **Ticking or deleting a to-do keeps the rest of the Obsidian file.** Sub-bullets, free text and other headings under "Action Items" were removed; to-do edits now change only their own line. A file that can't be read is never overwritten.
+- **Saving prep no longer overwrites newer content.** It writes back to the file it was loaded from, keeps to-dos added meanwhile, and never replaces a vault prep file it didn't load.
+- **No more crash when narrowing the window with the side panel open.** The panel now hides below 880 pt and comes back when the window is wide enough.
+- **Recording keeps capturing the microphone** when the audio device switches format (e.g. AirPods switching to call mode), after a second unplug of the same mic, and after wake (devices are now remembered by their stable ID). A mic track that can't be read is no longer deleted during mixdown. Mid-recording mic and system-audio changes survive a sleep/resume.
+- **Sleep and lock handling keeps working with the main window closed**, and reopening the window no longer re-runs launch work (which could delete a staged update).
+- **Switching meetings resets per-meeting state:** auto-summarize runs for the next meeting, and Stop works after switching meetings during a stop.
+- **Stopping a long recording no longer freezes the app**: segments are merged by streaming, off the main thread.
+- Updates must be signed by Casablanca's team; YAML frontmatter escapes backslashes and line breaks; the Claude CLI path probe accepts only an executable path.
+
+### Changed
+
+- The side panel (Prep & To-Dos, meeting details) is a Casablanca panel instead of the system inspector, with a drag-to-resize edge.
+- Less work per frame while recording and transcribing (audio meter, sidebar rows, dashboard).
+
+### Internal
+
+- Dead code removed (unused views, types and helpers); shared recording file helpers. 950 → 1121 tests.
+
 ## [0.18.1] — 2026-10-19
 
 Fixes to-dos disappearing from a meeting's Obsidian notes after the meeting was edited.

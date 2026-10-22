@@ -1814,6 +1814,121 @@ final class StopRecordingErrorPathTests: XCTestCase {
     }
 }
 
+/// The merge is awaited (off the main actor), so a resume can land while a
+/// Stop is merging. Publishing a segment into the directory the Stop is about
+/// to delete would lose it and orphan the live session.
+@MainActor
+final class StopMergeResumeRaceTests: XCTestCase {
+    func testResumeIsRefusedWhileTheStopIsMerging() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Race", date: .now, status: .pausedRecording)
+        let segmentURL = try store.nextSegmentURL(for: meeting.id, segmentNumber: 1)
+        try FileManager.default.createDirectory(at: segmentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("segment".utf8).write(to: segmentURL)
+        _ = try store.createSession(for: meeting.id, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        _ = try store.appendSegment(for: meeting.id, segmentURL: segmentURL, duration: 5)
+
+        let gate = StartGate()
+        var builtSessions = 0
+        let service = AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                builtSessions += 1
+                return FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 1),
+                    capturedFrames: 1
+                )
+            },
+            makeFinalOutputURL: { _ in rootURL.appendingPathComponent("final.wav") },
+            mergeSegments: { _, _ in
+                await gate.enter()
+                return 5
+            },
+            startRetryDelays: [],
+            sleep: { _ in }
+        )
+
+        let stop = Task { try await service.stopRecording(for: meeting) }
+        await gate.waitUntilEntered()
+
+        do {
+            try await service.resumeRecording(for: meeting)
+            XCTFail("A resume must not start a segment while the stop is merging")
+        } catch {}
+        XCTAssertEqual(builtSessions, 0)
+        XCTAssertFalse(service.isRecording)
+
+        gate.release()
+        _ = try await stop.value
+    }
+}
+
+/// A setting changed mid-recording has to reach the resume manifest: the
+/// resume after a sleep builds its segment from the manifest, and used to
+/// revert to whatever the recording was started with.
+@MainActor
+final class MidRecordingSettingsPersistenceTests: XCTestCase {
+    private func makeService(store: RecordingResumeSessionStore) -> AudioRecordingService {
+        AudioRecordingService(
+            sessionStore: store,
+            makeRecordingSession: { outputURL, _, _, _, _, _, _ in
+                FakeRecordingSession(
+                    outputURL: outputURL,
+                    stopResult: RecordingResult(outputURL: outputURL, duration: 5),
+                    capturedFrames: 1
+                )
+            }
+        )
+    }
+
+    func testSystemAudioToggleWhileRecordingIsWrittenToTheManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Toggle", date: .now, status: .recording)
+        let service = makeService(store: store)
+        let initial = service.isSystemAudioEnabled
+
+        try await service.startRecording(for: meeting)
+        service.toggleSystemAudioEnabled()
+
+        XCTAssertEqual(try store.loadSession(for: meeting.id)?.systemAudioEnabled, !initial)
+    }
+
+    func testMicrophoneSwitchWhileRecordingIsWrittenToTheManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let meeting = Meeting(title: "Switch", date: .now, status: .recording)
+        let service = makeService(store: store)
+        guard let target = service.availableInputDevices.first(where: { $0.id != service.selectedInputDeviceID })
+            ?? service.availableInputDevices.first
+        else {
+            throw XCTSkip("No audio input device on this machine")
+        }
+
+        try await service.startRecording(for: meeting)
+        try store.updateSettings(for: meeting.id, selectedInputDeviceID: "something-else")
+        await service.selectInputDevice(target.id)
+
+        XCTAssertEqual(try store.loadSession(for: meeting.id)?.selectedInputDeviceID, target.id)
+    }
+
+    func testChangingSettingsWithoutARecordingWritesNoManifest() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = RecordingResumeSessionStore(baseDirectoryProvider: { rootURL })
+        let service = makeService(store: store)
+
+        service.toggleSystemAudioEnabled()
+
+        XCTAssertEqual(try store.meetingIDs(), [])
+    }
+}
+
 private final class FakeRecordingSession: RecordingSessionControlling, @unchecked Sendable {
     let outputURL: URL
     let startedAt = Date()

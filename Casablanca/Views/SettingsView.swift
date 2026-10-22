@@ -9,6 +9,9 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
     @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
     @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.userNameAliases) private var userNameAliases = ""
+    @AppStorage(AppPreferenceKey.includeUnassignedActionItems) private var includeUnassignedActionItems = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
     @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
@@ -31,6 +34,8 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
     @AppStorage(AppPreferenceKey.meetingStartNotificationsEnabled) private var meetingStartNotificationsEnabled = true
     @AppStorage(AppPreferenceKey.meetingStartNotificationLeadTime) private var meetingStartLeadTimeRaw = MeetingStartLeadTime.atStart.rawValue
+    @AppStorage(AppPreferenceKey.teamsAutoRecordEnabled) private var teamsAutoRecordEnabled = false
+    @AppStorage(AppPreferenceKey.teamsAutoRecordStopWhenCallEnds) private var teamsAutoRecordStopWhenCallEnds = true
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelsError = ""
@@ -164,7 +169,34 @@ struct SettingsView: View {
 
                 Text(prepTodoStorage == .obsidian
                     ? "Prep notes are read from your Obsidian vault and todos sync to and from your vault."
-                    : "Prep notes are hidden. Todos are stored only inside Casablanca.")
+                    : "Prep notes and todos are stored only inside Casablanca.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Open meeting prep automatically in notes", isOn: $autoOpenMeetingPrep)
+
+                Text("When a meeting has prep, its notes open with the Prep panel showing. Not in focus mode.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Action Items") {
+                TextField(
+                    "Your name(s)",
+                    text: $userNameAliases,
+                    prompt: Text(AppPreferences.derivedUserNameAliases(fullName: NSFullUserName()).joined(separator: ", "))
+                )
+
+                Text("Action items assigned to these names become your to-dos. Separate aliases with commas.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Also add action items without an owner", isOn: $includeUnassignedActionItems)
+
+                Text("Action items for other people stay in the summary and exported notes, but are not added to your to-dos.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +220,7 @@ struct SettingsView: View {
                 }
 
                 if actionQueuePath.isEmpty {
-                    Text("Leave empty to use the default location (`~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json`). The Approvals inbox reads draft items from this file and writes back your decisions.")
+                    Text("Leave empty to use the default location: `Memory/action-queue.json` inside your Obsidian vault (or `~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json` when no vault is set). The Approvals inbox reads draft items from this file and writes back your decisions.")
                         .font(.caption)
                         .foregroundStyle(Color.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -223,6 +255,11 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: actionQueuePath) { _, _ in
+            appModel.actionQueueModel.refreshWatch()
+        }
+        .onChange(of: obsidianVaultPath) { _, _ in
+            // The default queue path lives inside the vault, so a vault change
+            // can move the queue file the inbox should read and watch.
             appModel.actionQueueModel.refreshWatch()
         }
         .onChange(of: prepTodoStorageRaw) { _, newValue in
@@ -337,7 +374,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
 
-                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{participants}}, {{user_name}}, {{transcript}}, {{freeform_notes}}.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -456,6 +493,29 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Microsoft Teams") {
+                Toggle("Automatically record Microsoft Teams calls", isOn: $teamsAutoRecordEnabled)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Toggle("Stop recording automatically when a Teams call ends", isOn: $teamsAutoRecordStopWhenCallEnds)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Text("Auto-record starts once Teams has used your microphone for a few seconds, without bringing Casablanca to the front. The recording goes to the calendar meeting happening now, or to a new “Teams call” meeting when there is none; nothing starts while another recording is running.\nAuto-stop ends any recording that ran during a Teams call — also one you started yourself — about 20 seconds after the call ends, then transcribes it as usual. A recording that never overlapped a Teams call is never stopped.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !appModel.teamsCallMonitor.isSupported {
+                    Label(
+                        "This version of macOS does not report which apps are using the microphone, so Teams calls cannot be detected. Requires macOS 14 Sonoma or later.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("Editor") {
                 Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
 
@@ -471,6 +531,12 @@ struct SettingsView: View {
         }
         .onChange(of: meetingStartLeadTimeRaw) { _, _ in
             appModel.meetingStartNotifier.reschedule()
+        }
+        .onChange(of: teamsAutoRecordEnabled) { _, _ in
+            appModel.updateTeamsCallMonitoring()
+        }
+        .onChange(of: teamsAutoRecordStopWhenCallEnds) { _, _ in
+            appModel.updateTeamsCallMonitoring()
         }
         .task {
             await refreshNotificationAuthorizationStatus()

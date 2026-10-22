@@ -310,13 +310,23 @@ final class ClaudeCLIProviderTests: XCTestCase {
     /// What the write-back buys: a provider built from the stored path resolves
     /// without touching the filesystem or a shell, so the only command is the CLI.
     func testGenerateWithAStoredPathRunsExactlyOneCommand() async throws {
-        let runner = FakeCommandRunner.succeeding(standardOutput: Self.envelope(result: "ok"))
+        // First call is the login-shell lookup, the second the CLI itself.
+        let shellAnswer = "/Users/test/.bun/bin/claude"
+        let envelope = Self.envelope(result: "ok")
+        let callCount = OSAllocatedUnfairLock(initialState: 0)
+        let runner = FakeCommandRunner {
+            let call = callCount.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            return CommandResult(exitCode: 0, standardOutput: call == 1 ? shellAnswer + "\n" : envelope, standardError: "")
+        }
 
         _ = try await makeAutoDetectProvider(
             runner: runner,
-            // Nothing is executable, so a provider without a stored path would have to
+            // No candidate is executable, so a provider without a stored path has to
             // fall through to the login shell.
-            executablePaths: []
+            executablePaths: [shellAnswer]
         ).generate(prompt: "p", temperature: nil, timeout: 60, truncated: nil)
         XCTAssertEqual(runner.allCalls.count, 2, "auto-detect costs the login-shell probe plus the CLI")
 
@@ -365,7 +375,7 @@ final class ClaudeCLIProviderTests: XCTestCase {
 
         let models = try await makeAutoDetectProvider(
             runner: runner,
-            executablePaths: []
+            executablePaths: [shellAnswer]
         ).fetchAvailableModels(endpoint: "")
 
         XCTAssertEqual(models, ClaudeCLIProvider.availableModels)
@@ -374,6 +384,36 @@ final class ClaudeCLIProviderTests: XCTestCase {
         XCTAssertEqual(calls.first?.executable, "/bin/zsh")
         XCTAssertEqual(calls.first?.arguments, ["-lc", "command -v claude"])
         XCTAssertEqual(calls.last?.executable, shellAnswer, "the probe must run what the shell reported")
+    }
+
+    /// A chatty profile prints before `command -v` answers: the banner line must
+    /// not be taken for the binary.
+    func testLoginShellProbeSkipsProfileNoiseAndTakesTheExecutablePath() async throws {
+        let shellAnswer = "/Users/test/.bun/bin/claude"
+        let runner = FakeCommandRunner.succeeding(
+            standardOutput: "Welcome back!\n/usr/local/share/motd\n\(shellAnswer)\n"
+        )
+
+        _ = try await makeAutoDetectProvider(
+            runner: runner,
+            executablePaths: [shellAnswer]
+        ).fetchAvailableModels(endpoint: "")
+
+        XCTAssertEqual(runner.allCalls.last?.executable, shellAnswer)
+    }
+
+    /// `command -v` reports an alias as text (`alias claude=...`), which is not
+    /// something we can launch.
+    func testLoginShellProbeRejectsNonPathAnswer() async {
+        let runner = FakeCommandRunner.succeeding(standardOutput: "alias claude='npx claude'\n")
+        let provider = makeAutoDetectProvider(runner: runner, executablePaths: [])
+
+        await XCTAssertThrowsErrorAsync(try await provider.fetchAvailableModels(endpoint: "")) { error in
+            guard case LLMProviderError.invalidEndpoint = error else {
+                return XCTFail("expected invalidEndpoint, got \(error)")
+            }
+        }
+        XCTAssertEqual(runner.allCalls.count, 1, "nothing may be launched once resolution failed")
     }
 
     /// Claude Code is not installed at all: the user must see "endpoint is invalid",

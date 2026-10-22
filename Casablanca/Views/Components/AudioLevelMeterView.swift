@@ -53,3 +53,16 @@ struct AudioLevelMeterView: View {
         return Double(index + 1) / Double(Self.barCount)
     }
 }
+
+/// The meter wired to the live service. `audioLevel` changes once per capture
+/// buffer, so it must be read here, in a leaf whose body is just the meter:
+/// read in a parent's body (the notes editor used to), it re-evaluated that
+/// whole parent (toolbar, inspector, the NSTextView representable) at buffer
+/// rate for the entire recording.
+struct LiveAudioLevelMeter: View {
+    let recordingService: AudioRecordingService
+
+    var body: some View {
+        AudioLevelMeterView(level: recordingService.audioLevel)
+    }
+}
