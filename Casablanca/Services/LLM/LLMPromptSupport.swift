@@ -40,7 +40,9 @@ enum LLMPromptSupport {
         budgetTokens(forCharCount: text.count)
     }
 
-    private static func budgetTokens(forCharCount count: Int) -> Int {
+    /// `budgetTokens` for a known character count, so callers that grow a text
+    /// line by line (`TranscriptChunker`) need not re-join it per check.
+    static func budgetTokens(forCharCount count: Int) -> Int {
         (max(0, count) + budgetCharsPerToken - 1) / budgetCharsPerToken
     }
 
