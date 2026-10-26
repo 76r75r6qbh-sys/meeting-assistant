@@ -129,16 +129,24 @@ final class SummarizationService {
     /// the call site hands `generate` without reaching a live backend.
     private let providerFactory: () -> LLMProvider
 
-    /// Where the to-do ownership settings (user name aliases, include-unassigned)
-    /// are read from. Injectable so tests use a suite, never the user's domain.
+    /// Where every setting `summarize` reads comes from: the prompt template,
+    /// terminology list, thinking flag and the to-do ownership settings (user
+    /// name aliases, include-unassigned). Injectable so tests use a suite, never
+    /// the user's domain.
     private let userDefaults: UserDefaults
+
+    /// Wraps each generation. Injectable (as in `MeetingChatService`) so tests can
+    /// retry without sleeping through the real backoff.
+    private let retryPolicy: LLMRetryPolicy
 
     init(
         providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        retryPolicy: LLMRetryPolicy = LLMRetryPolicy()
     ) {
         self.providerFactory = providerFactory
         self.userDefaults = userDefaults
+        self.retryPolicy = retryPolicy
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -212,17 +220,16 @@ final class SummarizationService {
             throw SummarizationError.missingSourceMaterial
         }
 
-        // Long meetings (this app's own transcripts run 50-80k+ characters) were
-        // previously inlined whole into the prompt with no bound at all — tens of
-        // thousands of input tokens sent to a local model every time. Bound it to
-        // the same shared budget used for chat/terminology so it reliably fits
-        // the model's context window alongside the rest of the prompt.
+        // The provider first: its input budget decides how much of the transcript
+        // fits. A large-context provider (Claude Code) takes a multi-hour meeting
+        // whole; a local model still gets it bounded so it fits its context
+        // window alongside the rest of the prompt.
+        let provider = providerFactory()
         let (transcript, transcriptWasTruncated) = LLMPromptSupport.truncated(
             rawTranscript,
-            toFitTokenBudget: LLMPromptSupport.defaultTranscriptTokenBudget
+            toFitTokenBudget: provider.promptTokenBudget
         )
 
-        let provider = providerFactory()
         isSummarizing = true
         errorMessage = nil
         warningMessage = nil
@@ -234,12 +241,12 @@ final class SummarizationService {
         }
 
         let terminologyBlock = TerminologyService.renderTerminologyBlock(
-            enabled: UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
-            raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+            enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
+            raw: userDefaults.string(forKey: AppPreferenceKey.terminologyList) ?? ""
         )
 
         var prompt = Self.renderPrompt(
-            template: UserDefaults.standard.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
+            template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             meeting: meeting,
             transcript: transcript,
             freeformNotes: freeformNotes,
@@ -252,13 +259,13 @@ final class SummarizationService {
         // When thinking is disabled (default), append the Qwen soft-switch and
         // allow only a tight output budget; when enabled, give room for the
         // reasoning to complete before the answer.
-        let thinkingEnabled = LLMPromptSupport.thinkingEnabled()
+        let thinkingEnabled = LLMPromptSupport.thinkingEnabled(defaults: userDefaults)
         prompt = LLMPromptSupport.applyThinkingSwitch(to: prompt, thinkingEnabled: thinkingEnabled)
         // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
         let tokenBudget = LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled)
 
         var wasTruncated = false
-        let retryPolicy = LLMRetryPolicy()
+        let retryPolicy = self.retryPolicy
         let summary: String
         do {
             summary = try await retryPolicy.withRetry(

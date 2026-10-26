@@ -22,12 +22,51 @@ enum LLMPromptSupport {
     /// `MeetingChatService.charsPerToken`.)
     static let charsPerToken = 4
 
-    /// Conservative token budget for a transcript being inlined whole into a
-    /// prompt (terminology correction, summarization, chat). Shared across all
-    /// three so a transcript is never sent unbounded — a large local context
-    /// window is typically ~8k tokens, and this leaves headroom for the rest of
-    /// the prompt plus the model's output.
-    static let defaultTranscriptTokenBudget = 6000
+    /// Input budget, in tokens, for one prompt to a *local* model (Ollama, oMLX):
+    /// the `LLMProvider.promptTokenBudget` default. A local context window is
+    /// typically ~8k tokens, and this leaves headroom for the model's output.
+    /// Large-context providers override it. (Was `defaultTranscriptTokenBudget`.)
+    static let localPromptTokenBudget = 6000
+
+    /// chars-per-token used for *budget decisions* (does a prompt fit, how big is
+    /// a part, how large a context to ask Ollama for). Deliberately more
+    /// pessimistic than `charsPerToken`: Dutch text with `[mm:ss]` labels
+    /// tokenizes denser than 4 chars/token, and an undercount here means content
+    /// silently falls off the front of the model's context window.
+    static let budgetCharsPerToken = 3
+
+    /// Pessimistic token estimate for `text` (`ceil(count / budgetCharsPerToken)`).
+    static func budgetTokens(_ text: String) -> Int {
+        budgetTokens(forCharCount: text.count)
+    }
+
+    private static func budgetTokens(forCharCount count: Int) -> Int {
+        (max(0, count) + budgetCharsPerToken - 1) / budgetCharsPerToken
+    }
+
+    /// Smallest `num_ctx` asked of Ollama: a full `localPromptTokenBudget` prompt
+    /// plus a `cappedOutputTokens` answer, with room for estimation error.
+    static let ollamaMinContextTokens = 16_384
+    /// Largest `num_ctx` asked of Ollama, so one oversized prompt cannot make the
+    /// server allocate a context the Mac has no memory for.
+    static let ollamaMaxContextTokens = 32_768
+    /// Step `num_ctx` is rounded up to. Ollama reloads the model whenever
+    /// `num_ctx` changes, so coarse steps keep consecutive calls on one size.
+    static let ollamaContextStepTokens = 4_096
+
+    /// The `num_ctx` to send Ollama for one generate call. Without it Ollama runs
+    /// at its server default (2k–4k) and silently drops the head of a longer
+    /// prompt. Sized per call — prompt plus expected output (`maxTokens`, or as
+    /// much again as the prompt when uncapped, which covers the terminology echo
+    /// pass) plus 1,024 slack — rounded up to `ollamaContextStepTokens` and
+    /// clamped to [`ollamaMinContextTokens`, `ollamaMaxContextTokens`].
+    static func ollamaContextTokens(promptChars: Int, maxTokens: Int?) -> Int {
+        let promptTokens = budgetTokens(forCharCount: promptChars)
+        let need = promptTokens + (maxTokens ?? promptTokens) + 1_024
+        let step = ollamaContextStepTokens
+        let rounded = ((need + step - 1) / step) * step
+        return min(ollamaMaxContextTokens, max(ollamaMinContextTokens, rounded))
+    }
 
     /// The Qwen-family soft-switch that disables out-loud reasoning, appended to
     /// the prompt when thinking is off.
@@ -60,8 +99,28 @@ enum LLMPromptSupport {
     /// in stored output. Handles an unclosed tag (output cut mid-thought) by
     /// dropping from the opening tag onward.
     ///
-    /// Moved verbatim from `SummarizationService.stripReasoning`.
+    /// Moved from `SummarizationService.stripReasoning`; the tag handling is
+    /// shared with `stripReasoningTags`.
     static func stripReasoning(_ text: String) -> String {
+        var s = stripReasoningTags(text)
+
+        // Fallback for models that emit UNTAGGED chain-of-thought before the
+        // answer: the structured summary begins at a top-level "# " heading, so
+        // if a real heading exists, drop any reasoning preamble before it.
+        if let h1 = s.range(of: "(?m)^#[ \\t]+\\S", options: .regularExpression),
+           h1.lowerBound != s.startIndex {
+            s = String(s[h1.lowerBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return s
+    }
+
+    /// Removes `<think>…</think>` (and `<thinking>…</thinking>`) blocks, plus an
+    /// unterminated trailing opening tag and everything after it — and nothing
+    /// else. Unlike `stripReasoning` there is no "drop everything before the
+    /// first `# ` heading" fallback: intermediate output (condensed transcript
+    /// notes) is not a summary, and a stray heading in it would make that
+    /// fallback discard real content.
+    static func stripReasoningTags(_ text: String) -> String {
         var s = text
         for tag in ["think", "thinking"] {
             s = s.replacingOccurrences(
@@ -73,16 +132,7 @@ enum LLMPromptSupport {
                 s = String(s[..<open.lowerBound])
             }
         }
-        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Fallback for models that emit UNTAGGED chain-of-thought before the
-        // answer: the structured summary begins at a top-level "# " heading, so
-        // if a real heading exists, drop any reasoning preamble before it.
-        if let h1 = s.range(of: "(?m)^#[ \\t]+\\S", options: .regularExpression),
-           h1.lowerBound != s.startIndex {
-            s = String(s[h1.lowerBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return s
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Keeps the head and tail of `text`, eliding the middle with a marker, so

@@ -151,4 +151,106 @@ final class SummarizationServiceTests: XCTestCase {
 
         XCTAssertEqual(stub.calls.first?.timeout, 120)
     }
+
+    // MARK: - Provider budget and injected settings
+
+    /// A throwaway defaults suite (removed on teardown), so no test reads or
+    /// writes the user's domain.
+    private func makeDefaults() -> UserDefaults {
+        makeScratchDefaults(label: "SummarizationServiceTests")
+    }
+
+    /// ~147,000 chars of `[mm:ss]` lines: the 2.5-hour meeting that lost ~84 % of
+    /// its content to the old fixed 6,000-token budget.
+    private func makeLongTranscript() -> String {
+        var lines: [String] = []
+        var total = 0
+        var i = 0
+        while total < 147_000 {
+            let line = String(format: "[%d:%02d:%02d] Spreker %d: punt %05d over de planning en het budget.",
+                              i / 3600, (i / 60) % 60, i % 60, i % 4, i)
+            lines.append(line)
+            total += line.count + 1
+            i += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func testSummarizeSendsALongTranscriptWholeToALargeBudgetProvider() async throws {
+        let transcript = makeLongTranscript()
+        XCTAssertGreaterThanOrEqual(transcript.count, 147_000)
+        let meeting = Meeting(title: "EHDS", date: .now, status: .completed)
+        meeting.transcript = transcript
+        let stub = StubLLMProvider(promptTokenBudget: 100_000, outcomes: [.success("# Summary\nDone.")])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeDefaults())
+
+        _ = try await service.summarize(meeting: meeting)
+
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains(transcript), "the transcript must arrive whole")
+        XCTAssertNil(service.warningMessage)
+    }
+
+    /// Interim behaviour until map-reduce lands: a local-budget provider still gets
+    /// the transcript shortened, and the user is told.
+    func testSummarizeStillShortensALongTranscriptForALocalBudgetProvider() async throws {
+        let transcript = makeLongTranscript()
+        let meeting = Meeting(title: "EHDS", date: .now, status: .completed)
+        meeting.transcript = transcript
+        let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeDefaults())
+
+        _ = try await service.summarize(meeting: meeting)
+
+        XCTAssertFalse(try XCTUnwrap(stub.calls.first?.prompt).contains(transcript))
+        XCTAssertNotNil(service.warningMessage)
+    }
+
+    /// Template, terminology and thinking flag come from the injected suite, not
+    /// `UserDefaults.standard`.
+    func testSummarizeReadsItsSettingsFromTheInjectedDefaults() async throws {
+        let defaults = makeDefaults()
+        defaults.set("CUSTOM TEMPLATE {{terminology_list}} :: {{transcript}}", forKey: AppPreferenceKey.summaryPromptTemplate)
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Medicore", forKey: AppPreferenceKey.terminologyList)
+        defaults.set(true, forKey: AppPreferenceKey.summaryThinkingEnabled)
+        let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: defaults)
+
+        _ = try await service.summarize(meeting: makeMeeting())
+
+        let call = try XCTUnwrap(stub.calls.first)
+        XCTAssertTrue(call.prompt.hasPrefix("CUSTOM TEMPLATE"))
+        XCTAssertTrue(call.prompt.contains("Medicore"))
+        XCTAssertTrue(call.prompt.contains("We ship Friday."))
+        // Thinking on → uncapped output and no `/no_think` switch.
+        XCTAssertNil(call.maxTokens)
+        XCTAssertFalse(call.prompt.contains(LLMPromptSupport.noThinkSuffix))
+    }
+
+    func testSummarizeUsesTheInjectedRetryPolicy() async throws {
+        let stub = StubLLMProvider(
+            outcomes: [.failure(StubLLMProvider.transientFailure()), .success("# Summary\nDone.")]
+        )
+        let service = SummarizationService(
+            providerFactory: { stub },
+            userDefaults: makeDefaults(),
+            // No real backoff: a sleeping policy would make this test take seconds.
+            retryPolicy: LLMRetryPolicy(maxAttempts: 2, baseDelay: 0, sleep: { _ in })
+        )
+
+        _ = try await service.summarize(meeting: makeMeeting())
+
+        XCTAssertEqual(stub.calls.count, 2)
+    }
+
+    /// The stub's per-outcome truncated flag reaches the existing output-limit warning.
+    func testSummarizeWarnsWhenTheProviderReportsTruncatedOutput() async throws {
+        let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")], truncatedFlags: [true])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeDefaults())
+
+        _ = try await service.summarize(meeting: makeMeeting())
+
+        XCTAssertEqual(service.warningMessage, "Summary may be truncated: Stub reached its output length limit.")
+    }
 }

@@ -37,10 +37,11 @@ final class MeetingChatService {
     /// keep working. (Was defined here; moved to `LLMPromptSupport`.)
     static var charsPerToken: Int { LLMPromptSupport.charsPerToken }
 
-    /// Default token budget for the WHOLE assembled prompt. Conservative so it
-    /// fits comfortably alongside the model's output budget within a typical
-    /// local context window (e.g. 8k). Truncation trims the transcript to fit.
-    static let defaultPromptTokenBudget = 6000
+    /// Token budget for the WHOLE assembled prompt to a local model. `ask` uses
+    /// the provider's own `promptTokenBudget`; this is the local default it falls
+    /// back to, aliased to the shared constant so the two cannot drift.
+    /// Truncation trims the transcript to fit.
+    static var defaultPromptTokenBudget: Int { LLMPromptSupport.localPromptTokenBudget }
 
     /// System framing that constrains the model to the provided material.
     static let systemFraming = """
@@ -112,6 +113,9 @@ final class MeetingChatService {
         let notes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         let transcript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
+        // The provider first: its input budget decides how much transcript fits,
+        // so a large-context provider is not held to a local model's window.
+        let provider = providerFactory()
         let thinkingEnabled = LLMPromptSupport.thinkingEnabled()
         let basePrompt = Self.assemblePrompt(
             summary: summary,
@@ -119,11 +123,10 @@ final class MeetingChatService {
             transcript: transcript,
             history: priorTurns,
             question: trimmed,
-            tokenBudget: Self.defaultPromptTokenBudget
+            tokenBudget: provider.promptTokenBudget
         )
         let prompt = LLMPromptSupport.applyThinkingSwitch(to: basePrompt, thinkingEnabled: thinkingEnabled)
 
-        let provider = providerFactory()
         let retryPolicy = self.retryPolicy
 
         task = Task { @MainActor in

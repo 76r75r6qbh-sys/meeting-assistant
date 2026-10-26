@@ -252,6 +252,49 @@ final class MeetingChatServiceTests: XCTestCase {
         XCTAssertNotNil(service.errorMessage)
     }
 
+    // MARK: - Prompt budget follows the provider
+
+    /// A transcript ~40k chars long: past a 6,000-token local budget (24k chars at
+    /// 4 chars/token), well inside a 100,000-token one.
+    private func makeLongMeeting() -> (Meeting, String) {
+        let transcript = (0..<1_000)
+            .map { String(format: "[%02d:%02d] Line %04d of the long meeting.", $0 / 60, $0 % 60, $0) }
+            .joined(separator: "\n")
+        let meeting = Meeting(title: "Long Sync", date: .now, status: .completed)
+        meeting.transcript = transcript
+        return (meeting, transcript)
+    }
+
+    /// Claude Code's context holds the whole transcript, so chat must not elide it
+    /// to the local budget a 6,000-token provider still gets.
+    func testAskSendsTheWholeTranscriptToALargeBudgetProvider() async throws {
+        let (meeting, transcript) = makeLongMeeting()
+        XCTAssertGreaterThan(transcript.count, LLMPromptSupport.localPromptTokenBudget * LLMPromptSupport.charsPerToken)
+
+        let stub = StubLLMProvider(promptTokenBudget: 100_000, outcomes: [.success("Answer.")])
+        let service = MeetingChatService(providerFactory: { stub })
+        service.ask("What was on line 500?", meeting: meeting)
+        try await waitForAnswer(service)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains(transcript), "the large-budget provider must get the transcript whole")
+        XCTAssertFalse(prompt.contains("transcript truncated"))
+    }
+
+    /// The same meeting through a local-budget provider is still middle-elided.
+    func testAskStillElidesTheTranscriptForALocalBudgetProvider() async throws {
+        let (meeting, transcript) = makeLongMeeting()
+
+        let stub = StubLLMProvider(outcomes: [.success("Answer.")])
+        let service = MeetingChatService(providerFactory: { stub })
+        service.ask("What was on line 500?", meeting: meeting)
+        try await waitForAnswer(service)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertFalse(prompt.contains(transcript))
+        XCTAssertTrue(prompt.contains("transcript truncated"))
+    }
+
     func testActivateClearsHistoryOnMeetingChange() {
         let service = MeetingChatService()
         let a = UUID()
