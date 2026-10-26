@@ -28,6 +28,19 @@ enum LLMPromptSupport {
     /// Large-context providers override it. (Was `defaultTranscriptTokenBudget`.)
     static let localPromptTokenBudget = 6000
 
+    /// Output cap for one map (condense a part) or merge call when thinking is
+    /// off: room for compact notes on one part, small enough that a dozen parts
+    /// still fit one summary prompt after joining.
+    static let mapOutputTokens = 900
+
+    /// Most hierarchical merge levels map-reduce attempts before it falls back to
+    /// middle-eliding the joined notes. Each level costs serial model calls.
+    static let maxMergeLevels = 3
+
+    /// Overlap between consecutive transcript parts, so a statement split across
+    /// a boundary keeps its context in the next part.
+    static let summaryOverlapTokens = 200
+
     /// chars-per-token used for *budget decisions* (does a prompt fit, how big is
     /// a part, how large a context to ask Ollama for). Deliberately more
     /// pessimistic than `charsPerToken`: Dutch text with `[mm:ss]` labels

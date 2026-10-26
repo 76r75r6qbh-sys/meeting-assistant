@@ -224,6 +224,7 @@ struct RecordedMeetingView: View {
             summarizationStartedAt: summarizationService.summarizationStartedAt,
             summarizationError: summarizationService.errorMessage,
             summarizationWarning: summarizationService.warningMessage,
+            summarizationProviderName: summarizationService.providerDisplayName,
             autoExportFailure: exportStatusCenter.failure(for: meeting.id),
             meetingStatus: meeting.status,
             hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,

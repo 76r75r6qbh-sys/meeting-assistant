@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import OSLog
 import Observation
@@ -84,6 +85,10 @@ final class SummarizationService {
     enum SummarizationPhase: Equatable {
         case idle
         case sending
+        /// Map step of a long transcript: condensing part `part` (1-based) of `of`.
+        case condensing(part: Int, of: Int)
+        /// Hierarchical merge of condensed notes, level 1…`maxMergeLevels`.
+        case merging(level: Int)
         case retrying(attempt: Int, maxAttempts: Int)
         case parsing
     }
@@ -100,6 +105,10 @@ final class SummarizationService {
             return ""
         case .sending:
             return "Sending transcript and notes to \(providerDisplayName)..."
+        case .condensing(let part, let of):
+            return Self.condensingStatus(part: part, of: of, provider: providerDisplayName)
+        case .merging(let level):
+            return Self.mergingStatus(level: level)
         case .retrying(let attempt, let maxAttempts):
             return "\(providerDisplayName) request failed, retrying (\(attempt)/\(maxAttempts))..."
         case .parsing:
@@ -107,9 +116,21 @@ final class SummarizationService {
         }
     }
 
+    /// Status line for `.condensing`, shared with `MeetingPipelinePresentation`
+    /// so the summary tab, sidebar and processing card say the same thing.
+    nonisolated static func condensingStatus(part: Int, of total: Int, provider: String) -> String {
+        "Summarizing part \(part) of \(total) with \(provider)…"
+    }
+
+    /// Status line for `.merging`, shared with `MeetingPipelinePresentation`.
+    nonisolated static func mergingStatus(level: Int) -> String {
+        "Combining notes (step \(level))…"
+    }
+
     /// Display name of the provider for the in-flight summarization, captured so
-    /// `statusMessage` can name it without re-reading preferences off-thread.
-    private var providerDisplayName = "the model"
+    /// `statusMessage` (and the pipeline card, via the views) can name it
+    /// without re-reading preferences off-thread.
+    private(set) var providerDisplayName = "the model"
 
     var errorMessage: String?
     var warningMessage: String?
@@ -124,6 +145,26 @@ final class SummarizationService {
     private(set) var summarizationStartedAt: Date?
 
     private var backgroundTask: Task<Void, Never>?
+
+    /// Identity of one condensed transcript part: everything that shapes the map
+    /// prompt or its output, so a cached part is only reused for an identical call.
+    struct CondensedPartKey: Hashable {
+        let meetingID: UUID
+        let transcriptSHA256: String
+        /// Display name + endpoint: the protocol exposes no model, and switching
+        /// provider or server is what changes the output.
+        let provider: String
+        let terminologyBlock: String
+        let thinkingEnabled: Bool
+        let chunkTokens: Int
+        let chunkIndex: Int
+    }
+
+    /// Condensed parts of the most recent map-reduce run, so Retry after a failed
+    /// part re-uses the parts that already succeeded (a local model spends a
+    /// minute or more per part). In memory only, one meeting at a time.
+    private var condensedPartCache: [CondensedPartKey: String] = [:]
+    private var condensedPartCacheMeetingID: UUID?
 
     /// How `summarize` obtains its provider. Injectable so the tests can assert what
     /// the call site hands `generate` without reaching a live backend.
@@ -220,15 +261,9 @@ final class SummarizationService {
             throw SummarizationError.missingSourceMaterial
         }
 
-        // The provider first: its input budget decides how much of the transcript
-        // fits. A large-context provider (Claude Code) takes a multi-hour meeting
-        // whole; a local model still gets it bounded so it fits its context
-        // window alongside the rest of the prompt.
+        // The provider first: its input budget decides whether the transcript
+        // goes in whole (one call) or is condensed in parts first (map-reduce).
         let provider = providerFactory()
-        let (transcript, transcriptWasTruncated) = LLMPromptSupport.truncated(
-            rawTranscript,
-            toFitTokenBudget: provider.promptTokenBudget
-        )
 
         isSummarizing = true
         errorMessage = nil
@@ -240,35 +275,307 @@ final class SummarizationService {
             phase = .idle
         }
 
-        let terminologyBlock = TerminologyService.renderTerminologyBlock(
-            enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
-            raw: userDefaults.string(forKey: AppPreferenceKey.terminologyList) ?? ""
-        )
-
-        var prompt = Self.renderPrompt(
-            template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
+        let context = PromptContext(
             meeting: meeting,
-            transcript: transcript,
+            template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
             freeformNotes: freeformNotes,
-            terminologyBlock: terminologyBlock,
-            userName: AppPreferences.userNameAliases(in: userDefaults).first
+            terminologyBlock: TerminologyService.renderTerminologyBlock(
+                enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
+                raw: userDefaults.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+            ),
+            userName: AppPreferences.userNameAliases(in: userDefaults).first,
+            // Reasoning models "think out loud" before answering, which on short
+            // transcripts becomes pages of rambling that never reaches the summary.
+            // When thinking is disabled (default), the Qwen soft-switch is appended
+            // and output gets a tight budget; when enabled, the reasoning gets room.
+            thinkingEnabled: LLMPromptSupport.thinkingEnabled(defaults: userDefaults)
         )
 
-        // Reasoning models "think out loud" before answering, which on short
-        // transcripts becomes pages of rambling that never reaches the summary.
-        // When thinking is disabled (default), append the Qwen soft-switch and
-        // allow only a tight output budget; when enabled, give room for the
-        // reasoning to complete before the answer.
-        let thinkingEnabled = LLMPromptSupport.thinkingEnabled(defaults: userDefaults)
-        prompt = LLMPromptSupport.applyThinkingSwitch(to: prompt, thinkingEnabled: thinkingEnabled)
-        // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
-        let tokenBudget = LLMPromptSupport.tokenBudget(thinkingEnabled: thinkingEnabled)
+        var warnings: [String] = []
+        var outputWasTruncated = false
+        let transcript: String
+        if Self.fitsInOnePass(transcript: rawTranscript, context: context, budget: provider.promptTokenBudget) {
+            transcript = rawTranscript
+        } else {
+            let condensed = try await condense(rawTranscript, context: context, provider: provider)
+            transcript = condensed.text
+            outputWasTruncated = condensed.outputWasTruncated
+            if condensed.wasElided {
+                warnings.append(Self.shortenedWarning)
+            }
+        }
 
+        let prompt = LLMPromptSupport.applyThinkingSwitch(
+            to: context.summaryPrompt(transcript: transcript),
+            thinkingEnabled: context.thinkingEnabled
+        )
+        // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
+        let summary = try await generateStep(
+            .sending,
+            prompt: prompt,
+            maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: context.thinkingEnabled),
+            provider: provider,
+            outputWasTruncated: &outputWasTruncated
+        )
+
+        if outputWasTruncated {
+            warnings.append("Summary may be truncated: \(provider.displayName) reached its output length limit.")
+        }
+        if !warnings.isEmpty {
+            warningMessage = warnings.joined(separator: " ")
+        }
+        // Done with this meeting's parts: a later re-summarize (new template,
+        // edited transcript) must condense afresh.
+        condensedPartCache = condensedPartCache.filter { $0.key.meetingID != meeting.id }
+
+        phase = .parsing
+        // Strip any chain-of-thought the model still emitted (e.g. <think>…</think>).
+        return SummaryResponseParser.parse(Self.stripReasoning(summary))
+    }
+
+    // MARK: - Single pass vs map-reduce
+
+    /// Shown when even hierarchical merging could not bring the condensed notes
+    /// within the provider's budget and their middle had to be elided.
+    static let shortenedWarning = "The meeting was too long to summarize fully; some middle sections were shortened."
+
+    /// Everything the prompts are rendered from, read once per summarization so
+    /// the decision, the map/merge prompts and the final prompt agree.
+    @MainActor
+    struct PromptContext {
+        let meeting: Meeting
+        let template: String
+        let freeformNotes: String
+        let terminologyBlock: String
+        let userName: String?
+        let thinkingEnabled: Bool
+
+        func summaryPrompt(transcript: String) -> String {
+            SummarizationService.renderPrompt(
+                template: template,
+                meeting: meeting,
+                transcript: transcript,
+                freeformNotes: freeformNotes,
+                terminologyBlock: terminologyBlock,
+                userName: userName
+            )
+        }
+
+        /// Output cap for intermediate (map/merge) calls. Uncapped when thinking is
+        /// on, otherwise the reasoning eats the budget and the notes vanish.
+        var intermediateMaxTokens: Int? {
+            thinkingEnabled ? nil : LLMPromptSupport.mapOutputTokens
+        }
+    }
+
+    /// Tokens the summary prompt costs before any transcript goes in: template,
+    /// notes, terminology, metadata and the thinking switch.
+    static func summaryOverhead(context: PromptContext) -> Int {
+        LLMPromptSupport.budgetTokens(
+            LLMPromptSupport.applyThinkingSwitch(
+                to: context.summaryPrompt(transcript: ""),
+                thinkingEnabled: context.thinkingEnabled
+            )
+        )
+    }
+
+    /// Single pass when the whole transcript plus the rest of the prompt fits the
+    /// provider's input budget — the common case, and always for Claude Code.
+    static func fitsInOnePass(transcript: String, context: PromptContext, budget: Int) -> Bool {
+        transcript.isEmpty
+            || LLMPromptSupport.budgetTokens(transcript) + summaryOverhead(context: context) <= budget
+    }
+
+    /// One part's (or one merged group's) condensed notes, with the timestamp
+    /// range it covers for its `## Part i/N (start–end)` heading.
+    struct CondensedNote: Equatable {
+        let text: String
+        let startLabel: String?
+        let endLabel: String?
+    }
+
+    /// Map-reduce result: the text that replaces `{{transcript}}` in the user's
+    /// template, plus what the user must be warned about.
+    private struct CondensedTranscript {
+        let text: String
+        let wasElided: Bool
+        let outputWasTruncated: Bool
+    }
+
+    /// Condenses `transcript` part by part (map), merges the notes until they fit
+    /// (at most `LLMPromptSupport.maxMergeLevels` levels), and as a last resort
+    /// middle-elides the joined notes.
+    private func condense(
+        _ transcript: String,
+        context: PromptContext,
+        provider: LLMProvider
+    ) async throws -> CondensedTranscript {
+        let budget = provider.promptTokenBudget
+        var outputWasTruncated = false
+
+        var notes = try await mapParts(
+            of: transcript,
+            context: context,
+            provider: provider,
+            outputWasTruncated: &outputWasTruncated
+        )
+
+        let reduceCapacity = budget - Self.summaryOverhead(context: context)
+        let mergeCapacity = budget - LLMPromptSupport.budgetTokens(
+            LLMPromptSupport.applyThinkingSwitch(
+                to: Self.mergePrompt(notes: "", context: context),
+                thinkingEnabled: context.thinkingEnabled
+            )
+        )
+
+        var level = 0
+        while LLMPromptSupport.budgetTokens(Self.reduceJoin(notes)) > reduceCapacity,
+              level < LLMPromptSupport.maxMergeLevels {
+            let groups = Self.mergeGroups(notes, capacityTokens: mergeCapacity)
+            // A level that cannot combine anything would only repeat itself.
+            guard groups.count < notes.count else { break }
+            level += 1
+            notes = try await mergeLevel(
+                level,
+                notes: notes,
+                groups: groups,
+                context: context,
+                provider: provider,
+                outputWasTruncated: &outputWasTruncated
+            )
+        }
+
+        let joined = Self.reduceJoin(notes)
+        guard LLMPromptSupport.budgetTokens(joined) > reduceCapacity else {
+            return CondensedTranscript(text: joined, wasElided: false, outputWasTruncated: outputWasTruncated)
+        }
+        let elided = LLMPromptSupport.middleElide(
+            joined,
+            toCharBudget: max(0, reduceCapacity) * LLMPromptSupport.budgetCharsPerToken
+        )
+        return CondensedTranscript(text: elided, wasElided: true, outputWasTruncated: outputWasTruncated)
+    }
+
+    /// Map step: one call per transcript part. Completed parts are cached so a
+    /// retry after a failed part resumes where it stopped.
+    private func mapParts(
+        of transcript: String,
+        context: PromptContext,
+        provider: LLMProvider,
+        outputWasTruncated: inout Bool
+    ) async throws -> [CondensedNote] {
+        let budget = provider.promptTokenBudget
+        // Measured with wide placeholders (three-digit part numbers, h:mm:ss
+        // labels) so a full part plus its real header never exceeds the budget.
+        let widestHeader = TranscriptChunk(index: 998, text: "", startLabel: "00:00:00", endLabel: "00:00:00")
+        let mapOverhead = LLMPromptSupport.budgetTokens(
+            LLMPromptSupport.applyThinkingSwitch(
+                to: Self.mapPrompt(chunk: widestHeader, total: 999, context: context),
+                thinkingEnabled: context.thinkingEnabled
+            )
+        )
+        let chunkTokens = Self.chunkTokens(budget: budget, mapPromptOverhead: mapOverhead)
+        let chunks = TranscriptChunker.chunks(
+            of: transcript,
+            chunkTokens: chunkTokens,
+            // Never let the overlap crowd out the part's own new lines.
+            overlapTokens: min(LLMPromptSupport.summaryOverlapTokens, chunkTokens / 2)
+        )
+
+        if condensedPartCacheMeetingID != context.meeting.id {
+            condensedPartCache = [:]
+            condensedPartCacheMeetingID = context.meeting.id
+        }
+        let transcriptHash = Self.sha256(transcript)
+
+        var notes: [CondensedNote] = []
+        for chunk in chunks {
+            let key = CondensedPartKey(
+                meetingID: context.meeting.id,
+                transcriptSHA256: transcriptHash,
+                provider: "\(provider.displayName)|\(provider.endpoint)",
+                terminologyBlock: context.terminologyBlock,
+                thinkingEnabled: context.thinkingEnabled,
+                chunkTokens: chunkTokens,
+                chunkIndex: chunk.index
+            )
+            let text: String
+            if let cached = condensedPartCache[key] {
+                text = cached
+            } else {
+                let prompt = LLMPromptSupport.applyThinkingSwitch(
+                    to: Self.mapPrompt(chunk: chunk, total: chunks.count, context: context),
+                    thinkingEnabled: context.thinkingEnabled
+                )
+                text = try await intermediateStep(
+                    .condensing(part: chunk.index + 1, of: chunks.count),
+                    prompt: prompt,
+                    context: context,
+                    provider: provider,
+                    outputWasTruncated: &outputWasTruncated
+                )
+                condensedPartCache[key] = text
+            }
+            notes.append(CondensedNote(text: text, startLabel: chunk.startLabel, endLabel: chunk.endLabel))
+        }
+        return notes
+    }
+
+    /// One merge level: every multi-note group becomes one note; a single-note
+    /// group passes through without a call.
+    private func mergeLevel(
+        _ level: Int,
+        notes: [CondensedNote],
+        groups: [Range<Int>],
+        context: PromptContext,
+        provider: LLMProvider,
+        outputWasTruncated: inout Bool
+    ) async throws -> [CondensedNote] {
+        var merged: [CondensedNote] = []
+        for group in groups {
+            let members = Array(notes[group])
+            guard members.count > 1 else {
+                merged.append(contentsOf: members)
+                continue
+            }
+            let prompt = LLMPromptSupport.applyThinkingSwitch(
+                to: Self.mergePrompt(
+                    notes: Self.partSections(members, firstPart: group.lowerBound + 1, total: notes.count),
+                    context: context
+                ),
+                thinkingEnabled: context.thinkingEnabled
+            )
+            let text = try await intermediateStep(
+                .merging(level: level),
+                prompt: prompt,
+                context: context,
+                provider: provider,
+                outputWasTruncated: &outputWasTruncated
+            )
+            merged.append(CondensedNote(text: text, startLabel: members.first?.startLabel, endLabel: members.last?.endLabel))
+        }
+        return merged
+    }
+    // MARK: - Generation steps
+
+    /// One provider call for a pipeline step: shows `stepPhase`, honours
+    /// cancellation, retries transient failures (showing `.retrying`), maps
+    /// provider errors, and shows `stepPhase` again once the call succeeded so
+    /// "retrying" never sticks. Records an output-limit hit in `outputWasTruncated`.
+    private func generateStep(
+        _ stepPhase: SummarizationPhase,
+        prompt: String,
+        maxTokens: Int?,
+        provider: LLMProvider,
+        outputWasTruncated: inout Bool
+    ) async throws -> String {
+        phase = stepPhase
+        try Task.checkCancellation()
         var wasTruncated = false
         let retryPolicy = self.retryPolicy
-        let summary: String
+        let text: String
         do {
-            summary = try await retryPolicy.withRetry(
+            text = try await retryPolicy.withRetry(
                 onAttempt: { [weak self] attempt in
                     self?.phase = .retrying(attempt: attempt, maxAttempts: retryPolicy.maxAttempts)
                 }
@@ -276,7 +583,7 @@ final class SummarizationService {
                 try await provider.generate(
                     prompt: prompt,
                     temperature: nil,
-                    maxTokens: tokenBudget,
+                    maxTokens: maxTokens,
                     // 120s is what a local model needs for a structured summary;
                     // a provider that answers over the network says so itself,
                     // because a timeout here costs `maxAttempts` generations.
@@ -287,21 +594,136 @@ final class SummarizationService {
         } catch let error as LLMProviderError {
             throw Self.mapProviderError(error)
         }
+        if wasTruncated { outputWasTruncated = true }
+        phase = stepPhase
+        return text
+    }
 
-        var warnings: [String] = []
-        if transcriptWasTruncated {
-            warnings.append("The transcript was too long and was shortened (kept the start and end) to fit the model's context window.")
+    /// A map or merge call: capped output (unless thinking), reasoning tags
+    /// stripped. Empty notes are an error — silently skipping a part would drop
+    /// that stretch of the meeting from the summary.
+    private func intermediateStep(
+        _ stepPhase: SummarizationPhase,
+        prompt: String,
+        context: PromptContext,
+        provider: LLMProvider,
+        outputWasTruncated: inout Bool
+    ) async throws -> String {
+        let raw = try await generateStep(
+            stepPhase,
+            prompt: prompt,
+            maxTokens: context.intermediateMaxTokens,
+            provider: provider,
+            outputWasTruncated: &outputWasTruncated
+        )
+        let notes = LLMPromptSupport.stripReasoningTags(raw)
+        guard !notes.isEmpty else {
+            throw SummarizationError.emptyResponse(provider: provider.displayName)
         }
-        if wasTruncated {
-            warnings.append("Summary may be truncated: \(provider.displayName) reached its output length limit.")
-        }
-        if !warnings.isEmpty {
-            warningMessage = warnings.joined(separator: " ")
-        }
+        return notes
+    }
 
-        phase = .parsing
-        // Strip any chain-of-thought the model still emitted (e.g. <think>…</think>).
-        return SummaryResponseParser.parse(Self.stripReasoning(summary))
+    // MARK: - Map-reduce prompt building
+
+    /// Part size for the map step. Local providers get ≤ 4,000-token parts; a
+    /// large-context provider that still overflows gets about two big parts
+    /// instead of dozens of serial calls. Never below 1,000 tokens.
+    static func chunkTokens(budget: Int, mapPromptOverhead: Int) -> Int {
+        max(1_000, min(budget - mapPromptOverhead, max(4_000, budget / 2)))
+    }
+
+    /// The fixed map prompt (English instructions; notes in the transcript's language).
+    static func mapPrompt(chunk: TranscriptChunk, total: Int, context: PromptContext) -> String {
+        """
+        You are condensing part \(chunk.index + 1) of \(total) of a meeting transcript
+        (\(chunk.startLabel ?? "?")–\(chunk.endLabel ?? "?")) so it can be summarized later.
+        \(meetingLine(context: context))
+        \(context.terminologyBlock)
+        Write compact notes in the language of the transcript, as markdown bullets
+        under these headings, each bullet prefixed with its [timestamp] where known:
+        \(noteHeadings)
+        Only use this part of the transcript. Omit empty headings. No preamble.
+
+        Transcript part:
+        \(chunk.text)
+        """
+    }
+
+    /// The fixed merge prompt: combines consecutive condensed notes into one set
+    /// with the map step's headings.
+    static func mergePrompt(notes: String, context: PromptContext) -> String {
+        """
+        You are merging consecutive parts of the condensed notes of one long meeting so it can be summarized later.
+        \(meetingLine(context: context))
+        Merge these chronological partial meeting notes into one set of notes with the same headings; deduplicate; keep timestamps and owners.
+        Write in the language of the notes, as markdown bullets under these headings:
+        \(noteHeadings)
+        Omit empty headings. No preamble.
+
+        Partial notes:
+        \(notes)
+        """
+    }
+
+    private static let noteHeadings = """
+    ### Topics discussed
+    ### Decisions
+    ### Action items (owner: what)
+    ### Open questions and risks
+    ### Notable statements and figures
+    """
+
+    /// "Meeting: … Participants: … The note-taker is …." — the note-taker sentence
+    /// only when a name is known.
+    private static func meetingLine(context: PromptContext) -> String {
+        let participants = context.meeting.participants.isEmpty
+            ? "Unknown"
+            : context.meeting.participants.joined(separator: ", ")
+        var line = "Meeting: \(context.meeting.title). Participants: \(participants)."
+        if let name = context.userName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            line += " The note-taker is \(name)."
+        }
+        return line
+    }
+
+    /// First line of the reduce input, so the user's template treats the notes as
+    /// the transcript and deduplicates across part boundaries.
+    static let condensedNotesPreamble = "[Condensed notes of a long transcript, in chronological order — summarize these as the transcript.]"
+
+    /// The notes under `## Part i/N (start–end)` headings, numbered from `firstPart`.
+    static func partSections(_ notes: [CondensedNote], firstPart: Int, total: Int) -> String {
+        notes.enumerated().map { offset, note in
+            "## Part \(firstPart + offset)/\(total) (\(note.startLabel ?? "?")–\(note.endLabel ?? "?"))\n\(note.text)"
+        }
+        .joined(separator: "\n\n")
+    }
+
+    /// The text that replaces `{{transcript}}` in the user's template.
+    static func reduceJoin(_ notes: [CondensedNote]) -> String {
+        condensedNotesPreamble + "\n\n" + partSections(notes, firstPart: 1, total: notes.count)
+    }
+
+    /// Greedy grouping of consecutive notes whose part sections fit
+    /// `capacityTokens`. A note too big to share a group stands alone.
+    static func mergeGroups(_ notes: [CondensedNote], capacityTokens: Int) -> [Range<Int>] {
+        var groups: [Range<Int>] = []
+        var start = 0
+        while start < notes.count {
+            var end = start + 1
+            while end < notes.count,
+                  LLMPromptSupport.budgetTokens(
+                    partSections(Array(notes[start...end]), firstPart: start + 1, total: notes.count)
+                  ) <= capacityTokens {
+                end += 1
+            }
+            groups.append(start..<end)
+            start = end
+        }
+        return groups
+    }
+
+    private static func sha256(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Cancels the detached background summarization task, if any. Called on app

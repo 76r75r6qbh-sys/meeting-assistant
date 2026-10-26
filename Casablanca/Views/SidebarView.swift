@@ -199,7 +199,8 @@ struct SidebarView: View {
             isTranscribing: appModel.transcriptionService.isTranscribing,
             summarizingMeetingID: appModel.summarizationService.summarizingMeetingID,
             summarizationPhase: appModel.summarizationService.phase,
-            summarizationStartedAt: appModel.summarizationService.summarizationStartedAt
+            summarizationStartedAt: appModel.summarizationService.summarizationStartedAt,
+            summarizationProviderName: appModel.summarizationService.providerDisplayName
         )
     }
 
@@ -418,7 +419,8 @@ enum SidebarPipelineIndicator {
         isTranscribing: Bool,
         summarizingMeetingID: UUID?,
         summarizationPhase: SummarizationService.SummarizationPhase,
-        summarizationStartedAt: Date?
+        summarizationStartedAt: Date?,
+        summarizationProviderName: String = "the model"
     ) -> MeetingPipelinePresentation? {
         let isSummarizingThis = summarizingMeetingID == meetingID
         guard status == .processing || isSummarizingThis else { return nil }
@@ -431,6 +433,7 @@ enum SidebarPipelineIndicator {
             // Errors (summary/export) are surfaced in the detail view, not the
             // sidebar row, so the row only reflects active/stale state.
             summarizationError: nil,
+            summarizationProviderName: summarizationProviderName,
             autoExportFailure: nil,
             meetingStatus: status,
             hasTranscript: false,

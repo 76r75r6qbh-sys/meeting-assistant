@@ -12,6 +12,7 @@ final class MeetingPipelineStateTests: XCTestCase {
         summarizationStartedAt: Date? = nil,
         summarizationError: String? = nil,
         summarizationWarning: String? = nil,
+        summarizationProviderName: String = "the model",
         autoExportFailure: AutoExportFailure? = nil,
         meetingStatus: MeetingStatus = .completed,
         hasTranscript: Bool = true,
@@ -27,6 +28,7 @@ final class MeetingPipelineStateTests: XCTestCase {
             summarizationStartedAt: summarizationStartedAt,
             summarizationError: summarizationError,
             summarizationWarning: summarizationWarning,
+            summarizationProviderName: summarizationProviderName,
             autoExportFailure: autoExportFailure,
             meetingStatus: meetingStatus,
             hasTranscript: hasTranscript,
@@ -205,6 +207,36 @@ final class MeetingPipelineStateTests: XCTestCase {
             summarizationPhase: .retrying(attempt: 2, maxAttempts: 3)
         )
         XCTAssertNil(p.retryAttempt)
+    }
+
+    // MARK: - Map-reduce progress
+
+    func testCondensingSurfacesThePartInStatusText() {
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .condensing(part: 3, of: 13),
+            summarizationStartedAt: Date(),
+            summarizationProviderName: "Ollama"
+        )
+        XCTAssertEqual(p.statusText, "Summarizing part 3 of 13 with Ollama…")
+    }
+
+    func testMergingSurfacesTheStepInStatusText() {
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .merging(level: 2),
+            summarizationStartedAt: Date()
+        )
+        XCTAssertEqual(p.statusText, "Combining notes (step 2)…")
+    }
+
+    func testSendingStillReadsGeneratingSummary() {
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .sending,
+            summarizationStartedAt: Date()
+        )
+        XCTAssertEqual(p.statusText, "Generating summary…")
     }
 
     // MARK: - Chip state
