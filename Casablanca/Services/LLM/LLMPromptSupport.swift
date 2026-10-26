@@ -69,6 +69,10 @@ enum LLMPromptSupport {
     /// `num_ctx` changes, so coarse steps keep consecutive calls on one size.
     static let ollamaContextStepTokens = 4_096
 
+    /// Headroom added on top of prompt + expected output when sizing a context,
+    /// for estimation error.
+    static let contextSlackTokens = 1_024
+
     /// The `num_ctx` to send Ollama for one generate call. Without it Ollama runs
     /// at its server default (2k–4k) and silently drops the head of a longer
     /// prompt. Sized per call — prompt plus expected output (`maxTokens`, or as
@@ -77,7 +81,7 @@ enum LLMPromptSupport {
     /// clamped to [`ollamaMinContextTokens`, `ollamaMaxContextTokens`].
     static func ollamaContextTokens(promptChars: Int, maxTokens: Int?) -> Int {
         let promptTokens = budgetTokens(forCharCount: promptChars)
-        let need = promptTokens + (maxTokens ?? promptTokens) + 1_024
+        let need = promptTokens + (maxTokens ?? promptTokens) + contextSlackTokens
         let step = ollamaContextStepTokens
         let rounded = ((need + step - 1) / step) * step
         return min(ollamaMaxContextTokens, max(ollamaMinContextTokens, rounded))

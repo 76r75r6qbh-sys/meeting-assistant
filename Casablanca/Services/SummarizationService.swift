@@ -292,14 +292,17 @@ final class SummarizationService {
         )
 
         var warnings: [String] = []
-        var outputWasTruncated = false
+        // Kept apart: a cut-off map/merge note loses detail from one stretch of
+        // the meeting, a cut-off final call loses the end of the summary itself.
+        var notesWereTruncated = false
+        var summaryWasTruncated = false
         let transcript: String
         if Self.fitsInOnePass(transcript: rawTranscript, context: context, budget: provider.promptTokenBudget) {
             transcript = rawTranscript
         } else {
             let condensed = try await condense(rawTranscript, context: context, provider: provider)
             transcript = condensed.text
-            outputWasTruncated = condensed.outputWasTruncated
+            notesWereTruncated = condensed.outputWasTruncated
             if condensed.wasElided {
                 warnings.append(Self.shortenedWarning)
             }
@@ -315,10 +318,13 @@ final class SummarizationService {
             prompt: prompt,
             maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: context.thinkingEnabled),
             provider: provider,
-            outputWasTruncated: &outputWasTruncated
+            outputWasTruncated: &summaryWasTruncated
         )
 
-        if outputWasTruncated {
+        if notesWereTruncated {
+            warnings.append(Self.notesTruncatedWarning)
+        }
+        if summaryWasTruncated {
             warnings.append("Summary may be truncated: \(provider.displayName) reached its output length limit.")
         }
         if !warnings.isEmpty {
@@ -338,6 +344,10 @@ final class SummarizationService {
     /// Shown when even hierarchical merging could not bring the condensed notes
     /// within the provider's budget and their middle had to be elided.
     static let shortenedWarning = "The meeting was too long to summarize fully; some middle sections were shortened."
+
+    /// Shown when a map or merge call (not the final summary) hit the output
+    /// limit, so the notes for that stretch of the meeting are incomplete.
+    static let notesTruncatedWarning = "Notes for some parts hit the output limit; the summary may miss details from them."
 
     /// Everything the prompts are rendered from, read once per summarization so
     /// the decision, the map/merge prompts and the final prompt agree.
@@ -429,7 +439,11 @@ final class SummarizationService {
         )
 
         var level = 0
-        while LLMPromptSupport.budgetTokens(Self.reduceJoin(notes)) > reduceCapacity,
+        // `reduceCapacity <= 0`: the template and notes alone fill the budget, so
+        // no amount of merging can make the notes fit — skip straight to the
+        // fallback instead of spending calls on it.
+        while reduceCapacity > 0,
+              LLMPromptSupport.budgetTokens(Self.reduceJoin(notes)) > reduceCapacity,
               level < LLMPromptSupport.maxMergeLevels {
             let groups = Self.mergeGroups(notes, capacityTokens: mergeCapacity)
             // A level that cannot combine anything would only repeat itself.
@@ -634,12 +648,13 @@ final class SummarizationService {
 
     /// The fixed map prompt (English instructions; notes in the transcript's language).
     static func mapPrompt(chunk: TranscriptChunk, total: Int, context: PromptContext) -> String {
-        """
+        // No blank line where an empty terminology block would have gone.
+        let terminology = context.terminologyBlock.isEmpty ? "" : context.terminologyBlock + "\n"
+        return """
         You are condensing part \(chunk.index + 1) of \(total) of a meeting transcript
         (\(chunk.startLabel ?? "?")–\(chunk.endLabel ?? "?")) so it can be summarized later.
         \(meetingLine(context: context))
-        \(context.terminologyBlock)
-        Write compact notes in the language of the transcript, as markdown bullets
+        \(terminology)Write compact notes in the language of the transcript, as markdown bullets
         under these headings, each bullet prefixed with its [timestamp] where known:
         \(noteHeadings)
         Only use this part of the transcript. Omit empty headings. No preamble.

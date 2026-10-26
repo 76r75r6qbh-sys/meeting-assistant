@@ -113,6 +113,70 @@ final class TerminologyServiceTests: XCTestCase {
         )
     }
 
+    /// A transcript of `chars` characters made of `[mm:ss]` lines mentioning the alias.
+    private static func longTranscript(chars: Int) -> String {
+        var lines: [String] = []
+        var total = 0
+        var i = 0
+        while total < chars {
+            let line = String(format: "[%02d:%02d] Spreker %d: we gebruiken Medi Core voor punt %05d.", (i / 60) % 60, i % 60, i % 4, i)
+            lines.append(line)
+            total += line.count + 1
+            i += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Past the largest context we run a local model at, the echo would come back
+    /// missing the start of the meeting and still pass `looksLikeMangledOutput`.
+    /// The pass must not run; the deterministic result stands, with a warning.
+    @MainActor
+    func testProviderPassIsSkippedWhenTheTranscriptIsTooLongToEchoWithinTheContext() async {
+        let transcript = Self.longTranscript(chars: 60_000)
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success("should not be used")])
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(transcript, entries: Self.entries)
+
+        XCTAssertTrue(stub.calls.isEmpty, "an echo that cannot fit the context must not be requested")
+        XCTAssertEqual(result, TerminologyService.dictionaryReplace(transcript, entries: Self.entries))
+        XCTAssertFalse(result.contains("Medi Core"), "the regex pass still ran")
+        XCTAssertEqual(service.warningMessage, TerminologyService.providerPassTooLongWarning(providerName: "Ollama"))
+    }
+
+    /// A long transcript that still fits (prompt + echo + slack ≤ the cap) keeps the pass.
+    @MainActor
+    func testProviderPassStillRunsForALongTranscriptThatFitsTheContext() async {
+        let transcript = Self.longTranscript(chars: 40_000)
+        let replaced = TerminologyService.dictionaryReplace(transcript, entries: Self.entries)
+        XCTAssertTrue(TerminologyService.providerPassFitsContext(
+            prompt: TerminologyService.providerPassPrompt(transcript: replaced, entries: Self.entries)
+        ))
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success(replaced)])
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(transcript, entries: Self.entries)
+
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(stub.calls.first?.prompt, TerminologyService.providerPassPrompt(transcript: replaced, entries: Self.entries))
+        XCTAssertEqual(result, replaced)
+        XCTAssertNil(service.warningMessage)
+    }
+
+    /// The gate is `2 · budgetTokens(prompt) + slack ≤ ollamaMaxContextTokens`.
+    func testProviderPassFitsContextBoundary() {
+        let maxPromptTokens = (LLMPromptSupport.ollamaMaxContextTokens - LLMPromptSupport.contextSlackTokens) / 2
+        let fits = String(repeating: "a", count: maxPromptTokens * LLMPromptSupport.budgetCharsPerToken)
+        XCTAssertTrue(TerminologyService.providerPassFitsContext(prompt: fits))
+        XCTAssertFalse(TerminologyService.providerPassFitsContext(prompt: fits + String(repeating: "a", count: LLMPromptSupport.budgetCharsPerToken)))
+    }
+
+    func testProviderPassTooLongWarningNamesTheProviderAndTheReplacementsThatRan() {
+        let warning = TerminologyService.providerPassTooLongWarning(providerName: "Ollama")
+        XCTAssertTrue(warning.contains("Ollama"), warning)
+        XCTAssertTrue(warning.localizedCaseInsensitiveContains("deterministic replacements"), warning)
+    }
+
     /// The skip warning has to name what the user still got; a bare "unavailable"
     /// would read as if the transcript had gone uncorrected.
     func testProviderPassSkippedWarningNamesTheProviderAndTheReplacementsThatRan() {

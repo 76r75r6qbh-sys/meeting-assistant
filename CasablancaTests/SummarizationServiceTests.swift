@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 @testable import Casablanca
 
@@ -308,6 +309,15 @@ final class SummarizationServiceTests: XCTestCase {
             XCTAssertTrue(call.prompt.hasSuffix(LLMPromptSupport.noThinkSuffix))
         }
         XCTAssertTrue(mapCalls[0].prompt.contains("(0:00:00–"), "the first part is labelled from its first timestamp")
+        // Terminology off: the meeting line runs straight into the instructions,
+        // with no blank line where the empty terminology block would have gone.
+        let headerLines = mapCalls[0].prompt.components(separatedBy: "\n").prefix(5)
+        XCTAssertEqual(headerLines.count, 5)
+        XCTAssertTrue(headerLines[0].hasPrefix("You are condensing part 1 of \(partCount) of a meeting transcript"))
+        XCTAssertTrue(headerLines[1].hasPrefix("(0:00:00–") && headerLines[1].hasSuffix(") so it can be summarized later."))
+        XCTAssertEqual(headerLines[2], "Meeting: EHDS. Participants: Unknown. The note-taker is Youri.")
+        XCTAssertEqual(headerLines[3], "Write compact notes in the language of the transcript, as markdown bullets")
+        XCTAssertEqual(headerLines[4], "under these headings, each bullet prefixed with its [timestamp] where known:")
 
         let reduce = try XCTUnwrap(stub.calls.last).prompt
         XCTAssertTrue(reduce.hasPrefix("TEMPLATE"), "the reduce runs through the user's template")
@@ -423,13 +433,148 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(stub.calls.count, 2, "nothing runs after the empty part")
     }
 
-    func testTruncatedPartNotesSetTheOutputLimitWarning() async throws {
+    func testMapPromptKeepsTheTerminologyBlockOnItsOwnLines() async throws {
+        let defaults = makeMapReduceDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Medicore", forKey: AppPreferenceKey.terminologyList)
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: defaults)
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeLongTranscript(chars: 20_000)))
+
+        let block = TerminologyService.renderTerminologyBlock(enabled: true, raw: "Medicore")
+        let prompt = try XCTUnwrap(stub.calls.first(where: isMapCall)).prompt
+        XCTAssertTrue(prompt.contains(
+            "The note-taker is Youri.\n\(block)\nWrite compact notes in the language of the transcript"
+        ))
+    }
+
+    /// Part counts for a 20k transcript on `smallBudget`, so a test can place a
+    /// truncated flag on the final call.
+    private func mapCallCount(for transcript: String) async throws -> Int {
+        let probe = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = SummarizationService(providerFactory: { probe }, userDefaults: makeMapReduceDefaults())
+        _ = try await service.summarize(meeting: makeMeeting(transcript: transcript))
+        return probe.calls.filter(isMapCall).count
+    }
+
+    func testTruncatedPartNotesSetTheNotesOutputLimitWarning() async throws {
         let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes(), truncatedFlags: [true, false])
         let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
 
         _ = try await service.summarize(meeting: makeMeeting(transcript: makeLongTranscript(chars: 20_000)))
 
+        XCTAssertEqual(
+            service.warningMessage,
+            "Notes for some parts hit the output limit; the summary may miss details from them."
+        )
+    }
+
+    func testATruncatedFinalCallAfterMapReduceKeepsTheSummaryWarning() async throws {
+        let transcript = makeLongTranscript(chars: 20_000)
+        let parts = try await mapCallCount(for: transcript)
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: numberedNotes(),
+            truncatedFlags: Array(repeating: false, count: parts) + [true]
+        )
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: transcript))
+
+        XCTAssertEqual(stub.calls.count, parts + 1)
         XCTAssertEqual(service.warningMessage, "Summary may be truncated: Stub reached its output length limit.")
+    }
+
+    func testTruncatedNotesAndATruncatedSummaryShowBothWarnings() async throws {
+        let transcript = makeLongTranscript(chars: 20_000)
+        let parts = try await mapCallCount(for: transcript)
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: numberedNotes(),
+            truncatedFlags: [true] + Array(repeating: false, count: parts - 1) + [true]
+        )
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: transcript))
+
+        XCTAssertEqual(
+            service.warningMessage,
+            "Notes for some parts hit the output limit; the summary may miss details from them. Summary may be truncated: Stub reached its output length limit."
+        )
+    }
+
+    /// Template + notes alone exceed the budget: merging can never make the notes
+    /// fit, so no merge call is spent and the fallback runs at once.
+    func testNoMergeCallsWhenTheTemplateAloneFillsTheBudget() async throws {
+        let recorder = PhaseRecorder()
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: numberedNotes(),
+            onGenerate: { recorder.record() }
+        )
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults(padding: 6_000))
+        recorder.service = service
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeLongTranscript(chars: 20_000)))
+
+        let mapCount = stub.calls.filter(isMapCall).count
+        XCTAssertGreaterThan(mapCount, 1)
+        XCTAssertTrue(stub.calls.filter(isMergeCall).isEmpty, "a merge cannot help when the template fills the budget")
+        XCTAssertFalse(recorder.phases.contains { if case .merging = $0 { return true } else { return false } })
+        XCTAssertEqual(stub.calls.count, mapCount + 1, "map calls, then the final call")
+        XCTAssertEqual(service.warningMessage, SummarizationService.shortenedWarning)
+    }
+
+    /// Two notes that are each too big to share a merge call: the level would
+    /// regroup them one per group, so it is skipped and the fallback runs.
+    func testAMergeLevelThatCannotReduceTheNoteCountBreaksOut() async throws {
+        let bigNote = String(repeating: "- [0:01:00] besproken punt. ", count: 130)  // ~3,600 chars
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: [.success(bigNote)])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeLongTranscript(chars: 5_000)))
+
+        XCTAssertEqual(stub.calls.filter(isMapCall).count, 2, "two parts, so two oversized notes")
+        XCTAssertTrue(stub.calls.filter(isMergeCall).isEmpty, "no merge call that would only repeat itself")
+        XCTAssertEqual(stub.calls.count, 3)
+        let reduce = try XCTUnwrap(stub.calls.last).prompt
+        XCTAssertTrue(reduce.contains("transcript truncated"), "the joined notes were middle-elided")
+        XCTAssertEqual(service.warningMessage, SummarizationService.shortenedWarning)
+    }
+
+    /// Cancelling between parts stops the run: no further provider calls, and the
+    /// background path shows no error for it.
+    func testCancellationBetweenPartsStopsFurtherCallsAndSurfacesNoError() async throws {
+        let schema = Schema([Meeting.self, TodoItem.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+        let meeting = makeMeeting(transcript: makeLongTranscript(chars: 20_000))
+        context.insert(meeting)
+
+        let holder = ServiceHolder()
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: numberedNotes(),
+            onGenerate: { holder.service?.cancelBackgroundWork() }
+        )
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+        holder.service = service
+
+        service.summarizeInBackground(meeting: meeting, modelContext: context)
+        let deadline = Date().addingTimeInterval(5)
+        while service.isSummarizing, Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        XCTAssertFalse(service.isSummarizing)
+        XCTAssertEqual(stub.calls.count, 1, "part 2 is never requested after the cancel")
+        XCTAssertTrue(isMapCall(try XCTUnwrap(stub.calls.first)))
+        XCTAssertNil(service.errorMessage, "cancellation is not a failure")
+        XCTAssertNil(meeting.summary)
     }
 
     func testAFailedPartFailsTheSummaryAndRetryReusesTheCondensedParts() async throws {
@@ -521,6 +666,11 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(recorder.statuses.first, "Summarizing part 1 of \(partCount) with Ollama…")
         XCTAssertEqual(SummarizationService.mergingStatus(level: 2), "Combining notes (step 2)…")
     }
+}
+
+@MainActor
+private final class ServiceHolder {
+    weak var service: SummarizationService?
 }
 
 /// Records the service's phase and status line at the start of every stub
