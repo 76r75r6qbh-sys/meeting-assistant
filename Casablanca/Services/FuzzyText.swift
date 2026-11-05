@@ -7,10 +7,11 @@ enum FuzzyText {
     /// Similarity at or above which two texts count as the same item.
     static let matchThreshold = 0.85
 
-    /// Case and diacritics folded, every non-letter/non-digit turned into a
-    /// space, whitespace collapsed and trimmed.
+    /// Compatibility-decomposed (NFKD, so `ĳ` becomes `ij`), case and
+    /// diacritics folded, every non-letter/non-digit turned into a space,
+    /// whitespace collapsed and trimmed.
     static func normalized(_ text: String) -> String {
-        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
+        let folded = text.decomposedStringWithCompatibilityMapping.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
         var out = ""
         out.reserveCapacity(folded.count)
         var pendingSpace = false

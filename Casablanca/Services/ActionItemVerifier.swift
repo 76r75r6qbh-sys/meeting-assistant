@@ -9,12 +9,17 @@ import Foundation
 struct TranscriptIndex {
     /// Timestamped lines in transcript order. A line without a leading `[ts]`
     /// is appended (after a space) to the previous line's text; untimed text
-    /// before the first timestamped line is dropped.
+    /// before the first timestamped line goes into a synthetic `00:00` line,
+    /// so a transcript without any timestamps is one synthetic line.
     let lines: [TranscriptLine]
+    /// Whether `lines[0]` is the synthetic `00:00` line holding untimed lead-in text.
+    let startsWithSyntheticLine: Bool
 
-    /// The normalised line texts joined by single spaces (bridged once, so
-    /// repeated searches do not re-bridge a long transcript).
+    /// The normalised line texts joined by single spaces, with a leading and a
+    /// trailing space so whole-word searches can match `" " + needle + " "`
+    /// (bridged once, so repeated searches do not re-bridge a long transcript).
     private let haystack: NSString
+
     /// UTF-16 offset in `haystack` where each non-empty line starts, ascending,
     /// paired with the index of that line in `lines`.
     private let lineStarts: [(offset: Int, line: Int)]
@@ -37,6 +42,7 @@ struct TranscriptIndex {
 
     init(transcript: String, knownSpeakers: Set<String>) {
         var parsed: [TranscriptLine] = []
+        var synthetic = false
         // Split on the scalar so CRLF transcripts still split into lines.
         for scalars in transcript.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false) {
             var raw = String(String.UnicodeScalarView(scalars))
@@ -46,14 +52,20 @@ struct TranscriptIndex {
                 continue
             }
             let continuation = raw.trimmingCharacters(in: .whitespaces)
-            guard !continuation.isEmpty, !parsed.isEmpty else { continue }
+            guard !continuation.isEmpty else { continue }
+            if parsed.isEmpty {
+                parsed.append(TranscriptLine(label: TranscriptLineFormat.timestampLabel(seconds: 0), seconds: 0,
+                                             speaker: nil, text: ""))
+                synthetic = true
+            }
             let last = parsed.count - 1
             parsed[last].text = parsed[last].text.isEmpty ? continuation : parsed[last].text + " " + continuation
         }
         lines = parsed
+        startsWithSyntheticLine = synthetic
 
-        var haystack = ""
-        var utf16Count = 0
+        var haystack = " "
+        var utf16Count = 1
         var lineStarts: [(offset: Int, line: Int)] = []
         var tokens: [String] = []
         var tokenLine: [Int] = []
@@ -66,7 +78,7 @@ struct TranscriptIndex {
             let normalized = FuzzyText.normalized(line.text)
             let first = tokens.count
             if !normalized.isEmpty {
-                if !haystack.isEmpty {
+                if utf16Count > 1 {
                     haystack.append(" ")
                     utf16Count += 1
                 }
@@ -89,7 +101,7 @@ struct TranscriptIndex {
             }
             lineTokens.append(first..<tokens.count)
         }
-        self.haystack = haystack as NSString
+        self.haystack = (haystack + " ") as NSString
         self.lineStarts = lineStarts
         self.tokens = tokens
         self.tokenLine = tokenLine
@@ -100,14 +112,19 @@ struct TranscriptIndex {
         self.alphabet = alphabet
     }
 
+    /// Whether `line` is the synthetic `00:00` line holding untimed lead-in text.
+    func isSynthetic(_ line: TranscriptLine) -> Bool {
+        startsWithSyntheticLine && line == lines[0]
+    }
+
     /// Lines whose time is within `radius` seconds of `seconds` (inclusive), in order.
     func window(around seconds: Double, radius: Double) -> [TranscriptLine] {
         lines.filter { abs($0.seconds - seconds) <= radius }
     }
 
     /// How well `quote` occurs in the transcript and the line where the best
-    /// match starts. An exact normalised substring scores 1.0 (the occurrence
-    /// nearest `seconds` wins). Otherwise windows of `k−1…k+1` tokens (`k` =
+    /// match starts. An exact normalised whole-word match scores 1.0 (the
+    /// occurrence nearest `seconds` wins; `pak` never matches inside `pakket`). Otherwise windows of `k−1…k+1` tokens (`k` =
     /// the quote's token count) are scored with ``FuzzyText/similarity(_:_:)``:
     /// first those starting in the ±``ActionItemVerifier/windowRadius`` s window
     /// around `seconds`, then — only if that stays below
@@ -143,21 +160,24 @@ struct TranscriptIndex {
 
     // MARK: Private
 
-    /// The line holding the exact occurrence of `needle` nearest `seconds`
-    /// (the first one when `seconds` is nil), or nil when there is none.
+    /// The line holding the whole-word occurrence of `needle` nearest
+    /// `seconds` (the first one when `seconds` is nil), or nil when there is none.
     private func exactMatchLine(_ needle: String, near seconds: Double?) -> TranscriptLine? {
+        let padded = " " + needle + " "
         var found: TranscriptLine?
         var location = 0
         while location < haystack.length {
-            let range = haystack.range(of: needle, options: .literal,
+            let range = haystack.range(of: padded, options: .literal,
                                        range: NSRange(location: location, length: haystack.length - location))
             guard range.location != NSNotFound else { break }
-            let line = lines[lineIndex(atUTF16Offset: range.location)]
+            // The match starts at its leading space; the quote one character later.
+            let line = lines[lineIndex(atUTF16Offset: range.location + 1)]
             guard let seconds else { return line }
             if found.map({ abs(line.seconds - seconds) < abs($0.seconds - seconds) }) ?? true {
                 found = line
             }
-            location = range.location + 1
+            // The trailing space may be the leading space of the next occurrence.
+            location = range.location + range.length - 1
         }
         return found
     }
@@ -291,35 +311,47 @@ enum ActionItemVerifier {
     /// The deterministic half of verification. Items without a quote stay
     /// as they are (`.unverified`, never auto-accepted). Items whose quote is
     /// not found (score below ``FuzzyText/matchThreshold``) become
-    /// `.unsupported` with ``quoteNotFoundReason``. Found items get the
-    /// located line's label as timestamp (fixing a mis-cited `[mm:ss]`) and a
-    /// ``Claim``; claim ids follow list position, so `a3` is always the third
+    /// `.unsupported` with ``quoteNotFoundReason``. A found quote shorter than
+    /// ``FuzzyText/minimumFuzzyLength`` normalised characters is no evidence on
+    /// its own: the item stays as it is, without a claim. Other found items
+    /// are reset to `.unverified` (no stale verdict survives a re-run), get the
+    /// located line's label as timestamp (fixing a mis-cited `[mm:ss]`; kept
+    /// when the line is the synthetic start of an untimed transcript) and a
+    /// ``Claim``. Claim ids follow list position, so `a3` is always the third
     /// action item even when earlier ones produced no claim.
     static func precheck(_ facts: SummaryFacts, index: TranscriptIndex) -> (facts: SummaryFacts, claims: [Claim]) {
         var result = facts
         var claims: [Claim] = []
 
         for (i, item) in facts.actionItems.enumerated() {
-            guard let quote = item.quote, !FuzzyText.normalized(quote).isEmpty else { continue }
-            if let line = located(quote, timestamp: item.timestamp, in: index) {
-                result.actionItems[i].timestamp = line.label
-                claims.append(Claim(id: "a\(i + 1)", kind: .actionItem, text: item.task, owner: item.owner,
-                                    due: item.due, quote: quote, seconds: line.seconds))
-            } else {
+            switch check(item.quote, timestamp: item.timestamp, in: index) {
+            case .noEvidence:
+                continue
+            case .notFound:
                 result.actionItems[i].verified = .unsupported
                 result.actionItems[i].verificationReason = quoteNotFoundReason
+            case let .found(line, quote):
+                result.actionItems[i].verified = .unverified
+                result.actionItems[i].verificationReason = nil
+                if !index.isSynthetic(line) { result.actionItems[i].timestamp = line.label }
+                claims.append(Claim(id: "a\(i + 1)", kind: .actionItem, text: item.task, owner: item.owner,
+                                    due: item.due, quote: quote, seconds: line.seconds))
             }
         }
 
         for (i, decision) in facts.decisions.enumerated() {
-            guard let quote = decision.quote, !FuzzyText.normalized(quote).isEmpty else { continue }
-            if let line = located(quote, timestamp: decision.timestamp, in: index) {
-                result.decisions[i].timestamp = line.label
-                claims.append(Claim(id: "d\(i + 1)", kind: .decision, text: decision.text, owner: nil,
-                                    due: nil, quote: quote, seconds: line.seconds))
-            } else {
+            switch check(decision.quote, timestamp: decision.timestamp, in: index) {
+            case .noEvidence:
+                continue
+            case .notFound:
                 result.decisions[i].verified = .unsupported
                 result.decisions[i].verificationReason = quoteNotFoundReason
+            case let .found(line, quote):
+                result.decisions[i].verified = .unverified
+                result.decisions[i].verificationReason = nil
+                if !index.isSynthetic(line) { result.decisions[i].timestamp = line.label }
+                claims.append(Claim(id: "d\(i + 1)", kind: .decision, text: decision.text, owner: nil,
+                                    due: nil, quote: quote, seconds: line.seconds))
             }
         }
         return (result, claims)
@@ -341,10 +373,20 @@ enum ActionItemVerifier {
         return seconds
     }
 
-    /// The line where `quote` was found with a score ≥ ``FuzzyText/matchThreshold``.
-    private static func located(_ quote: String, timestamp: String?, in index: TranscriptIndex) -> TranscriptLine? {
+    private enum QuoteCheck {
+        /// No quote, or one too short to count as evidence when found.
+        case noEvidence
+        case notFound
+        case found(TranscriptLine, quote: String)
+    }
+
+    private static func check(_ quote: String?, timestamp: String?, in index: TranscriptIndex) -> QuoteCheck {
+        guard let quote else { return .noEvidence }
+        let normalizedLength = FuzzyText.normalized(quote).count
+        guard normalizedLength > 0 else { return .noEvidence }
         let match = index.locate(quote: quote, near: itemSeconds(timestamp))
-        guard match.score >= FuzzyText.matchThreshold else { return nil }
-        return match.line
+        guard match.score >= FuzzyText.matchThreshold, let line = match.line else { return .notFound }
+        guard normalizedLength >= FuzzyText.minimumFuzzyLength else { return .noEvidence }
+        return .found(line, quote: quote)
     }
 }

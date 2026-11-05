@@ -20,6 +20,11 @@ final class FuzzyTextTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(FuzzyText.similarity(a, b), FuzzyText.matchThreshold)
     }
 
+    func testNormalizedFoldsTheIJLigature() {
+        XCTAssertEqual(FuzzyText.normalized("Ĳsbaan bĳ de dĳk"), "ijsbaan bij de dijk")
+        XCTAssertEqual(FuzzyText.similarity("bĳeenkomst", "bijeenkomst"), 1.0)
+    }
+
     func testNormalizedFoldsPunctuationAndWhitespace() {
         XCTAssertEqual(FuzzyText.normalized("  Bél  Kim — nú!  "), "bel kim nu")
     }

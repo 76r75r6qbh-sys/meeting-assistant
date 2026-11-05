@@ -216,28 +216,30 @@ final class ActionItemVerifierTests: XCTestCase {
     // MARK: - Score equivalence
 
     /// `locate`'s fuzzy score equals the best ``FuzzyText/similarity(_:_:)``
-    /// over every `k−1…k+1`-token window, for short (bit-parallel) and long
-    /// (> 64 characters, dynamic programme) quotes.
+    /// over every `k−1…k+1`-token window, for quotes of about 40, 70, 140 and
+    /// 210 characters (one to four 64-bit blocks) inside longer lines that
+    /// contain non-ASCII (`ĳ`, `ß`, `één`) and digits.
     func testFuzzyScoreEqualsBruteForceSimilarity() {
         var rng = SplitMix(seed: 42)
-        var longQuotes = 0, veryLongQuotes = 0
-        let words = ["de", "het", "offerte", "kim", "plan", "ik", "we", "één", "team", "q3", "migratie", "naar", "stuur"]
-        for round in 0..<60 {
-            let lineWords = (0..<(4 + rng.next(8))).map { _ in words[rng.next(words.count)] }
-            var quoteWords = Array(lineWords.dropFirst(rng.next(2)))
-            // Some quotes span two or three 64-bit blocks.
-            if round % 3 == 0 { quoteWords += quoteWords + quoteWords + quoteWords }
-            else if round % 3 == 1 { quoteWords += quoteWords }
+        let words = ["de", "het", "offerte", "kim", "plan", "ik", "we", "één", "team", "q3", "migratie",
+                     "naar", "stuur", "ĳsbaan", "straße", "2026", "bĳeenkomst", "größe"]
+        func randomWords(_ count: Int) -> [String] { (0..<count).map { _ in words[rng.next(words.count)] } }
+        var blocksChecked: [Int: Int] = [:]
+        for round in 0..<24 {
+            let target = [40, 70, 140, 210][round % 4]
+            var quoteWords: [String] = []
+            while FuzzyText.normalized(quoteWords.joined(separator: " ")).count < target {
+                quoteWords += randomWords(1)
+            }
+            let lineWords = randomWords(2 + rng.next(4)) + quoteWords + randomWords(2 + rng.next(4))
             // Corrupt one character so the exact path is not taken.
             var quote = quoteWords.joined(separator: " ")
             let position = quote.index(quote.startIndex, offsetBy: rng.next(quote.count))
             quote.replaceSubrange(position...position, with: "x")
             let transcript = "[00:05] " + lineWords.joined(separator: " ")
             let index = TranscriptIndex(transcript: transcript, knownSpeakers: [])
-            guard !FuzzyText.normalized(transcript).contains(FuzzyText.normalized(quote)) else { continue }
-            let quoteLength = FuzzyText.normalized(quote).count
-            if quoteLength > 64 { longQuotes += 1 }
-            if quoteLength > 128 { veryLongQuotes += 1 }
+            let haystack = " " + FuzzyText.normalized(transcript) + " "
+            guard !haystack.contains(" " + FuzzyText.normalized(quote) + " ") else { continue }
 
             let tokens = FuzzyText.normalized(lineWords.joined(separator: " ")).split(separator: " ").map(String.init)
             let k = FuzzyText.normalized(quote).split(separator: " ").count
@@ -247,12 +249,84 @@ final class ActionItemVerifierTests: XCTestCase {
                     expected = max(expected, FuzzyText.similarity(tokens[start..<start + size].joined(separator: " "), quote))
                 }
             }
-            // The global pass only starts at the quote's first two tokens; near: 5 covers every start.
+            // near: 5 puts every start in the local pass.
             let located = index.locate(quote: quote, near: 5)
+            XCTAssertGreaterThanOrEqual(expected, FuzzyText.matchThreshold, "round \(round)")
             XCTAssertEqual(located.score, expected, accuracy: 1e-12, "round \(round): \(quote) in \(transcript)")
+            let blocks = (FuzzyText.normalized(quote).count + 63) / 64
+            blocksChecked[blocks, default: 0] += 1
         }
-        XCTAssertGreaterThan(longQuotes, 0)
-        XCTAssertGreaterThan(veryLongQuotes, 0)
+        for blocks in 1...4 { XCTAssertGreaterThan(blocksChecked[blocks] ?? 0, 0, "\(blocks) block(s)") }
+    }
+
+    // MARK: - Word boundaries and short quotes
+
+    func testExactMatchRespectsWordBoundaries() {
+        let prefixed = "[00:10] Youri: Het pakket komt morgen.\n[00:20] Spreker 1: Kijk eens naar de planning."
+        let plain = "[00:10] Het pakket komt morgen.\n[00:20] Kijk eens naar de planning."
+        for (name, index) in [("prefixed", TranscriptIndex(transcript: prefixed, knownSpeakers: Self.speakers)),
+                              ("plain", TranscriptIndex(transcript: plain, knownSpeakers: []))] {
+            XCTAssertLessThan(index.locate(quote: "pak", near: 10).score, FuzzyText.matchThreshold, name)
+            XCTAssertLessThan(index.locate(quote: "ik", near: 20).score, FuzzyText.matchThreshold, name)
+            XCTAssertLessThan(index.locate(quote: "pak", near: nil).score, FuzzyText.matchThreshold, name)
+            XCTAssertEqual(index.locate(quote: "Het pakket komt", near: nil).score, 1.0, name)
+            XCTAssertEqual(index.locate(quote: "Kijk", near: nil).line?.label, "00:20", name)
+        }
+    }
+
+    func testShortQuoteAloneIsNotSupport() {
+        for (name, index) in Self.indexes {
+            // "naar kim" occurs, but is shorter than FuzzyText.minimumFuzzyLength.
+            let input = facts(items: [item("Kim", quote: "naar Kim", timestamp: "01:00"),
+                                      item("Kort verzonnen", quote: "naar Utrecht", timestamp: nil)])
+            let (out, claims) = ActionItemVerifier.precheck(input, index: index)
+            XCTAssertTrue(claims.isEmpty, name)
+            XCTAssertEqual(out.actionItems[0], input.actionItems[0], name)
+            XCTAssertEqual(out.actionItems[1].verified, .unsupported, name)
+        }
+    }
+
+    // MARK: - Untimed text
+
+    func testUntimedLeadInAttachesToASyntheticStartLine() {
+        let index = TranscriptIndex(transcript: "Notulen van het overleg\nmet het team\n[00:10] Youri: Ik stuur de offerte vrijdag naar Kim.",
+                                    knownSpeakers: Self.speakers)
+        XCTAssertEqual(index.lines.map(\.label), ["00:00", "00:10"])
+        XCTAssertEqual(index.lines[0].text, "Notulen van het overleg met het team")
+        XCTAssertEqual(index.lines[0].seconds, 0)
+    }
+
+    func testFullyUntimedTranscriptIsSearchedWhole() {
+        let transcript = "Youri: Ik stuur de offerte vrijdag naar Kim.\nWe besluiten om de release uit te stellen tot december."
+        let index = TranscriptIndex(transcript: transcript, knownSpeakers: Self.speakers)
+        let input = facts(items: [item("Offerte", quote: "ik stuur de offerte vrijdag naar Kim", timestamp: "03:10"),
+                                  item("Offerte fuzzy", quote: "ik stuur de oferte vrijdag naar Kim", timestamp: nil),
+                                  item("Verzonnen", quote: "We gaan het kantoor verhuizen naar Utrecht", timestamp: nil)],
+                          decisions: [ExtractedDecision(text: "Release later", quote: "de release uit te stellen tot december")])
+        let (out, claims) = ActionItemVerifier.precheck(input, index: index)
+        XCTAssertEqual(claims.map(\.id), ["a1", "a2", "d1"])
+        // No real timestamps: cited timestamps are kept, not replaced by the synthetic 00:00.
+        XCTAssertEqual(out.actionItems.map(\.timestamp), ["03:10", nil, nil])
+        XCTAssertEqual(out.actionItems.map(\.verified), [.unverified, .unverified, .unsupported])
+        XCTAssertNil(out.decisions[0].timestamp)
+    }
+
+    // MARK: - Re-runs
+
+    func testFoundQuoteResetsAStaleVerdict() {
+        for (name, index) in Self.indexes {
+            var stale = item("Offerte", quote: "Ik stuur de offerte vrijdag naar Kim", timestamp: "03:10")
+            stale.verified = .unsupported
+            stale.verificationReason = ActionItemVerifier.quoteNotFoundReason
+            let decision = ExtractedDecision(text: "Demo", quote: "de demo wordt op dinsdag gegeven", timestamp: "05:30",
+                                             verified: .supported, verificationReason: "Oud oordeel.")
+            let (out, claims) = ActionItemVerifier.precheck(facts(items: [stale], decisions: [decision]), index: index)
+            XCTAssertEqual(claims.count, 2, name)
+            XCTAssertEqual(out.actionItems[0].verified, .unverified, name)
+            XCTAssertNil(out.actionItems[0].verificationReason, name)
+            XCTAssertEqual(out.decisions[0].verified, .unverified, name)
+            XCTAssertNil(out.decisions[0].verificationReason, name)
+        }
     }
 
     // MARK: - Performance
