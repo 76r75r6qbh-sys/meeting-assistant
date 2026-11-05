@@ -412,6 +412,188 @@ final class TeamsAutoRecordPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - Policy: call-name matching
+
+final class TeamsAutoRecordTitleMatchTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func event(
+        _ id: String,
+        title: String,
+        start: TimeInterval = -300,
+        end: TimeInterval = 1800,
+        text: String = ""
+    ) -> TeamsCallEventCandidate {
+        TeamsCallEventCandidate(
+            identifier: id,
+            title: title,
+            startDate: now.addingTimeInterval(start),
+            endDate: now.addingTimeInterval(end),
+            searchableText: text
+        )
+    }
+
+    private func resolve(_ candidates: [TeamsCallEventCandidate], callName: String?) -> String? {
+        TeamsAutoRecordPolicy.resolveEvent(from: candidates, now: now, callName: callName)?.identifier
+    }
+
+    private func decide(_ candidates: [TeamsCallEventCandidate], callName: String?) -> TeamsAutoRecordPolicy.StartDecision {
+        TeamsAutoRecordPolicy.startDecision(
+            isEnabled: true,
+            isRecordingBusy: false,
+            selectedMeetingStatus: nil,
+            candidates: candidates,
+            now: now,
+            callName: callName,
+            manualTitle: { _ in "Teams call 14:05" }
+        )
+    }
+
+    // MARK: Normalization
+
+    func testNormalizationFoldsCaseDiacriticsPunctuationAndWhitespace() {
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("  Café   Überleg-sessie!  "), "cafe uberleg sessie")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("Daily AI team 🚀✨"), "daily ai team")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("Sync: Link/Integrations (Q4)"), "sync link integrations q4")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("👍🏽"), "")
+    }
+
+    func testNormalizationStripsLeadingTagsRepeatedly() {
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("[EXTERN] Partner sync"), "partner sync")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("[External] RE: FW: Partner sync"), "partner sync")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("Canceled: Partner sync"), "partner sync")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("cancelled:Partner sync"), "partner sync")
+        XCTAssertEqual(TeamsAutoRecordPolicy.normalizedTitle("Geannuleerd: [EXT] Fwd: Bijgewerkt: Updated: Partner sync"), "partner sync")
+        XCTAssertEqual(
+            TeamsAutoRecordPolicy.normalizedTitle("Partner sync RE: Q4"), "partner sync re q4",
+            "Only leading tags are stripped"
+        )
+    }
+
+    // MARK: resolveEvent with a call name
+
+    func testTitleMatchesTheOverlappingEventEvenWhenAnotherLiveEventMentionsTeams() {
+        let events = [
+            event("focus", title: "Daily AI team", start: -1800, end: 1800),
+            event("teams", title: "Refinement", start: -120, end: 1800, text: "Microsoft Teams Meeting")
+        ]
+        XCTAssertEqual(resolve(events, callName: "Daily AI team"), "focus")
+        XCTAssertEqual(decide(events, callName: "Daily AI team"), .recordEvent(identifier: "focus"))
+    }
+
+    func testNoTitleMatchRecordsAManualMeetingNamedAfterTheCallDespiteALiveTeamsEvent() {
+        let events = [event("teams", title: "Refinement", text: "https://teams.microsoft.com/l/meetup-join/x")]
+        XCTAssertNil(resolve(events, callName: "Marco Spoor"))
+        XCTAssertEqual(decide(events, callName: "Marco Spoor"), .recordManual(title: "Marco Spoor"))
+    }
+
+    func testNoTitleMatchWithoutAnyEventStillUsesTheCallName() {
+        XCTAssertEqual(
+            decide([], callName: "Meeting with Youri Broekhuizen"),
+            .recordManual(title: "Meeting with Youri Broekhuizen")
+        )
+    }
+
+    func testNilCallNameKeepsTodaysTimeBasedBehaviour() {
+        let events = [
+            event("focus", title: "Daily AI team", start: 0, end: 3600),
+            event("teams", title: "Refinement", start: -1200, end: 1800, text: "Microsoft Teams")
+        ]
+        XCTAssertEqual(resolve(events, callName: nil), "teams")
+        XCTAssertEqual(decide(events, callName: nil), .recordEvent(identifier: "teams"))
+        XCTAssertEqual(decide([], callName: nil), .recordManual(title: "Teams call 14:05"))
+    }
+
+    func testCallNameThatNormalizesToNothingIsTreatedAsNoName() {
+        let events = [event("teams", title: "Refinement", text: "Microsoft Teams")]
+        XCTAssertEqual(decide(events, callName: " 🎉 "), .recordEvent(identifier: "teams"))
+    }
+
+    func testTitleMatchIsCaseDiacriticWhitespaceAndPunctuationInsensitive() {
+        let events = [event("e", title: "Café-overleg:  Team Link")]
+        XCTAssertEqual(resolve(events, callName: "cafe overleg team link"), "e")
+        XCTAssertEqual(resolve(events, callName: "CAFÉ OVERLEG — TEAM LINK 🙂"), "e")
+    }
+
+    func testTaggedEventTitlesMatch() {
+        XCTAssertEqual(resolve([event("e", title: "[EXTERN] Partner sync")], callName: "Partner sync"), "e")
+        XCTAssertEqual(resolve([event("e", title: "RE: Partner sync")], callName: "Partner sync"), "e")
+        XCTAssertEqual(resolve([event("e", title: "Canceled: Partner sync")], callName: "Partner sync"), "e")
+    }
+
+    func testTitleMatchOnlyConsidersLiveEvents() {
+        let events = [
+            event("over", title: "Partner sync", start: -7200, end: -3600),
+            event("too-early", title: "Partner sync", start: 660, end: 3600)
+        ]
+        XCTAssertNil(resolve(events, callName: "Partner sync"))
+        XCTAssertEqual(decide(events, callName: "Partner sync"), .recordManual(title: "Partner sync"))
+    }
+
+    func testAmongSeveralExactMatchesTheClosestStartWins() {
+        let events = [
+            event("long", title: "Office hours", start: -3000, end: 3600),
+            event("recent", title: "Office hours", start: -60, end: 3600)
+        ]
+        XCTAssertEqual(resolve(events, callName: "Office hours"), "recent")
+    }
+
+    func testExactMatchBeatsAPrefixMatch() {
+        let events = [
+            event("prefix", title: "Daily AI team — Q4", start: -60),
+            event("exact", title: "Daily AI team", start: -1500)
+        ]
+        XCTAssertEqual(resolve(events, callName: "Daily AI team"), "exact")
+    }
+
+    // MARK: Guarded prefix
+
+    func testGuardedPrefixAcceptsTwoOrMoreWordsInEitherDirection() {
+        XCTAssertEqual(resolve([event("e", title: "Daily AI team — Q4")], callName: "Daily AI team"), "e")
+        XCTAssertEqual(resolve([event("e", title: "Daily AI")], callName: "Daily AI team"), "e")
+    }
+
+    func testGuardedPrefixRejectsAOneWordShorterSide() {
+        XCTAssertNil(resolve([event("e", title: "Daily AI team")], callName: "Daily"))
+        XCTAssertNil(resolve([event("e", title: "Daily")], callName: "Daily AI team"))
+    }
+
+    func testGuardedPrefixRejectsWholeWordMismatches() {
+        XCTAssertNil(resolve([event("e", title: "Daily AI teammates")], callName: "Daily AI team"))
+    }
+
+    func testGuardedPrefixRejectsWhenTwoEventsQualify() {
+        let events = [
+            event("a", title: "Daily AI team — Q4"),
+            event("b", title: "Daily AI team retro")
+        ]
+        XCTAssertNil(resolve(events, callName: "Daily AI team"))
+        XCTAssertEqual(decide(events, callName: "Daily AI team"), .recordManual(title: "Daily AI team"))
+    }
+
+    // MARK: Which rule decided
+
+    func testMatchEventReportsTheRuleThatDecided() {
+        let events = [event("e", title: "Daily AI team — Q4")]
+        XCTAssertEqual(
+            TeamsAutoRecordPolicy.matchEvent(from: events, now: now, callName: nil),
+            .timeBased(events[0])
+        )
+        XCTAssertEqual(
+            TeamsAutoRecordPolicy.matchEvent(from: events, now: now, callName: "Daily AI team — Q4"),
+            .exactTitle(events[0])
+        )
+        XCTAssertEqual(
+            TeamsAutoRecordPolicy.matchEvent(from: events, now: now, callName: "Daily AI team"),
+            .titlePrefix(events[0])
+        )
+        XCTAssertEqual(
+            TeamsAutoRecordPolicy.matchEvent(from: events, now: now, callName: "Marco Spoor"),
+            .noTitleMatch(callName: "Marco Spoor")
+        )
+    }
+}
+
 // MARK: - Coordinator
 
 @MainActor
@@ -426,6 +608,9 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     var stoppingMeetingIDs: Set<UUID> = []
     /// Awaited inside `startAutoRecording` before capture "runs": a slow start.
     var startDelay: (() async -> Void)?
+    /// What the Teams call window is titled; nil when no title is readable.
+    var callName: String?
+    private(set) var callNameReads = 0
 
     private(set) var startRequests: [(eventIdentifier: String?, manualTitle: String)] = []
     private(set) var stoppedMeetingIDs: [UUID] = []
@@ -433,6 +618,11 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     func meetingStatus(id: UUID) -> MeetingStatus? { statuses[id] }
     func isStopInFlight(meetingID: UUID) -> Bool { stoppingMeetingIDs.contains(meetingID) }
     func teamsCallCandidates() -> [TeamsCallEventCandidate] { candidates }
+
+    func teamsCallName() -> String? {
+        callNameReads += 1
+        return callName
+    }
 
     func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {
         startRequests.append((eventIdentifier, manualTitle))
@@ -509,6 +699,68 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         setPreferences(autoRecord: true, autoStop: true)
         host.isRecordingBusy = true
         await coordinator.callStarted()
+        XCTAssertTrue(host.startRequests.isEmpty)
+    }
+
+    // MARK: Call name
+
+    func testCallNameMatchingNoEventNamesTheManualMeeting() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.callName = "Marco Spoor"
+        host.candidates = [TeamsCallEventCandidate(
+            identifier: "focus", title: "Focus time",
+            startDate: now.addingTimeInterval(-600), endDate: now.addingTimeInterval(3000),
+            searchableText: "Microsoft Teams Meeting"
+        )]
+
+        await coordinator.callStarted()
+        XCTAssertEqual(host.callNameReads, 1)
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertNil(host.startRequests.first?.eventIdentifier)
+        XCTAssertEqual(host.startRequests.first?.manualTitle, "Marco Spoor")
+    }
+
+    func testCallNamePicksTheMatchingEventOverATeamsEvent() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.callName = "Daily AI team"
+        host.candidates = [
+            TeamsCallEventCandidate(
+                identifier: "refinement", title: "Refinement",
+                startDate: now.addingTimeInterval(-60), endDate: now.addingTimeInterval(3000),
+                searchableText: "Microsoft Teams Meeting"
+            ),
+            TeamsCallEventCandidate(
+                identifier: "daily", title: "Daily AI team",
+                startDate: now.addingTimeInterval(-1200), endDate: now.addingTimeInterval(600)
+            )
+        ]
+
+        await coordinator.callStarted()
+        XCTAssertEqual(host.startRequests.map(\.eventIdentifier), ["daily"])
+    }
+
+    func testAlreadyRecordingNeverReadsTheCallName() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.callName = "Marco Spoor"
+        host.startRecording(UUID())
+        await coordinator.callStarted()
+        XCTAssertEqual(host.callNameReads, 0)
+    }
+
+    func testDisabledAutoRecordNeverReadsTheCallName() async {
+        setPreferences(autoRecord: false, autoStop: true)
+        host.callName = "Marco Spoor"
+        await coordinator.callStarted()
+        XCTAssertEqual(host.callNameReads, 0)
+        XCTAssertTrue(host.startRequests.isEmpty)
+    }
+
+    func testBusyRecorderNeverReadsTheCallName() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.callName = "Marco Spoor"
+        host.isRecordingBusy = true
+        await coordinator.callStarted()
+        XCTAssertEqual(host.callNameReads, 0)
         XCTAssertTrue(host.startRequests.isEmpty)
     }
 

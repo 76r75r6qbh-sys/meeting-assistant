@@ -2,6 +2,12 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Teams auto-record names the recording after the call.** Casablanca reads the Teams call window's title (a person, e.g. "Marco Spoor", or a meeting subject) with the Screen Recording permission it already has. A call whose name matches a running calendar event is recorded into that event, even when another event overlaps. An ad-hoc call whose name matches no running event no longer lands in an overlapping calendar event: it becomes a meeting named after the call. Without a readable title, the old time-based choice applies.
+
 ## [0.19.1] — 2026-11-05
 
 Long meetings are now summarized in full. Until now every transcript was cut to about 24,000 characters before summarizing, so a 2.5-hour meeting lost about 84 % of its content (only the start and end were used).
