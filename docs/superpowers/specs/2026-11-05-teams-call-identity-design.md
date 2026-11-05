@@ -29,6 +29,9 @@ nor Screen Recording, so `kCGWindowName` came back `nil` there). Log:
 | Scheduled meeting "Daily AI team", pre-join | `Meeting join \| Daily AI team \| Medicore \| …` |
 | Same, in call | `Daily AI team \| Medicore \| …` (equal to the calendar subject) |
 | Screen sharing in "Daily AI team" | extra `Sharing control bar \| Medicore \| …` (AXSystemDialog, CG layer 19, 297×35); the call window itself turns AXSystemDialog with the same title |
+| External-tenant meeting "Medicore/Prakikon/Levvel" (10:01), pre-join | `Meeting join \| Microsoft Teams meeting \| Medicore \| …` for ~8 s: a **generic placeholder**, not the subject |
+| Same, in call (from 10:01:54) | `Medicore/Prakikon/Levvel \| Medicore \| …` (equal to the calendar subject, own tenant shown) |
+| Popped-out 1:1 chat | `Chat \| Marco Spoor \| Medicore \| …` (AXDialog): pop-outs keep the `Chat` prefix, so they are rejected as section windows |
 | 1:1 call with another person | **not captured yet.** Expected `<Name> \| Medicore \| …`, by analogy with the chat title; the design does not depend on it (see §3) |
 
 Findings:
@@ -265,3 +268,32 @@ and the tests before release. That is a parser-only change.
    shows "call name found". If it shows "no title", `kCGWindowName` is
    empty for Teams under Screen Recording, and the design needs the AX
    fallback (follow-up).
+
+## Revision 2 (2026-11-05, after code review and the 10:00 meeting capture)
+
+1. **Generic placeholder names count as no name.** Teams shows `Microsoft
+   Teams meeting` during an external meeting's pre-join. The 5 s mic debounce
+   fires inside that stretch. The parser therefore rejects call names that
+   normalize to a known placeholder, and the call falls back to today's
+   time-based choice. Placeholders: `Microsoft Teams meeting`, `Microsoft
+   Teams-vergadering`, `Microsoft Teams vergadering`, `Teams meeting`,
+   `Meeting`, `Vergadering`. Without this, a scheduled external meeting would
+   become a manual "Microsoft Teams meeting", which is a regression.
+2. **All candidate names, matched before newest-wins.**
+   - The parser returns every distinct call name, newest window first.
+   - The host's `teamsCallName()` becomes `teamsCallNames() -> [String]`.
+   - The policy takes `callNames: [String]` (empty = no name). Every name is
+     tried against the live events, exact rule before prefix rule.
+   - The first name that matches an event wins. When none matches, the
+     newest name becomes the manual title.
+   - The popped-out chat titles captured so far are rejected anyway (they
+     keep their `Chat` prefix). This is a safety net for window kinds that
+     have not been captured.
+3. **One match computation.** `startDecision` returns the decision together
+   with the `EventMatch` it used, and the coordinator logs that same value.
+   It no longer calls `matchEvent` a second time.
+4. **Skip the window read when the start will be skipped.** The read also
+   doesn't happen when the selected meeting is already recording or paused.
+5. **The §3 wording for multiple matches.** The exact rule picks the
+   closest start among several exact matches. The prefix rule refuses when
+   more than one event qualifies.
