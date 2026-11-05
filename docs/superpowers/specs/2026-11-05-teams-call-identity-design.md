@@ -312,3 +312,211 @@ newest call name during a running call as a new call.
 5. **The §3 wording for multiple matches.** The exact rule picks the
    closest start among several exact matches. The prefix rule refuses when
    more than one event qualifies.
+
+## Revision 3 (2026-11-05): a new call during a running call
+
+### Evidence
+
+At 13:01 the Healthtalk meeting started; the mic monitor reported a call
+start and the recording was linked to it. Youri stopped the recording by hand
+at 13:40. The Healthtalk call window was gone by about 13:51. At 14:00:44 a
+1:1 call window `Ryanne Makor | Medicore | <email>` opened, and it closed at
+about 14:29. Casablanca's log shows one mic call from 13:01 to 14:30: Teams
+kept microphone input running throughout. No call start fired at 14:00, so
+the 1:1 was not recorded. The call names are read only at a call start, so
+Revisions 1–2 cannot catch this either.
+
+### Goal
+
+When the call window's name changes to a new call while the mic monitor
+still reports the same call, treat it as the old call ending and a new call
+starting. In the case above, the 1:1 is then recorded as a manual meeting
+"Ryanne Makor".
+
+### Rule: `TeamsCallSwitchDetector` (pure value type, clock passed in)
+
+It lives in `TeamsAutoRecordCoordinator.swift` beside the policy and is owned
+by the coordinator. Names are compared in normalized form
+(`TeamsAutoRecordPolicy.normalizedTitle`).
+
+- **State:**
+  - `knownNames`: every normalized name seen during the current call;
+  - `pendingName`: a candidate switch waiting for confirmation, with its
+    first sighting time;
+  - `lastCheck`: when names were last read.
+- **`begin(names:at:)`**, at every call start (real or switched): sets
+  `knownNames` to the names read at the start (possibly empty), clears
+  `pendingName`, and sets `lastCheck`.
+- **`shouldCheck(at:)`**: true when at least `checkInterval` (10 s) has passed
+  since `lastCheck`. The window server is not read on every monitor tick;
+  ticks come from every CoreAudio callback plus a 5 s poll.
+- **`observe(names:at:) -> String?`** returns the confirmed new call name, or
+  nil. It always sets `lastCheck`.
+  1. `names` empty (no permission, Teams hidden, between calls): nothing
+     changes and `pendingName` is kept. A missing title is never evidence of
+     a new call.
+  2. `knownNames` empty (no baseline: titles unreadable at the start, or the
+     start skipped the read because it was busy or disabled): adopt all of
+     `names` as known and return nil. With no baseline there is no telling
+     whether this is a new call.
+  3. Let `newest = names[0]`. If `newest` is in `knownNames`, clear
+     `pendingName`, add the other names to `knownNames`, and return nil.
+  4. Otherwise `newest` is a candidate. If `pendingName` is the same
+     normalized name and its first sighting is at least `confirmAfter` (10 s)
+     ago, return it; the coordinator then restarts the detector via `begin`.
+     If `pendingName` differs or is unset, set it to `newest` with first
+     sighting = now, and return nil.
+  - Why "newest" and not "every name new": while a call is on hold its window
+    probably stays open. A 1:1 accepted during a meeting would leave the
+    meeting's name present, and "every name new" would miss the main case.
+    The parser already rejects the main window, chat pop-outs and the
+    sharing bar. A shared-content pop-out repeats the meeting's name, which
+    is known.
+  - Why confirmation: Teams opens and retitles windows during transitions.
+    Two reads at least 10 s apart that agree keep a flicker from splitting a
+    recording. A switch is then detected 10–20 s after the new window shows
+    a name, which is in line with the 5 s start debounce.
+  - Going back to a held call after the 1:1 ends: once the 1:1's window
+    closes, the old call's window is newest again. Its name is no longer
+    known after the switch's `begin`, so it counts as another switch. The
+    resumed meeting is recorded again, as "(continued)" if its meeting was
+    already stopped (`canRecordInto`). That is intended.
+
+### Coordinator
+
+- `callStarted()` (the mic edge): after deciding, calls `detector.begin` with
+  the names it read. When it skipped the read, it passes `[]`, so the
+  baseline is adopted on the first check.
+- `callTick()` keeps linking a mid-call recording. Then, when `isCallLive`,
+  auto-record is enabled, no switch is in flight and
+  `detector.shouldCheck(at: now())`, it reads `host.teamsCallNames()` and
+  feeds `observe`. With auto-record off it never reads titles during a call:
+  a switch would only auto-stop, and the mic end still does that.
+- **On a confirmed switch,** set `isSwitchInFlight` and start a Task that:
+  1. logs `Teams call switched: a new call window (name private) replaced
+     the running call; ending the old call and starting a new one`;
+  2. runs the existing `callEnded()` path. With auto-stop on, this stops the
+     linked recording when it is still the active one; otherwise nothing.
+     This is right: the old call's window is no longer the newest call
+     window;
+  3. runs `callStarted()`. This bumps the generation, sets `isCallLive`, and
+     picks the meeting with the usual policy and the freshly read names;
+  4. clears `isSwitchInFlight`.
+- `callEnded()` and `reset()` also reset the detector. The real mic end
+  later ends the switched call as usual.
+- Race: a mic `callEnded` during the switch Task is covered by the
+  generation counter as today. The switch's own `callStarted` checks
+  `isCallLive` afterwards: when the real end arrived meanwhile it must not
+  leave a live call behind. Implementation: the switch Task captures
+  `callGeneration` before step 2, and skips step 3 when the generation moved
+  by more than the one bump that step 2 itself causes.
+
+### Edge cases
+
+| Case | Behaviour |
+|---|---|
+| Back-to-back: meeting ends, 1:1 starts with no mic gap (today's evidence) | Switch after confirmation; 1:1 recorded as "Ryanne Makor"; nothing stopped (already stopped by hand) |
+| Meeting still recording when the 1:1's window opens on top (meeting on hold) | Auto-stop on: the meeting's recording stops and the 1:1 records separately. Auto-stop off: the meeting keeps recording and the switch's start is skipped because the recording is busy; logged |
+| Screen sharing / shared-content pop-out | No switch: the sharing bar is rejected and the pop-out repeats a known name |
+| A Teams title flickers to an unknown window for one read | No switch: needs two agreeing reads 10 s apart |
+| No Screen Recording permission | Names are always empty, so there is never a switch (today's behaviour) |
+| Auto-record off, auto-stop on | No title reads during a call; no switch |
+| Same meeting re-joined (same name) | No switch: the name is known |
+| Meeting renamed mid-call in Teams | Switch: one recording becomes two. Rare; accepted and logged |
+
+### Tests
+
+- **Detector:**
+  - baseline adoption;
+  - empty reads keep pending;
+  - known newest name clears pending;
+  - confirmation needs the same name at least 10 s later;
+  - a different candidate restarts the pending;
+  - normalized comparison;
+  - `shouldCheck` throttling.
+- **Coordinator, using the fake host and an injected clock:**
+  - back-to-back switch starts a manual "Ryanne Makor" with nothing linked;
+  - a switch while the linked recording is active stops it (auto-stop on)
+    and then starts the new call;
+  - no reads when auto-record is off;
+  - the throttle limits reads;
+  - a mic end during the switch leaves no live call;
+  - a flicker of one read does not switch.
+
+### Revision 3 amendments (after the spec review)
+
+These override the Revision 3 text above where they differ.
+
+1. **The switch happens synchronously in `callTick` (was blocker 1).**
+   - `callEnded()` splits into a synchronous `endCallBookkeeping() -> UUID?`
+     and the async stop. The bookkeeping bumps `callGeneration`, sets
+     `isCallLive = false`, clears `linkedMeetingID` and resets the detector,
+     and returns the meeting the stop should act on. The stop then applies
+     `shouldAutoStop`, unchanged.
+   - When `callTick` confirms a switch, it does all of the following
+     synchronously before any Task exists:
+     - logs the switch;
+     - runs `endCallBookkeeping()`;
+     - captures `callGeneration` after that bump;
+     - sets `isSwitchInFlight = true`.
+   - It then stores `switchTask = Task { … }` (`private(set)`, so tests can
+     await it). The Task:
+     1. runs the async stop for the returned meeting, if any, when it is
+        due;
+     2. starts the new call with `callStarted()` only if `callGeneration` is
+        still the captured value. A mic end or a `reset()` that arrived at
+        any point after the confirmation (before the Task ran, or during the
+        stop) moved the generation, so no call is left live;
+     3. always clears `isSwitchInFlight` at the end.
+   - `reset()` also clears `isSwitchInFlight`.
+   - `handleStartThatOutlivedItsCall` treats `isSwitchInFlight` like
+     `isCallLive`, so a slow start is not stopped during the switch gap.
+2. **`detector.begin` on every exit of `callStarted`, including the
+   already-recording early return and `.skip`.** It gets the call windows
+   read for that start, or `[]` when there was no read. The edge-case table
+   is corrected: with the meeting still recording on hold and auto-stop off,
+   the switch's `callStarted` links the still-running recording to the new
+   call ("already recording"). Nothing is stopped or started, and it is
+   logged.
+3. **Calls are identified by window, not by name alone.**
+   - The parser gains `callWindows(fromWindows:) -> [TeamsCallWindowName]`
+     with `number`, `name` and `isPreJoin`, newest first, not deduplicated.
+     `callNames(fromWindows:)` is derived from it: the same dedup, newest
+     first, as today.
+   - The host's `teamsCallNames()` is replaced by `teamsCallWindows() ->
+     [TeamsCallWindowName]`. The coordinator derives the names for the start
+     decision.
+   - The detector tracks `knownNumbers` and `knownNames`. Pre-join windows
+     are ignored entirely: they are never known and never a candidate.
+   - **Candidate:** the newest non-pre-join window, when its number is not in
+     `knownNumbers` and its normalized name is not in `knownNames`.
+   - A known window that is retitled has its new name adopted as known, with
+     no switch. This covers a meeting renamed mid-call and a 1:1 turned into
+     a group call. A new window with a known name is adopted too (a
+     shared-content pop-out, or an in-call window opened after a separate
+     pre-join window).
+   - Confirmation is by window number: the same number has to be the
+     candidate on two reads at least `confirmAfter` (10 s) apart.
+   - With no baseline (nothing known yet), all non-pre-join windows are
+     adopted.
+   - In the back-to-back case, Ryanne's window is a new number with an
+     unknown name, so it switches.
+4. **No log line per check.** `TeamsCallWindowTitle` no longer logs the
+   multiple-names notice. The coordinator logs the count once, at the call
+   start, in `logCallNames`. The detector's reads log nothing unless a
+   switch is confirmed. The switch log names no call: window numbers and
+   counts only, and any name stays `.private`.
+5. **Accepted and documented:**
+   - A switch auto-stops a linked recording the user started by hand. This
+     is the same rule as at the mic end.
+   - Detection takes up to about 25 s (poll quantization plus
+     confirmation), so the first part of the new call is not recorded.
+6. **Still to capture before merge:**
+   - an incoming call ringing during a meeting: is the ring toast a titled
+     Teams window in the `… | tenant | email` format? If it is, a ring of
+     10 s or more would switch, and with auto-stop on it would stop the
+     meeting;
+   - breakout rooms.
+
+   Both go to Youri's in-app check. If the ring toast is titled, it must be
+   rejected in the parser before merge.
