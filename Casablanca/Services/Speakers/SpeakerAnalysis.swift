@@ -16,19 +16,41 @@ struct SpeakerAnalysisResult: Equatable {
     var diarization: DiarizationOutcome
 }
 
+/// What the speaker step did. Only `.analysed` labels the transcript; every
+/// other case stores today's unlabelled transcript. The cases differ in what
+/// happens to the speaker tracks when the user does not keep them: after
+/// `.disabled`, `.skipped` or `.analysed` they are deleted (nothing will use
+/// them, and they hold the remote participants' voices); after `.failed` they
+/// are kept so a retry can still label the meeting.
+enum SpeakerAnalysisOutcome: Equatable {
+    /// Speaker recognition is switched off.
+    case disabled
+    /// Nothing to analyse: no mic track (an old meeting) or no segments.
+    case skipped
+    /// A track that is set could not be read, or attribution failed.
+    case failed(reason: String)
+    case analysed(SpeakerAnalysisResult)
+
+    var result: SpeakerAnalysisResult? {
+        if case .analysed(let result) = self { return result }
+        return nil
+    }
+}
+
 /// The live speaker step: reads the meeting's per-source tracks, attributes
 /// Whisper's segments to the mic or the system track, and names the speakers.
 ///
-/// Returns `nil` — and the pipeline then stores today's unlabelled transcript —
-/// whenever labels cannot be trusted: speaker recognition is off, the meeting
-/// has no mic track (an old meeting), or a track that is set cannot be read.
-/// It never throws, so attribution can never fail a transcription.
+/// Anything but `.analysed` — and the pipeline then stores today's unlabelled
+/// transcript — whenever labels cannot be trusted: speaker recognition is off
+/// (`.disabled`), the meeting has no mic track (`.skipped`), or a track that is
+/// set cannot be read (`.failed`). It never throws, so attribution can never
+/// fail a transcription.
 enum SpeakerAnalysis {
 
     @MainActor
     static func live(defaults: UserDefaults = .standard) -> PostTranscriptionPipeline.SpeakerAnalyzer {
         { meeting, result in
-            guard defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled) else { return nil }
+            guard defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled) else { return .disabled }
             // Read everything on the main actor first; only values cross over.
             let micTrackPath = meeting.micTrackFileURL
             let systemTrackPath = meeting.systemTrackFileURL
@@ -54,27 +76,34 @@ enum SpeakerAnalysis {
         language: String,
         userAliases: [String],
         thresholds: SpeakerAttribution.Thresholds = .default
-    ) async -> SpeakerAnalysisResult? {
+    ) async -> SpeakerAnalysisOutcome {
         // Without the mic track there is nothing to tell the user apart by.
-        guard let micTrackPath, !segments.isEmpty else { return nil }
+        guard let micTrackPath, !segments.isEmpty else { return .skipped }
 
-        let attributed: (segments: [SpeakerSegment], hasSystem: Bool)? = await Task.detached(priority: .utility) {
+        let attempt: Result<(segments: [SpeakerSegment], hasSystem: Bool), Error> = await Task.detached(priority: .utility) {
             do {
                 let mic = try TrackEnergyEnvelope.read(url: URL(fileURLWithPath: micTrackPath))
                 // A set system track that cannot be read must not turn the far
                 // end into the user: give up rather than treat it as mic-only.
                 let system = try systemTrackPath.map { try TrackEnergyEnvelope.read(url: URL(fileURLWithPath: $0)) }
                 let attribution = SpeakerAttribution(mic: mic, system: system, thresholds: thresholds)
-                return (attribution.attribute(segments), system != nil)
+                return .success((attribution.attribute(segments), system != nil))
             } catch {
-                Log.transcription.error(
-                    "Speaker attribution skipped; track unreadable: \(error.localizedDescription, privacy: .public)"
-                )
-                return nil
+                return .failure(error)
             }
         }.value
 
-        guard let attributed else { return nil }
+        let attributedSegments: (segments: [SpeakerSegment], hasSystem: Bool)
+        switch attempt {
+        case .success(let value):
+            attributedSegments = value
+        case .failure(let error):
+            Log.transcription.error(
+                "Speaker attribution failed; track unreadable: \(error.localizedDescription, privacy: .public)"
+            )
+            return .failed(reason: error.localizedDescription)
+        }
+        let attributed = attributedSegments
         let speakers = SpeakerTranscriptBuilder.speakers(
             for: attributed.segments,
             language: language,
@@ -82,6 +111,6 @@ enum SpeakerAnalysis {
             hasSystemTrack: attributed.hasSystem,
             roomClusters: false
         )
-        return SpeakerAnalysisResult(segments: attributed.segments, speakers: speakers, diarization: .notRun)
+        return .analysed(SpeakerAnalysisResult(segments: attributed.segments, speakers: speakers, diarization: .notRun))
     }
 }

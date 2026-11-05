@@ -253,9 +253,9 @@ final class SpeakerAttributionTests: XCTestCase {
             userAliases: ["Youri"]
         )
 
-        XCTAssertEqual(result?.segments.map(\.speakerID), ["me", "others"])
-        XCTAssertEqual(result?.speakers.map(\.displayName), ["Youri", "Anderen"])
-        XCTAssertEqual(result?.diarization, .notRun)
+        XCTAssertEqual(result.result?.segments.map(\.speakerID), ["me", "others"])
+        XCTAssertEqual(result.result?.speakers.map(\.displayName), ["Youri", "Anderen"])
+        XCTAssertEqual(result.result?.diarization, .notRun)
     }
 
     func testAnalyzeWithUnreadableSystemTrackFallsBackToNoLabels() async throws {
@@ -279,9 +279,11 @@ final class SpeakerAttributionTests: XCTestCase {
             segments: [segment(0, 1, "x")], language: "en", userAliases: []
         )
 
-        XCTAssertNil(unreadable, "An unreadable system track must not turn the far end into the user")
-        XCTAssertNil(missing)
-        XCTAssertNil(noMic, "No mic track (an old meeting) means no labels")
+        guard case .failed = unreadable else {
+            return XCTFail("An unreadable system track must not turn the far end into the user: \(unreadable)")
+        }
+        guard case .failed = missing else { return XCTFail("A set but missing track is a failure: \(missing)") }
+        XCTAssertEqual(noMic, .skipped, "No mic track (an old meeting) is nothing to analyse, not a failure")
     }
 
     func testAnalyzeMicOnlyLabelsTheUser() async throws {
@@ -295,8 +297,8 @@ final class SpeakerAttributionTests: XCTestCase {
             segments: [segment(0, 1, "x"), segment(1, 2, "y")], language: "en", userAliases: []
         )
 
-        XCTAssertEqual(result?.segments.map(\.speakerID), ["me", "me"])
-        XCTAssertEqual(result?.speakers.map(\.displayName), ["Me"])
+        XCTAssertEqual(result.result?.segments.map(\.speakerID), ["me", "me"])
+        XCTAssertEqual(result.result?.speakers.map(\.displayName), ["Me"])
     }
 
     @MainActor
@@ -316,8 +318,8 @@ final class SpeakerAttributionTests: XCTestCase {
         defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
         let on = await SpeakerAnalysis.live(defaults: defaults)(meeting, transcription)
 
-        XCTAssertNil(off)
-        XCTAssertEqual(on?.speakers.map(\.displayName), ["Youri"])
+        XCTAssertEqual(off, .disabled)
+        XCTAssertEqual(on.result?.speakers.map(\.displayName), ["Youri"])
     }
 
     private func makeTempDirectory() throws -> URL {

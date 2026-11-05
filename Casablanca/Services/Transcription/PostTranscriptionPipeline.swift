@@ -14,7 +14,7 @@ struct TerminologyCorrectionContext: Equatable {
 /// Everything that has to happen after Whisper hands back a transcript, in the
 /// order it has to happen in:
 ///
-/// 1. speaker analysis (mic/system attribution; `nil` for an old meeting),
+/// 1. speaker analysis (mic/system attribution; no labels for an old meeting),
 /// 2. terminology: the deterministic pass per segment, then the render, then
 ///    the provider pass, which must keep every speaker prefix,
 /// 3. the transcript, segments and speakers onto the meeting, `.completed`, saved,
@@ -38,9 +38,10 @@ struct TerminologyCorrectionContext: Equatable {
 /// an LLM, or an Obsidian vault.
 @MainActor
 struct PostTranscriptionPipeline {
-    /// Speaker attribution for a finished transcription. Never throws: `nil`
-    /// means "no labels", and the legacy transcript is stored.
-    typealias SpeakerAnalyzer = @MainActor (Meeting, TranscriptionResult) async -> SpeakerAnalysisResult?
+    /// Speaker attribution for a finished transcription. Never throws: any
+    /// outcome but `.analysed` means "no labels", and the legacy transcript is
+    /// stored. The outcome also decides what happens to unkept tracks.
+    typealias SpeakerAnalyzer = @MainActor (Meeting, TranscriptionResult) async -> SpeakerAnalysisOutcome
     /// The transcript, its terms, and how to correct it (see
     /// `TerminologyCorrectionContext`).
     typealias TerminologyCorrector = @MainActor (String, [TerminologyEntry], TerminologyCorrectionContext) async -> String
@@ -61,7 +62,7 @@ struct PostTranscriptionPipeline {
     /// `compress`, so a caller that does not care about speakers keeps today's
     /// behaviour.
     init(
-        analyzeSpeakers: @escaping SpeakerAnalyzer = { _, _ in nil },
+        analyzeSpeakers: @escaping SpeakerAnalyzer = { _, _ in .skipped },
         correctTerminology: @escaping TerminologyCorrector,
         saveTranscript: @escaping TranscriptSaver,
         export: @escaping Exporter,
@@ -136,7 +137,8 @@ struct PostTranscriptionPipeline {
         guard isAlive(meeting) else { return }
 
         let speakerStart = ContinuousClock.now
-        let analysis = await analyzeSpeakers(meeting, result)
+        let outcome = await analyzeSpeakers(meeting, result)
+        let analysis = outcome.result
         logDuration("speaker analysis", since: speakerStart)
         guard isAlive(meeting) else { return }
 
@@ -169,7 +171,7 @@ struct PostTranscriptionPipeline {
         logDuration("recording compression", since: compressionStart)
 
         let trackStart = ContinuousClock.now
-        await finishSpeakerTracks(meeting: meeting, analysed: analysis != nil, modelContext: modelContext)
+        await finishSpeakerTracks(meeting: meeting, outcome: outcome, modelContext: modelContext)
         logDuration("speaker track compression", since: trackStart)
     }
 
@@ -274,16 +276,24 @@ struct PostTranscriptionPipeline {
     }
 
     /// The per-source speaker tracks, once nothing needs them as WAV any more.
-    /// Not kept (`keepSpeakerTracks` off) and analysed: deleted and
-    /// un-referenced. Kept — or not analysed (recognition off, or a track was
-    /// unreadable), so a retry can still label the meeting — compressed like
-    /// the mix and repointed, unless the user keeps WAVs. A failed compression
-    /// keeps that track's WAV. Never touches the mix.
-    private func finishSpeakerTracks(meeting: Meeting, analysed: Bool, modelContext: ModelContext) async {
+    /// Not kept (`keepSpeakerTracks` off): deleted and un-referenced — after a
+    /// success, and also when recognition is off or there was nothing to
+    /// analyse, since the remote voices must not stay on disk unasked. The one
+    /// exception is a FAILED analysis: those tracks are kept so a retry can
+    /// still label the meeting. Kept tracks are compressed like the mix and
+    /// repointed, unless the user keeps WAVs; a failed compression keeps that
+    /// track's WAV. Never touches the mix.
+    private func finishSpeakerTracks(
+        meeting: Meeting,
+        outcome: SpeakerAnalysisOutcome,
+        modelContext: ModelContext
+    ) async {
         guard isAlive(meeting) else { return }
         let keepTracks = defaults.bool(forKey: AppPreferenceKey.keepSpeakerTracks)
+        let analysisFailed: Bool
+        if case .failed = outcome { analysisFailed = true } else { analysisFailed = false }
 
-        if !keepTracks, analysed {
+        if !keepTracks, !analysisFailed {
             for path in [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
                 bestEffort("delete speaker track", Log.recording) {
                     if FileManager.default.fileExists(atPath: path) {

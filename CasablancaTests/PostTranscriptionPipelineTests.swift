@@ -173,7 +173,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         var analyzerSawResult: TranscriptionResult?
         let pipeline = makePipeline(defaults: makeDefaults(), analyzeSpeakers: { _, result in
             analyzerSawResult = result
-            return analysis
+            return .analysed(analysis)
         })
         let result = makeResult(text: "Hello there. Hi Youri.")
         await pipeline.run(meeting: meeting, result: result, recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
@@ -198,7 +198,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         var corrector: (String, TerminologyCorrectionContext)?
         let pipeline = makePipeline(
             defaults: defaults,
-            analyzeSpeakers: { _, _ in analysis },
+            analyzeSpeakers: { _, _ in .analysed(analysis) },
             correctTerminology: { transcript, _, correction in
                 corrector = (transcript, correction)
                 return transcript
@@ -230,7 +230,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let pipeline = makePipeline(
             defaults: defaults,
-            analyzeSpeakers: { _, _ in analysis },
+            analyzeSpeakers: { _, _ in .analysed(analysis) },
             correctTerminology: PostTranscriptionPipeline.terminologyCorrector(using: service)
         )
         await pipeline.run(meeting: meeting, result: makeResult(text: "x"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
@@ -274,13 +274,65 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
         defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
 
-        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: { _, _ in nil })
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: { _, _ in .failed(reason: "track unreadable") })
         await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
 
         XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
         XCTAssertEqual(meeting.systemTrackFileURL, files.system.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: files.system.path))
+    }
+
+    /// Recognition off + tracks not kept: nobody asked for the remote voices
+    /// to stay on disk, so they go (privacy), even though nothing was analysed.
+    /// Goes through the LIVE analyzer so the disabled outcome is the real one.
+    func testRecognitionDisabledAndKeepSpeakerTracksOffDeletesTracks() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertNil(meeting.micTrackFileURL)
+        XCTAssertNil(meeting.systemTrackFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(meeting.transcript, "[00:00] hi", "Recognition off means the legacy transcript")
+    }
+
+    /// The real failure path: the live analyzer cannot read the (fake) tracks,
+    /// reports a failure, and the tracks stay for a retry.
+    func testUnreadableTracksAreKeptForARetryEvenWhenNotKept() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(meeting.transcript, "[00:00] hi", "A failed analysis still completes, unlabelled")
     }
 
     func testTracksCompressedAfterMixAndMeetingRepointed() async throws {
@@ -382,7 +434,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
             analyzeSpeakers: { analysedMeeting, _ in
                 tracksExistedDuringAnalysis = [analysedMeeting.micTrackFileURL, analysedMeeting.systemTrackFileURL]
                     .allSatisfy { $0.map { FileManager.default.fileExists(atPath: $0) } ?? false }
-                return Self.twoSpeakerAnalysis(firstText: "a", secondText: "b")
+                return .analysed(Self.twoSpeakerAnalysis(firstText: "a", secondText: "b"))
             },
             compress: { url in
                 compressed.append(url.lastPathComponent)
@@ -416,7 +468,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
     private func makePipeline(
         defaults: UserDefaults,
-        analyzeSpeakers: @escaping PostTranscriptionPipeline.SpeakerAnalyzer = { _, _ in nil },
+        analyzeSpeakers: @escaping PostTranscriptionPipeline.SpeakerAnalyzer = { _, _ in .skipped },
         correctTerminology: @escaping PostTranscriptionPipeline.TerminologyCorrector = { transcript, _, _ in transcript },
         compress: @escaping PostTranscriptionPipeline.Compressor = { url in url }
     ) -> PostTranscriptionPipeline {
