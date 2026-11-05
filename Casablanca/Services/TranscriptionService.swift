@@ -29,12 +29,16 @@ struct TranscriptSegment: Identifiable, Codable {
     let startTime: TimeInterval
     let endTime: TimeInterval
     let text: String
+    /// Word timings, when Whisper produced them. `nil` until Task A3 maps
+    /// WhisperKit's word timings; speaker attribution then works per segment.
+    let words: [TranscriptWord]?
 
-    init(startTime: TimeInterval, endTime: TimeInterval, text: String) {
+    init(startTime: TimeInterval, endTime: TimeInterval, text: String, words: [TranscriptWord]? = nil) {
         self.id = UUID()
         self.startTime = startTime
         self.endTime = endTime
         self.text = text
+        self.words = words
     }
 
     var formattedTimestamp: String {

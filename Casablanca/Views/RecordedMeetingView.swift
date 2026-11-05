@@ -385,7 +385,11 @@ struct RecordedMeetingView: View {
         )
         guard !entries.isEmpty else { return }
 
-        let corrected = await terminologyService.correct(raw, entries: entries)
+        // A labelled transcript keeps its speaker prefixes through the correction.
+        let knownSpeakers = Set(
+            meeting.speakers.map { TranscriptLineFormat.sanitizedSpeakerName($0.displayName) }.filter { !$0.isEmpty }
+        )
+        let corrected = await terminologyService.correct(raw, entries: entries, knownSpeakers: knownSpeakers)
         guard meeting.modelContext != nil else { return }
         meeting.transcript = corrected
         save()

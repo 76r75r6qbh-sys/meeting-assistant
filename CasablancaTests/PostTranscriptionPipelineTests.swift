@@ -28,8 +28,9 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let recorder = StepRecorder()
         let pipeline = PostTranscriptionPipeline(
-            correctTerminology: { transcript, entries in
+            correctTerminology: { transcript, entries, knownSpeakers in
                 recorder.record("terminology", meeting: meeting)
+                XCTAssertEqual(knownSpeakers, [], "A meeting without speakers has no prefixes to protect")
                 XCTAssertFalse(entries.isEmpty, "The corrector only runs when there are entries to apply")
                 XCTAssertEqual(transcript, "[00:00] casa blanca is great")
                 return "[00:00] Casablanca is great"
@@ -92,7 +93,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let recorder = StepRecorder()
         let pipeline = PostTranscriptionPipeline(
-            correctTerminology: { transcript, _ in
+            correctTerminology: { transcript, _, _ in
                 XCTFail("Terminology correction is off, so the corrector must not be called")
                 return transcript
             },
@@ -130,6 +131,247 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(meeting.transcript, "[00:00] hello", "The transcript survives a failed compression")
         XCTAssertNil(meeting.rawTranscript, "With correction off there is no raw transcript to keep")
         XCTAssertEqual(meeting.status, .completed)
+    }
+
+    // MARK: - Speakers
+
+    /// Review focus 4: an old meeting (no tracks) re-transcribes byte-identically,
+    /// through the LIVE analyzer, and carries no speaker data.
+    func testMeetingWithoutTracksRendersLegacyTranscript() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Old meeting", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = "/tmp/does-not-exist.m4a"
+        meeting.speakerSegments = [SpeakerSegment(start: 0, end: 1, speakerID: "me", text: "stale", words: nil)]
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        let result = TranscriptionResult(
+            segments: [
+                TranscriptSegment(startTime: 0, endTime: 4, text: "Goedemorgen allemaal."),
+                TranscriptSegment(startTime: 65, endTime: 70, text: "Agenda: punt 1"),
+                TranscriptSegment(startTime: 3_700, endTime: 3_705, text: "Tot ziens."),
+            ],
+            fullText: "",
+            duration: 3_705
+        )
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: result, recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, result.formattedTranscript)
+        XCTAssertNil(meeting.speakerSegmentsData, "No tracks means no speaker data, and stale data is cleared")
+        XCTAssertNil(meeting.speakersData)
+        XCTAssertEqual(meeting.status, .completed)
+    }
+
+    func testSpeakerSegmentsStoredAndTranscriptHasPrefixes() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "Hello there.", secondText: "Hi Youri.")
+
+        var analyzerSawResult: TranscriptionResult?
+        let pipeline = makePipeline(defaults: makeDefaults(), analyzeSpeakers: { _, result in
+            analyzerSawResult = result
+            return analysis
+        })
+        let result = makeResult(text: "Hello there. Hi Youri.")
+        await pipeline.run(meeting: meeting, result: result, recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertNotNil(analyzerSawResult)
+        XCTAssertEqual(meeting.speakers, analysis.speakers)
+        XCTAssertEqual(meeting.speakerSegments, analysis.segments)
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Hello there.\n[00:05] Others: Hi Youri.")
+        XCTAssertNil(meeting.rawTranscript, "With correction off there is no raw transcript to keep")
+    }
+
+    func testTerminologyAppliedPerSegmentBeforeRender() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        // "Others" is an alias too: a speaker NAME must never be rewritten.
+        defaults.set("Casablanca: casa blanca\nAnderen: Others", forKey: AppPreferenceKey.terminologyList)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "casa blanca rocks", secondText: "Others agree")
+
+        var corrector: (String, Set<String>)?
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { _, _ in analysis },
+            correctTerminology: { transcript, _, knownSpeakers in
+                corrector = (transcript, knownSpeakers)
+                return transcript
+            }
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "x"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.speakerSegments.map(\.text), ["Casablanca rocks", "Anderen agree"])
+        XCTAssertEqual(meeting.rawTranscript, "[00:00] Youri: casa blanca rocks\n[00:05] Others: Others agree",
+                       "The raw transcript is the render BEFORE replacement")
+        XCTAssertEqual(corrector?.0, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
+        XCTAssertEqual(corrector?.1, ["Youri", "Others"])
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
+    }
+
+    func testTracksCompressedAfterMixAndMeetingRepointed() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        var compressed: [String] = []
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            compressed.append(url.lastPathComponent)
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(compressed, ["meeting.wav", "meeting.mic.wav", "meeting.system.wav"], "The mix first, then the tracks")
+        XCTAssertEqual(meeting.recordingFileURL.map { URL(fileURLWithPath: $0).lastPathComponent }, "meeting.m4a")
+        XCTAssertTrue(meeting.micTrackFileURL?.hasSuffix(".mic.m4a") == true)
+        XCTAssertTrue(meeting.systemTrackFileURL?.hasSuffix(".system.m4a") == true)
+        for wav in [files.mix, files.mic, files.system] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: wav.path), "\(wav.lastPathComponent) is reclaimed")
+        }
+    }
+
+    func testTrackCompressionFailureKeepsTrackWAV() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            guard !url.lastPathComponent.contains(".mic.") else { throw CocoaError(.fileWriteOutOfSpace) }
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path, "A failed track compression keeps the WAV")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(meeting.systemTrackFileURL?.hasSuffix(".system.m4a") == true)
+        XCTAssertEqual(meeting.transcript, "[00:00] hi")
+    }
+
+    func testKeepOriginalWAVLeavesTracksAsWAV() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            XCTFail("Nothing is compressed when the user keeps WAVs: \(url.lastPathComponent)")
+            return url
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertEqual(meeting.systemTrackFileURL, files.system.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+    }
+
+    func testKeepSpeakerTracksOffDeletesTracksAfterAnalysis() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        var tracksExistedDuringAnalysis = false
+        var compressed: [String] = []
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { analysedMeeting, _ in
+                tracksExistedDuringAnalysis = [analysedMeeting.micTrackFileURL, analysedMeeting.systemTrackFileURL]
+                    .allSatisfy { $0.map { FileManager.default.fileExists(atPath: $0) } ?? false }
+                return Self.twoSpeakerAnalysis(firstText: "a", secondText: "b")
+            },
+            compress: { url in
+                compressed.append(url.lastPathComponent)
+                return url
+            }
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertTrue(tracksExistedDuringAnalysis, "The tracks are deleted only after the analysis read them")
+        XCTAssertNil(meeting.micTrackFileURL)
+        XCTAssertNil(meeting.systemTrackFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(compressed, ["meeting.wav"], "Tracks about to be deleted are not compressed first")
+    }
+
+    /// A segment each for the user and the remote side, at 0 s and 5 s.
+    private static func twoSpeakerAnalysis(firstText: String, secondText: String) -> SpeakerAnalysisResult {
+        SpeakerAnalysisResult(
+            segments: [
+                SpeakerSegment(start: 0, end: 4, speakerID: SpeakerIDs.me, text: firstText, words: nil),
+                SpeakerSegment(start: 5, end: 7, speakerID: SpeakerIDs.others, text: secondText, words: nil),
+            ],
+            speakers: [
+                SpeakerInfo(id: SpeakerIDs.me, displayName: "Youri", source: .microphone, isUser: true, nameConfirmed: true),
+                SpeakerInfo(id: SpeakerIDs.others, displayName: "Others", source: .system, isUser: false, nameConfirmed: false),
+            ],
+            diarization: .notRun
+        )
+    }
+
+    private func makePipeline(
+        defaults: UserDefaults,
+        analyzeSpeakers: @escaping PostTranscriptionPipeline.SpeakerAnalyzer = { _, _ in nil },
+        correctTerminology: @escaping PostTranscriptionPipeline.TerminologyCorrector = { transcript, _, _ in transcript },
+        compress: @escaping PostTranscriptionPipeline.Compressor = { url in url }
+    ) -> PostTranscriptionPipeline {
+        PostTranscriptionPipeline(
+            analyzeSpeakers: analyzeSpeakers,
+            correctTerminology: correctTerminology,
+            saveTranscript: { _, _ in URL(fileURLWithPath: "/dev/null") },
+            export: { _ in },
+            compress: compress,
+            defaults: defaults
+        )
+    }
+
+    private func makeRecordingWithTracks() throws -> (directory: URL, mix: URL, mic: URL, system: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-tracks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mix = directory.appendingPathComponent("meeting.wav")
+        let mic = directory.appendingPathComponent("meeting.mic.wav")
+        let system = directory.appendingPathComponent("meeting.system.wav")
+        for url in [mix, mic, system] {
+            try Data("not really audio".utf8).write(to: url)
+        }
+        return (directory, mix, mic, system)
     }
 
     // MARK: - Service-owned background run
@@ -322,7 +564,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
     /// a test can tell whether the pipeline was reached at all.
     private func makeFakePipeline(log: EventLog) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
-            correctTerminology: { transcript, _ in transcript },
+            correctTerminology: { transcript, _, _ in transcript },
             saveTranscript: { _, _ in
                 log.append("pipeline")
                 return URL(fileURLWithPath: "/dev/null")

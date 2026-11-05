@@ -216,6 +216,10 @@
 		A10613 /* RecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10613 /* RecordingSession.swift */; };
 		A10614 /* RecordingSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10614 /* RecordingSegmentMerger.swift */; };
 		SPKA0001 /* RecordingTrackMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0101 /* RecordingTrackMerger.swift */; };
+		SPKA0008 /* TrackEnergyEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0108 /* TrackEnergyEnvelope.swift */; };
+		SPKA0009 /* SpeakerAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0109 /* SpeakerAttribution.swift */; };
+		SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0110 /* SpeakerTranscriptBuilder.swift */; };
+		SPKA0011 /* SpeakerAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0111 /* SpeakerAnalysis.swift */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
 		A10617 /* PCMTrackWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* PCMTrackWriter.swift */; };
@@ -227,6 +231,9 @@
 		SPKA0002 /* RecordingTrackMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0102 /* RecordingTrackMergerTests.swift */; };
 		SPKA0003 /* AudioRecordingServiceTrackMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */; };
 		SPKA0004 /* MeetingListViewModelTrackDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */; };
+		SPKA0005 /* TrackEnergyEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0105 /* TrackEnergyEnvelopeTests.swift */; };
+		SPKA0006 /* SpeakerAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0106 /* SpeakerAttributionTests.swift */; };
+		SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0107 /* SpeakerTranscriptBuilderTests.swift */; };
 		A10701 /* RecordingMixdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* RecordingMixdownTests.swift */; };
 		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10703 /* PCMTrackWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* PCMTrackWriterTests.swift */; };
@@ -532,6 +539,10 @@
 		B10613 /* RecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSession.swift; sourceTree = "<group>"; };
 		B10614 /* RecordingSegmentMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMerger.swift; sourceTree = "<group>"; };
 		SPKA0101 /* RecordingTrackMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTrackMerger.swift; sourceTree = "<group>"; };
+		SPKA0108 /* TrackEnergyEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackEnergyEnvelope.swift; sourceTree = "<group>"; };
+		SPKA0109 /* SpeakerAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAttribution.swift; sourceTree = "<group>"; };
+		SPKA0110 /* SpeakerTranscriptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilder.swift; sourceTree = "<group>"; };
+		SPKA0111 /* SpeakerAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAnalysis.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -543,6 +554,9 @@
 		SPKA0102 /* RecordingTrackMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTrackMergerTests.swift; sourceTree = "<group>"; };
 		SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingServiceTrackMergeTests.swift; sourceTree = "<group>"; };
 		SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingListViewModelTrackDeletionTests.swift; sourceTree = "<group>"; };
+		SPKA0105 /* TrackEnergyEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackEnergyEnvelopeTests.swift; sourceTree = "<group>"; };
+		SPKA0106 /* SpeakerAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAttributionTests.swift; sourceTree = "<group>"; };
+		SPKA0107 /* SpeakerTranscriptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilderTests.swift; sourceTree = "<group>"; };
 		B10701 /* RecordingMixdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownTests.swift; sourceTree = "<group>"; };
 		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10703 /* PCMTrackWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriterTests.swift; sourceTree = "<group>"; };
@@ -637,6 +651,17 @@
 			);
 			name = Support;
 			path = Support;
+			sourceTree = "<group>";
+		};
+		SPKA0200 /* Speakers */ = {
+			isa = PBXGroup;
+			children = (
+				SPKA0108 /* TrackEnergyEnvelope.swift */,
+				SPKA0109 /* SpeakerAttribution.swift */,
+				SPKA0110 /* SpeakerTranscriptBuilder.swift */,
+				SPKA0111 /* SpeakerAnalysis.swift */,
+			);
+			path = Speakers;
 			sourceTree = "<group>";
 		};
 		4C90D69BDCEB5CF065A0FD56 /* Transcription */ = {
@@ -817,6 +842,7 @@
 				348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */,
 				5F665A23474FE05E8763B831 /* DockBadge.swift */,
 				4C90D69BDCEB5CF065A0FD56 /* Transcription */,
+				SPKA0200 /* Speakers */,
 				7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */,
 				E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */,
 				E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */,
@@ -954,6 +980,9 @@
 				SPKA0102 /* RecordingTrackMergerTests.swift */,
 				SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */,
 				SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */,
+				SPKA0105 /* TrackEnergyEnvelopeTests.swift */,
+				SPKA0106 /* SpeakerAttributionTests.swift */,
+				SPKA0107 /* SpeakerTranscriptBuilderTests.swift */,
 				B10701 /* RecordingMixdownTests.swift */,
 				B10702 /* AudioInputDeviceProviderTests.swift */,
 				B10703 /* PCMTrackWriterTests.swift */,
@@ -1270,6 +1299,10 @@
 				A10613 /* RecordingSession.swift in Sources */,
 				A10614 /* RecordingSegmentMerger.swift in Sources */,
 				SPKA0001 /* RecordingTrackMerger.swift in Sources */,
+				SPKA0008 /* TrackEnergyEnvelope.swift in Sources */,
+				SPKA0009 /* SpeakerAttribution.swift in Sources */,
+				SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */,
+				SPKA0011 /* SpeakerAnalysis.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
 				A10617 /* PCMTrackWriter.swift in Sources */,
@@ -1435,6 +1468,9 @@
 				SPKA0002 /* RecordingTrackMergerTests.swift in Sources */,
 				SPKA0003 /* AudioRecordingServiceTrackMergeTests.swift in Sources */,
 				SPKA0004 /* MeetingListViewModelTrackDeletionTests.swift in Sources */,
+				SPKA0005 /* TrackEnergyEnvelopeTests.swift in Sources */,
+				SPKA0006 /* SpeakerAttributionTests.swift in Sources */,
+				SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */,
 				A10701 /* RecordingMixdownTests.swift in Sources */,
 				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10703 /* PCMTrackWriterTests.swift in Sources */,

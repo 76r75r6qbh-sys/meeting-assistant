@@ -59,6 +59,21 @@ final class TerminologyService {
     /// `entries` is captured by value: edits to the underlying preference made
     /// after this call begins do not affect this run.
     func correct(_ rawTranscript: String, entries: [TerminologyEntry]) async -> String {
+        await correct(rawTranscript, entries: entries, knownSpeakers: [])
+    }
+
+    /// Shown when the provider pass changed, dropped or invented a speaker
+    /// prefix: its text would silently re-attribute speech, so it is discarded.
+    nonisolated static let speakerPrefixesChangedWarning =
+        "Terminology correction changed the speaker labels and was discarded; transcript reflects only deterministic replacements."
+
+    /// `correct(_:entries:)` for a transcript whose lines carry speaker
+    /// prefixes (`[mm:ss] Name: text`). The deterministic pass leaves the
+    /// prefixes of `knownSpeakers` alone, and the provider's output is rejected
+    /// (deterministic text plus a warning) unless
+    /// ``speakerPrefixesPreserved(input:output:knownSpeakers:)``. With no known
+    /// speakers this is exactly `correct(_:entries:)`.
+    func correct(_ rawTranscript: String, entries: [TerminologyEntry], knownSpeakers: Set<String>) async -> String {
         guard !entries.isEmpty else { return rawTranscript }
 
         isCorrecting = true
@@ -67,7 +82,9 @@ final class TerminologyService {
         // Off the main actor: with a long alias list this is a real amount of
         // regex work, and it must not block the UI while it runs.
         let dictionaryReplaced = await Task.detached(priority: .userInitiated) {
-            Self.dictionaryReplace(rawTranscript, entries: entries)
+            knownSpeakers.isEmpty
+                ? Self.dictionaryReplace(rawTranscript, entries: entries)
+                : Self.dictionaryReplacePreservingSpeakers(rawTranscript, entries: entries, knownSpeakers: knownSpeakers)
         }.value
 
         if Task.isCancelled { return dictionaryReplaced }
@@ -99,11 +116,69 @@ final class TerminologyService {
                 warningMessage = "Terminology correction produced unexpected output and was discarded; transcript reflects only deterministic replacements."
                 return dictionaryReplaced
             }
+            if !knownSpeakers.isEmpty,
+               !Self.speakerPrefixesPreserved(input: dictionaryReplaced, output: corrected, knownSpeakers: knownSpeakers) {
+                warningMessage = Self.speakerPrefixesChangedWarning
+                return dictionaryReplaced
+            }
             return corrected
         } catch {
             warningMessage = "Terminology correction is unavailable; transcript reflects only deterministic replacements."
             return dictionaryReplaced
         }
+    }
+
+    /// Whether `output` has the same speaker prefix on every line as `input`.
+    /// Each non-blank line maps to its known speaker (via
+    /// `TranscriptLineFormat.parse(_:knownSpeakers:)`) or to "none" — a line
+    /// without a known prefix or without a timestamp — and the two sequences
+    /// must be identical. Text changes do not matter; merged, split, added or
+    /// re-labelled lines do. Trivially true with no known speakers.
+    nonisolated static func speakerPrefixesPreserved(input: String, output: String, knownSpeakers: Set<String>) -> Bool {
+        guard !knownSpeakers.isEmpty else { return true }
+        return prefixSequence(input, knownSpeakers: knownSpeakers) == prefixSequence(output, knownSpeakers: knownSpeakers)
+    }
+
+    nonisolated private static func prefixSequence(_ transcript: String, knownSpeakers: Set<String>) -> [String?] {
+        transcriptLines(transcript)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { TranscriptLineFormat.parse($0, knownSpeakers: knownSpeakers)?.speaker }
+    }
+
+    /// Lines split on the `\n` scalar with a trailing `\r` removed, so CRLF
+    /// transcripts split per line too (Swift treats "\r\n" as one Character).
+    nonisolated private static func transcriptLines(_ transcript: String) -> [String] {
+        transcript.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false).map { scalars in
+            var line = String(String.UnicodeScalarView(scalars))
+            if line.unicodeScalars.last == "\r" { line.unicodeScalars.removeLast() }
+            return line
+        }
+    }
+
+    /// `dictionaryReplace` applied only to the text after a known speaker
+    /// prefix, so a speaker name that happens to be an alias is never
+    /// rewritten. Lines without a known prefix are replaced whole; line
+    /// endings are kept byte for byte.
+    nonisolated static func dictionaryReplacePreservingSpeakers(
+        _ text: String,
+        entries: [TerminologyEntry],
+        knownSpeakers: Set<String>
+    ) -> String {
+        let lines = text.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.map { scalars -> String in
+            var line = String(String.UnicodeScalarView(scalars))
+            var ending = ""
+            if line.unicodeScalars.last == "\r" {
+                line.unicodeScalars.removeLast()
+                ending = "\r"
+            }
+            guard let parsed = TranscriptLineFormat.parse(line, knownSpeakers: knownSpeakers),
+                  parsed.speaker != nil
+            else { return dictionaryReplace(line, entries: entries) + ending }
+            // `parse` returns the text as the line's suffix.
+            let textStart = line.index(line.endIndex, offsetBy: -parsed.text.count)
+            return String(line[..<textStart]) + dictionaryReplace(String(line[textStart...]), entries: entries) + ending
+        }.joined(separator: "\n")
     }
 
     /// Heuristic to detect when the model has mangled the transcript
