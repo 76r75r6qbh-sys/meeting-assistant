@@ -21,7 +21,6 @@ final class ActionQueueModel {
     @ObservationIgnored var onPendingCountChange: ((Int) -> Void)?
 
     @ObservationIgnored private var watchSource: DispatchSourceFileSystemObject?
-    @ObservationIgnored private var watchedFD: CInt = -1
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
 
     /// How long to coalesce filesystem events before reloading. Injectable so
@@ -159,7 +158,6 @@ final class ActionQueueModel {
 
         let fd = open(dirURL.path, O_EVTONLY)
         guard fd >= 0 else { return }
-        watchedFD = fd
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -183,7 +181,6 @@ final class ActionQueueModel {
             watchSource.cancel() // cancel handler closes the fd
             self.watchSource = nil
         }
-        watchedFD = -1
     }
 
     /// Debounce (~250 ms) and coalesce filesystem events, then reload on the main

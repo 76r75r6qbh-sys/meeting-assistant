@@ -662,4 +662,105 @@ final class RecordingInterruptionMonitorTests: XCTestCase {
             XCTFail("Expected streamFailure event, got \(String(describing: events.first?.reason))")
         }
     }
+
+    // MARK: - Hard failures end when the recording moves on
+
+    /// `.audioDeviceLost` never auto-resumes, so nothing used to end it: after
+    /// one unplug plus a manual resume it sat in `activeReasons` forever and a
+    /// second unplug of the same mic was de-duplicated away -- no pause, a
+    /// silent microphone track.
+    func testSecondLossOfSameDeviceAfterResumePausesAgain() async {
+        var devices: [String] = ["BuiltInMic", "USBMic"]
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { devices },
+            displayListProvider: { [1] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        monitor.setActiveInputDevice("USBMic")
+        devices = ["BuiltInMic"]
+        monitor.deviceListChanged()
+
+        // Plugged back in; the user resumes manually (a new segment arms the
+        // monitor again).
+        devices = ["BuiltInMic", "USBMic"]
+        monitor.setActiveInputDevice("USBMic")
+
+        devices = ["BuiltInMic"]
+        monitor.deviceListChanged()
+
+        XCTAssertEqual(events.map(\.kind), [.started, .ended, .started])
+        XCTAssertEqual(events.map(\.reason), Array(repeating: .audioDeviceLost(deviceID: "USBMic"), count: 3))
+    }
+
+    /// `reportStreamFailure` is gated on `activeReasons.isEmpty`, so one stale
+    /// `.streamFailure` swallowed every later SCStream failure of the meeting.
+    func testStreamFailureAfterResumeIsReportedAgain() async {
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { ["BuiltInMic"] },
+            displayListProvider: { [1] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        monitor.setActiveInputDevice("BuiltInMic")
+        monitor.reportStreamFailure(NSError(domain: "test", code: 1))
+        monitor.setActiveInputDevice("BuiltInMic") // resumed
+        monitor.reportStreamFailure(NSError(domain: "test", code: 2))
+
+        XCTAssertEqual(events.map(\.kind), [.started, .ended, .started])
+    }
+
+    /// Stopping the recording ends a hard failure too, so the next meeting
+    /// starts with a clean slate.
+    func testStopEndsHardFailure() async {
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: NotificationCenter(),
+            screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { ["BuiltInMic"] },
+            displayListProvider: { [1] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        monitor.setActiveInputDevice("BuiltInMic")
+        monitor.reportStreamFailure(NSError(domain: "test", code: 1))
+        monitor.setActiveInputDevice(nil)
+
+        XCTAssertEqual(events.map(\.kind), [.started, .ended])
+    }
+
+    /// A sleep is not a hard failure: re-arming the device must leave it to
+    /// its own wake.
+    func testRearmingLeavesSystemSleepAlone() async {
+        let workspace = NotificationCenter()
+        let monitor = RecordingInterruptionMonitor(
+            workspaceNotificationCenter: workspace,
+            screenNotificationCenter: NotificationCenter(),
+            distributedNotificationCenter: NotificationCenter(),
+            deviceListProvider: { ["BuiltInMic"] },
+            displayListProvider: { [1] },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        var events: [RecordingInterruptionEvent] = []
+        monitor.onEvent = { events.append($0) }
+
+        monitor.setActiveInputDevice("BuiltInMic")
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        monitor.setActiveInputDevice("BuiltInMic")
+
+        XCTAssertEqual(events.map(\.kind), [.started])
+        XCTAssertEqual(events.map(\.reason), [.systemSleep])
+    }
 }

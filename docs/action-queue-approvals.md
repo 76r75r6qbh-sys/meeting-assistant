@@ -25,9 +25,14 @@ Producing drafts and executing approvals is done by an **agent** you set up (thi
 reads it, shows the items, and writes your decisions back to it. The list live-updates when the file
 changes on disk.
 
-> The built-in default path points at the original author's agent memory directory. **Set your own path**
-> in Settings — anywhere both the app and your agent can read/write (the app is not sandboxed, so any
-> location under your home folder works).
+> When the path is left empty the app resolves a default, in this order:
+> 1. `<Obsidian vault>/Memory/action-queue.json` when an Obsidian vault path is configured (the memory
+>    system moved into the vault on 2026-07-08);
+> 2. otherwise the legacy `~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json`.
+>
+> An explicit path in Settings always wins — anywhere both the app and your agent can read/write (the app
+> is not sandboxed, so any location under your home folder works). The live-update watcher follows the
+> resolved path and is re-pointed when either the queue path or the vault path changes.
 
 If the file doesn't exist yet, the view is empty until your agent creates it.
 

@@ -28,11 +28,13 @@ final class AudioRecordingService {
     /// back and ran on to merge and delete the session *before* the in-flight
     /// finalize could append its segment — a short recording plus deleted audio.
     private var pendingFinalize: (sessionID: ObjectIdentifier, task: Task<RecordingResult, Error>)?
+    /// Meetings whose Stop is merging (and will then delete the session).
+    private var mergingMeetingIDs: Set<UUID> = []
 
     private let sessionStore: RecordingResumeSessionStore
     private let makeRecordingSession: RecordingSessionFactory
     private let makeFinalOutputURL: (Meeting) throws -> URL
-    private let mergeSegments: ([URL], URL) throws -> TimeInterval
+    private let mergeSegments: ([URL], URL) async throws -> TimeInterval
 
     /// Held for as long as a segment is actually capturing. Without it the Mac
     /// idle-sleeps mid-recording once the display sleeps — macOS drops
@@ -65,7 +67,7 @@ final class AudioRecordingService {
         sessionStore: RecordingResumeSessionStore = RecordingResumeSessionStore(),
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
         makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
-        mergeSegments: @escaping ([URL], URL) throws -> TimeInterval = RecordingSegmentMerger.merge,
+        mergeSegments: @escaping ([URL], URL) async throws -> TimeInterval = RecordingSegmentMerger.mergeInBackground,
         sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer(),
         startRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)],
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
@@ -86,6 +88,7 @@ final class AudioRecordingService {
         guard session == nil else {
             throw RecordingError.activeRecordingExists
         }
+        try refuseWhileStopping(meeting.id)
 
         isPreparing = true
         errorMessage = nil
@@ -154,26 +157,48 @@ final class AudioRecordingService {
             // session that overtook us and is still capturing.
             throw RecordingError.resumeOvertaken
         } catch {
-            errorMessage = error.localizedDescription
-            isPreparing = false
-            // Only this call's OWN session, never whatever happens to be
-            // published. Publishing is the last step, so a failure here means
-            // this call published nothing — and the entry guard ran before
-            // `start()`'s suspension point, so another start or resume can have
-            // published in the meantime. Clearing unconditionally nil'd ITS
-            // session (and released ITS idle-sleep assertion), leaving a live
-            // `RecordingSession` with no owner: the next Stop took the
-            // `session == nil` branch, merged the manifest and deleted the
-            // directory that session was still writing into. The identity check
-            // stays as the invariant for any future throw after the publish.
-            if let publishedSession, self.session === publishedSession {
-                session = nil
-                endSleepPrevention()
-                activeMeetingID = nil
-                outputURL = nil
-                isRecording = false
-            }
+            rollBackFailedStart(error, publishedSession: publishedSession)
             throw error
+        }
+    }
+
+    /// A start or resume for a meeting whose Stop is merging. Thrown as a
+    /// cancellation: the user stopped this recording, so it is neither an
+    /// error modal nor a "Could not resume" toast.
+    private func refuseWhileStopping(_ meetingID: UUID) throws {
+        guard mergingMeetingIDs.contains(meetingID) else { return }
+        Log.recording.notice(
+            "Refusing to start a segment for meeting \(meetingID.uuidString, privacy: .public): its Stop is merging"
+        )
+        throw CancellationError()
+    }
+
+    /// The shared failure path of `startRecording` and `resumeRecording`.
+    private func rollBackFailedStart(_ error: Error, publishedSession: RecordingSessionControlling?) {
+        // A cancelled start or resume is the user pressing Stop, not a failure:
+        // `errorMessage` drives a modal, and throwing one at someone who just
+        // stopped the recording would be nonsense. The teardown below still
+        // runs.
+        if !(error is CancellationError) {
+            errorMessage = error.localizedDescription
+        }
+        isPreparing = false
+        // Only this call's OWN session, never whatever happens to be
+        // published. Publishing is the last step, so a failure here means
+        // this call published nothing — and the entry guard ran before
+        // `start()`'s suspension point, so another start or resume can have
+        // published in the meantime. Clearing unconditionally nil'd ITS
+        // session (and released ITS idle-sleep assertion), leaving a live
+        // `RecordingSession` with no owner: the next Stop took the
+        // `session == nil` branch, merged the manifest and deleted the
+        // directory that session was still writing into. The identity check
+        // stays as the invariant for any future throw after the publish.
+        if let publishedSession, self.session === publishedSession {
+            session = nil
+            endSleepPrevention()
+            activeMeetingID = nil
+            outputURL = nil
+            isRecording = false
         }
     }
 
@@ -211,6 +236,7 @@ final class AudioRecordingService {
         guard session == nil else {
             throw RecordingError.activeRecordingExists
         }
+        try refuseWhileStopping(meeting.id)
         guard let persisted = try sessionStore.loadSession(for: meeting.id) else {
             throw RecordingError.noResumableSession
         }
@@ -222,6 +248,9 @@ final class AudioRecordingService {
         var publishedSession: RecordingSessionControlling?
 
         do {
+            // The wake path: the device list (and every `AudioDeviceID` in it)
+            // may have changed while the Mac slept.
+            refreshInputDevices()
             // The manifest counter alone is not enough: it can point at a
             // number whose WAV or raw PCM is still on disk (a crash mid-segment,
             // a manifest write that never landed). Reserving probes the
@@ -260,7 +289,14 @@ final class AudioRecordingService {
             // Continue the timer from the total already recorded in earlier
             // segments so resuming doesn't reset the display to 00:00.
             startTimer(from: session.startedAt, baseElapsed: persisted.segments.reduce(0) { $0 + $1.duration })
-            interruptionMonitor?.setActiveInputDevice(persisted.selectedInputDeviceID ?? selectedInputDeviceID)
+            interruptionMonitor?.setActiveInputDevice(
+                Self.monitoredInputDeviceID(
+                    forStoredID: persisted.selectedInputDeviceID ?? selectedInputDeviceID,
+                    in: availableInputDevices,
+                    defaultDeviceID: Self.defaultInputDeviceID(),
+                    fallback: selectedInputDeviceID
+                )
+            )
             surfaceSystemAudioFallbackIfNeeded(session)
             Log.recording.notice(
                 "Recording resumed for meeting \(meeting.id.uuidString, privacy: .public) into \(segmentURL.path, privacy: .public)"
@@ -275,31 +311,7 @@ final class AudioRecordingService {
             // manifest and deleted the directory it was still writing into.
             throw RecordingError.resumeOvertaken
         } catch {
-            // A cancelled resume is the user pressing Stop, not a failure:
-            // `errorMessage` drives a modal, and throwing one at someone who
-            // just stopped the recording would be nonsense. The teardown below
-            // still runs.
-            if !(error is CancellationError) {
-                errorMessage = error.localizedDescription
-            }
-            isPreparing = false
-            // Only this call's OWN session, never whatever happens to be
-            // published. Publishing is the last step, so a failure here means
-            // this call published nothing — and the entry guard ran before
-            // `start()`'s suspension point, so another start or resume can have
-            // published in the meantime. Clearing unconditionally nil'd ITS
-            // session (and released ITS idle-sleep assertion), leaving a live
-            // `RecordingSession` with no owner: the next Stop took the
-            // `session == nil` branch, merged the manifest and deleted the
-            // directory that session was still writing into. The identity check
-            // stays as the invariant for any future throw after the publish.
-            if let publishedSession, self.session === publishedSession {
-                session = nil
-                endSleepPrevention()
-                activeMeetingID = nil
-                outputURL = nil
-                isRecording = false
-            }
+            rollBackFailedStart(error, publishedSession: publishedSession)
             throw error
         }
     }
@@ -345,7 +357,13 @@ final class AudioRecordingService {
         }
 
         let finalURL = try makeFinalOutputURL(meeting)
-        let duration = try mergeSegments(segmentURLs, finalURL)
+        // Off the main actor by default (see `mergeInBackground`), so a start
+        // or resume can run while it is awaited: `mergingMeetingIDs` makes
+        // them refuse instead of opening a segment in the directory deleted
+        // right below.
+        mergingMeetingIDs.insert(meeting.id)
+        defer { mergingMeetingIDs.remove(meeting.id) }
+        let duration = try await mergeSegments(segmentURLs, finalURL)
         try sessionStore.deleteSession(for: meeting.id)
 
         outputURL = finalURL
@@ -439,7 +457,7 @@ final class AudioRecordingService {
             return
         }
 
-        if let selected = devices.first(where: { $0.id == selectedInputDeviceID }) {
+        if let selected = Self.resolveInputDevice(selectedInputDeviceID, in: devices) {
             selectedInputDeviceID = selected.id
             return
         }
@@ -453,6 +471,7 @@ final class AudioRecordingService {
             try session?.setMicrophoneDevice(device.deviceID)
             selectedInputDeviceID = device.id
             interruptionMonitor?.setActiveInputDevice(device.id)
+            persistActiveSettings(selectedInputDeviceID: device.id)
         } catch {
             errorMessage = error.localizedDescription
             refreshInputDevices()
@@ -462,6 +481,20 @@ final class AudioRecordingService {
     func toggleSystemAudioEnabled() {
         isSystemAudioEnabled.toggle()
         session?.setSystemAudioEnabled(isSystemAudioEnabled)
+        persistActiveSettings(systemAudioEnabled: isSystemAudioEnabled)
+    }
+
+    /// Writes a setting changed mid-recording to the resume manifest, so the
+    /// resume after a sleep continues with it instead of the start's settings.
+    private func persistActiveSettings(systemAudioEnabled: Bool? = nil, selectedInputDeviceID: String? = nil) {
+        guard session != nil, let activeMeetingID else { return }
+        bestEffort("persist changed recording settings", Log.recording) {
+            try sessionStore.updateSettings(
+                for: activeMeetingID,
+                systemAudioEnabled: systemAudioEnabled,
+                selectedInputDeviceID: selectedInputDeviceID
+            )
+        }
     }
 
     static func availableRecordingInputDevices() -> [AudioInputDevice] {
@@ -595,7 +628,10 @@ final class AudioRecordingService {
         meetingID: UUID
     ) async throws {
         let overtaken = self.session != nil
-        guard overtaken || Task.isCancelled else { return }
+        // A Stop that began merging while this start was in flight is about
+        // to delete the directory the segment lives in: as good as cancelled.
+        let stopping = mergingMeetingIDs.contains(meetingID)
+        guard overtaken || stopping || Task.isCancelled else { return }
 
         _ = try? await session.stop()
         if overtaken {
@@ -628,7 +664,14 @@ final class AudioRecordingService {
         systemAudioEnabled: Bool
     ) throws -> RecordingSessionControlling {
         let effectiveInputDeviceID = selectedInputDeviceID ?? self.selectedInputDeviceID
-        let audioDeviceID = availableInputDevices.first(where: { $0.id == effectiveInputDeviceID })?.deviceID
+        // Unresolvable (unplugged, or a legacy numeric ID gone stale across a
+        // reboot) records from the system default rather than failing.
+        let audioDeviceID = Self.resolveInputDevice(effectiveInputDeviceID, in: availableInputDevices)?.deviceID
+        if audioDeviceID == nil, !effectiveInputDeviceID.isEmpty {
+            Log.recording.notice(
+                "Input device \(effectiveInputDeviceID, privacy: .public) is not available; recording from the system default input"
+            )
+        }
         // Identifies the session this callback belongs to. Filled in below,
         // because the session is what the factory returns — the closure cannot
         // capture it directly. Weak, so the box never keeps a finished session

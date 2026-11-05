@@ -390,6 +390,38 @@ final class ActionQueueStoreTests: XCTestCase {
         XCTAssertTrue(url.path.contains(".claude"))
     }
 
+    func testEmptyPreferenceWithVaultUsesVaultMemoryFolder() throws {
+        let defaults = makeDefaults(path: "")
+        defaults.set(tempDir.path, forKey: AppPreferenceKey.obsidianVaultPath)
+        let url = try XCTUnwrap(ActionQueueStore.fileURL(userDefaults: defaults))
+        XCTAssertEqual(
+            url.standardizedFileURL.path,
+            tempDir.appendingPathComponent("Memory/action-queue.json").standardizedFileURL.path
+        )
+    }
+
+    func testExplicitPathWinsOverVaultDefault() throws {
+        let defaults = makeDefaults(path: queueURL.path)
+        defaults.set(tempDir.appendingPathComponent("vault").path, forKey: AppPreferenceKey.obsidianVaultPath)
+        let url = try XCTUnwrap(ActionQueueStore.fileURL(userDefaults: defaults))
+        XCTAssertEqual(url.path, queueURL.path)
+    }
+
+    func testVaultDefaultLoadsAndWritesTheVaultQueue() throws {
+        let memory = tempDir.appendingPathComponent("Memory", isDirectory: true)
+        try FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
+        let vaultQueue = memory.appendingPathComponent("action-queue.json")
+        try """
+        {"version": 1, "items": [{"id": "AQ-V", "kind": "draft", "title": "Vault item", "status": "pending"}]}
+        """.write(to: vaultQueue, atomically: true, encoding: .utf8)
+        let defaults = makeDefaults(path: nil)
+        defaults.set(tempDir.path, forKey: AppPreferenceKey.obsidianVaultPath)
+
+        XCTAssertEqual(try ActionQueueStore.load(userDefaults: defaults).items.map(\.id), ["AQ-V"])
+        try ActionQueueStore.approve(id: "AQ-V", userDefaults: defaults)
+        XCTAssertEqual(try ActionQueueStore.load(userDefaults: defaults).items.first?.status, .approved)
+    }
+
     func testTildePathIsExpanded() throws {
         let defaults = makeDefaults(path: "~/some-folder/action-queue.json")
         let url = try XCTUnwrap(ActionQueueStore.fileURL(userDefaults: defaults))
@@ -416,6 +448,53 @@ final class ActionQueueStoreTests: XCTestCase {
         }
         """)
         return makeDefaults(path: queueURL.path)
+    }
+
+    // MARK: - Concurrent writers
+
+    /// A Claude skill appends an item while the app is between reading and
+    /// writing the queue: the app's decision must land on top of the skill's
+    /// version instead of overwriting it with the stale copy.
+    func testMutationRetriesOnTopOfAConcurrentWrite() throws {
+        let defaults = try seedSingle()
+        var invocations = 0
+
+        try ActionQueueStore.mutate(userDefaults: defaults) { doc in
+            invocations += 1
+            if invocations == 1 {
+                // The other process rewrites the file after our read.
+                try self.write("""
+                {"version": 1, "items": [
+                  {"id": "AQ-1", "kind": "draft", "title": "Item one", "status": "pending", "body": "original body"},
+                  {"id": "AQ-2", "kind": "draft", "title": "Added by skill", "status": "pending"}
+                ]}
+                """)
+            }
+            guard let index = doc.items.firstIndex(where: { $0.id == "AQ-1" }) else { return false }
+            doc.items[index].status = .approved
+            return true
+        }
+
+        XCTAssertEqual(invocations, 2)
+        let doc = try ActionQueueStore.load(userDefaults: defaults)
+        XCTAssertEqual(doc.items.map(\.id), ["AQ-1", "AQ-2"])
+        XCTAssertEqual(doc.items.first?.status, .approved)
+    }
+
+    func testMutationGivesUpWhenTheFileNeverSettles() throws {
+        let defaults = try seedSingle()
+        var invocations = 0
+
+        XCTAssertThrowsError(
+            try ActionQueueStore.mutate(userDefaults: defaults) { doc in
+                invocations += 1
+                try self.write(#"{"version": 1, "items": [], "updatedAt": "2026-05-30T09:0\#(invocations):00Z"}"#)
+                return true
+            }
+        ) { error in
+            XCTAssertEqual(error as? ActionQueueStore.StoreError, .concurrentModification)
+        }
+        XCTAssertEqual(invocations, ActionQueueStore.maxWriteAttempts)
     }
 
     func testApproveSetsStatusAndDecidedAt() throws {

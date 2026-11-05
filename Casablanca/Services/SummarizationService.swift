@@ -51,6 +51,7 @@ final class SummarizationService {
     - Every item is a `- ` bullet. If a section has no items, keep the heading with nothing below it.
     - Decisions include their stated rationale.
     - Each action item is one bullet formatted `- **<owner>** — <action>`. Resolve the owner against the participants list; use the person's name, never "me" or "I". If no owner was stated, use `- **?** — <action>`.
+    - The note-taker is {{user_name}}. When the note-taker commits to something ("I will…", "ik pak dat op"), the owner is {{user_name}}.
     - Omit optional sections that have nothing meaningful. Never add sections about the transcript itself.
 
     {{terminology_list}}
@@ -128,14 +129,24 @@ final class SummarizationService {
     /// the call site hands `generate` without reaching a live backend.
     private let providerFactory: () -> LLMProvider
 
-    init(providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() }) {
+    /// Where the to-do ownership settings (user name aliases, include-unassigned)
+    /// are read from. Injectable so tests use a suite, never the user's domain.
+    private let userDefaults: UserDefaults
+
+    init(
+        providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
+        userDefaults: UserDefaults = .standard
+    ) {
         self.providerFactory = providerFactory
+        self.userDefaults = userDefaults
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
     /// lifecycle, so it keeps running if the user navigates away. On success it
-    /// stores the summary on the meeting and silently saves newly extracted
-    /// action items as meeting to-dos (deduped), then persists.
+    /// stores the summary on the meeting and silently saves the user's own newly
+    /// extracted action items as meeting to-dos (deduped; see
+    /// `ActionItemOwnership`), then persists. Items owned by others stay in the
+    /// summary only.
     func summarizeInBackground(meeting: Meeting, modelContext: ModelContext) {
         // If a summary is already in flight, do nothing — never cancel/restart a
         // running summary (e.g. when the view re-appears and re-triggers this).
@@ -157,15 +168,16 @@ final class SummarizationService {
                 let parsed = try await self.summarize(meeting: meeting)
                 meeting.summary = parsed.rawMarkdown
 
-                let existing = Set(
-                    meeting.todos.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                let todoTexts = ActionItemOwnership.todoTexts(
+                    from: parsed.todoTexts,
+                    aliases: AppPreferences.userNameAliases(in: self.userDefaults),
+                    includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults),
+                    existing: Set(meeting.todos.map(\.text))
                 )
-                for text in parsed.todoTexts {
-                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty, !existing.contains(trimmed) else { continue }
+                for text in todoTexts {
                     do {
                         try ObsidianTodoSyncService.createMeetingTodo(
-                            text: trimmed,
+                            text: text,
                             meeting: meeting,
                             in: modelContext
                         )
@@ -231,7 +243,8 @@ final class SummarizationService {
             meeting: meeting,
             transcript: transcript,
             freeformNotes: freeformNotes,
-            terminologyBlock: terminologyBlock
+            terminologyBlock: terminologyBlock,
+            userName: AppPreferences.userNameAliases(in: userDefaults).first
         )
 
         // Reasoning models "think out loud" before answering, which on short
@@ -325,7 +338,8 @@ final class SummarizationService {
         meeting: Meeting,
         transcript: String,
         freeformNotes: String,
-        terminologyBlock: String
+        terminologyBlock: String,
+        userName: String? = nil
     ) -> String {
         let formattedDate = {
             let formatter = DateFormatter()
@@ -333,6 +347,17 @@ final class SummarizationService {
             formatter.timeStyle = .short
             return formatter.string(from: meeting.date)
         }()
+
+        // Who "I" is in the transcript, so the model attributes the note-taker's
+        // own commitments to them. A custom template saved before `{{user_name}}`
+        // existed gets the same instruction appended instead, so it still benefits.
+        let name = userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var template = template
+        if template.contains("{{user_name}}") {
+            template = template.replacingOccurrences(of: "{{user_name}}", with: name.isEmpty ? "unknown" : name)
+        } else if !name.isEmpty {
+            template += "\n\nThe note-taker is \(name). When the note-taker commits to something (\"I will…\", \"ik pak dat op\"), the action item's owner is \(name)."
+        }
 
         return template
             .replacingOccurrences(of: "{{title}}", with: meeting.title)

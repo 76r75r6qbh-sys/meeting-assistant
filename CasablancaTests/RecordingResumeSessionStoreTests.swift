@@ -29,6 +29,29 @@ final class RecordingResumeSessionStoreSafetyTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    // MARK: - updateSettings
+
+    func testUpdateSettingsChangesOnlyWhatIsPassed() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: "BuiltInMic")
+
+        try store.updateSettings(for: meetingID, systemAudioEnabled: false)
+        var session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertFalse(session.systemAudioEnabled)
+        XCTAssertEqual(session.selectedInputDeviceID, "BuiltInMic")
+
+        try store.updateSettings(for: meetingID, selectedInputDeviceID: "USBMic")
+        session = try XCTUnwrap(store.loadSession(for: meetingID))
+        XCTAssertFalse(session.systemAudioEnabled)
+        XCTAssertEqual(session.selectedInputDeviceID, "USBMic")
+    }
+
+    func testUpdateSettingsWithoutAManifestThrowsAndCreatesNothing() throws {
+        let meetingID = UUID()
+        XCTAssertThrowsError(try store.updateSettings(for: meetingID, systemAudioEnabled: false))
+        XCTAssertNil(try store.loadSession(for: meetingID))
+    }
+
     // MARK: - reserveNextSegmentURL
 
     func testReserveNextSegmentURLSkipsNumbersWithExistingWavOrPCM() throws {

@@ -7,14 +7,10 @@ struct ContentView: View {
     @Environment(AppModel.self) private var appModel
     private var recordingService: AudioRecordingService { appModel.recordingService }
     private var transcriptionService: TranscriptionService { appModel.transcriptionService }
-    // The real IOKit gate is passed explicitly: its default is `nil` so a unit
-    // test never registers for system power notifications by accident. Nothing
-    // registers here -- this expression is re-evaluated on every ContentView
-    // value SwiftUI builds, so registration is deferred to the idempotent
-    // `start()` below, called once on the instance `@State` actually keeps.
-    @State private var interruptionMonitor = RecordingInterruptionMonitor(sleepGate: IOKitSystemSleepGate())
-    @State private var interruptionNotifier = RecordingNotificationCenter()
-    @State private var interruptionCoordinator: RecordingInterruptionCoordinator?
+    // The interruption monitor/coordinator live on `AppModel` (created once at
+    // bootstrap), not here: window `@State` died with the window, which ended
+    // sleep deferral and auto-pause for a recording still running in the
+    // background, and a reopened window built a duplicate set.
     @State private var sidebarMeetings: SidebarMeetingsProvider?
     @State private var searchViewModel: GlobalSearchViewModel?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -47,10 +43,13 @@ struct ContentView: View {
                     SidebarPlaceholderView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: 260)
+            .navigationSplitViewColumnWidth(min: CasaLayout.sidebarMinWidth, ideal: CasaLayout.sidebarWidth, max: CasaLayout.sidebarMaxWidth)
         } detail: {
             detailView
                 .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
+                // Trailing inspectors in the detail column read this to stay
+                // closed while the window is too narrow (`widthGatedInspector`).
+                .environment(\.layoutWidthClass, widthClass)
         }
         .background {
             // Single source of truth for the window width that drives the
@@ -117,28 +116,6 @@ struct ContentView: View {
             }
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
         }
-        .task {
-            if interruptionCoordinator == nil {
-                interruptionMonitor.start()
-                recordingService.interruptionMonitor = interruptionMonitor
-                // Note: system-audio-unavailable (no display) is handled as an
-                // auto-pause via the interruption monitor/coordinator below
-                // (`.displayUnavailable`), so we deliberately do NOT wire
-                // `onSystemAudioUnavailable` to a microphone-only notification —
-                // the recording pauses rather than silently continuing mic-only.
-                let context = modelContext
-                interruptionCoordinator = RecordingInterruptionCoordinator(
-                    service: recordingService,
-                    monitor: interruptionMonitor,
-                    notifier: interruptionNotifier,
-                    // The coordinator acts on the meeting that is RECORDING,
-                    // which the user may have navigated away from before the
-                    // Mac slept; the bound meeting is then another one or none.
-                    lookupMeeting: { [viewModel] id in viewModel.fetchMeeting(byID: id) },
-                    save: { try? context.save() }
-                )
-            }
-        }
         .onAppear {
             viewModel.setModelContext(modelContext)
         }
@@ -196,7 +173,7 @@ struct ContentView: View {
                     NotesEditorView(
                         meeting: meeting,
                         recordingService: recordingService,
-                        interruptionCoordinator: interruptionCoordinator,
+                        interruptionCoordinator: appModel.interruptionCoordinator,
                         autoStartRecording: meeting.status == .recording,
                         onBack: {
                             viewModel.selectedMeeting = nil
@@ -215,7 +192,6 @@ struct ContentView: View {
                 case .completed:
                     RecordedMeetingView(
                         meeting: meeting,
-                        widthClass: widthClass,
                         onRecordAgain: {
                             viewModel.beginRecording(for: meeting)
                         },

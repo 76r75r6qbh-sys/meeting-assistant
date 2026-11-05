@@ -180,10 +180,31 @@ final class RecordingInterruptionMonitor {
         }
     }
 
+    /// Called whenever a segment starts (or the mic is switched) with the
+    /// device it captures from, and with `nil` once the recording stops.
+    ///
+    /// Either way the recording has moved past any hard failure, so this is
+    /// where `.audioDeviceLost` / `.streamFailure` end. Nothing else ever ends
+    /// them (they never auto-resume), and a stale one de-duplicated the next
+    /// unplug of the same mic away and made `reportStreamFailure` drop every
+    /// later SCStream failure -- the recording kept running with a dead track.
     func setActiveInputDevice(_ deviceID: String?) {
+        endHardFailures()
         activeInputDeviceID = deviceID
         if deviceID != nil && !coreAudioListenerInstalled {
             installCoreAudioListener()
+        }
+    }
+
+    private func endHardFailures() {
+        let hardFailures = activeReasons.filter { reason in
+            switch reason {
+            case .audioDeviceLost, .streamFailure: return true
+            case .screenLock, .systemSleep, .displayUnavailable: return false
+            }
+        }
+        for reason in hardFailures {
+            emit(.ended, reason: reason)
         }
     }
 

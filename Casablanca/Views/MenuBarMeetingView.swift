@@ -146,9 +146,15 @@ struct MenuBarMeetingView: View {
         .cardStyle()
     }
 
-    private func eventSubtitle(for event: EKEvent) -> String {
+    // Built once: `eventSubtitle` runs for every event on every body pass.
+    private static let eventDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE d MMM · HH:mm"
+        return formatter
+    }()
+
+    private func eventSubtitle(for event: EKEvent) -> String {
+        let formatter = Self.eventDateFormatter
 
         if viewModel.isHappeningNow(event) {
             return "Started \(formatter.string(from: event.startDate))"

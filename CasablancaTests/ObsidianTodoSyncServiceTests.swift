@@ -283,6 +283,146 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<TodoItem>()), 2)
     }
 
+    /// Toggling, deleting, adding and ID-assigning todos must only touch the
+    /// task lines involved: everything else the user wrote under (and around)
+    /// `## Action Items` survives byte-for-byte.
+    func testTodoEditsPreserveUserContentInRealisticPrepFile() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let vaultURL = try makeVault()
+        let defaults = makeDefaults(vaultURL: vaultURL)
+        let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+        let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
+        let original = """
+        # Weekly Sync - Prep
+
+        ## Agenda
+
+        - Roadmap
+          - Q3 items
+
+        ## Action Items
+
+        Context line written by hand.
+
+        - [ ] Bring roadmap slide
+          - sub-bullet detail
+          - [ ] nested sub-task
+        - [/] In progress thing
+        * [ ] Star task
+        - [ ] Mail agenda
+            wrapped continuation
+
+        ### Follow-ups
+
+        Free text under h3.
+
+        ## Notes
+
+        Trailing text.
+
+        """
+        try original.write(to: prepURL, atomically: true, encoding: .utf8)
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        let todos = try context.fetch(FetchDescriptor<TodoItem>())
+        let slide = try XCTUnwrap(todos.first { $0.text == "Bring roadmap slide" })
+        let agenda = try XCTUnwrap(todos.first { $0.text == "Mail agenda" })
+        XCTAssertEqual(todos.count, 2)
+
+        try ObsidianTodoSyncService.setCompleted(true, for: slide, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.deleteTodo(agenda, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.createMeetingTodo(text: "New one", meeting: meeting, in: context, userDefaults: defaults)
+        let newTodo = try XCTUnwrap(context.fetch(FetchDescriptor<TodoItem>()).first { $0.text == "New one" })
+
+        let expected = original
+            .replacingOccurrences(
+                of: "- [ ] Bring roadmap slide\n",
+                with: "- [x] Bring roadmap slide <!-- casablanca-todo: \(slide.id.uuidString.uppercased()) -->\n"
+            )
+            .replacingOccurrences(of: "- [ ] Mail agenda\n", with: "")
+            .replacingOccurrences(
+                of: "    wrapped continuation\n",
+                with: "    wrapped continuation\n- [ ] New one <!-- casablanca-todo: \(newTodo.id.uuidString.uppercased()) -->\n"
+            )
+        XCTAssertEqual(try String(contentsOf: prepURL, encoding: .utf8), expected)
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        XCTAssertEqual(try String(contentsOf: prepURL, encoding: .utf8), expected)
+        let refreshed = try context.fetch(FetchDescriptor<TodoItem>(sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(refreshed.map(\.text), ["Bring roadmap slide", "New one"])
+        XCTAssertEqual(refreshed.map(\.isCompleted), [true, false])
+    }
+
+    /// A file that exists but cannot be read must never be treated as empty:
+    /// that used to overwrite the user's Prep file with a lone Action Items
+    /// block (create/delete) and silently skip it during refresh.
+    func testUnreadableMeetingFileIsNeitherOverwrittenNorTreatedAsEmpty() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let vaultURL = try makeVault()
+        let defaults = makeDefaults(vaultURL: vaultURL)
+        let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+        let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
+        try "## Action Items\n\n- [ ] Keep me\n".write(to: prepURL, atomically: true, encoding: .utf8)
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        let keep = try XCTUnwrap(context.fetch(FetchDescriptor<TodoItem>()).first)
+
+        // Not valid UTF-8 (e.g. a file saved in another encoding).
+        let unreadable = Data([0x23, 0x20, 0xFF, 0xFE, 0x0A, 0xC3, 0x28])
+        try unreadable.write(to: prepURL)
+
+        XCTAssertThrowsError(
+            try ObsidianTodoSyncService.createMeetingTodo(text: "New", meeting: meeting, in: context, userDefaults: defaults)
+        )
+        XCTAssertThrowsError(try ObsidianTodoSyncService.deleteTodo(keep, in: context, userDefaults: defaults))
+        XCTAssertThrowsError(try ObsidianTodoSyncService.setCompleted(true, for: keep, in: context, userDefaults: defaults))
+        XCTAssertThrowsError(try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults))
+
+        XCTAssertEqual(try Data(contentsOf: prepURL), unreadable)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<TodoItem>()).map(\.text), ["Keep me"])
+    }
+
+    /// One meeting whose file cannot be read must not stop the full refresh
+    /// from syncing every other meeting; the failure is still reported.
+    func testRefreshAllTodosContinuesPastAFailingMeeting() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let vaultURL = try makeVault()
+        let defaults = makeDefaults(vaultURL: vaultURL)
+        let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+
+        let broken = Meeting(title: "Broken", date: makeMeeting().date)
+        let healthy = Meeting(title: "Healthy", date: makeMeeting().date)
+        context.insert(broken)
+        context.insert(healthy)
+        try context.save()
+        let brokenURL = notesDirectory.appendingPathComponent("2025-04-12 Broken - Prep.md")
+        let unreadable = Data([0xFF, 0xFE, 0xC3, 0x28])
+        try unreadable.write(to: brokenURL)
+        try "## Action Items\n\n- [ ] Healthy todo\n".write(
+            to: notesDirectory.appendingPathComponent("2025-04-12 Healthy - Prep.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults))
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(todos.map(\.text), ["Healthy todo"])
+        XCTAssertEqual(todos.first?.meeting?.id, healthy.id)
+        XCTAssertEqual(try Data(contentsOf: brokenURL), unreadable)
+    }
+
     private func makeVault() throws -> URL {
         makeScratchVault("todo-sync")
     }

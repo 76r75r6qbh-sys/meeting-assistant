@@ -8,6 +8,10 @@ import Foundation
 /// through `WAVCodec.header(dataByteCount:)`; the emitted bytes are unchanged
 /// (the golden header pins in `RecordingSegmentMergerGoldenTests` lock this).
 enum WAVCodec {
+    /// Size of the canonical RIFF/WAVE header `header(dataByteCount:)` writes;
+    /// a WAV at or below it carries no samples.
+    static let headerByteCount = 44
+
     static func header(dataByteCount: Int) -> Data {
         let sampleRate: UInt32 = 16_000
         let channelCount: UInt16 = 1

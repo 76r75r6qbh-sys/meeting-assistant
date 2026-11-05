@@ -41,6 +41,10 @@ struct SidebarView: View {
         // Read in this view's tracked context so the badge updates reactively
         // when the watcher/bootstrap mutates the queue.
         let pendingCount = appModel.actionQueueModel.pendingCount
+        // Filtered/sorted once per body pass; they were computed twice each.
+        let upcoming = upcomingMeetings
+        let recent = recentMeetings
+        let recentBuckets = Self.bucketed(recent)
         return List(selection: $selection) {
             Section {
                 Label("Dashboard", systemImage: "calendar")
@@ -59,9 +63,9 @@ struct SidebarView: View {
                     .tag(SidebarDestination.actionQueue)
             }
 
-            if !upcomingMeetings.isEmpty {
+            if !upcoming.isEmpty {
                 Section("Upcoming") {
-                    ForEach(upcomingMeetings) { meeting in
+                    ForEach(upcoming) { meeting in
                         SidebarMeetingRow(
                             meeting: meeting,
                             section: .upcoming,
@@ -78,7 +82,7 @@ struct SidebarView: View {
                 }
             }
 
-            if recentMeetings.isEmpty {
+            if recent.isEmpty {
                 Section("Recent") {
                     Text(
                         viewModel.meetingSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -90,7 +94,7 @@ struct SidebarView: View {
                     .listRowBackground(Color.clear)
                 }
             } else {
-                ForEach(bucketedRecentMeetings, id: \.bucket) { pair in
+                ForEach(recentBuckets, id: \.bucket) { pair in
                     Section(pair.bucket.title) {
                         ForEach(pair.meetings) { meeting in
                             SidebarMeetingRow(
@@ -185,25 +189,17 @@ struct SidebarView: View {
         }
     }
 
-    /// Pure pipeline presentation for a row's compact processing indicator,
-    /// derived from the live services + this meeting's state.
-    private func pipelinePresentation(for meeting: Meeting) -> MeetingPipelinePresentation {
-        let isSummarizingThis = appModel.summarizationService.summarizingMeetingID == meeting.id
-        return MeetingPipelinePresentation(
-            isThisMeetingTranscribing: appModel.transcriptionService.isTranscribing && meeting.status == .processing,
-            transcriptionProgress: appModel.transcriptionService.progress,
-            isSummarizingThisMeeting: isSummarizingThis,
+    /// The row's compact processing indicator. Only the meeting actually being
+    /// processed or summarized gets one; every other row is described by its
+    /// status alone (see `SidebarPipelineIndicator`).
+    private func pipelinePresentation(for meeting: Meeting) -> MeetingPipelinePresentation? {
+        SidebarPipelineIndicator.presentation(
+            meetingID: meeting.id,
+            status: meeting.status,
+            isTranscribing: appModel.transcriptionService.isTranscribing,
+            summarizingMeetingID: appModel.summarizationService.summarizingMeetingID,
             summarizationPhase: appModel.summarizationService.phase,
-            summarizationStartedAt: appModel.summarizationService.summarizationStartedAt,
-            // Errors (summary/export) are surfaced in the detail view, not the
-            // sidebar row, so the row only reflects active/stale state.
-            summarizationError: nil,
-            autoExportFailure: nil,
-            meetingStatus: meeting.status,
-            hasTranscript: meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-            hasSummary: meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-            autoSummarize: false,
-            autoExport: false
+            summarizationStartedAt: appModel.summarizationService.summarizationStartedAt
         )
     }
 
@@ -211,10 +207,10 @@ struct SidebarView: View {
         viewModel.filteredRecentMeetings(from: meetingsProvider.tagFilteredMeetings)
     }
 
-    /// Groups the already-filtered, reverse-chronological `recentMeetings` into the
+    /// Groups the already-filtered, reverse-chronological recent meetings into the
     /// five past recency buckets, returning only non-empty buckets in fixed order
-    /// (Today → Earlier). Order within each bucket is preserved from `recentMeetings`.
-    private var bucketedRecentMeetings: [(bucket: MeetingTimeBucket, meetings: [Meeting])] {
+    /// (Today → Earlier). Order within each bucket is preserved.
+    private static func bucketed(_ recentMeetings: [Meeting]) -> [(bucket: MeetingTimeBucket, meetings: [Meeting])] {
         let now = Date()
         let order: [MeetingTimeBucket] = [.today, .thisWeek, .thisMonth, .thisYear, .earlier]
         let grouped = Dictionary(grouping: recentMeetings) {
@@ -393,10 +389,55 @@ struct SidebarMeetingRow: View {
         }
     }
 
-    private var formattedDate: String {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, HH:mm"
-        return formatter.string(from: meeting.date)
+        return formatter
+    }()
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: meeting.date)
+    }
+}
+
+/// Builds the sidebar row's processing indicator without touching the meeting's
+/// heavy columns. `SidebarMeetingsProvider` deliberately leaves `transcript` and
+/// `summary` out of its partial fetch; reading them for every row on every body
+/// pass (and the sidebar re-rendered per transcription progress tick) faulted
+/// them all back in.
+///
+/// The sidebar passes `autoSummarize: false`, and that is the only rule that
+/// consults `hasTranscript`/`hasSummary`, so they are irrelevant here. The
+/// row shows a spinner, never the percentage, so progress is not read either.
+/// A meeting that is neither `.processing` nor the one being summarized derives
+/// to `.done`, i.e. the plain status icon, so it gets no presentation at all.
+enum SidebarPipelineIndicator {
+    static func presentation(
+        meetingID: UUID,
+        status: MeetingStatus,
+        isTranscribing: Bool,
+        summarizingMeetingID: UUID?,
+        summarizationPhase: SummarizationService.SummarizationPhase,
+        summarizationStartedAt: Date?
+    ) -> MeetingPipelinePresentation? {
+        let isSummarizingThis = summarizingMeetingID == meetingID
+        guard status == .processing || isSummarizingThis else { return nil }
+        return MeetingPipelinePresentation(
+            isThisMeetingTranscribing: isTranscribing && status == .processing,
+            transcriptionProgress: 0,
+            isSummarizingThisMeeting: isSummarizingThis,
+            summarizationPhase: summarizationPhase,
+            summarizationStartedAt: summarizationStartedAt,
+            // Errors (summary/export) are surfaced in the detail view, not the
+            // sidebar row, so the row only reflects active/stale state.
+            summarizationError: nil,
+            autoExportFailure: nil,
+            meetingStatus: status,
+            hasTranscript: false,
+            hasSummary: false,
+            autoSummarize: false,
+            autoExport: false
+        )
     }
 }
 

@@ -13,17 +13,29 @@ struct NotesEditorView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
+    /// The window's width tier (ContentView); the inspector only opens at `.expanded`.
+    @Environment(\.layoutWidthClass) private var layoutWidthClass
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
     @State private var saveTask: Task<Void, Never>?
-    @State private var didTriggerStart = false
+    /// The meeting this view already asked the controller to start. Keyed by
+    /// id, not a Bool: ContentView reuses this view instance across workspace
+    /// meetings, and a flag left set by meeting A made a later Record on
+    /// meeting B a silent no-op (status `.recording`, nothing capturing).
+    @State private var startTriggeredForMeetingID: UUID?
     @State private var prepMarkdown: String?
     // Native trailing inspector hosting Prep + To-Dos as tabs. Resizing and the
     // toggle state are handled by AppKit (smooth + HIG-compliant).
     @State private var isInspectorPresented = false
     @State private var inspectorTab: InspectorTab = .prep
-    @State private var isFinalizingRecording = false
+    /// Which meeting's Stop this view is finalizing. Keyed, not a Bool: the
+    /// view is reused across meetings, and a flag left set by A's stop showed
+    /// finalizing chrome on B and turned B's Stop into a no-op.
+    @State private var stopGate = EditorStopGate()
     @State private var recordingActionPhase: RecordingActionPhase = .start
+
+    private var isFinalizingRecording: Bool { stopGate.isFinalizing(meeting.id) }
 
     var body: some View {
         ZStack {
@@ -33,7 +45,7 @@ struct NotesEditorView: View {
                         presentation: presentation,
                         autoPause: autoPauseIndicatorPresentation,
                         elapsed: formattedElapsed,
-                        audioLevel: recordingService.audioLevel,
+                        recordingService: recordingService,
                         isPreparing: recordingService.isPreparing,
                         isFinalizing: isFinalizingRecording,
                         isRecordingState: isRecordingState,
@@ -113,23 +125,32 @@ struct NotesEditorView: View {
                         Label("Inspector", systemImage: "sidebar.right")
                     }
                     .toggleStyle(.button)
-                    .help(isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
+                    .disabled(!layoutWidthClass.allowsInspector)
+                    .help(layoutWidthClass.allowsInspector
+                        ? (isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
+                        : "Widen the window to show Prep & To-Dos")
 
                     Button {
                         recordingWorkspaceFocusMode.toggle()
                     } label: {
                         Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    // No .keyboardShortcut here: ⌘⇧F belongs to the View menu's
+                    // "Toggle Focus Mode" command, which works in every state
+                    // this button is shown in (and in focus mode, where it is not).
                     .help("Distraction-free notes (\u{2318}\u{21E7}F · Esc to exit)")
                 }
             }
         }
         .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
         .task(id: meeting.id) {
+            // The previous meeting's last action (its Stop, say) must not pick
+            // this meeting's error-alert buttons.
+            recordingActionPhase = .start
             interruptionCoordinator?.bind(meeting: meeting)
             try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
-            loadPrepMarkdown()
+            // Never show the previous meeting's prep while this one loads.
+            prepMarkdown = nil
 
             if meeting.status == .pausedRecording {
                 // `hasResumableSession` is true while a manifest *or* any
@@ -147,11 +168,25 @@ struct NotesEditorView: View {
                     save()
                 }
             }
+
+            // Last, and awaited: the vault read runs off the main actor, and
+            // the inspector is only opened once it returns — after the first
+            // layout pass, never during it (split/inspector columns changing
+            // inside the initial constraint pass is how 0.16.0 crashed).
+            await loadPrepAndAutoOpenInspector()
+        }
+        // The coordinator is created once by `AppModel.bootstrap`; an editor
+        // that appeared before that binds as soon as it exists.
+        .onChange(of: interruptionCoordinator.map(ObjectIdentifier.init)) { _, _ in
+            interruptionCoordinator?.bind(meeting: meeting)
         }
         .onDisappear {
             interruptionCoordinator?.bind(meeting: nil)
         }
-        .task(id: autoStartRecording) {
+        // Keyed by meeting too: moving between two meetings that both want
+        // capture must re-run it. A start for a meeting already capturing (or
+        // in flight via the Teams monitor) is a no-op/joined by the controller.
+        .task(id: AutoStartKey(meetingID: meeting.id, autoStart: autoStartRecording)) {
             guard autoStartRecording else { return }
             recordingService.refreshInputDevices(forcePreferredSelection: true)
             await startRecordingIfNeeded()
@@ -160,7 +195,7 @@ struct NotesEditorView: View {
             if recordingActionPhase == .start {
                 Button("Retry") {
                     recordingService.clearError()
-                    didTriggerStart = false
+                    startTriggeredForMeetingID = nil
                     Task {
                         await startRecordingIfNeeded()
                     }
@@ -185,6 +220,11 @@ struct NotesEditorView: View {
         } message: {
             Text(recordingService.errorMessage ?? "Unable to start recording.")
         }
+    }
+
+    private struct AutoStartKey: Hashable {
+        let meetingID: UUID
+        let autoStart: Bool
     }
 
     private var presentation: MeetingWorkspacePresentation {
@@ -240,15 +280,16 @@ struct NotesEditorView: View {
             // Native trailing inspector (AppKit-driven resize, HIG-compliant)
             // hosting Prep & To-Dos as tabs. The notes editor keeps its proven
             // bounded layout as the primary content.
+            // Presented only while the window is wide enough to hold it; an
+            // open request (the prep auto-open) made while it is too narrow is
+            // kept and shows once the window widens.
             notesColumn
-                .inspector(isPresented: $isInspectorPresented) {
+                .widthGatedInspector(isPresented: $isInspectorPresented, idealWidth: 340) {
                     NotesEditorInspector(
                         meeting: meeting,
                         prepPresentation: prepPresentation,
                         inspectorTab: $inspectorTab
                     )
-                    .stableSplitColumnMinimumSize()
-                    .inspectorColumnWidth(min: 260, ideal: 340, max: 560)
                 }
         }
     }
@@ -432,49 +473,57 @@ struct NotesEditorView: View {
     }
 
     private func startRecordingIfNeeded() async {
-        guard !didTriggerStart else { return }
+        guard startTriggeredForMeetingID != meeting.id else { return }
 
         if recordingService.isRecording && recordingService.activeMeetingID == meeting.id {
             return
         }
 
         recordingActionPhase = .start
-        didTriggerStart = true
+        startTriggeredForMeetingID = meeting.id
 
-        do {
-            try await recordingService.startRecording(for: meeting)
-            meeting.status = .recording
-            save()
-        } catch {
-            didTriggerStart = false
-            meeting.status = .notesOnly
-            save()
+        // The controller owns the start (and the status flip), so a start the
+        // Teams monitor kicked off for this same meeting is joined, not doubled.
+        let outcome = await appModel.recordingController.startRecording(for: meeting, save: { save() })
+        if outcome == .failed {
+            startTriggeredForMeetingID = nil
         }
     }
 
     private func stopRecording() async {
-        guard !isFinalizingRecording else { return }
-
+        // `meeting` is the one on screen now; by the time the stop returns the
+        // view may show another, so everything below is keyed by this id.
+        let meetingID = meeting.id
+        guard stopGate.begin(meetingID) else { return }
         recordingActionPhase = .stop
-        isFinalizingRecording = true
+        defer { stopGate.end(meetingID) }
 
-        do {
-            let result = try await recordingService.stopRecording(for: meeting)
-            meeting.recordingFileURL = result.outputURL.path
-            meeting.recordingDuration = result.duration
-            meeting.status = .processing
-            interruptionCoordinator?.notifyMeetingTransitioned(to: .processing)
-            save()
-        } catch {
-            isFinalizingRecording = false
-            recordingService.setErrorMessage(error.localizedDescription)
-            meeting.status = recordingService.hasResumableSession(for: meeting.id) ? .pausedRecording : .notesOnly
-            save()
-        }
+        // `nil`: a stop for this meeting is already running elsewhere (the
+        // Teams monitor's auto-stop); it moves the meeting on by itself. On
+        // success the controller ends the interruption bookkeeping; on failure
+        // it has already surfaced the error and reset the status.
+        _ = try? await appModel.recordingController.stopRecording(for: meeting, save: { save() })
     }
 
-    private func loadPrepMarkdown() {
-        prepMarkdown = MeetingPrepService.loadPrepMarkdown(for: meeting)
+    /// Loads the meeting's prep (vault file, else local prep notes) and, once
+    /// per meeting appearance, opens the inspector on the Prep tab when there
+    /// is prep. Runs from `.task(id: meeting.id)`, so closing the inspector
+    /// afterwards sticks until another meeting is opened.
+    private func loadPrepAndAutoOpenInspector() async {
+        let markdown = await MeetingPrepService.loadResolvedPrepMarkdown(for: meeting)
+        // The meeting changed (or the view went away) while reading.
+        guard !Task.isCancelled else { return }
+        prepMarkdown = markdown
+
+        let decision = PrepInspectorAutoOpenDecision(
+            isEnabled: autoOpenMeetingPrep,
+            hasPrep: MeetingPrepService.hasPrepContent(markdown),
+            isFocusModeActive: presentation.isFocusModeActive
+        )
+        if decision.shouldOpenPrep {
+            inspectorTab = .prep
+            isInspectorPresented = true
+        }
     }
 
     private func debouncedSave() {
@@ -536,5 +585,26 @@ struct NotesEditorView: View {
             ? "Privacy_Microphone"
             : "Privacy_ScreenCapture"
         openPrivacySettings(anchor: anchor)
+    }
+}
+
+/// The editor's Stop, per meeting. One editor instance shows many meetings in
+/// turn, so "a stop is finalizing" has to say which meeting: A's stop still in
+/// flight must neither show finalizing chrome on B nor swallow B's Stop.
+struct EditorStopGate: Equatable {
+    private(set) var finalizingMeetingIDs: Set<UUID> = []
+
+    func isFinalizing(_ meetingID: UUID) -> Bool { finalizingMeetingIDs.contains(meetingID) }
+
+    /// Claims the stop for `meetingID`. False when that meeting's stop is
+    /// already running (a double-click). A stop for another meeting still in
+    /// flight does not block it.
+    mutating func begin(_ meetingID: UUID) -> Bool {
+        finalizingMeetingIDs.insert(meetingID).inserted
+    }
+
+    /// Ends `meetingID`'s stop, whatever happened to the others.
+    mutating func end(_ meetingID: UUID) {
+        finalizingMeetingIDs.remove(meetingID)
     }
 }

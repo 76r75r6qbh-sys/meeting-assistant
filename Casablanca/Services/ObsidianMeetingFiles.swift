@@ -63,7 +63,8 @@ struct ObsidianMeetingFiles {
             .appendingPathComponent("meeting notes", isDirectory: true)
     }
 
-    private static func vaultRoot(userDefaults: UserDefaults) -> URL? {
+    /// The configured Obsidian vault root, or `nil` when no vault is set.
+    static func vaultRoot(userDefaults: UserDefaults = .standard) -> URL? {
         let vaultPath = userDefaults.string(forKey: AppPreferenceKey.obsidianVaultPath)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !vaultPath.isEmpty else {
@@ -89,9 +90,7 @@ struct ObsidianMeetingFiles {
     }
 
     private static func normalizedBaseName(for meeting: Meeting) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let dateString = formatter.string(from: meeting.date)
+        let dateString = Meeting.obsidianDateString(from: meeting.date)
         return "\(dateString) \(meeting.title.normalizedObsidianPathComponent)"
     }
 }

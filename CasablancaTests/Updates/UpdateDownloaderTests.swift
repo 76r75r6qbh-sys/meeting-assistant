@@ -111,14 +111,14 @@ extension UpdateDownloaderTests {
 
     func test_verify_returnsBundleVersion_whenNewer() async throws {
         let bundle = try await extractedBundle("Casablanca-99.0.0-macOS")
-        let v = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+        let v = try await fixtureDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
         XCTAssertEqual(v, try SemanticVersion(parsing: "99.0.0"))
     }
 
     func test_verify_throwsVersionRegression_whenOlder() async throws {
         let bundle = try await extractedBundle("Casablanca-0.0.1-macOS")
         do {
-            _ = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+            _ = try await fixtureDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
             XCTFail("expected versionRegression")
         } catch UpdateError.versionRegression {}
     }
@@ -130,8 +130,52 @@ extension UpdateDownloaderTests {
         try FileManager.default.createDirectory(at: resourcesDir, withIntermediateDirectories: true)
         try "tampered".data(using: .utf8)!.write(to: resourcesDir.appendingPathComponent("extra.txt"))
         do {
+            _ = try await fixtureDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
+            XCTFail("expected codesignFailed")
+        } catch UpdateError.codesignFailed {}
+    }
+}
+
+extension UpdateDownloaderTests {
+    /// The fixtures are ad-hoc signed with this identifier, so they can only
+    /// pass `verify` under a requirement that names it.
+    private func fixtureDownloader() -> DefaultUpdateDownloader {
+        DefaultUpdateDownloader(codeRequirement: #"identifier "nl.medicore.casablanca.fixture""#)
+    }
+
+    /// An intact but ad-hoc signature (anyone can make one) must not pass the
+    /// production check, which pins our team's Apple-issued certificate.
+    func test_verify_rejectsAdHocSignature_underReleaseRequirement() async throws {
+        let bundle = try await extractedBundle("Casablanca-99.0.0-macOS")
+        do {
             _ = try await DefaultUpdateDownloader().verify(bundleAt: bundle, currentVersion: try SemanticVersion(parsing: "0.3.0"))
             XCTFail("expected codesignFailed")
         } catch UpdateError.codesignFailed {}
+    }
+
+    /// The in-app requirement must be the one release builds are signed with.
+    func test_releaseCodeRequirement_matchesSigningRequirementFile() throws {
+        let reqFile = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Updates
+            .deletingLastPathComponent() // CasablancaTests
+            .deletingLastPathComponent() // repo root
+            .appendingPathComponent("scripts/casablanca.req")
+        let contents = try String(contentsOf: reqFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(contents, "designated => " + DefaultUpdateDownloader.releaseCodeRequirement)
+    }
+
+    func test_download_throwsWhenSizeDoesNotMatchExpectedByteCount() async throws {
+        let downloader = DefaultUpdateDownloader()
+        let dest = tempDir.appendingPathComponent("out.zip")
+        do {
+            _ = try await downloader.download(
+                from: fixtureURL("Casablanca-99.0.0-macOS"),
+                expectedByteCount: 1,
+                to: dest,
+                progress: { _ in }
+            )
+            XCTFail("expected downloadFailed")
+        } catch UpdateError.downloadFailed {}
     }
 }

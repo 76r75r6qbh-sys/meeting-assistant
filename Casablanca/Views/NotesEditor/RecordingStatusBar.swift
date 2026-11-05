@@ -8,7 +8,8 @@ struct RecordingStatusBar<DeviceChip: View>: View {
     let presentation: MeetingWorkspacePresentation
     let autoPause: AutoPauseIndicatorPresentation?
     let elapsed: String
-    let audioLevel: Double
+    /// Read only by the leaf meter, never by this body (see `LiveAudioLevelMeter`).
+    let recordingService: AudioRecordingService
     let isPreparing: Bool
     let isFinalizing: Bool
     let isRecordingState: Bool
@@ -44,7 +45,7 @@ struct RecordingStatusBar<DeviceChip: View>: View {
                     .foregroundStyle(Color.textPrimary)
                     .accessibilityLabel("Elapsed time: \(elapsed)")
 
-                AudioLevelMeterView(level: audioLevel)
+                LiveAudioLevelMeter(recordingService: recordingService)
 
                 deviceChip()
 

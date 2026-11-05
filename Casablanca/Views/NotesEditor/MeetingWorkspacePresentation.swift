@@ -97,7 +97,7 @@ struct MeetingPrepPresentation: Equatable {
     let isExpanded: Bool
 
     var hasPrep: Bool {
-        !(markdown?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        MeetingPrepService.hasPrepContent(markdown)
     }
 
     var showsPrepPane: Bool {
@@ -110,6 +110,21 @@ struct MeetingPrepPresentation: Equatable {
 
     var markdownText: String {
         markdown ?? ""
+    }
+}
+
+/// Whether opening a meeting's notes should open the inspector on its Prep
+/// tab. Evaluated once per meeting appearance, after the prep has loaded.
+struct PrepInspectorAutoOpenDecision: Equatable {
+    /// The "Open meeting prep automatically in notes" setting.
+    let isEnabled: Bool
+    let hasPrep: Bool
+    /// Focus mode deliberately hides the inspector, so it is never forced open
+    /// there — not even queued to pop up when focus mode ends.
+    let isFocusModeActive: Bool
+
+    var shouldOpenPrep: Bool {
+        isEnabled && hasPrep && !isFocusModeActive
     }
 }
 

@@ -125,6 +125,88 @@ final class RecordingSegmentMergerGoldenTests: XCTestCase {
         XCTAssertEqual(decoded, samples)
     }
 
+    // MARK: - Streaming merge
+
+    /// The pre-streaming implementation, kept verbatim as the oracle: the
+    /// streamed output must match it byte for byte.
+    private func referenceMerge(segmentURLs: [URL], into outputURL: URL) throws -> TimeInterval {
+        var renderedSamples = [Int16]()
+        for url in segmentURLs {
+            let data = try Data(contentsOf: url)
+            let body = data.dropFirst(44)
+            renderedSamples += body.withUnsafeBytes { rawBuffer in
+                Array(rawBuffer.bindMemory(to: Int16.self))
+            }
+        }
+        let payload = renderedSamples.withUnsafeBufferPointer { Data(buffer: $0) }
+        try (RecordingSegmentMerger.header(dataByteCount: payload.count) + payload).write(to: outputURL, options: .atomic)
+        return Double(renderedSamples.count) / 16_000.0
+    }
+
+    func testStreamedMergeIsByteIdenticalToTheInMemoryMergeAcrossChunkSizes() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var generator = SystemRandomNumberGenerator()
+        // Odd-length bodies, a header-only WAV and a file shorter than a header
+        // are all real shapes a crash or a recovery can leave behind.
+        let bodyByteCounts = [2_000, 1_001, 0, 7, 4_096]
+        var urls = try bodyByteCounts.enumerated().map { index, count -> URL in
+            let url = directory.appendingPathComponent("segment-\(index).wav")
+            let body = Data((0..<count).map { _ in UInt8.random(in: 0...255, using: &generator) })
+            try (RecordingSegmentMerger.header(dataByteCount: count) + body).write(to: url)
+            return url
+        }
+        let stub = directory.appendingPathComponent("stub.wav")
+        try Data([1, 2, 3]).write(to: stub)
+        urls.insert(stub, at: 2)
+
+        let referenceURL = directory.appendingPathComponent("reference.wav")
+        let referenceDuration = try referenceMerge(segmentURLs: urls, into: referenceURL)
+        let reference = try Data(contentsOf: referenceURL)
+
+        for chunkByteCount in [1, 2, 3, 64, 1 << 20] {
+            let outputURL = directory.appendingPathComponent("streamed-\(chunkByteCount).wav")
+            let duration = try RecordingSegmentMerger.merge(
+                segmentURLs: urls,
+                into: outputURL,
+                chunkByteCount: chunkByteCount
+            )
+            XCTAssertEqual(try Data(contentsOf: outputURL), reference, "chunk size \(chunkByteCount)")
+            XCTAssertEqual(duration, referenceDuration, accuracy: 1e-12)
+        }
+    }
+
+    func testMergeReplacesAnExistingOutput() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let segmentURL = directory.appendingPathComponent("only.wav")
+        try writeWAV(samples: [1, 2, 3], to: segmentURL)
+        let outputURL = directory.appendingPathComponent("merged.wav")
+        try Data(repeating: 9, count: 500).write(to: outputURL)
+
+        _ = try RecordingSegmentMerger.merge(segmentURLs: [segmentURL], into: outputURL)
+
+        XCTAssertEqual(try Data(contentsOf: outputURL).count, 44 + 6)
+    }
+
+    func testMissingSegmentFailsAndLeavesNothingBehind() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let present = directory.appendingPathComponent("present.wav")
+        try writeWAV(samples: [1, 2], to: present)
+        let outputURL = directory.appendingPathComponent("merged.wav")
+
+        XCTAssertThrowsError(
+            try RecordingSegmentMerger.merge(
+                segmentURLs: [present, directory.appendingPathComponent("missing.wav")],
+                into: outputURL
+            )
+        )
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(leftovers, ["present.wav"], "No output and no partial file after a failed merge")
+    }
+
     // MARK: - Helpers
 
     private func makeTempDirectory() throws -> URL {
