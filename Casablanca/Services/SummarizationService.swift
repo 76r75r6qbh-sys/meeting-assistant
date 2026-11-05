@@ -172,6 +172,8 @@ final class SummarizationService {
         /// The map prompt's focus block (prep + notes): a changed prep must
         /// re-extract every part.
         let focusSHA256: String
+        /// Relative due dates resolve against it.
+        let meetingDate: Date
         let thinkingEnabled: Bool
         let chunkTokens: Int
         let chunkIndex: Int
@@ -437,8 +439,18 @@ final class SummarizationService {
             }
         } else if let mapFacts {
             parsed = SummaryResponseParser.parse(stripped)
-            facts = mapFacts
-            factsSource = .mapJSON
+            // As in the single pass: never fewer to-dos than the reduce's
+            // markdown lists. Its extra items join the parts' (fuzzy duplicates
+            // collapse), as a warned fallback.
+            let markdownFacts = SummaryFacts.fromMarkdown(parsed)
+            if markdownFacts.actionItems.count > mapFacts.actionItems.count {
+                facts = SummaryFacts.merged([mapFacts, markdownFacts])
+                factsSource = .markdownFallback
+                warnings.append(Self.factsFallbackWarning)
+            } else {
+                facts = mapFacts
+                factsSource = .mapJSON
+            }
         } else {
             // At least one part had no readable JSON: the reduce's markdown,
             // plus whatever the decoded parts extracted (fuzzy duplicates
@@ -792,9 +804,11 @@ final class SummarizationService {
 
         let joined = Self.reduceJoin(notes)
         let fits = LLMPromptSupport.budgetTokens(joined) <= reduceCapacity
+        // Never elide the notes to nothing: a template that leaves (almost) no
+        // room still gets `minReduceNotesTokens` of them, over budget if need be.
         let text = fits ? joined : LLMPromptSupport.middleElide(
             joined,
-            toCharBudget: max(0, reduceCapacity) * LLMPromptSupport.budgetCharsPerToken
+            toCharBudget: max(reduceCapacity, Self.minReduceNotesTokens) * LLMPromptSupport.budgetCharsPerToken
         )
         return CondensedTranscript(
             text: text + actionItemsBlock,
@@ -804,6 +818,9 @@ final class SummarizationService {
             decodedPartFacts: decoded
         )
     }
+
+    /// The fewest tokens of condensed notes the reduce ever gets after eliding.
+    static let minReduceNotesTokens = 500
 
     /// Heading above the de-duplicated action items appended to the reduce input.
     static let reducedActionItemsHeading = "Action items already extracted from the transcript (de-duplicated; use exactly these in the action items section):"
@@ -853,6 +870,7 @@ final class SummarizationService {
         }
         let transcriptHash = Self.sha256(transcript)
         let focusHash = Self.sha256(context.mapFocus)
+        let outputCap = Self.mapJSONOutputTokens(chunkTokens: chunkTokens, thinkingEnabled: context.thinkingEnabled)
 
         var parts: [MappedPart] = []
         for chunk in chunks {
@@ -862,6 +880,7 @@ final class SummarizationService {
                 provider: "\(provider.displayName)|\(provider.endpoint)",
                 terminologyBlock: context.terminologyBlock,
                 focusSHA256: focusHash,
+                meetingDate: context.meeting.date,
                 thinkingEnabled: context.thinkingEnabled,
                 chunkTokens: chunkTokens,
                 chunkIndex: chunk.index
@@ -879,15 +898,18 @@ final class SummarizationService {
                     prompt: prompt,
                     context: context,
                     provider: provider,
+                    maxTokens: .some(outputCap),
                     outputWasTruncated: &outputWasTruncated
                 )
                 part = try await decodeMapPart(
                     raw,
                     context: context,
                     provider: provider,
+                    maxTokens: outputCap,
                     outputWasTruncated: &outputWasTruncated
                 )
-                condensedPartCache[key] = part
+                // A markdown fallback is not cached: Retry tries its JSON again.
+                if case .facts = part { condensedPartCache[key] = part }
             }
             let text: String
             switch part {
@@ -910,6 +932,7 @@ final class SummarizationService {
         _ raw: String,
         context: PromptContext,
         provider: LLMProvider,
+        maxTokens: Int?,
         outputWasTruncated: inout Bool
     ) async throws -> CondensedPart {
         func decoded(_ text: String) -> SummaryFacts? {
@@ -930,7 +953,7 @@ final class SummarizationService {
                     to: SummaryFactsPrompt.repairPrompt(broken: raw),
                     thinkingEnabled: context.thinkingEnabled
                 ),
-                maxTokens: context.intermediateMaxTokens,
+                maxTokens: maxTokens,
                 provider: provider,
                 outputWasTruncated: &outputWasTruncated
             )
@@ -1029,12 +1052,13 @@ final class SummarizationService {
         prompt: String,
         context: PromptContext,
         provider: LLMProvider,
+        maxTokens: Int?? = nil,
         outputWasTruncated: inout Bool
     ) async throws -> String {
         let raw = try await generateStep(
             stepPhase,
             prompt: prompt,
-            maxTokens: context.intermediateMaxTokens,
+            maxTokens: maxTokens ?? context.intermediateMaxTokens,
             provider: provider,
             outputWasTruncated: &outputWasTruncated
         )
@@ -1056,6 +1080,13 @@ final class SummarizationService {
         return max(1_000, min(budget - mapPromptOverhead, max(4_000, budget / 2)))
     }
 
+    /// Output cap for a JSON map call and its repair: a fifth of the part's
+    /// size, at least 1,500 tokens, so quotes and items fit (merge calls keep
+    /// `LLMPromptSupport.mapOutputTokens`). Uncapped when thinking is on.
+    static func mapJSONOutputTokens(chunkTokens: Int, thinkingEnabled: Bool) -> Int? {
+        thinkingEnabled ? nil : max(1_500, chunkTokens / 5)
+    }
+
     /// The fixed map prompt: one JSON facts object per part (English
     /// instructions; values in the transcript's language).
     static func mapPrompt(chunk: TranscriptChunk, total: Int, context: PromptContext) -> String {
@@ -1069,6 +1100,7 @@ final class SummarizationService {
         \(terminology)\(focus)Return only one JSON object, no prose and no code fence, with exactly this shape:
         \(SummaryFactsPrompt.objectShape)
         \(SummaryFactsPrompt.rules(meetingDate: context.meeting.date, calendar: context.calendar))
+        - Keep each "quote" to about 15 words at most.
         Only use this part of the transcript.
 
         Transcript part:
