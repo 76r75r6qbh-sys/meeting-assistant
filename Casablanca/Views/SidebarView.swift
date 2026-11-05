@@ -63,6 +63,11 @@ struct SidebarView: View {
                     .tag(SidebarDestination.actionQueue)
             }
 
+            Section {
+                Label("Ask", systemImage: "text.bubble")
+                    .tag(SidebarDestination.ask)
+            }
+
             if !upcoming.isEmpty {
                 Section("Upcoming") {
                     ForEach(upcoming) { meeting in
@@ -463,5 +468,6 @@ enum SidebarDestination: Hashable {
     case dashboard
     case todos
     case actionQueue
+    case ask
     case meeting(UUID)
 }
