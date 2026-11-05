@@ -229,12 +229,15 @@ enum SummaryFactsParser {
         extractJSON(text, open: "{", close: "}")
     }
 
-    /// As ``extractJSONObject(_:)``, from the first `[` to the last `]`.
+    /// As ``extractJSONObject(_:)``, to the last `]`, from the first `[` that
+    /// is followed (after optional whitespace) by `{` — so a `[00:30]` in
+    /// prose before the array is skipped — else from the first `[`.
     static func extractJSONArray(_ text: String) -> String? {
-        extractJSON(text, open: "[", close: "]")
+        extractJSON(text, open: "[", close: "]", preferOpenBefore: "{")
     }
 
-    private static func extractJSON(_ text: String, open: Character, close: Character) -> String? {
+    private static func extractJSON(_ text: String, open: Character, close: Character,
+                                    preferOpenBefore next: Character? = nil) -> String? {
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.hasPrefix("```") {
             if let newline = body.firstIndex(of: "\n") {
@@ -245,7 +248,13 @@ enum SummaryFactsParser {
             body = body.trimmingCharacters(in: .whitespacesAndNewlines)
             if body.hasSuffix("```") { body = String(body.dropLast(3)) }
         }
-        guard let first = body.firstIndex(of: open), let last = body.lastIndex(of: close), first < last else { return nil }
+        let preferred = next.flatMap { next in
+            body.indices.first { index in
+                body[index] == open && body[body.index(after: index)...].first { !$0.isWhitespace } == next
+            }
+        }
+        guard let first = preferred ?? body.firstIndex(of: open), let last = body.lastIndex(of: close),
+              first < last else { return nil }
         return String(body[first...last])
     }
 

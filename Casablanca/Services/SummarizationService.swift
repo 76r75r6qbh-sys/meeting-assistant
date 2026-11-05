@@ -309,9 +309,10 @@ final class SummarizationService {
     /// the facts are the parts' merged facts (`.mapJSON`), otherwise the
     /// reduce's markdown plus the decoded parts' facts, with the warning.
     /// Facts that are not a markdown fallback are then verified against the
-    /// original transcript (pre-check, one `.verifying` call) before the
-    /// sections are rendered; a failed verification only adds
-    /// `verificationFailedWarning`.
+    /// original transcript (pre-check, one `.verifying` call plus at most one
+    /// `.verifying` repair) before the sections are rendered; a failed or
+    /// partial verification only adds `verificationFailedWarning` or
+    /// `verificationIncompleteWarning`.
     /// `templateID` is echoed as `"general"` until templates exist.
     func summarizeWithFacts(meeting: Meeting, templateID: String? = nil) async throws -> SummaryOutcome {
         let rawTranscript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -469,6 +470,8 @@ final class SummarizationService {
             facts = verification.facts
             if verification.failed {
                 warnings.append(Self.verificationFailedWarning)
+            } else if verification.incomplete {
+                warnings.append(Self.verificationIncompleteWarning)
             }
         }
 
@@ -572,36 +575,46 @@ final class SummarizationService {
     /// `facts` checked against `transcript`: the deterministic pre-check
     /// (``ActionItemVerifier/precheck(_:index:)``), then — when it emitted
     /// claims — one verification call, its reply read with
-    /// ``ActionItemVerifier/apply(response:claims:to:)``. An unreadable reply
-    /// gets one repair call. When that is unreadable too, or a call fails, the
-    /// pre-check's facts are kept (found items `.unverified`) and `failed` is
-    /// true; the summary never fails because of verification. Cancellation
-    /// propagates. The prompt fits `min(promptTokenBudget, onePassTokenCap)`
-    /// with the thinking switch included.
+    /// ``ActionItemVerifier/apply(response:claims:to:)``.
+    /// - The prompt and the repair prompt each fit
+    ///   `min(promptTokenBudget, onePassTokenCap)` with the thinking switch
+    ///   included. Claims that do not fit are left out (`incomplete`); they
+    ///   stay `.unverified` and a verdict for them is ignored. When none fits,
+    ///   no call is made.
+    /// - An unreadable reply gets one repair call, also shown as `.verifying`.
+    ///   When that is unreadable too, or a call fails, the pre-check's facts
+    ///   are kept (found items `.unverified`) and `failed` is true; the summary
+    ///   never fails because of verification. Cancellation propagates.
+    /// - An output-limit hit on these calls is deliberately not surfaced: a
+    ///   cut-off array is unreadable, and the repair (then `failed`) covers it.
     private func verifiedFacts(
         _ facts: SummaryFacts,
         transcript: String,
         context: PromptContext,
         provider: LLMProvider
-    ) async throws -> (facts: SummaryFacts, failed: Bool) {
+    ) async throws -> (facts: SummaryFacts, failed: Bool, incomplete: Bool) {
         let index = TranscriptIndex(
             transcript: transcript,
             knownSpeakers: Set(context.meeting.speakers.map(\.displayName))
         )
-        let (checked, claims) = ActionItemVerifier.precheck(facts, index: index)
-        guard !claims.isEmpty else { return (checked, false) }
+        let (checked, allClaims) = ActionItemVerifier.precheck(facts, index: index)
+        guard !allClaims.isEmpty else { return (checked, false, false) }
 
         let switchTokens = context.thinkingEnabled
             ? 0 : LLMPromptSupport.budgetTokens("\n\n" + LLMPromptSupport.noThinkSuffix)
-        let prompt = ActionItemVerifier.prompt(
-            claims: claims,
+        let budget = Self.onePassBudget(provider.promptTokenBudget) - switchTokens
+        let (prompt, claims) = ActionItemVerifier.fittedPrompt(
+            claims: allClaims,
             index: index,
             meetingDate: context.meeting.date,
             calendar: context.calendar,
-            budgetTokens: Self.onePassBudget(provider.promptTokenBudget) - switchTokens
+            budgetTokens: budget
         )
+        let incomplete = claims.count < allClaims.count
+        guard !claims.isEmpty else { return (checked, false, true) }
 
         func call(_ prompt: String) async throws -> String {
+            // Truncation is ignored on purpose (see above).
             var truncated = false
             let reply = try await generateStep(
                 .verifying,
@@ -616,19 +629,19 @@ final class SummarizationService {
         do {
             let reply = try await call(prompt)
             if let applied = ActionItemVerifier.apply(response: reply, claims: claims, to: checked) {
-                return (applied, false)
+                return (applied, false, incomplete)
             }
             // The raw reply, not an extracted span: a cut-off array has no `]`.
-            let repaired = try await call(ActionItemVerifier.repairPrompt(broken: reply))
+            let repaired = try await call(ActionItemVerifier.repairPrompt(broken: reply, budgetTokens: budget))
             if let applied = ActionItemVerifier.apply(response: repaired, claims: claims, to: checked) {
-                return (applied, false)
+                return (applied, false, incomplete)
             }
             Log.summarization.warning("The verification reply was not a readable JSON array, also after one repair.")
         } catch {
             if error is CancellationError || Task.isCancelled { throw error }
             Log.summarization.warning("Verifying the action items failed: \(error.localizedDescription)")
         }
-        return (checked, true)
+        return (checked, true, incomplete)
     }
 
     /// The `## Decisions` and `## Action Items` sections of `markdown`, under
@@ -1400,8 +1413,14 @@ extension SummarizationService {
         let templateID: String
     }
 
+    /// Joined into `warningMessage` when the verification call, or its one
+    /// repair, failed or stayed unreadable: the items keep the pre-check's
+    /// verdicts (found ones `.unverified`).
+    static let verificationFailedWarning = "Couldn't check the action items against the transcript; review them before accepting."
+    /// Joined into `warningMessage` when the claims did not all fit the
+    /// verification prompt: the left-out items stay `.unverified`.
+    static let verificationIncompleteWarning = "Some action items weren't checked against the transcript; review them before accepting."
     /// Joined into `warningMessage` whenever the facts are `.markdownFallback`
     /// after a failed or lossy repair.
-    static let verificationFailedWarning = "Couldn't check the action items against the transcript; review them before accepting."
     static let factsFallbackWarning = "Couldn't read the structured action items; to-dos were taken from the summary text instead."
 }

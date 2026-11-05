@@ -397,22 +397,31 @@ extension ActionItemVerifier {
     /// Seconds on each side of a claim when the ±``windowRadius`` excerpts do not fit the budget.
     static let narrowWindowRadius: Double = 30
 
-    /// The one verification prompt: every claim with its transcript excerpt
-    /// (original line text, speaker prefixes included). Fits `budgetTokens`
-    /// (``LLMPromptSupport/budgetTokens(_:)``): excerpts span ±``windowRadius``
-    /// s, else ±``narrowWindowRadius`` s, else the narrow excerpts are each
-    /// middle-elided to an equal share of the room left. Should even the
-    /// claims without excerpts not fit, trailing claims are left out (their
-    /// items stay `.unverified`). Ids are shown as they are (`a1`, `a3`, `d2`):
-    /// they follow list positions, so they can have gaps.
+    /// The text of ``fittedPrompt(claims:index:meetingDate:calendar:budgetTokens:)``.
     static func prompt(claims: [Claim], index: TranscriptIndex, meetingDate: Date, calendar: Calendar,
                        budgetTokens: Int) -> String {
+        fittedPrompt(claims: claims, index: index, meetingDate: meetingDate, calendar: calendar,
+                     budgetTokens: budgetTokens).text
+    }
+
+    /// The one verification prompt and the claims it carries: every claim with
+    /// its transcript excerpt (original line text, speaker prefixes included).
+    /// Fits `budgetTokens` (``LLMPromptSupport/budgetTokens(_:)``): excerpts
+    /// span ±``windowRadius`` s, else ±``narrowWindowRadius`` s, else the
+    /// narrow excerpts are each middle-elided to an equal share of the room
+    /// left. Should the claims not fit even then, trailing claims are left out
+    /// until the rest fits: `claims` is the kept prefix (empty when none fits —
+    /// then no call should be made). Pass the kept claims to ``apply(response:claims:to:)``
+    /// so a verdict for a left-out id is ignored. Ids are shown as they are
+    /// (`a1`, `a3`, `d2`): they follow list positions, so they can have gaps.
+    static func fittedPrompt(claims: [Claim], index: TranscriptIndex, meetingDate: Date, calendar: Calendar,
+                             budgetTokens: Int) -> (text: String, claims: [Claim]) {
         let date = isoDate(meetingDate, calendar)
         func fits(_ text: String) -> Bool { LLMPromptSupport.budgetTokens(text) <= budgetTokens }
 
         for radius in [windowRadius, narrowWindowRadius] {
             let text = render(claims, excerpts: claims.map { excerpt(for: $0, index: index, radius: radius) }, date: date)
-            if fits(text) { return text }
+            if fits(text) { return (text, claims) }
         }
 
         // Equal shares of the characters left after everything but the excerpts.
@@ -428,11 +437,11 @@ extension ActionItemVerifier {
                 let text = render(kept, excerpts: excerpts.map {
                     ($0.header, LLMPromptSupport.middleElide($0.lines, toCharBudget: share))
                 }, date: date)
-                if fits(text) { return text }
+                if fits(text) { return (text, kept) }
             }
             count -= 1
         }
-        return render([], excerpts: [], date: date)
+        return (render([], excerpts: [], date: date), [])
     }
 
     /// The claims' verdicts applied to `facts`: `supported: true` → `.supported`,
@@ -474,8 +483,14 @@ extension ActionItemVerifier {
         return result
     }
 
-    /// The verification repair prompt for an unreadable reply.
-    static func repairPrompt(broken: String) -> String {
+    /// The verification repair prompt for an unreadable reply, within
+    /// `budgetTokens`: a `broken` reply too long for it is middle-elided.
+    static func repairPrompt(broken: String, budgetTokens: Int) -> String {
+        let room = max(0, budgetTokens) * LLMPromptSupport.budgetCharsPerToken - repairPromptText("").count
+        return repairPromptText(LLMPromptSupport.middleElide(broken, toCharBudget: max(0, room)))
+    }
+
+    private static func repairPromptText(_ broken: String) -> String {
         """
         The text below was meant to be one JSON array of objects {"id": "...", "supported": true or false, "reason": "..."}, but it is not valid JSON. Return only the corrected JSON array — no prose and no code fence. Keep every entry; do not add entries.
 

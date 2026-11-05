@@ -542,6 +542,66 @@ final class ActionItemVerifierTests: XCTestCase {
             XCTAssertNil(ActionItemVerifier.apply(response: #"{"id": "a1", "supported": true}"#, claims: claims, to: checked), name)
         }
     }
+
+    // MARK: - Review fixes (Task 7)
+
+    /// `count` claims with long texts, all at 03:10.
+    private func longClaims(_ count: Int, textLength: Int = 400) -> [ActionItemVerifier.Claim] {
+        (1...count).map { n in
+            ActionItemVerifier.Claim(id: "a\(n * 2)", kind: .actionItem,
+                                     text: "Taak \(n) " + String(repeating: "x", count: textLength), owner: nil, due: nil,
+                                     quote: "Ik stuur de offerte vrijdag naar Kim", seconds: 190)
+        }
+    }
+
+    func testFittedPromptKeepsOnlyTheLeadingClaimsThatFit() {
+        for (name, index) in Self.indexes {
+            let claims = longClaims(30)
+            let fitted = ActionItemVerifier.fittedPrompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                         calendar: Self.calendar, budgetTokens: 800)
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(fitted.text), 800, name)
+            XCTAssertGreaterThan(fitted.claims.count, 0, name)
+            XCTAssertLessThan(fitted.claims.count, 30, name)
+            XCTAssertEqual(fitted.claims, Array(claims.prefix(fitted.claims.count)), name)
+            for claim in claims {
+                XCTAssertEqual(fitted.text.contains("### \(claim.id) ("), fitted.claims.contains(claim), "\(name) \(claim.id)")
+            }
+            XCTAssertEqual(ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                     calendar: Self.calendar, budgetTokens: 800), fitted.text, name)
+        }
+    }
+
+    func testFittedPromptWithNoRoomKeepsNoClaims() {
+        for (name, index) in Self.indexes {
+            let fitted = ActionItemVerifier.fittedPrompt(claims: longClaims(1, textLength: 5_000), index: index,
+                                                         meetingDate: SummaryFixtures.meetingDate, calendar: Self.calendar,
+                                                         budgetTokens: 800)
+            XCTAssertTrue(fitted.claims.isEmpty, name)
+        }
+    }
+
+    func testRepairPromptFitsTheBudget() {
+        let broken = "[" + String(repeating: #"{"id": "a1", "supported": true, "reason": "ja"} "#, count: 1_000)
+        let prompt = ActionItemVerifier.repairPrompt(broken: broken, budgetTokens: 1_000)
+        XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(prompt), 1_000)
+        XCTAssertTrue(prompt.hasPrefix("The text below was meant to be one JSON array of objects"))
+        XCTAssertTrue(prompt.contains("Text:\n[{\"id\""))
+        XCTAssertTrue(prompt.contains("truncated"))
+        XCTAssertEqual(ActionItemVerifier.repairPrompt(broken: "[oops", budgetTokens: 1_000).components(separatedBy: "Text:\n").last, "[oops")
+    }
+
+    func testExtractJSONArraySkipsABracketedTimestampInProse() throws {
+        let reply = "Bij [00:30] zegt Kim het.\n[{\"id\": \"a1\", \"supported\": true, \"reason\": \"ja\"}]\nKlaar [01:00]."
+        XCTAssertEqual(SummaryFactsParser.extractJSONArray(reply), #"[{"id": "a1", "supported": true, "reason": "ja"}]\#nKlaar [01:00]"#)
+        XCTAssertEqual(SummaryFactsParser.extractJSONArray("[ \n {\"id\": 1}]"), "[ \n {\"id\": 1}]")
+        XCTAssertEqual(SummaryFactsParser.extractJSONArray("Geen claims: []"), "[]", "an empty array still reads")
+        for (name, index) in Self.indexes {
+            let (checked, claims) = claimsAndFacts(index)
+            let clean = "Bij [00:30] zegt Kim het.\n[{\"id\": \"a1\", \"supported\": true, \"reason\": \"ja\"}]"
+            let out = try XCTUnwrap(ActionItemVerifier.apply(response: clean, claims: claims, to: checked), name)
+            XCTAssertEqual(out.actionItems[0].verified, .supported, name)
+        }
+    }
 }
 
 /// Deterministic pseudo-random numbers for the equivalence test.

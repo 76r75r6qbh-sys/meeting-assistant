@@ -2043,6 +2043,83 @@ final class SummarizationServiceTests: XCTestCase {
         }
         XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.supported, .unsupported])
     }
+
+    // MARK: - Verification review fixes
+
+    /// `count` action items with long tasks, all quoting Kim's 00:10 line.
+    private func manyItemsJSON(_ count: Int, taskLength: Int) -> String {
+        let items = (1...count).map { n -> [String: Any] in
+            ["task": "Taak \(n) " + String(repeating: "x", count: taskLength), "owner": NSNull(), "confidence": 0.8,
+             "quote": "ik mail de offerte vrijdag", "timestamp": "00:10"]
+        }
+        let object: [String: Any] = ["topics": [], "decisions": [], "action_items": items, "open_questions": [], "facts": []]
+        let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    func testClaimsThatDoNotFitTheBudgetStayUnverifiedWithAWarning() async throws {
+        for speakers in [true, false] {
+            // 40 claims of ~600 chars cannot all fit a 6k-token local budget.
+            let everyone = (1...40).map { #"{"id": "a\#($0)", "supported": true, "reason": "ja"}"# }
+            let stub = StubLLMProvider(outcomes: [
+                .success(SummaryFixtures.withFacts(notes(actionItems: []), json: manyItemsJSON(40, taskLength: 600))),
+                .success("[" + everyone.joined(separator: ", ") + "]"),
+            ])
+            let service = makeFactsService(stub)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 2)
+            let prompt = try XCTUnwrap(stub.calls.last?.prompt)
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(prompt), LLMPromptSupport.localPromptTokenBudget)
+            let verdicts = outcome.facts.actionItems.map(\.verified)
+            let kept = verdicts.prefix { $0 == .supported }.count
+            XCTAssertGreaterThan(kept, 0)
+            XCTAssertLessThan(kept, 40)
+            XCTAssertEqual(Array(verdicts.dropFirst(kept)), Array(repeating: .unverified, count: 40 - kept),
+                           "a verdict for a dropped claim is ignored")
+            XCTAssertTrue(prompt.contains("### a\(kept) (action item)"))
+            XCTAssertFalse(prompt.contains("### a\(kept + 1) (action item)"))
+            XCTAssertEqual(service.warningMessage, SummarizationService.verificationIncompleteWarning)
+        }
+    }
+
+    func testNoVerificationCallWhenNoClaimFitsTheBudget() async throws {
+        for speakers in [true, false] {
+            let recorder = PhaseRecorder()
+            let stub = StubLLMProvider(
+                outcomes: [.success(SummaryFixtures.withFacts(notes(actionItems: []), json: manyItemsJSON(1, taskLength: 20_000)))],
+                onGenerate: { recorder.record() }
+            )
+            let service = makeFactsService(stub)
+            recorder.service = service
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(recorder.phases, [.sending])
+            XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.unverified])
+            XCTAssertEqual(service.warningMessage, SummarizationService.verificationIncompleteWarning)
+        }
+    }
+
+    func testTheVerificationRepairFitsTheBudget() async throws {
+        let garbage = "[" + String(repeating: #"{"id": "a1", "supported": true} "#, count: 2_000)
+        let stub = StubLLMProvider(outcomes: [
+            .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())),
+            .success(garbage),
+            .success(verdicts),
+        ])
+        let service = makeFactsService(stub)
+
+        let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: true))
+
+        XCTAssertEqual(stub.calls.count, 3)
+        let repair = try XCTUnwrap(stub.calls.last?.prompt)
+        XCTAssertTrue(repair.hasPrefix("The text below was meant to be one JSON array"))
+        XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(repair), LLMPromptSupport.localPromptTokenBudget)
+        XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.supported, .unsupported])
+    }
 }
 
 @MainActor
