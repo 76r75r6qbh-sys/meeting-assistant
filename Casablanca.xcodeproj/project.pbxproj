@@ -223,6 +223,10 @@
 		SPKA0012 /* WhisperTextCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0112 /* WhisperTextCleaner.swift */; };
 		SPKA0013 /* WhisperPromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0113 /* WhisperPromptBuilder.swift */; };
 		SPKA0014 /* WhisperModelDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0114 /* WhisperModelDefaults.swift */; };
+		SPKA0017 /* SpeakerDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0117 /* SpeakerDiarizer.swift */; };
+		SPKA0018 /* SpeakerModelStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0118 /* SpeakerModelStatus.swift */; };
+		SPKA0019 /* SpeakerAnalysisStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0119 /* SpeakerAnalysisStore.swift */; };
+		SPKA0300 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = SPKA0302 /* FluidAudio */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
 		A10617 /* PCMTrackWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* PCMTrackWriter.swift */; };
@@ -239,6 +243,8 @@
 		SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0107 /* SpeakerTranscriptBuilderTests.swift */; };
 		SPKA0015 /* WhisperPromptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0115 /* WhisperPromptBuilderTests.swift */; };
 		SPKA0016 /* WhisperModelDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0116 /* WhisperModelDefaultsTests.swift */; };
+		SPKA0020 /* SpeakerAnalysisStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0120 /* SpeakerAnalysisStoreTests.swift */; };
+		SPKA0021 /* FakeSpeakerDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0121 /* FakeSpeakerDiarizer.swift */; };
 		A10701 /* RecordingMixdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* RecordingMixdownTests.swift */; };
 		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10703 /* PCMTrackWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* PCMTrackWriterTests.swift */; };
@@ -551,6 +557,9 @@
 		SPKA0112 /* WhisperTextCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTextCleaner.swift; sourceTree = "<group>"; };
 		SPKA0113 /* WhisperPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperPromptBuilder.swift; sourceTree = "<group>"; };
 		SPKA0114 /* WhisperModelDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelDefaults.swift; sourceTree = "<group>"; };
+		SPKA0117 /* SpeakerDiarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerDiarizer.swift; sourceTree = "<group>"; };
+		SPKA0118 /* SpeakerModelStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerModelStatus.swift; sourceTree = "<group>"; };
+		SPKA0119 /* SpeakerAnalysisStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAnalysisStore.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -567,6 +576,8 @@
 		SPKA0107 /* SpeakerTranscriptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilderTests.swift; sourceTree = "<group>"; };
 		SPKA0115 /* WhisperPromptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperPromptBuilderTests.swift; sourceTree = "<group>"; };
 		SPKA0116 /* WhisperModelDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelDefaultsTests.swift; sourceTree = "<group>"; };
+		SPKA0120 /* SpeakerAnalysisStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAnalysisStoreTests.swift; sourceTree = "<group>"; };
+		SPKA0121 /* FakeSpeakerDiarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeSpeakerDiarizer.swift; sourceTree = "<group>"; };
 		B10701 /* RecordingMixdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownTests.swift; sourceTree = "<group>"; };
 		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10703 /* PCMTrackWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriterTests.swift; sourceTree = "<group>"; };
@@ -630,6 +641,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10024 /* WhisperKit in Frameworks */,
+				SPKA0300 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -670,6 +682,17 @@
 				SPKA0109 /* SpeakerAttribution.swift */,
 				SPKA0110 /* SpeakerTranscriptBuilder.swift */,
 				SPKA0111 /* SpeakerAnalysis.swift */,
+				SPKA0117 /* SpeakerDiarizer.swift */,
+				SPKA0118 /* SpeakerModelStatus.swift */,
+				SPKA0119 /* SpeakerAnalysisStore.swift */,
+			);
+			path = Speakers;
+			sourceTree = "<group>";
+		};
+		SPKA0201 /* Speakers */ = {
+			isa = PBXGroup;
+			children = (
+				SPKA0121 /* FakeSpeakerDiarizer.swift */,
 			);
 			path = Speakers;
 			sourceTree = "<group>";
@@ -998,6 +1021,8 @@
 				SPKA0107 /* SpeakerTranscriptBuilderTests.swift */,
 				SPKA0115 /* WhisperPromptBuilderTests.swift */,
 				SPKA0116 /* WhisperModelDefaultsTests.swift */,
+				SPKA0120 /* SpeakerAnalysisStoreTests.swift */,
+				SPKA0201 /* Speakers */,
 				B10701 /* RecordingMixdownTests.swift */,
 				B10702 /* AudioInputDeviceProviderTests.swift */,
 				B10703 /* PCMTrackWriterTests.swift */,
@@ -1182,6 +1207,7 @@
 			name = Casablanca;
 			packageProductDependencies = (
 				J10002 /* WhisperKit */,
+				SPKA0302 /* FluidAudio */,
 			);
 			productName = Casablanca;
 			productReference = C10001 /* Casablanca.app */;
@@ -1234,6 +1260,7 @@
 			mainGroup = E10001;
 			packageReferences = (
 				J10001 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				SPKA0301 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			productRefGroup = E10009 /* Products */;
 			projectDirPath = "";
@@ -1321,6 +1348,9 @@
 				SPKA0012 /* WhisperTextCleaner.swift in Sources */,
 				SPKA0013 /* WhisperPromptBuilder.swift in Sources */,
 				SPKA0014 /* WhisperModelDefaults.swift in Sources */,
+				SPKA0017 /* SpeakerDiarizer.swift in Sources */,
+				SPKA0018 /* SpeakerModelStatus.swift in Sources */,
+				SPKA0019 /* SpeakerAnalysisStore.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
 				A10617 /* PCMTrackWriter.swift in Sources */,
@@ -1491,6 +1521,8 @@
 				SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */,
 				SPKA0015 /* WhisperPromptBuilderTests.swift in Sources */,
 				SPKA0016 /* WhisperModelDefaultsTests.swift in Sources */,
+				SPKA0020 /* SpeakerAnalysisStoreTests.swift in Sources */,
+				SPKA0021 /* FakeSpeakerDiarizer.swift in Sources */,
 				A10701 /* RecordingMixdownTests.swift in Sources */,
 				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10703 /* PCMTrackWriterTests.swift in Sources */,
@@ -1780,6 +1812,14 @@
 				revision = d447d308cb6e32df8165d4cfb8f1bf955592590f;
 			};
 		};
+		SPKA0301 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.17.7;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1787,6 +1827,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = J10001 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		SPKA0302 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPKA0301 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

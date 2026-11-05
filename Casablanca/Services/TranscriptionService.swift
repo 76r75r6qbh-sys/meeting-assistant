@@ -327,7 +327,8 @@ final class TranscriptionService {
 #endif
         return PostTranscriptionPipeline.live(
             terminologyService: terminologyService,
-            exportReporter: exportReporter
+            exportReporter: exportReporter,
+            speakerStatus: { [weak self] message in self?.statusMessage = message }
         )
     }
 

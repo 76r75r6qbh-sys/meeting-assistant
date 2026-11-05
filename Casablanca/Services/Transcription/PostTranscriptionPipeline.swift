@@ -79,14 +79,16 @@ struct PostTranscriptionPipeline {
         self.defaults = defaults
     }
 
-    /// The pipeline as the app runs it.
+    /// The pipeline as the app runs it. `speakerStatus` shows the speaker
+    /// step's progress ("Recognising speakers…") wherever the caller wants it.
     static func live(
         terminologyService: TerminologyService,
         exportReporter: ExportStatusCenter?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        speakerStatus: @escaping @MainActor (String) -> Void = { _ in }
     ) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
-            analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults),
+            analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults, status: speakerStatus),
             correctTerminology: terminologyCorrector(using: terminologyService),
             saveTranscript: { meeting, result in
                 try TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)

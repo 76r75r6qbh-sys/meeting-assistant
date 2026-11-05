@@ -451,6 +451,163 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(compressed, ["meeting.wav"], "Tracks about to be deleted are not compressed first")
     }
 
+    // MARK: - Diarization (A5)
+
+    /// Offline: the models cannot download. The meeting still completes, the
+    /// far end is `Others`, and the sidecar says diarization failed.
+    func testDiarizationFailureStillCompletesWithOthers() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(prepareError: URLError(.notConnectedToInternet))
+        let modelStatus = SpeakerModelStatus()
+        var statuses: [String] = []
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: modelStatus,
+            status: { statuses.append($0) }
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fixture.meeting.status, .completed)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Others: Hello from the far end.")
+        guard case .failed = fixture.store.load(fixture.meeting.id)?.diarization else {
+            return XCTFail("The record shows the failure, got \(String(describing: fixture.store.load(fixture.meeting.id)))")
+        }
+        guard case .failed = modelStatus.state else { return XCTFail("Settings shows the failure") }
+        XCTAssertEqual(fake.diarizeCalls.count, 0, "No diarization without models")
+        XCTAssertEqual(statuses.first, "Recognising speakers\u{2026}")
+        XCTAssertEqual(fixture.meeting.micTrackFileURL, fixture.mic.path, "Tracks stay: the attribution itself succeeded")
+    }
+
+    func testRecogniseSpeakersOffSkipsDiarizer() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        let fake = FakeSpeakerDiarizer()
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: SpeakerModelStatus()
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fake.totalCalls, 0)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Hello from the far end.")
+        XCTAssertNil(fixture.store.load(fixture.meeting.id))
+    }
+
+    func testDiarizedSystemTrackNamesClusters() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(output: DiarizationOutput(
+            turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "spk_7")],
+            embeddings: ["spk_7": [1, 0]]
+        ))
+        let modelStatus = SpeakerModelStatus()
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: modelStatus
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.")
+        XCTAssertEqual(fake.diarizeCalls, [fixture.system], "The system track is the one diarized")
+        XCTAssertEqual(fixture.store.load(fixture.meeting.id)?.diarization, .succeeded(clusterCount: 1))
+        XCTAssertEqual(modelStatus.state, .ready)
+    }
+
+    func testDiarizationTimeoutFallsBackToOthers() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(
+            output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "late")], embeddings: [:]),
+            delay: 5
+        )
+
+        let started = ContinuousClock.now
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: SpeakerModelStatus(),
+            diarizationTimeout: .milliseconds(100)
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertLessThan(ContinuousClock.now - started, .seconds(4), "The timeout does not wait for the diarizer")
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Others: Hello from the far end.")
+        guard case .failed = fixture.store.load(fixture.meeting.id)?.diarization else {
+            return XCTFail("A timeout is recorded as a failure")
+        }
+    }
+
+    private struct DiarizationFixture {
+        var context: ModelContext
+        var meeting: Meeting
+        var defaults: UserDefaults
+        var store: SpeakerAnalysisStore
+        var result: TranscriptionResult
+        var directory: URL
+        var mix: URL
+        var mic: URL
+        var system: URL
+
+        func cleanUp() {
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// Two seconds of synthetic noise on the system track and silence on the
+    /// mic, so the live attribution puts the one segment on `"others"`.
+    private func makeDiarizationFixture() throws -> DiarizationFixture {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-diarization-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mix = directory.appendingPathComponent("meeting.wav")
+        let mic = directory.appendingPathComponent("meeting.mic.wav")
+        let system = directory.appendingPathComponent("meeting.system.wav")
+        let far = SyntheticSignal.noise(seed: 11, count: SyntheticSignal.samples(2), amplitude: 0.4)
+        try SyntheticSignal.writeWAV(far, to: system)
+        try SyntheticSignal.writeWAV(SyntheticSignal.silence(seconds: 2), to: mic)
+        try SyntheticSignal.writeWAV(far, to: mix)
+
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = mix.path
+        meeting.micTrackFileURL = mic.path
+        meeting.systemTrackFileURL = system.path
+        meeting.transcriptionLanguage = "en"
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        return DiarizationFixture(
+            context: context,
+            meeting: meeting,
+            defaults: defaults,
+            store: SpeakerAnalysisStore(directory: directory.appendingPathComponent("Speakers", isDirectory: true)),
+            result: TranscriptionResult(
+                segments: [TranscriptSegment(startTime: 0, endTime: 2, text: "Hello from the far end.")],
+                fullText: "Hello from the far end.",
+                duration: 2
+            ),
+            directory: directory,
+            mix: mix,
+            mic: mic,
+            system: system
+        )
+    }
+
     /// A segment each for the user and the remote side, at 0 s and 5 s.
     private static func twoSpeakerAnalysis(firstText: String, secondText: String) -> SpeakerAnalysisResult {
         SpeakerAnalysisResult(

@@ -81,4 +81,34 @@ final class MeetingListViewModelTrackDeletionTests: XCTestCase {
         XCTAssertEqual(removedPaths, [recordingPath, micPath, systemPath])
         XCTAssertTrue(try context.fetch(FetchDescriptor<Meeting>()).isEmpty)
     }
+
+    func testDeleteMeetingRemovesSpeakerSidecar() throws {
+        let schema = Schema([Meeting.self, TodoItem.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("speaker-sidecar-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SpeakerAnalysisStore(directory: directory)
+        let vm = MeetingListViewModel(
+            calendarService: CalendarService(),
+            removeItemAtURL: { _ in },
+            removeResumableRecordingSession: { _ in },
+            speakerAnalysisStore: store
+        )
+        vm.setModelContext(context)
+        let meeting = Meeting(title: "Standup", date: .now, status: .completed)
+        context.insert(meeting)
+        try context.save()
+        try store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: .succeeded(clusterCount: 2), suggestions: []))
+        let sidecar = store.fileURL(meeting.id)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecar.path))
+
+        try vm.deleteMeeting(meeting)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+    }
 }

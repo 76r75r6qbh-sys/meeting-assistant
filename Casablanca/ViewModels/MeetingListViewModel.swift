@@ -10,6 +10,7 @@ final class MeetingListViewModel {
     private let removeItemAtURL: (URL) throws -> Void
     private let meetingHasPrep: (Meeting) -> Bool
     private let removeResumableRecordingSession: (UUID) throws -> Void
+    private let speakerAnalysisStore: SpeakerAnalysisStore
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -55,12 +56,14 @@ final class MeetingListViewModel {
         },
         removeResumableRecordingSession: @escaping (UUID) throws -> Void = { meetingID in
             try RecordingResumeSessionStore().deleteSession(for: meetingID)
-        }
+        },
+        speakerAnalysisStore: SpeakerAnalysisStore = SpeakerAnalysisStore()
     ) {
         self.calendarService = calendarService
         self.meetingHasPrep = meetingHasPrep
         self.removeItemAtURL = removeItemAtURL
         self.removeResumableRecordingSession = removeResumableRecordingSession
+        self.speakerAnalysisStore = speakerAnalysisStore
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -356,6 +359,9 @@ final class MeetingListViewModel {
                 )
             }
         }
+
+        // The speaker-analysis sidecar goes with the meeting (best-effort).
+        speakerAnalysisStore.delete(meeting.id)
 
         let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
         bestEffort("remove resumable recording session", Log.recording) {
