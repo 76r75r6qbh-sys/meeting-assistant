@@ -270,9 +270,10 @@ final class AskServiceTests: XCTestCase {
     func testStoreSavesInvalidateDebounced() async throws {
         let (a, b) = makeMeetings()
         let counter = LoaderCounter()
+        let gate = DebounceGate()
         let stub = StubLLMProvider()
         let service = makeService([a, b], stub: stub, loaderCalls: counter)
-        service.observeStoreChanges(debounce: .milliseconds(30))
+        service.observeStoreChanges(debounce: .seconds(60), sleep: { [gate] _ in await gate.wait() })
 
         await service.prepareIndex().value
         XCTAssertEqual(counter.count, 1)
@@ -281,12 +282,193 @@ final class AskServiceTests: XCTestCase {
         for _ in 0..<5 {
             NotificationCenter.default.post(name: ModelContext.didSave, object: nil)
         }
+        try await settle { gate.waiters == 5 }
         XCTAssertTrue(service.isIndexFresh, "invalidation waits for the debounce")
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertFalse(service.isIndexFresh)
+
+        gate.open()
+        try await settle { !service.isIndexFresh }
 
         await service.prepareIndex().value
         XCTAssertEqual(counter.count, 2, "one rebuild for the whole burst")
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertTrue(service.isIndexFresh, "the superseded debounces must not invalidate again")
+    }
+
+    /// Resumes every debounce wait when the test says so: no wall clock.
+    @MainActor
+    private final class DebounceGate {
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+        private(set) var waiters = 0
+
+        func wait() async {
+            waiters += 1
+            await withCheckedContinuation { continuations.append($0) }
+        }
+
+        func open() {
+            let pending = continuations
+            continuations = []
+            pending.forEach { $0.resume() }
+        }
+    }
+
+    private func settle(_ condition: () -> Bool) async throws {
+        for _ in 0..<2_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("condition never held")
+    }
+
+    // MARK: - Superseded builds, stale index, metadata, filter options
+
+    /// The build an ask waits on is cancelled by a newer generation before it
+    /// publishes; the ask waits on the newer build and still answers.
+    func testSupersededBuildStillAnswers() async throws {
+        let (a, b) = makeMeetings()
+        let snaps = snapshots([a, b])
+        let holder = ServiceHolder()
+        let counter = LoaderCounter()
+        let stub = StubLLMProvider(outcomes: [.success("Ja.")])
+        let service = AskService(
+            snapshotLoader: {
+                counter.count += 1
+                if counter.count == 1, let service = holder.service {
+                    service.invalidateIndex()
+                    service.prepareIndex()
+                }
+                return snaps
+            },
+            providerFactory: { stub },
+            thinkingEnabled: { true }
+        )
+        holder.service = service
+
+        try await ask(service, "Wegiz")
+
+        XCTAssertEqual(counter.count, 2)
+        XCTAssertEqual(service.answer?.text, "Ja.")
+        XCTAssertNil(service.errorMessage)
+    }
+
+    /// Superseded on both waits (and the newest build fails too): the ask
+    /// ends with an error, never with neither an answer nor an error. Which
+    /// error depends on whether the newest build settles before the ask
+    /// gives up, so only its presence is asserted.
+    func testRepeatedlySupersededBuildSurfacesError() async throws {
+        struct Boom: LocalizedError { var errorDescription: String? { "store unavailable" } }
+        let (a, b) = makeMeetings()
+        let snaps = snapshots([a, b])
+        let holder = ServiceHolder()
+        let counter = LoaderCounter()
+        let stub = StubLLMProvider(outcomes: [.success("Ja.")])
+        let service = AskService(
+            snapshotLoader: {
+                counter.count += 1
+                if counter.count <= 2, let service = holder.service {
+                    service.invalidateIndex()
+                    service.prepareIndex()
+                }
+                if counter.count >= 3 { throw Boom() }
+                return snaps
+            },
+            providerFactory: { stub },
+            thinkingEnabled: { true }
+        )
+        holder.service = service
+
+        let task = try XCTUnwrap(service.ask("Wegiz", filter: .none))
+        await task.value
+
+        XCTAssertNil(service.answer)
+        XCTAssertNotNil(service.errorMessage)
+        XCTAssertFalse(service.isAnswering)
+        XCTAssertTrue(stub.calls.isEmpty)
+        try await settle { !service.isIndexing }
+    }
+
+    /// A failed rebuild keeps answering from the older index and says so via
+    /// `indexMayBeOutdated`, not as an error; a later good build clears it.
+    func testFailedRebuildFlagsOutdatedIndex() async throws {
+        struct Boom: LocalizedError { var errorDescription: String? { "store unavailable" } }
+        let (a, b) = makeMeetings()
+        let snaps = snapshots([a, b])
+        let counter = LoaderCounter()
+        let stub = StubLLMProvider(outcomes: [.success("Ja.")])
+        let service = AskService(
+            snapshotLoader: {
+                counter.count += 1
+                if counter.count == 2 { throw Boom() }
+                return snaps
+            },
+            providerFactory: { stub },
+            thinkingEnabled: { true }
+        )
+
+        try await ask(service, "Wegiz")
+        XCTAssertFalse(service.indexMayBeOutdated)
+
+        service.invalidateIndex()
+        try await ask(service, "Wegiz")
+        XCTAssertEqual(counter.count, 2, "a failed load is not retried within the same ask")
+        XCTAssertEqual(service.answer?.text, "Ja.")
+        XCTAssertNil(service.errorMessage)
+        XCTAssertTrue(service.indexMayBeOutdated)
+
+        try await ask(service, "Wegiz")
+        XCTAssertEqual(counter.count, 3)
+        XCTAssertFalse(service.indexMayBeOutdated)
+    }
+
+    func testIndexKeepsOnlyMeetingMetadata() async throws {
+        let (a, b) = makeMeetings()
+        a.summary = "## Besluiten\nBgZ via Wegiz"
+        let service = makeService([a, b], stub: StubLLMProvider())
+
+        await service.prepareIndex().value
+
+        let kept = service.indexedMeetings.sorted { $0.title < $1.title }
+        XCTAssertEqual(kept.map(\.id), [b.id, a.id])
+        XCTAssertTrue(kept.allSatisfy { $0.transcript == nil && $0.summary == nil && $0.actionItems.isEmpty })
+        XCTAssertEqual(kept.first?.tags, ["partner"])
+        XCTAssertEqual(kept.last?.participants, ["Kim"])
+    }
+
+    func testFilterOptionsFollowPendingDeletion() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let (a, b) = makeMeetings()
+        context.insert(a)
+        context.insert(b)
+        try context.save()
+
+        let pending = PendingSet()
+        let stub = StubLLMProvider(outcomes: [.success("Ja.")])
+        let service = AskService(
+            container: container,
+            isPendingDeletion: { pending.ids.contains($0) },
+            providerFactory: { stub },
+            thinkingEnabled: { true },
+            observesStoreChanges: false
+        )
+
+        await service.prepareIndex().value
+        XCTAssertEqual(service.filterOptions.participants, ["Arriejanne", "Kim"])
+        XCTAssertEqual(service.filterOptions.tags, ["partner"])
+
+        pending.ids.insert(b.id)
+        try await ask(service, "Wegiz")
+        XCTAssertEqual(service.filterOptions.participants, ["Kim"])
+        XCTAssertEqual(service.filterOptions.tags, [])
+
+        pending.ids.removeAll()
+        service.refreshFilterOptions()
+        XCTAssertEqual(service.filterOptions.participants, ["Arriejanne", "Kim"])
+    }
+
+    @MainActor
+    private final class PendingSet {
+        var ids: Set<UUID> = []
     }
 
     // MARK: - Errors, retry, cancellation

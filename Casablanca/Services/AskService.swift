@@ -30,6 +30,8 @@ struct AskAnswer: Equatable {
 @Observable
 final class AskService {
     static let noMatchText = "No meeting content matches this question and filter."
+    static let indexUnavailableText = "The meeting index could not be built. Try again."
+    static let outdatedIndexText = "Couldn't refresh the meeting index; answers may be out of date."
     static let defaultInvalidationDebounce: Duration = .seconds(2)
     nonisolated static let defaultPageSize = 200
 
@@ -41,6 +43,10 @@ final class AskService {
     /// Participants and tags of the searchable meetings, from the last
     /// snapshot load (pending deletions left out).
     private(set) var filterOptions: (participants: [String], tags: [String]) = ([], [])
+    /// `true` when the last rebuild failed and answers come from an older
+    /// index; the view shows ``outdatedIndexText``. Cleared by the next
+    /// successful build.
+    private(set) var indexMayBeOutdated = false
 
     // MARK: - Dependencies
 
@@ -57,6 +63,10 @@ final class AskService {
 
     // MARK: - Index state
 
+    /// `meetings` holds metadata-only snapshots (id, title, date,
+    /// participants, tags; no summary, action items or transcript): all that
+    /// source selection, filtering and citations read. The chunk text lives
+    /// in `index`.
     private struct BuiltIndex: Sendable {
         let index: BM25Index
         let meetings: [UUID: AskMeetingSnapshot]
@@ -145,6 +155,10 @@ final class AskService {
 
     // MARK: - Index
 
+    /// The metadata snapshots the current index holds (no summary, action
+    /// items or transcript). For tests and diagnostics.
+    var indexedMeetings: [AskMeetingSnapshot] { built.map { Array($0.meetings.values) } ?? [] }
+
     /// Whether a built index exists for the current generation.
     var isIndexFresh: Bool { built != nil && builtGeneration == generation }
 
@@ -158,7 +172,8 @@ final class AskService {
     /// returns the task; a fresh index returns an already finished task.
     /// Snapshots load first (on the main actor or in a background task), then
     /// chunks and the BM25 index are built in a detached task and published
-    /// here. A load error lands in ``errorMessage``.
+    /// here. A load error lands in ``errorMessage`` when there is no index
+    /// yet, and sets ``indexMayBeOutdated`` when an older index keeps serving.
     @discardableResult
     func prepareIndex() -> Task<Void, Never> {
         if isIndexFresh { return Task {} }
@@ -193,10 +208,15 @@ final class AskService {
                 guard self.buildID == id else { return }
                 self.built = built
                 self.builtGeneration = gen
-                self.filterOptions = AskCorpus.filterOptions(unique.filter { !self.isPendingDeletion($0.id) })
+                self.indexMayBeOutdated = false
+                self.refreshFilterOptions()
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError), self.buildID == id else { return }
-                self.errorMessage = error.localizedDescription
+                if self.built != nil {
+                    self.indexMayBeOutdated = true
+                } else {
+                    self.errorMessage = error.localizedDescription
+                }
             }
         }
         indexTask = task
@@ -206,7 +226,13 @@ final class AskService {
 
     /// Invalidates the index once per burst of `ModelContext.didSave`
     /// notifications (macOS 14+), `debounce` after the last one. Idempotent.
-    func observeStoreChanges(debounce: Duration = AskService.defaultInvalidationDebounce) {
+    ///
+    /// `sleep` is the debounce wait (default `Task.sleep(for:)`); tests inject
+    /// a gate instead of waiting on the clock.
+    func observeStoreChanges(
+        debounce: Duration = AskService.defaultInvalidationDebounce,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         storeObserver.remove()
         storeObserver.token = NotificationCenter.default.addObserver(
             forName: ModelContext.didSave,
@@ -216,15 +242,18 @@ final class AskService {
             // Saves happen on the main actor, but hop explicitly rather than
             // assume it: this observer only schedules work.
             Task { @MainActor [weak self] in
-                self?.scheduleInvalidation(after: debounce)
+                self?.scheduleInvalidation(after: debounce, sleep: sleep)
             }
         }
     }
 
-    private func scheduleInvalidation(after debounce: Duration) {
+    private func scheduleInvalidation(
+        after debounce: Duration,
+        sleep: @escaping @Sendable (Duration) async throws -> Void
+    ) {
         invalidationTask?.cancel()
         invalidationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: debounce)
+            try? await sleep(debounce)
             guard !Task.isCancelled else { return }
             self?.invalidateIndex()
         }
@@ -260,15 +289,29 @@ final class AskService {
                 }
             }
 
-            if !self.isIndexFresh {
+            // The build this ask waits on can be superseded (a newer
+            // generation cancels it) before anything is published; wait on the
+            // current build once more before giving up, and never end with
+            // neither an answer nor an error.
+            var waits = 0
+            while !self.isIndexFresh && waits < 2 {
+                waits += 1
                 let build = self.prepareIndex()
                 await withTaskCancellationHandler {
                     await build.value
                 } onCancel: {
                     build.cancel()
                 }
+                if Task.isCancelled { return }
+                // No newer build in flight: the one awaited settled (published
+                // or failed), so waiting again would only repeat the load.
+                if self.indexTask == nil { break }
             }
-            guard !Task.isCancelled, let built = self.built else { return }
+            guard let built = self.built else {
+                if self.errorMessage == nil { self.errorMessage = Self.indexUnavailableText }
+                return
+            }
+            self.refreshFilterOptions()
 
             let allowed = self.allowedMeetings(filter, in: built)
             let scored = built.index.search(trimmed, allowedMeetings: allowed, limit: AskPrompt.retrievalLimit)
@@ -338,6 +381,16 @@ final class AskService {
         statusMessage = nil
     }
 
+    /// Recomputes ``filterOptions`` from the indexed meetings minus those
+    /// pending deletion. Called on publish and on every ask; call it too when
+    /// the pending-deletion set changes.
+    func refreshFilterOptions() {
+        guard let built else { return }
+        let visible = built.meetings.values.filter { !isPendingDeletion($0.id) }
+        let options = AskCorpus.filterOptions(Array(visible))
+        if options != filterOptions { filterOptions = options }
+    }
+
     // MARK: - Background loading
 
     /// Pages ``AskCorpus/loadPage(from:limit:offset:isPendingDeletion:)``
@@ -395,7 +448,11 @@ final class AskService {
         var meetings: [UUID: AskMeetingSnapshot] = [:]
         for snapshot in snapshots {
             titles[snapshot.id] = snapshot.title
-            meetings[snapshot.id] = snapshot
+            meetings[snapshot.id] = AskMeetingSnapshot(
+                id: snapshot.id, title: snapshot.title, date: snapshot.date,
+                participants: snapshot.participants, tags: snapshot.tags,
+                summary: nil, actionItems: [], transcript: nil
+            )
         }
         return BuiltIndex(index: BM25Index(chunks: chunks, titles: titles), meetings: meetings)
     }
