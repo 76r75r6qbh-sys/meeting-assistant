@@ -21,7 +21,7 @@ enum ActionItemOwnership {
     }
 
     /// Owner values that mean "nobody was assigned".
-    private static let unassignedOwners: Set<String> = [
+    static let unassignedOwners: Set<String> = [
         "?", "??", "-", "unknown", "unassigned", "tbd", "nobody", "onbekend", "niemand", "nvt", "n.v.t.",
     ]
 

@@ -110,6 +110,12 @@
 		SPKB0001 /* SummaryPromptContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0101 /* SummaryPromptContext.swift */; };
 		SPKB0002 /* SummaryPromptContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0102 /* SummaryPromptContextTests.swift */; };
 		SPKB0003 /* StaticAttendeeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0103 /* StaticAttendeeProvider.swift */; };
+		SPKB0004 /* SummaryFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0104 /* SummaryFacts.swift */; };
+		SPKB0005 /* RelativeDateResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0105 /* RelativeDateResolver.swift */; };
+		SPKB0006 /* FuzzyText.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0106 /* FuzzyText.swift */; };
+		SPKB0007 /* SummaryFactsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0107 /* SummaryFactsParserTests.swift */; };
+		SPKB0008 /* RelativeDateResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0108 /* RelativeDateResolverTests.swift */; };
+		SPKB0009 /* FuzzyTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0109 /* FuzzyTextTests.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -426,6 +432,12 @@
 		SPKB0101 /* SummaryPromptContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContext.swift; sourceTree = "<group>"; };
 		SPKB0102 /* SummaryPromptContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContextTests.swift; sourceTree = "<group>"; };
 		SPKB0103 /* StaticAttendeeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaticAttendeeProvider.swift; sourceTree = "<group>"; };
+		SPKB0104 /* SummaryFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFacts.swift; sourceTree = "<group>"; };
+		SPKB0105 /* RelativeDateResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeDateResolver.swift; sourceTree = "<group>"; };
+		SPKB0106 /* FuzzyText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyText.swift; sourceTree = "<group>"; };
+		SPKB0107 /* SummaryFactsParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFactsParserTests.swift; sourceTree = "<group>"; };
+		SPKB0108 /* RelativeDateResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeDateResolverTests.swift; sourceTree = "<group>"; };
+		SPKB0109 /* FuzzyTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyTextTests.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -779,6 +791,9 @@
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				SPKB0101 /* SummaryPromptContext.swift */,
+				SPKB0104 /* SummaryFacts.swift */,
+				SPKB0105 /* RelativeDateResolver.swift */,
+				SPKB0106 /* FuzzyText.swift */,
 				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
 				SPKT0103 /* TranscriptLineFormat.swift */,
@@ -949,6 +964,9 @@
 				B10044 /* ExportServiceTests.swift */,
 				B10045 /* SummarizationServiceTests.swift */,
 				SPKB0102 /* SummaryPromptContextTests.swift */,
+				SPKB0107 /* SummaryFactsParserTests.swift */,
+				SPKB0108 /* RelativeDateResolverTests.swift */,
+				SPKB0109 /* FuzzyTextTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
@@ -1281,6 +1299,9 @@
 				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
 				SPKB0001 /* SummaryPromptContext.swift in Sources */,
+				SPKB0004 /* SummaryFacts.swift in Sources */,
+				SPKB0005 /* RelativeDateResolver.swift in Sources */,
+				SPKB0006 /* FuzzyText.swift in Sources */,
 				ACPS0002 /* AudioClipPlayer.swift in Sources */,
 				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
 				ACPS0004 /* PrivacySettingsSection.swift in Sources */,
@@ -1426,6 +1447,9 @@
 				A10044 /* ExportServiceTests.swift in Sources */,
 				A10045 /* SummarizationServiceTests.swift in Sources */,
 				SPKB0002 /* SummaryPromptContextTests.swift in Sources */,
+				SPKB0007 /* SummaryFactsParserTests.swift in Sources */,
+				SPKB0008 /* RelativeDateResolverTests.swift in Sources */,
+				SPKB0009 /* FuzzyTextTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
