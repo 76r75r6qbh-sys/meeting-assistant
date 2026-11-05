@@ -29,8 +29,9 @@ struct TranscriptSegment: Identifiable, Codable {
     let startTime: TimeInterval
     let endTime: TimeInterval
     let text: String
-    /// Word timings, when Whisper produced them. `nil` until Task A3 maps
-    /// WhisperKit's word timings; speaker attribution then works per segment.
+    /// Word timings, when Whisper produced them (`wordTimestampsEnabled`).
+    /// `nil` for live segments and when word timestamps are off; speaker
+    /// attribution then works per segment.
     let words: [TranscriptWord]?
 
     init(startTime: TimeInterval, endTime: TimeInterval, text: String, words: [TranscriptWord]? = nil) {
@@ -553,10 +554,14 @@ final class TranscriptionService {
 
         let segments = run.segments
             .compactMap { segment in
+                // Word timings are already on the absolute clock: WhisperKit's
+                // `updateSeekOffsetsForResults` shifts `segment.words` by the
+                // same seek time as the segment, on both chunked paths.
                 Self.makeTranscriptSegment(
                     startTime: TimeInterval(segment.start),
                     endTime: TimeInterval(segment.end),
-                    rawText: segment.text
+                    rawText: segment.text,
+                    words: Self.makeTranscriptWords(segment.words)
                 )
             }
         currentSegments = segments
@@ -800,7 +805,13 @@ final class TranscriptionService {
         WhisperTextCleaner.clean(text)
     }
 
-    private static func makeTranscriptSegment(startTime: TimeInterval, endTime: TimeInterval, rawText: String) -> TranscriptSegment? {
+    /// Live segments pass no words: the live list never attributes speakers.
+    private static func makeTranscriptSegment(
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        rawText: String,
+        words: [TranscriptWord]? = nil
+    ) -> TranscriptSegment? {
         let cleanedText = cleanWhisperText(rawText)
         guard !cleanedText.isEmpty else {
             return nil
@@ -809,8 +820,28 @@ final class TranscriptionService {
         return TranscriptSegment(
             startTime: startTime,
             endTime: endTime,
-            text: cleanedText
+            text: cleanedText,
+            words: words
         )
+    }
+
+    /// Maps WhisperKit word timings onto `TranscriptWord`.
+    ///
+    /// Whisper's leading space stays in `text` on purpose: SpeakerAttribution
+    /// rebuilds run text by joining words with no separator, so the space is
+    /// the word boundary. Control tokens (`<|nl|>`, `<|0.00|>`) are stripped
+    /// in place, and words left empty or whitespace-only are dropped — they
+    /// carry no speech and would only skew attribution. `nil` for `nil` input
+    /// or when nothing survives, so a segment without usable words falls back
+    /// to per-segment attribution.
+    nonisolated static func makeTranscriptWords(_ timings: [WordTiming]?) -> [TranscriptWord]? {
+        guard let timings else { return nil }
+        let words = timings.compactMap { timing -> TranscriptWord? in
+            let text = WhisperTextCleaner.removingControlTokens(timing.word)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return TranscriptWord(start: Double(timing.start), end: Double(timing.end), text: text)
+        }
+        return words.isEmpty ? nil : words
     }
 
     private static func whisperDownloadBaseURL() throws -> URL {

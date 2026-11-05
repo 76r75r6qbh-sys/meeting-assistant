@@ -31,7 +31,7 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertEqual(decoding.temperature, 0)
         XCTAssertEqual(decoding.task, .transcribe)
         XCTAssertTrue(decoding.skipSpecialTokens)
-        XCTAssertFalse(decoding.wordTimestamps)
+        XCTAssertTrue(decoding.wordTimestamps)
         XCTAssertFalse(decoding.withoutTimestamps)
         XCTAssertEqual(decoding.temperatureFallbackCount, 5)
         XCTAssertEqual(decoding.concurrentWorkerCount, 16)
@@ -260,6 +260,37 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertFalse(
             TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).dropSilentChunks
         )
+    }
+
+    // MARK: - Word timestamps
+
+    // R12: the app registers `wordTimestampsEnabled = true` for every suite in
+    // the test host, so "nothing set" here means the registered default — which
+    // is the same `true` the builder falls back to.
+    func testWordTimestampsDefaultOn() {
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+
+        XCTAssertTrue(resolved.decoding.wordTimestamps)
+        XCTAssertTrue(resolved.summaryLine.contains("wordTimestamps=true"), resolved.summaryLine)
+    }
+
+    func testWordTimestampsOffViaSetting() {
+        defaults.set(false, forKey: AppPreferenceKey.wordTimestampsEnabled)
+
+        let resolved = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+
+        XCTAssertFalse(resolved.decoding.wordTimestamps)
+        XCTAssertTrue(resolved.summaryLine.contains("wordTimestamps=false"), resolved.summaryLine)
+    }
+
+    /// `-wordTimestampsEnabled NO` on the command line lands in the argument
+    /// domain as a string, which is how the benchmark A/B flips it.
+    func testWordTimestampsStringArgumentNO() {
+        defaults.set("NO", forKey: AppPreferenceKey.wordTimestampsEnabled)
+        XCTAssertFalse(TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.wordTimestamps)
+
+        defaults.set("YES", forKey: AppPreferenceKey.wordTimestampsEnabled)
+        XCTAssertTrue(TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.wordTimestamps)
     }
 
     // MARK: - Summary line

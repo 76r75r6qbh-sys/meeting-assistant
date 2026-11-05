@@ -201,6 +201,11 @@ struct TranscriptionOptionsBuilder {
         // so it is a key rather than a rewrite.
         let chunkingStrategy = chunking(defaults, Key.chunking, or: defaultChunking)
 
+        // Word timings feed speaker attribution (per-word mic/system split). A
+        // user-facing preference, unlike the keys above, but read through the
+        // same parser so `-wordTimestampsEnabled NO` works for a benchmark A/B.
+        let wordTimestamps = bool(defaults, AppPreferenceKey.wordTimestampsEnabled, or: true)
+
         let decoding = DecodingOptions(
             verbose: false,
             task: .transcribe,
@@ -213,7 +218,7 @@ struct TranscriptionOptionsBuilder {
             // result one step earlier.
             skipSpecialTokens: true,
             withoutTimestamps: false,
-            wordTimestamps: false,
+            wordTimestamps: wordTimestamps,
             compressionRatioThreshold: compressionRatioThreshold,
             logProbThreshold: logProbThreshold,
             concurrentWorkerCount: workers,

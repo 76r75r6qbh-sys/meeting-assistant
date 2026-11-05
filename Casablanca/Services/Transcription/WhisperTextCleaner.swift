@@ -12,6 +12,17 @@ enum WhisperTextCleaner {
     private static let repeatedWhitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
     private static let whitespaceBeforePunctuationRegex = try! NSRegularExpression(pattern: #"\s+([,.;:!?])"#)
 
+    /// Only the control tokens out, nothing else touched — for a single word,
+    /// whose leading space is its word boundary and must survive.
+    static func removingControlTokens(_ text: String) -> String {
+        controlTokenRegex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: NSRange(text.startIndex..., in: text),
+            withTemplate: ""
+        )
+    }
+
     static func clean(_ text: String) -> String {
         let withoutControlTokens = controlTokenRegex.stringByReplacingMatches(
             in: text,

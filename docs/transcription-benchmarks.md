@@ -151,6 +151,45 @@ obvious candidate is `openai_whisper-large-v3_turbo`, which keeps the same encod
 swaps in a distilled 4-layer decoder. That is out of scope here (the constraint was to keep
 the model), and it is measurable with the harness in one run whenever it is in scope.
 
+## Word timestamps, 2026-11-05
+
+Speaker attribution (Track A) splits segments per word, so `DecodingOptions.wordTimestamps`
+is now read from the user preference `wordTimestampsEnabled` (default **on**) instead of
+being hard-coded off. The resolved value is in the `transcription finished` summary line
+(`wordTimestamps=true|false`). Word timings ride along on `TranscriptSegment.words`; on
+both chunked paths WhisperKit's `updateSeekOffsetsForResults` shifts word times by the
+same seek offset as their segment, so they are on the absolute clock.
+
+The setting stays default-on whatever the measurement says; the number is there to tell
+the user what it costs. A `transcribeWall` delta above 15 % goes into the Phase 3
+CHANGELOG.
+
+TODO(measure): not run yet — the benchmark audio is not available to the agent that made
+this change. On device, build Release (`scripts/build-release.sh`) and run each variant
+twice:
+
+```bash
+BIN=/Applications/Casablanca.app/Contents/MacOS/Casablanca
+AUDIO="$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.m4a"
+for v in off on; do for i in 1 2; do
+  flag=$([ $v = on ] && echo YES || echo NO)
+  "$BIN" --benchmark-transcription "$AUDIO" --benchmark-variant words-$v \
+    -whisperModel openai_whisper-large-v3 -wordTimestampsEnabled $flag
+done; done
+```
+
+Score each `.txt` with `scripts/transcript-agreement.py` against `vzvz-44min.reference.txt`
+and fill in:
+
+| Variant | Run | transcribeWall | Disagreement |
+| --- | --- | --- | --- |
+| words-off | 1 | TODO(measure) | TODO(measure) |
+| words-off | 2 | TODO(measure) | TODO(measure) |
+| words-on | 1 | TODO(measure) | TODO(measure) |
+| words-on | 2 | TODO(measure) | TODO(measure) |
+
+Median `transcribeWall` delta (on vs off): TODO(measure).
+
 ## Reproducing
 
 Build a Release binary (`scripts/build-release.sh`) and run it against a benchmark file in
