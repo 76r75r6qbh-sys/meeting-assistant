@@ -33,7 +33,7 @@ nor Screen Recording, so `kCGWindowName` came back `nil` there). Log:
 | Same, in call (from 10:01:54) | `Medicore/Prakikon/Levvel \| Medicore \| …` (equal to the calendar subject, own tenant shown) |
 | Popped-out 1:1 chat | `Chat \| Marco Spoor \| Medicore \| …` (AXDialog): pop-outs keep the `Chat` prefix, so they are rejected as section windows |
 | Shared-content pop-out while sharing in "Medicore/Prakikon/Levvel" | `Shared content \| Medicore/Prakikon/Levvel \| Medicore \| …`: `Shared content` is stripped like `Meeting join` |
-| 1:1 call with another person | **not captured yet.** Expected `<Name> \| Medicore \| …`, by analogy with the chat title; the design does not depend on it (see §3) |
+| 1:1 call with another person (14:00, Ryanne) | `Ryanne Makor \| Medicore \| <email>` from the first sample on: no pre-join screen, no prefix. The main window keeps `Chat \| Ryanne Makor \| …` alongside it |
 
 Findings:
 
@@ -256,9 +256,17 @@ today's behaviour.
 
 ### 6a. Still to capture before merge
 
-The 1:1 call with another person and a popped-out chat window. If the 1:1
-title has a prefix (e.g. `Call with X` or `Calls | X`), update rules 3 and 5
-and the tests before release. That is a parser-only change.
+Captured 2026-11-05 14:00: the 1:1 call window is titled `<Name> | <tenant> |
+<email>` with no prefix, and the popped-out chat keeps its `Chat` prefix.
+Both fit the parser as written; no rule change was needed.
+
+Gap found in the same capture (not covered by this branch): the 1:1 started
+nine minutes after the previous Teams meeting (Healthtalk, 13:01) ended, yet
+the mic monitor logged one call from 13:01 to 14:30. Teams kept microphone
+input running in between, so no new call start fired and the 1:1 was never
+auto-recorded. Call names are only read at a call start, so this design
+cannot catch a back-to-back call. A follow-up would treat a change of the
+newest call name during a running call as a new call.
 
 ### 7. In-app verification (Youri)
 

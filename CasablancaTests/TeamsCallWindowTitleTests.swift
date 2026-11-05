@@ -33,6 +33,22 @@ final class TeamsCallWindowTitleParserTests: XCTestCase {
 
     /// Captured 2026-11-05 while sharing in an external meeting: the shared-
     /// content pop-out wraps the meeting's name.
+    /// Captured 2026-11-05: a 1:1 call window has no prefix and no pre-join.
+    func testOneToOneCallWindowNamesThePerson() {
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(
+                fromWindowTitle: "Ryanne Makor | Medicore | youri.broekhuizen@medicore.nl"),
+            "Ryanne Makor")
+    }
+
+    func testOneToOneCallAlongsideItsChatYieldsOnlyThePerson() {
+        let windows = [
+            TeamsWindow(number: 10, title: "Chat | Ryanne Makor | Medicore | youri.broekhuizen@medicore.nl"),
+            TeamsWindow(number: 42, title: "Ryanne Makor | Medicore | youri.broekhuizen@medicore.nl"),
+        ]
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), ["Ryanne Makor"])
+    }
+
     func testSharedContentWindowNamesTheMeeting() {
         XCTAssertEqual(
             TeamsCallWindowTitle.callName(
