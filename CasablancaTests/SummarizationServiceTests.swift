@@ -220,18 +220,27 @@ final class SummarizationServiceTests: XCTestCase {
         return lines.joined(separator: "\n")
     }
 
-    func testSummarizeSendsALongTranscriptWholeToALargeBudgetProvider() async throws {
+    /// The one-pass cap applies to every provider: a 100k-budget provider
+    /// still gets parts of at most `onePassTokenCap`, then one reduce.
+    func testALongTranscriptOverTheOnePassCapIsChunkedOnALargeBudgetProvider() async throws {
         let transcript = makeLongTranscript()
         XCTAssertGreaterThanOrEqual(transcript.count, 147_000)
         let meeting = Meeting(title: "EHDS", date: .now, status: .completed)
         meeting.transcript = transcript
-        let stub = StubLLMProvider(promptTokenBudget: 100_000, outcomes: [.success(SummaryFixtures.withFacts("# Summary\nDone."))])
+        let stub = StubLLMProvider(promptTokenBudget: 100_000, outcomes: numberedNotes())
         let service = SummarizationService(providerFactory: { stub }, userDefaults: makeDefaults())
 
         _ = try await service.summarize(meeting: meeting)
 
-        XCTAssertEqual(stub.calls.count, 1)
-        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains(transcript), "the transcript must arrive whole")
+        let mapCalls = stub.calls.filter(isMapCall)
+        XCTAssertGreaterThanOrEqual(mapCalls.count, 2)
+        for call in mapCalls {
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(call.prompt), SummarizationService.onePassTokenCap)
+        }
+        let last = try XCTUnwrap(stub.calls.last)
+        XCTAssertFalse(isMapCall(last))
+        XCTAssertTrue(last.prompt.contains(SummarizationService.condensedNotesPreamble), "the last call is the reduce")
+        XCTAssertEqual(stub.calls.count, mapCalls.count + 1)
         XCTAssertNil(service.warningMessage)
     }
 
@@ -285,8 +294,10 @@ final class SummarizationServiceTests: XCTestCase {
 
     // MARK: - Map-reduce
 
-    /// A budget small enough that a ~20k-char transcript needs several parts.
-    private let smallBudget = 1_500
+    /// A budget small enough that a ~20k-char transcript needs several parts,
+    /// yet big enough that a minimum (1,000-token) part fits next to the JSON
+    /// map prompt's ~700 tokens of instructions.
+    private let smallBudget = 2_000
 
     /// Defaults with a short fixed template and a pinned note-taker, so prompt
     /// sizes in these tests don't depend on the default template or the Mac's
@@ -308,14 +319,23 @@ final class SummarizationServiceTests: XCTestCase {
         return meeting
     }
 
-    /// Canned per-call notes `NOTE-01`, `NOTE-02`, … (zero-padded so no note is a
-    /// prefix of another).
+    /// Canned per-call facts `{"topics":["NOTE-01"]}`, … (zero-padded so no note
+    /// is a prefix of another).
     private func numberedNotes(_ count: Int = 60) -> [Result<String, Error>] {
-        (1...count).map { .success(String(format: "NOTE-%02d", $0)) }
+        (1...count).map { .success(note($0)) }
+    }
+
+    /// Part `n`'s canned facts: one topic `NOTE-nn`.
+    private func note(_ n: Int) -> String {
+        SummaryFixtures.partJSON(topic: String(format: "NOTE-%02d", n))
     }
 
     private func isMapCall(_ call: StubLLMProvider.Call) -> Bool {
-        call.prompt.hasPrefix("You are condensing part")
+        call.prompt.hasPrefix("You are extracting facts from part")
+    }
+
+    private func isRepairCall(_ call: StubLLMProvider.Call) -> Bool {
+        call.prompt.hasPrefix("The text below was meant to be one JSON object")
     }
 
     private func isMergeCall(_ call: StubLLMProvider.Call) -> Bool {
@@ -345,7 +365,7 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertGreaterThan(partCount, 3)
         XCTAssertEqual(stub.calls.count, partCount + 1, "N map calls, then exactly one reduce")
         for (i, call) in mapCalls.enumerated() {
-            XCTAssertTrue(call.prompt.hasPrefix("You are condensing part \(i + 1) of \(partCount) of a meeting transcript"))
+            XCTAssertTrue(call.prompt.hasPrefix("You are extracting facts from part \(i + 1) of \(partCount) of a meeting transcript"))
             XCTAssertTrue(call.prompt.contains("Meeting: EHDS. Participants: Unknown. The note-taker is Youri."))
             XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(call.prompt), smallBudget, "a part must fit the budget")
             XCTAssertEqual(call.maxTokens, LLMPromptSupport.mapOutputTokens)
@@ -354,13 +374,12 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertTrue(mapCalls[0].prompt.contains("(0:00:00–"), "the first part is labelled from its first timestamp")
         // Terminology off: the meeting line runs straight into the instructions,
         // with no blank line where the empty terminology block would have gone.
-        let headerLines = mapCalls[0].prompt.components(separatedBy: "\n").prefix(5)
-        XCTAssertEqual(headerLines.count, 5)
-        XCTAssertTrue(headerLines[0].hasPrefix("You are condensing part 1 of \(partCount) of a meeting transcript"))
+        let headerLines = mapCalls[0].prompt.components(separatedBy: "\n").prefix(4)
+        XCTAssertEqual(headerLines.count, 4)
+        XCTAssertTrue(headerLines[0].hasPrefix("You are extracting facts from part 1 of \(partCount) of a meeting transcript"))
         XCTAssertTrue(headerLines[1].hasPrefix("(0:00:00–") && headerLines[1].hasSuffix(") so it can be summarized later."))
         XCTAssertEqual(headerLines[2], "Meeting: EHDS. Participants: Unknown. The note-taker is Youri.")
-        XCTAssertEqual(headerLines[3], "Write compact notes in the language of the transcript, as markdown bullets")
-        XCTAssertEqual(headerLines[4], "under these headings, each bullet prefixed with its [timestamp] where known:")
+        XCTAssertEqual(headerLines[3], "Return only one JSON object, no prose and no code fence, with exactly this shape:")
 
         let reduce = try XCTUnwrap(stub.calls.last).prompt
         XCTAssertTrue(reduce.hasPrefix("TEMPLATE"), "the reduce runs through the user's template")
@@ -385,7 +404,7 @@ final class SummarizationServiceTests: XCTestCase {
     func testCondensedNotesThatStillDoNotFitAreMergedOneLevel() async throws {
         // Template overhead > merge-prompt overhead: several notes merge into one
         // call's input, but not into the summary prompt.
-        let note = String(repeating: "- [0:01:00] besproken punt. ", count: 21)  // ~600 chars
+        let note = SummaryFixtures.bulkyPartJSON(chars: 600)
         let recorder = PhaseRecorder()
         let stub = StubLLMProvider(
             promptTokenBudget: smallBudget,
@@ -413,7 +432,7 @@ final class SummarizationServiceTests: XCTestCase {
     func testMergingStopsAfterThreeLevelsThenElidesWithTheShortenedWarning() async throws {
         // Two notes fit one merge call but never the summary prompt, so every level
         // halves the count without ever fitting.
-        let note = String(repeating: "- [0:01:00] besproken punt. ", count: 60)  // ~1,700 chars
+        let note = SummaryFixtures.bulkyPartJSON(chars: 2_400)
         let recorder = PhaseRecorder()
         let stub = StubLLMProvider(
             promptTokenBudget: smallBudget,
@@ -463,7 +482,7 @@ final class SummarizationServiceTests: XCTestCase {
     func testAPartThatIsOnlyReasoningIsAnEmptyResponseError() async throws {
         let stub = StubLLMProvider(
             promptTokenBudget: smallBudget,
-            outcomes: [.success("NOTE-01"), .success("<think>Nothing to note.</think>"), .success("NOTE-03")]
+            outcomes: [.success(note(1)), .success("<think>Nothing to note.</think>"), .success(note(3))]
         )
         let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
 
@@ -488,7 +507,7 @@ final class SummarizationServiceTests: XCTestCase {
         let block = TerminologyService.renderTerminologyBlock(enabled: true, raw: "Medicore")
         let prompt = try XCTUnwrap(stub.calls.first(where: isMapCall)).prompt
         XCTAssertTrue(prompt.contains(
-            "The note-taker is Youri.\n\(block)\nWrite compact notes in the language of the transcript"
+            "The note-taker is Youri.\n\(block)\nReturn only one JSON object, no prose and no code fence"
         ))
     }
 
@@ -572,7 +591,7 @@ final class SummarizationServiceTests: XCTestCase {
     /// Two notes that are each too big to share a merge call: the level would
     /// regroup them one per group, so it is skipped and the fallback runs.
     func testAMergeLevelThatCannotReduceTheNoteCountBreaksOut() async throws {
-        let bigNote = String(repeating: "- [0:01:00] besproken punt. ", count: 130)  // ~3,600 chars
+        let bigNote = SummaryFixtures.bulkyPartJSON(chars: 3_600)
         let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: [.success(bigNote)])
         let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
 
@@ -626,9 +645,9 @@ final class SummarizationServiceTests: XCTestCase {
         let stub = StubLLMProvider(
             promptTokenBudget: smallBudget,
             outcomes: [
-                .success("NOTE-01"), .success("NOTE-02"),
+                .success(note(1)), .success(note(2)),
                 .failure(StubLLMProvider.transientFailure()), .failure(StubLLMProvider.transientFailure()),
-                .success("NOTE-LATER")
+                .success(SummaryFixtures.partJSON(topic: "NOTE-LATER"))
             ]
         )
         let service = SummarizationService(
@@ -648,15 +667,15 @@ final class SummarizationServiceTests: XCTestCase {
         // Retry: parts 1 and 2 come from the cache.
         _ = try await service.summarize(meeting: meeting)
         let retryCalls = stub.calls.dropFirst(4)
-        XCTAssertTrue(try XCTUnwrap(retryCalls.first).prompt.hasPrefix("You are condensing part 3 of"))
-        XCTAssertFalse(retryCalls.contains { $0.prompt.hasPrefix("You are condensing part 1 of") || $0.prompt.hasPrefix("You are condensing part 2 of") })
+        XCTAssertTrue(try XCTUnwrap(retryCalls.first).prompt.hasPrefix("You are extracting facts from part 3 of"))
+        XCTAssertFalse(retryCalls.contains { $0.prompt.hasPrefix("You are extracting facts from part 1 of") || $0.prompt.hasPrefix("You are extracting facts from part 2 of") })
         let reduce = try XCTUnwrap(retryCalls.last).prompt
         XCTAssertTrue(reduce.contains("NOTE-01") && reduce.contains("NOTE-02"), "cached parts reach the reduce")
 
         // Success cleared the meeting's parts: summarizing again condenses afresh.
         let before = stub.calls.count
         _ = try await service.summarize(meeting: meeting)
-        XCTAssertTrue(stub.calls[before].prompt.hasPrefix("You are condensing part 1 of"))
+        XCTAssertTrue(stub.calls[before].prompt.hasPrefix("You are extracting facts from part 1 of"))
     }
 
     func testTheCacheIsReplacedWhenAnotherMeetingIsSummarized() async throws {
@@ -664,7 +683,7 @@ final class SummarizationServiceTests: XCTestCase {
         let first = makeMeeting(transcript: transcript)
         let stub = StubLLMProvider(
             promptTokenBudget: smallBudget,
-            outcomes: [.success("NOTE-01"), .failure(LLMProviderError.requestFailed(provider: "Stub", kind: .httpStatus(400), message: "bad")), .success("NOTE")]
+            outcomes: [.success(note(1)), .failure(LLMProviderError.requestFailed(provider: "Stub", kind: .httpStatus(400), message: "bad")), .success(SummaryFixtures.partJSON(topic: "NOTE"))]
         )
         let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
 
@@ -674,7 +693,7 @@ final class SummarizationServiceTests: XCTestCase {
         _ = try await service.summarize(meeting: makeMeeting(transcript: transcript))
         let before = stub.calls.count
         _ = try await service.summarize(meeting: first)
-        XCTAssertTrue(stub.calls[before].prompt.hasPrefix("You are condensing part 1 of"), "the first meeting's parts were dropped")
+        XCTAssertTrue(stub.calls[before].prompt.hasPrefix("You are extracting facts from part 1 of"), "the first meeting's parts were dropped")
     }
 
     func testPhasesProgressThroughEachPartThenSending() async throws {
@@ -682,7 +701,7 @@ final class SummarizationServiceTests: XCTestCase {
         let stub = StubLLMProvider(
             displayName: "Ollama",
             promptTokenBudget: smallBudget,
-            outcomes: [.success("NOTE-01"), .failure(StubLLMProvider.transientFailure())] + numberedNotes(),
+            outcomes: [.success(note(1)), .failure(StubLLMProvider.transientFailure())] + numberedNotes(),
             onGenerate: { recorder.record() }
         )
         let service = SummarizationService(
@@ -708,6 +727,234 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(recorder.phases, expected)
         XCTAssertEqual(recorder.statuses.first, "Summarizing part 1 of \(partCount) with Ollama…")
         XCTAssertEqual(SummarizationService.mergingStatus(level: 2), "Combining notes (step 2)…")
+    }
+
+    // MARK: - Map step facts (JSON per part, merged action items)
+
+    /// `[h:mm:ss] Spreker n: …` lines, or the same without the speaker label.
+    private func makeMapTranscript(chars: Int = 20_000, speakers: Bool) -> String {
+        guard !speakers else { return makeLongTranscript(chars: chars) }
+        return makeLongTranscript(chars: chars)
+            .replacingOccurrences(of: #"\] Spreker \d+: "#, with: "] ", options: .regularExpression)
+    }
+
+    func testMapPromptAsksForJSONAndKeepsTheHeaderLines() async throws {
+        for speakers in [true, false] {
+            let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+            let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+            _ = try await service.summarize(meeting: makeMeeting(transcript: makeMapTranscript(speakers: speakers)))
+
+            let mapCalls = stub.calls.filter(isMapCall)
+            XCTAssertGreaterThan(mapCalls.count, 1)
+            let lines = mapCalls[0].prompt.components(separatedBy: "\n")
+            XCTAssertTrue(lines[0].hasPrefix("You are extracting facts from part 1 of \(mapCalls.count) of a meeting transcript"))
+            XCTAssertTrue(lines[1].hasPrefix("(0:00:00–") && lines[1].hasSuffix(") so it can be summarized later."))
+            XCTAssertEqual(lines[2], "Meeting: EHDS. Participants: Unknown. The note-taker is Youri.")
+            XCTAssertEqual(lines[3], "Return only one JSON object, no prose and no code fence, with exactly this shape:")
+            let prompt = mapCalls[0].prompt
+            XCTAssertTrue(prompt.contains(SummaryFactsPrompt.objectShape))
+            XCTAssertTrue(prompt.contains("Rules for the JSON:"))
+            XCTAssertTrue(prompt.contains("Only use this part of the transcript.\n\nTranscript part:\n"))
+            let reduce = try XCTUnwrap(stub.calls.last).prompt
+            XCTAssertFalse(reduce.contains("```json"), "the reduce gets no JSON instruction")
+        }
+    }
+
+    func testMapPromptCarriesTheTrimmedFocus() async throws {
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = makeService(stub, defaults: makeMapReduceDefaults(), prep: "Vraag naar budget")
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeMapTranscript(speakers: true)))
+
+        let map = try XCTUnwrap(stub.calls.first(where: isMapCall)).prompt
+        XCTAssertTrue(map.contains(
+            "The note-taker is Youri.\n\(SummaryPromptContext.focusHeader)\nPrep:\nVraag naar budget\nReturn only one JSON object"
+        ))
+    }
+
+    func testReduceGetsDeduplicatedActionItemsFromTheParts() async throws {
+        for speakers in [true, false] {
+            let part = SummaryFixtures.partJSON(topic: "Offerte", actionItems: [("Stuur offerte", "Kim")])
+            let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: [.success(part)])
+            let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+            let outcome = try await service.summarizeWithFacts(
+                meeting: makeMeeting(transcript: makeMapTranscript(speakers: speakers))
+            )
+
+            XCTAssertGreaterThanOrEqual(stub.calls.filter(isMapCall).count, 2)
+            let reduce = try XCTUnwrap(stub.calls.last).prompt
+            XCTAssertTrue(reduce.contains(SummarizationService.reducedActionItemsHeading))
+            XCTAssertEqual(occurrences(of: "**Kim** — Stuur offerte", in: reduce), 1)
+            XCTAssertEqual(outcome.factsSource, .mapJSON)
+            XCTAssertEqual(outcome.facts.actionItems.count, 1)
+            XCTAssertEqual(outcome.facts.actionItems.first?.owner, "Kim")
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    func testAnUnownedPartItemIsListedWithAQuestionMark() async throws {
+        let part = SummaryFixtures.partJSON(topic: "Demo", actionItems: [("Plan de demo", nil)])
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: [.success(part)])
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeMapTranscript(speakers: true)))
+
+        let reduce = try XCTUnwrap(stub.calls.last).prompt
+        XCTAssertTrue(reduce.contains(SummarizationService.reducedActionItemsHeading + "\n- **?** — Plan de demo\nNOTES None"))
+    }
+
+    func testAPartWithBrokenJSONIsRepairedOnce() async throws {
+        for speakers in [true, false] {
+            let transcript = makeMapTranscript(speakers: speakers)
+            let parts = try await mapCallCount(for: transcript)
+            XCTAssertGreaterThan(parts, 2)
+            let stub = StubLLMProvider(
+                promptTokenBudget: smallBudget,
+                outcomes: [.success(note(1)), .success("{bad"), .success(note(2))] + (3...parts + 1).map { .success(note($0)) }
+            )
+            let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeMeeting(transcript: transcript))
+
+            XCTAssertEqual(stub.calls.count, parts + 2, "N map calls, one repair, one reduce")
+            XCTAssertTrue(isRepairCall(stub.calls[2]))
+            XCTAssertTrue(stub.calls[2].prompt.contains("Text:\n{bad"))
+            XCTAssertEqual(stub.calls.filter(isRepairCall).count, 1)
+            XCTAssertEqual(outcome.factsSource, .mapJSON)
+            XCTAssertTrue(try XCTUnwrap(stub.calls.last).prompt.contains("NOTE-02"), "the repaired part reaches the reduce")
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    func testAPartWithBrokenJSONSwitchesTheWholeRunToTheMarkdownFallback() async throws {
+        for speakers in [true, false] {
+            let transcript = makeMapTranscript(speakers: speakers)
+            let parts = try await mapCallCount(for: transcript)
+            let reduceReply = notes(actionItems: ["**Youri** — Plan demo"])
+            let stub = StubLLMProvider(
+                promptTokenBudget: smallBudget,
+                outcomes: [.success(note(1)), .success("{bad"), .success("{still bad")]
+                    + (3...parts).map { .success(note($0)) }
+                    + [.success(reduceReply)]
+            )
+            let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeMeeting(transcript: transcript))
+
+            XCTAssertEqual(stub.calls.count, parts + 2)
+            let reduce = try XCTUnwrap(stub.calls.last).prompt
+            XCTAssertFalse(reduce.contains(SummarizationService.reducedActionItemsHeading), "no action-item list after a fallback")
+            XCTAssertTrue(reduce.contains("{bad"), "the unreadable part's raw text is its note")
+            XCTAssertTrue(reduce.contains("NOTE-01") && reduce.contains(String(format: "NOTE-%02d", parts)))
+            XCTAssertEqual(outcome.factsSource, .markdownFallback)
+            XCTAssertEqual(outcome.facts.actionItems.map(\.task), ["Plan demo"])
+            XCTAssertTrue(try XCTUnwrap(service.warningMessage).contains(SummarizationService.factsFallbackWarning))
+        }
+    }
+
+    /// The fallback keeps a decoded part's to-do that the reduce's markdown
+    /// left out, and collapses one it repeated.
+    func testTheMarkdownFallbackKeepsTheDecodedPartsActionItems() async throws {
+        let transcript = makeMapTranscript(speakers: true)
+        let parts = try await mapCallCount(for: transcript)
+        let withItems = SummaryFixtures.partJSON(
+            topic: "NOTE-01", actionItems: [("Plan demo", "Youri"), ("Bel de leverancier over de prijs", "Kim")]
+        )
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: [.success(withItems), .success("{bad"), .success("{still bad")]
+                + (3...parts).map { .success(note($0)) }
+                + [.success(notes(actionItems: ["**Youri** — Plan demo"]))]
+        )
+        let service = SummarizationService(providerFactory: { stub }, userDefaults: makeMapReduceDefaults())
+
+        let outcome = try await service.summarizeWithFacts(meeting: makeMeeting(transcript: transcript))
+
+        XCTAssertEqual(outcome.factsSource, .markdownFallback)
+        XCTAssertEqual(outcome.facts.actionItems.map(\.task), ["Plan demo", "Bel de leverancier over de prijs"])
+    }
+
+    func testRetryReusesCachedFactsParts() async throws {
+        for speakers in [true, false] {
+            let transcript = makeMapTranscript(speakers: speakers)
+            let meeting = makeMeeting(transcript: transcript)
+            let first = SummaryFixtures.partJSON(topic: "NOTE-01", actionItems: [("Stuur offerte", "Kim")])
+            let stub = StubLLMProvider(
+                promptTokenBudget: smallBudget,
+                outcomes: [
+                    .success(first), .success("{bad"), .success(note(2)),
+                    .failure(StubLLMProvider.transientFailure()), .failure(StubLLMProvider.transientFailure()),
+                    .success(SummaryFixtures.partJSON(topic: "NOTE-LATER"))
+                ]
+            )
+            let service = SummarizationService(
+                providerFactory: { stub },
+                userDefaults: makeMapReduceDefaults(),
+                retryPolicy: LLMRetryPolicy(maxAttempts: 2, baseDelay: 0, sleep: { _ in })
+            )
+
+            do {
+                _ = try await service.summarizeWithFacts(meeting: meeting)
+                XCTFail("part 3 failed on every attempt")
+            } catch SummarizationError.requestFailed {}
+            XCTAssertEqual(stub.calls.count, 5, "part 1, part 2 + its repair, then part 3 twice")
+
+            let outcome = try await service.summarizeWithFacts(meeting: meeting)
+            let retryCalls = Array(stub.calls.dropFirst(5))
+            XCTAssertTrue(retryCalls[0].prompt.hasPrefix("You are extracting facts from part 3 of"))
+            XCTAssertFalse(retryCalls.contains {
+                $0.prompt.hasPrefix("You are extracting facts from part 1 of")
+                    || $0.prompt.hasPrefix("You are extracting facts from part 2 of")
+                    || isRepairCall($0)
+            }, "parts 1-2 (including the repaired one) come from the cache")
+            XCTAssertEqual(outcome.factsSource, .mapJSON)
+            XCTAssertEqual(outcome.facts.actionItems.map(\.task), ["Stuur offerte"], "the cached part's facts survive")
+            let reduce = try XCTUnwrap(retryCalls.last).prompt
+            XCTAssertTrue(reduce.contains("NOTE-01") && reduce.contains("NOTE-02"))
+        }
+    }
+
+    func testChangedPrepInvalidatesTheMapCache() async throws {
+        let transcript = makeMapTranscript(speakers: true)
+        let meeting = makeMeeting(transcript: transcript)
+        let prep = PrepBox(value: "Vraag naar budget A")
+        // The focus is part of each map prompt, so it shapes the part count.
+        let probe = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        _ = try await makeService(probe, defaults: makeMapReduceDefaults(), prep: "Vraag naar budget A")
+            .summarize(meeting: makeMeeting(transcript: transcript))
+        let parts = probe.calls.filter(isMapCall).count
+        let stub = StubLLMProvider(
+            promptTokenBudget: smallBudget,
+            outcomes: [.success(note(1)), .success(note(2)), .failure(LLMProviderError.requestFailed(provider: "Stub", kind: .httpStatus(400), message: "bad"))]
+                + numberedNotes()
+        )
+        let service = SummarizationService(
+            providerFactory: { stub },
+            userDefaults: makeMapReduceDefaults(),
+            attendeeProvider: StaticAttendeeProvider(attendees: []),
+            prepLoader: { _, _ in prep.value }
+        )
+
+        _ = try? await service.summarize(meeting: meeting)
+        XCTAssertEqual(stub.calls.count, 3, "parts 1-2 cached, part 3 failed")
+
+        // Same length, so only the focus (not the part size) differs.
+        prep.value = "Vraag naar budget B"
+        _ = try await service.summarize(meeting: meeting)
+
+        let rerun = stub.calls.dropFirst(3)
+        XCTAssertEqual(rerun.filter(isMapCall).count, parts, "every part is re-extracted")
+        XCTAssertTrue(try XCTUnwrap(rerun.first).prompt.hasPrefix("You are extracting facts from part 1 of"))
+        XCTAssertTrue(try XCTUnwrap(rerun.first).prompt.contains("Vraag naar budget B"))
+    }
+
+    func testTheOnePassCapAppliesToTheBudget() {
+        XCTAssertEqual(SummarizationService.onePassTokenCap, 25_000)
+        XCTAssertEqual(SummarizationService.onePassBudget(100_000), 25_000)
+        XCTAssertEqual(SummarizationService.onePassBudget(6_000), 6_000)
+        XCTAssertEqual(SummarizationService.chunkTokens(budget: 100_000, mapPromptOverhead: 1_000), 12_500)
     }
 
     // MARK: - Prompt context (focus block, marked participants)
@@ -1247,6 +1494,12 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(SummarizationService.repairingStatus, "Repairing the structured notes…")
         XCTAssertEqual(SummarizationService.verifyingStatus, "Checking action items against the transcript…")
     }
+}
+
+@MainActor
+private final class PrepBox {
+    var value: String?
+    init(value: String?) { self.value = value }
 }
 
 @MainActor
