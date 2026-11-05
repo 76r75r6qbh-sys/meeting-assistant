@@ -8,6 +8,9 @@ struct SpeakerRenamePopover: View {
     let speaker: SpeakerInfo
     /// Participants not already used as another speaker's name.
     let participants: [String]
+    /// Other speakers' names that are not merge targets (placeholder labels):
+    /// typing one shows the warning before Save.
+    var namesInUse: [String] = []
     let suggestions: [SpeakerNameSuggestion]
     /// Applies a typed or picked name. Returns an error message to show, or nil.
     let onRename: (String) -> String?
@@ -19,9 +22,12 @@ struct SpeakerRenamePopover: View {
     @State private var errorMessage: String?
     @FocusState private var fieldFocused: Bool
 
+    static let nameInUseWarning = "Another speaker already has this name"
+
     init(
         speaker: SpeakerInfo,
         participants: [String],
+        namesInUse: [String] = [],
         suggestions: [SpeakerNameSuggestion],
         onRename: @escaping (String) -> String?,
         onAcceptSuggestion: @escaping (SpeakerNameSuggestion) -> String?,
@@ -30,6 +36,7 @@ struct SpeakerRenamePopover: View {
     ) {
         self.speaker = speaker
         self.participants = participants
+        self.namesInUse = namesInUse
         self.suggestions = suggestions
         self.onRename = onRename
         self.onAcceptSuggestion = onAcceptSuggestion
@@ -38,8 +45,13 @@ struct SpeakerRenamePopover: View {
         _name = State(initialValue: speaker.nameConfirmed ? speaker.displayName : "")
     }
 
+    private var nameClashes: Bool {
+        let typed = SpeakerRenamer.sanitize(name)
+        return namesInUse.contains { SpeakerRenamer.sanitize($0).caseInsensitiveCompare(typed) == .orderedSame }
+    }
+
     private var canSave: Bool {
-        !SpeakerRenamer.sanitize(name).isEmpty
+        !SpeakerRenamer.sanitize(name).isEmpty && !nameClashes
     }
 
     var body: some View {
@@ -61,7 +73,11 @@ struct SpeakerRenamePopover: View {
                     .keyboardShortcut(.defaultAction)
             }
 
-            if let errorMessage {
+            if nameClashes {
+                Label(Self.nameInUseWarning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentWarning)
+            } else if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(Color.accentWarning)

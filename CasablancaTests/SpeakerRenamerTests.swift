@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class SpeakerRenamerTests: XCTestCase {
+    private var directory: URL!
+    private var store: SpeakerAnalysisStore!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpeakerRenamerTests-\(UUID().uuidString)", isDirectory: true)
+        store = SpeakerAnalysisStore(directory: directory)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: directory)
+        try await super.tearDown()
+    }
 
     private func makeMeeting(
         transcript: String,
@@ -31,7 +45,7 @@ final class SpeakerRenamerTests: XCTestCase {
             ]
         )
 
-        let merged = try SpeakerRenamer.rename(speakerID: "S1", to: "Jan de Vries", in: meeting)
+        let merged = try SpeakerRenamer.rename(speakerID: "S1", to: "Jan de Vries", in: meeting, store: store)
 
         XCTAssertFalse(merged)
         XCTAssertEqual(meeting.transcript, "[00:00] Jan de Vries: Hello.\n[00:05] Me: Hi.\n[00:09] Jan de Vries: Bye.")
@@ -64,7 +78,7 @@ final class SpeakerRenamerTests: XCTestCase {
             segments: segments
         )
 
-        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
 
         XCTAssertEqual(meeting.transcript, """
         [00:00] Kim: Welkom bij Team Link.
@@ -82,7 +96,7 @@ final class SpeakerRenamerTests: XCTestCase {
             speakers: [cluster("S1", "Speaker 1")]
         )
 
-        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
 
         XCTAssertEqual(meeting.transcript, "[00:00] Kim: Team Link.")
         XCTAssertEqual(meeting.rawTranscript, "[00:00] Kim: tiem link.")
@@ -90,7 +104,7 @@ final class SpeakerRenamerTests: XCTestCase {
 
     func testRenameLeavesNilRawTranscriptNil() throws {
         let meeting = makeMeeting(transcript: "[00:00] Speaker 1: Hi.", speakers: [cluster("S1", "Speaker 1")])
-        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
         XCTAssertNil(meeting.rawTranscript)
     }
 
@@ -109,7 +123,7 @@ final class SpeakerRenamerTests: XCTestCase {
             ]
         )
 
-        let merged = try SpeakerRenamer.rename(speakerID: "S2", to: "Kim", in: meeting)
+        let merged = try SpeakerRenamer.rename(speakerID: "S2", to: "Kim", in: meeting, store: store)
 
         XCTAssertTrue(merged)
         XCTAssertEqual(meeting.speakers.map(\.id), ["S1"])
@@ -127,14 +141,14 @@ final class SpeakerRenamerTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S2", to: "kim", in: meeting))
+        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S2", to: "kim", in: meeting, store: store))
         XCTAssertEqual(meeting.transcript, "[00:00] Kim: One.\n[00:05] Kim: Two.")
     }
 
     func testEmptyNameRejected() {
         let meeting = makeMeeting(transcript: "[00:00] Speaker 1: Hi.", speakers: [cluster("S1", "Speaker 1")])
 
-        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S1", to: "  : [ ", in: meeting)) { error in
+        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S1", to: "  : [ ", in: meeting, store: store)) { error in
             XCTAssertEqual(error as? SpeakerRenamer.RenameError, .emptyName)
         }
         XCTAssertEqual(meeting.transcript, "[00:00] Speaker 1: Hi.")
@@ -144,7 +158,7 @@ final class SpeakerRenamerTests: XCTestCase {
     func testUnknownSpeakerRejected() {
         let meeting = makeMeeting(transcript: "[00:00] Speaker 1: Hi.", speakers: [cluster("S1", "Speaker 1")])
 
-        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S9", to: "Kim", in: meeting)) { error in
+        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S9", to: "Kim", in: meeting, store: store)) { error in
             XCTAssertEqual(error as? SpeakerRenamer.RenameError, .unknownSpeaker)
         }
     }
@@ -158,7 +172,7 @@ final class SpeakerRenamerTests: XCTestCase {
     func testStoredDisplayNameIsSanitizedSoPrefixesStillParse() throws {
         let meeting = makeMeeting(transcript: "[00:00] Speaker 1: Hi.", speakers: [cluster("S1", "Speaker 1")])
 
-        try SpeakerRenamer.rename(speakerID: "S1", to: " Kim: (PO) ", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: " Kim: (PO) ", in: meeting, store: store)
 
         XCTAssertEqual(meeting.speakers[0].displayName, "Kim (PO)")
         let line = TranscriptLineFormat.parse(meeting.transcript ?? "", knownSpeakers: ["Kim (PO)"])
@@ -185,19 +199,42 @@ final class SpeakerRenamerTests: XCTestCase {
 
     // MARK: - Review fixes
 
-    func testRenameOntoAnotherSpeakersPlaceholderLabelDoesNotMerge() throws {
+    func testRenameOntoAnotherSpeakersPlaceholderLabelIsRejected() {
+        let transcript = "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two."
         let meeting = makeMeeting(
-            transcript: "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two.",
+            transcript: transcript,
             speakers: [cluster("S1", "Speaker 1"), cluster("S2", "Speaker 2")],
             segments: [
                 SpeakerSegment(start: 0, end: 5, speakerID: "S1", text: "One.", words: nil),
                 SpeakerSegment(start: 5, end: 9, speakerID: "S2", text: "Two.", words: nil),
             ]
         )
+        let before = meeting.speakers
 
-        XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S1", to: "Speaker 2", in: meeting))
-        XCTAssertEqual(meeting.speakers.map(\.id), ["S1", "S2"], "A placeholder label is not a person to merge into")
+        for name in ["Speaker 2", "speaker 2", " Speaker:2 "] {
+            XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S1", to: name, in: meeting, store: store), name) { error in
+                XCTAssertEqual(error as? SpeakerRenamer.RenameError, .nameInUse)
+            }
+        }
+        XCTAssertEqual(meeting.speakers, before, "A placeholder label is not a person to merge into")
+        XCTAssertEqual(meeting.transcript, transcript)
         XCTAssertEqual(meeting.speakerSegments.map(\.speakerID), ["S1", "S2"])
+    }
+
+    func testRenamesNeverLeaveTwoSpeakersWithOneName() throws {
+        let meeting = makeMeeting(
+            transcript: "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two.\n[00:09] Speaker 3: Three.",
+            speakers: [cluster("S1", "Speaker 1"), cluster("S2", "Speaker 2"), cluster("S3", "Speaker 3")]
+        )
+
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
+        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S2", to: "KIM", in: meeting, store: store), "Kim is confirmed: merge")
+        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S3", to: "Speaker 1", in: meeting, store: store))
+        // Renaming a speaker to (a case variant of) its own name is not a clash.
+        XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S3", to: "speaker 3", in: meeting, store: store))
+
+        let names = meeting.speakers.map { $0.displayName.lowercased() }
+        XCTAssertEqual(names.count, Set(names).count, "Duplicate display names: \(names)")
     }
 
     func testRenameOntoTheUsersUnconfirmedNameMergesIntoTheUser() throws {
@@ -213,7 +250,7 @@ final class SpeakerRenamerTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S1", to: "me", in: meeting))
+        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S1", to: "me", in: meeting, store: store))
         XCTAssertEqual(meeting.speakers.map(\.id), ["me"])
         XCTAssertEqual(meeting.transcript, "[00:00] Me: One.\n[00:05] Me: Two.")
     }
@@ -228,10 +265,10 @@ final class SpeakerRenamerTests: XCTestCase {
             ]
         )
 
-        try SpeakerRenamer.rename(speakerID: "S1", to: "Jan de Vries", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Jan de Vries", in: meeting, store: store)
         XCTAssertEqual(meeting.transcript, "[00:00] Jan de Vries: Hoi.\n[00:04] Jan-Willem: Hallo Jan.\n[00:08] Jan Willem: Ook hoi.")
 
-        try SpeakerRenamer.rename(speakerID: "S2", to: "Jan-Willem Bakker", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S2", to: "Jan-Willem Bakker", in: meeting, store: store)
         XCTAssertEqual(meeting.transcript, "[00:00] Jan de Vries: Hoi.\n[00:04] Jan-Willem Bakker: Hallo Jan.\n[00:08] Jan Willem: Ook hoi.")
     }
 
@@ -242,17 +279,15 @@ final class SpeakerRenamerTests: XCTestCase {
             speakers: [cluster("S1", "Speaker 1")]
         )
 
-        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting)
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
 
         XCTAssertEqual(meeting.transcript, "[00:00] Kim: Een.\r\n[00:05] Me: Twee.\r\n[00:09] Kim:\r\n")
         XCTAssertEqual(meeting.rawTranscript, "[00:00] Kim: een.\r\n")
     }
 
-    func testCrossSourceMergeRecordsEachMovedSegmentsSource() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SpeakerRenamerTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = SpeakerAnalysisStore(directory: directory)
+    /// A merge straight through the renamer (no speakers bar), for a meeting
+    /// without a sidecar: the sidecar is created and records the sources.
+    func testCrossSourceMergeOutsideTheBarRecordsEachMovedSegmentsSource() throws {
         let meeting = makeMeeting(
             transcript: "[00:00] Youri: One.\n[00:05] Speaker 1: Two.",
             speakers: [
@@ -267,6 +302,7 @@ final class SpeakerRenamerTests: XCTestCase {
 
         XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S1", to: "Youri", in: meeting, store: store))
 
+        XCTAssertEqual(store.load(meeting.id)?.diarization, .notRun)
         let sources = try XCTUnwrap(store.load(meeting.id)?.segmentSources)
         XCTAssertEqual(sources, [SpeakerClipSelector.segmentKey(meeting.speakerSegments[1]): .system])
     }

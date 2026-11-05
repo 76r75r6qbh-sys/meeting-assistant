@@ -11,6 +11,10 @@ import Foundation
 enum SpeakerRenamer {
     enum RenameError: Error, Equatable {
         case emptyName, unknownSpeaker
+        /// Another speaker already has this name and it is not a merge target
+        /// (only a confirmed name or the user is). Two speakers must never
+        /// share a display name: their prefixes could not be told apart.
+        case nameInUse
     }
 
     /// The name as stored and written as a prefix: trimmed, `:` `[` `]`
@@ -26,18 +30,20 @@ enum SpeakerRenamer {
     /// that name is a person's (confirmed, or the user's), the two are the
     /// same person: this speaker's segments move to the other id, its
     /// `SpeakerInfo` is dropped, its prefixes take the other speaker's
-    /// spelling, and the result is `true`. Another speaker's placeholder label
-    /// ("Speaker 2") is never a merge target.
+    /// spelling, and the result is `true`. Any other name clash (another
+    /// speaker's placeholder label, "Speaker 2") throws `.nameInUse` and
+    /// changes nothing.
     ///
-    /// When the merged speakers were heard on different tracks and a `store`
-    /// is given, the moved segments' own source is kept in the sidecar
-    /// (`segmentSources`), so their samples still play from the right track.
+    /// `store` is the meeting's sidecar store. When the merged speakers were
+    /// heard on different tracks, the moved segments' own source is kept there
+    /// (`segmentSources`, the sidecar is created if needed), so their samples
+    /// still play from the right track — whoever calls the merge.
     @discardableResult
     static func rename(
         speakerID: String,
         to name: String,
         in meeting: Meeting,
-        store: SpeakerAnalysisStore? = nil
+        store: SpeakerAnalysisStore
     ) throws -> Bool {
         let newName = sanitize(name)
         guard !newName.isEmpty else { throw RenameError.emptyName }
@@ -48,12 +54,11 @@ enum SpeakerRenamer {
         let oldName = sanitize(speakers[index].displayName)
 
         if let targetIndex = speakers.firstIndex(where: {
-            $0.id != speakerID
-                && ($0.nameConfirmed || $0.isUser)
-                && sanitize($0.displayName).caseInsensitiveCompare(newName) == .orderedSame
+            $0.id != speakerID && sanitize($0.displayName).caseInsensitiveCompare(newName) == .orderedSame
         }) {
             let target = speakers[targetIndex]
-            if let store, speakers[index].source != target.source {
+            guard target.nameConfirmed || target.isUser else { throw RenameError.nameInUse }
+            if speakers[index].source != target.source {
                 recordSources(
                     of: meeting.speakerSegments.filter { $0.speakerID == speakerID },
                     source: speakers[index].source,

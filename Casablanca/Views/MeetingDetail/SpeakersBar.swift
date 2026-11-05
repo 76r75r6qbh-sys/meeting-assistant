@@ -126,6 +126,9 @@ struct SpeakersBar: View {
                 SpeakerRenamePopover(
                     speaker: speaker,
                     participants: availableParticipants(for: speaker),
+                    namesInUse: meeting.speakers
+                        .filter { $0.id != speaker.id && !$0.nameConfirmed && !$0.isUser }
+                        .map(\.displayName),
                     suggestions: suggestions,
                     onRename: { rename(speaker.id, to: $0) },
                     onAcceptSuggestion: { rename(speaker.id, to: $0.name) },
@@ -201,6 +204,8 @@ struct SpeakersBar: View {
             try SpeakerRenamer.rename(speakerID: speakerID, to: name, in: meeting, store: store)
         } catch SpeakerRenamer.RenameError.emptyName {
             return "Enter a name."
+        } catch SpeakerRenamer.RenameError.nameInUse {
+            return SpeakerRenamePopover.nameInUseWarning
         } catch {
             return "This speaker no longer exists."
         }
