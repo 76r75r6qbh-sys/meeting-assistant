@@ -13,7 +13,14 @@ final class SpeakerModelStatus {
         case failed(String)
     }
 
-    static let shared = SpeakerModelStatus()
+    static let shared = SpeakerModelStatus(
+        state: initialState(modelsDirectory: FluidAudioDiarizer.defaultModelsDirectory)
+    )
+
+    /// `.ready` when the models are already on disk, else `.notDownloaded`.
+    nonisolated static func initialState(modelsDirectory: URL) -> State {
+        FluidAudioDiarizer.modelsCached(in: modelsDirectory) ? .ready : .notDownloaded
+    }
 
     var state: State = .notDownloaded
 

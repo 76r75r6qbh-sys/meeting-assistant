@@ -282,7 +282,9 @@ struct PostTranscriptionPipeline {
     /// success, and also when recognition is off or there was nothing to
     /// analyse, since the remote voices must not stay on disk unasked. The one
     /// exception is a FAILED analysis: those tracks are kept so a retry can
-    /// still label the meeting. Kept tracks are compressed like the mix and
+    /// still label the meeting; so are the tracks of a meeting whose
+    /// diarization failed for a reason that can pass (offline, timeout, model
+    /// error — see `SpeakerAnalysisOutcome.keepsTracksForRetry`). Kept tracks are compressed like the mix and
     /// repointed, unless the user keeps WAVs; a failed compression keeps that
     /// track's WAV. Never touches the mix.
     private func finishSpeakerTracks(
@@ -292,10 +294,7 @@ struct PostTranscriptionPipeline {
     ) async {
         guard isAlive(meeting) else { return }
         let keepTracks = defaults.bool(forKey: AppPreferenceKey.keepSpeakerTracks)
-        let analysisFailed: Bool
-        if case .failed = outcome { analysisFailed = true } else { analysisFailed = false }
-
-        if !keepTracks, !analysisFailed {
+        if !keepTracks, !outcome.keepsTracksForRetry {
             for path in [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
                 bestEffort("delete speaker track", Log.recording) {
                     if FileManager.default.fileExists(atPath: path) {

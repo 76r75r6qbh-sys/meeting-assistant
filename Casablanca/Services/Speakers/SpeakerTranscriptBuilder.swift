@@ -48,7 +48,8 @@ enum SpeakerTranscriptBuilder {
         _ segments: [SpeakerSegment],
         turns: [DiarizedTurn],
         targetSpeakerID: String,
-        minRunDuration: Double = 0.6
+        minRunDuration: Double = 0.6,
+        nearestTurnTolerance: Double = SpeakerTranscriptBuilder.nearestTurnTolerance
     ) -> (segments: [SpeakerSegment], clusterOrder: [String]) {
         let sortedTurns = turns.sorted { ($0.start, $0.end) < ($1.start, $1.end) }
         // Pass 1: labels are raw cluster keys (or the target id).
@@ -61,7 +62,8 @@ enum SpeakerTranscriptBuilder {
             let spans = segment.words.flatMap { $0.isEmpty ? nil : $0.map { ($0.start, $0.end) } }
                 ?? [(segment.start, segment.end)]
             let keys = spans.map { span in
-                clusterKey(from: span.0, to: span.1, turns: sortedTurns) ?? targetSpeakerID
+                clusterKey(from: span.0, to: span.1, turns: sortedTurns, tolerance: nearestTurnTolerance)
+                    ?? targetSpeakerID
             }
             labelled.append((segment, keys))
         }
@@ -118,10 +120,10 @@ enum SpeakerTranscriptBuilder {
     ///
     /// With a system track the `"others"` words get clusters (words no turn
     /// claims stay `Others`). Without one (in-room, mic only) the `"me"` words
-    /// are diarized: with at least two room clusters every cluster becomes a
-    /// `.room` speaker (`isUser` false, `Speaker N`) — the user renames theirs
-    /// in A6 — while mic words no turn claims keep the user's label, which is
-    /// all attribution supports for them. With at most one cluster the single
+    /// are diarized: with at least two room clusters every speaker is a
+    /// `.room` speaker (`isUser` false, `Speaker N`) — the user names their own
+    /// cluster in A6 — so mic words no turn claims join the nearest cluster
+    /// instead of being labelled the user. With at most one cluster the single
     /// user speaker stays (Review Focus 1). `diarization` reports the cluster
     /// count either way.
     static func diarizedResult(
@@ -132,7 +134,14 @@ enum SpeakerTranscriptBuilder {
         userAliases: [String]
     ) -> SpeakerAnalysisResult {
         let target = hasSystemTrack ? SpeakerIDs.others : SpeakerIDs.me
-        let assigned = assignClusters(base.segments, turns: turns, targetSpeakerID: target)
+        // In-room, every mic word belongs to some room speaker: no distance
+        // limit to the nearest turn.
+        let assigned = assignClusters(
+            base.segments,
+            turns: turns,
+            targetSpeakerID: target,
+            nearestTurnTolerance: hasSystemTrack ? nearestTurnTolerance : .infinity
+        )
         let clusterCount = assigned.clusterOrder.count
         if !hasSystemTrack, clusterCount < 2 {
             var unchanged = base
@@ -154,7 +163,7 @@ enum SpeakerTranscriptBuilder {
 
     /// The key of the turn overlapping `[from, to]` most; else the nearest turn
     /// within 0.5 s; else nil. Ties go to the earlier turn.
-    private static func clusterKey(from: Double, to: Double, turns: [DiarizedTurn]) -> String? {
+    private static func clusterKey(from: Double, to: Double, turns: [DiarizedTurn], tolerance: Double) -> String? {
         var best: (key: String, overlap: Double)?
         for turn in turns {
             let overlap = min(to, turn.end) - max(from, turn.start)
@@ -164,7 +173,7 @@ enum SpeakerTranscriptBuilder {
         var nearest: (key: String, gap: Double)?
         for turn in turns {
             let gap = max(turn.start - to, from - turn.end, 0)
-            if gap <= nearestTurnTolerance, gap < (nearest?.gap ?? .infinity) { nearest = (turn.clusterKey, gap) }
+            if gap <= tolerance, gap < (nearest?.gap ?? .infinity) { nearest = (turn.clusterKey, gap) }
         }
         return nearest?.key
     }

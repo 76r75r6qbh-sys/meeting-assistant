@@ -20,7 +20,12 @@ import FluidAudio
 //   `OfflineDiarizerModels.load(from:configuration:progressHandler:)` (a
 //   Sendable struct), handed to the manager with `initialize(models:)`. That is
 //   what this adapter does, so the models load once and every diarization gets
-//   a fresh manager (no shared non-Sendable state).
+//   a fresh manager (no shared non-Sendable state). `ModelHub.loadModels`
+//   itself purges a damaged cache and re-downloads once (errors surface as
+//   FluidAudio's `DownloadError`, not `URLError`), so there is no extra retry.
+// - Cancellation: segmentation, embedding and PLDA loops call
+//   `Task.checkCancellation()`, so cancelling the task running `process`
+//   stops a run at the next chunk; the speaker step's timeout does that.
 // - Models: Hugging Face `FluidInference/speaker-diarization-coreml`, pinned by
 //   FluidAudio to revision df2625ac; only `Segmentation`, `FBank`, `Embedding`,
 //   `PldaRho` (.mlmodelc) and `plda-parameters.json` are fetched for the
@@ -73,6 +78,13 @@ protocol SpeakerDiarizing: Sendable {
     func diarize(trackURL: URL) async throws -> DiarizationOutput
     /// The L2-normalised voice embedding of the speech in `ranges` (seconds).
     func embedding(trackURL: URL, ranges: [ClosedRange<Double>]) async throws -> [Float]
+    /// False when diarization can never run here (FluidAudio on macOS < 15).
+    /// The speaker step then skips it silently; Settings explains why.
+    var isAvailable: Bool { get }
+}
+
+extension SpeakerDiarizing {
+    var isAvailable: Bool { true }
 }
 
 enum SpeakerDiarizerError: LocalizedError, Equatable {
@@ -106,6 +118,19 @@ final class FluidAudioDiarizer: SpeakerDiarizing {
     static var defaultModelsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Casablanca/Models/FluidAudio", isDirectory: true)
+    }
+
+    var isAvailable: Bool { Self.isSupportedOS }
+
+    /// The files FluidAudio needs for the offline diarizer, under `directory`.
+    static func requiredModelURLs(in directory: URL) -> [URL] {
+        let repo = directory.appendingPathComponent(Repo.diarizer.folderName, isDirectory: true)
+        return ModelNames.OfflineDiarizer.requiredModels.sorted().map { repo.appendingPathComponent($0) }
+    }
+
+    /// Whether every model file is already on disk (a download finished earlier).
+    static func modelsCached(in directory: URL) -> Bool {
+        requiredModelURLs(in: directory).allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// FluidAudio's offline diarizer can crash on macOS 14 (BNNS bug #878).
@@ -181,17 +206,12 @@ final class FluidAudioDiarizer: SpeakerDiarizing {
             if let loading { return try await loading.value }
             let task = Task<OfflineDiarizerModels, Error> {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let handler: ProgressHandler = { progress($0.fractionCompleted) }
-                do {
-                    return try await OfflineDiarizerModels.load(from: directory, progressHandler: handler)
-                } catch where !(error is URLError) {
-                    // A damaged cache: drop the repo folder and fetch it again
-                    // once, as `OfflineDiarizerManager.prepareModels` does. Not
-                    // when offline: that would throw away good models.
-                    let repo = directory.appendingPathComponent(Repo.diarizer.folderName, isDirectory: true)
-                    try? FileManager.default.removeItem(at: repo)
-                    return try await OfflineDiarizerModels.load(from: directory, progressHandler: handler)
-                }
+                // FluidAudio's ModelHub already purges a damaged cache and
+                // re-downloads once; no second retry layer here.
+                return try await OfflineDiarizerModels.load(
+                    from: directory,
+                    progressHandler: { progress($0.fractionCompleted) }
+                )
             }
             loading = task
             do {

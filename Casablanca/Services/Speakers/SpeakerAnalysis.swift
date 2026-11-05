@@ -7,6 +7,8 @@ enum DiarizationOutcome: Codable, Equatable, Sendable {
     case disabled
     case succeeded(clusterCount: Int)
     case failed(reason: String)
+    /// Diarization can never run on this Mac (macOS < 15); not retryable.
+    case unsupported(reason: String)
 }
 
 /// What the speaker step hands the pipeline.
@@ -35,6 +37,23 @@ enum SpeakerAnalysisOutcome: Equatable {
         if case .analysed(let result) = self { return result }
         return nil
     }
+
+    /// Whether unkept speaker tracks must stay for a retry: the analysis
+    /// failed, or diarization failed for a reason that can pass (models
+    /// missing or offline, a download or model error, the timeout). Not after
+    /// success, `.disabled`, `.skipped` or `.unsupported` — those cannot
+    /// improve on a retry.
+    var keepsTracksForRetry: Bool {
+        switch self {
+        case .failed:
+            return true
+        case .analysed(let result):
+            if case .failed = result.diarization { return true }
+            return false
+        case .disabled, .skipped:
+            return false
+        }
+    }
 }
 
 /// The live speaker step: reads the meeting's per-source tracks, attributes
@@ -57,8 +76,8 @@ enum SpeakerAnalysisOutcome: Equatable {
 enum SpeakerAnalysis {
 
     /// How long one diarization may take before the speaker step gives up on
-    /// it. FluidAudio does not observe cancellation, so the run itself may
-    /// finish in the background; its result is then dropped.
+    /// it. The run is then cancelled; FluidAudio checks cancellation between
+    /// chunks, so it stops shortly after and cannot overlap the next meeting.
     static let defaultDiarizationTimeout: Duration = .seconds(900)
 
     @MainActor
@@ -129,6 +148,13 @@ enum SpeakerAnalysis {
         guard let trackPath = systemTrackPath ?? micTrackPath,
               attributed.segments.contains(where: { $0.speakerID == target })
         else { return attributed }
+        // Can never run here (macOS < 15): no per-meeting status lines,
+        // Settings explains it.
+        guard diarizer.isAvailable else {
+            var unchanged = attributed
+            unchanged.diarization = .unsupported(reason: SpeakerDiarizerError.unsupportedOS.localizedDescription)
+            return unchanged
+        }
 
         status("Recognising speakers\u{2026}")
         let start = ContinuousClock.now
@@ -144,6 +170,7 @@ enum SpeakerAnalysis {
             let output = try await withTimeout(timeout) {
                 try await diarizer.diarize(trackURL: trackURL)
             }
+            status(finishingStatus)
             return SpeakerTranscriptBuilder.diarizedResult(
                 attributed,
                 turns: output.turns,
@@ -151,6 +178,11 @@ enum SpeakerAnalysis {
                 language: language,
                 userAliases: userAliases
             )
+        } catch SpeakerDiarizerError.unsupportedOS {
+            status(finishingStatus)
+            var unchanged = attributed
+            unchanged.diarization = .unsupported(reason: SpeakerDiarizerError.unsupportedOS.localizedDescription)
+            return unchanged
         } catch {
             let reason = error.localizedDescription
             Log.transcription.error("Diarization failed; keeping unsplit speakers: \(reason, privacy: .public)")
@@ -160,6 +192,9 @@ enum SpeakerAnalysis {
             return unchanged
         }
     }
+
+    /// Replaces "Recognising speakers…" once diarization succeeded.
+    static let finishingStatus = "Finishing transcript\u{2026}"
 
     struct TimeoutError: LocalizedError {
         var errorDescription: String? { "Speaker recognition took too long." }

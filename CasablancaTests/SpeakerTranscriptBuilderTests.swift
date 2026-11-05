@@ -240,6 +240,32 @@ final class SpeakerTranscriptBuilderTests: XCTestCase {
         XCTAssertEqual(result.diarization, .succeeded(clusterCount: 1))
     }
 
+    /// Ruling: with >= 2 room clusters nobody is labelled the user; a mic word
+    /// no turn claims joins the nearest room cluster instead of staying "me".
+    func testMicOnlyUnclaimedWordsJoinNearestRoomCluster() {
+        let base = SpeakerAnalysisResult(
+            segments: [
+                wordSegment("me", words: [("hello", 0, 2)]),
+                wordSegment("me", words: [("hi", 2, 4)]),
+                wordSegment("me", words: [("late", 9, 10)]),
+            ],
+            speakers: [SpeakerInfo(id: "me", displayName: "Youri", source: .microphone, isUser: true, nameConfirmed: true)],
+            diarization: .notRun
+        )
+        let turns = [
+            DiarizedTurn(start: 0, end: 2, clusterKey: "x"),
+            DiarizedTurn(start: 2, end: 4, clusterKey: "y"),
+        ]
+
+        let result = SpeakerTranscriptBuilder.diarizedResult(
+            base, turns: turns, hasSystemTrack: false, language: "en", userAliases: ["Youri"]
+        )
+
+        XCTAssertEqual(result.segments.map(\.speakerID), ["S1", "S2", "S2"])
+        XCTAssertFalse(result.speakers.contains(where: \.isUser))
+        XCTAssertEqual(Set(result.speakers.map(\.source)), [.room])
+    }
+
     private func wordSegment(_ speakerID: String, words: [(String, Double, Double)]) -> SpeakerSegment {
         let transcriptWords = words.map { TranscriptWord(start: $0.1, end: $0.2, text: " " + $0.0) }
         return SpeakerSegment(
