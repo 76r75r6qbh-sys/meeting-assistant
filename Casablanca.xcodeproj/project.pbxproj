@@ -121,6 +121,8 @@
 		SPKB0012 /* TodoReviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0112 /* TodoReviewService.swift */; };
 		SPKB0013 /* ActionItemRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0113 /* ActionItemRenderingTests.swift */; };
 		SPKB0014 /* TodoReviewServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0114 /* TodoReviewServiceTests.swift */; };
+		SPKB0015 /* ActionItemVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0115 /* ActionItemVerifier.swift */; };
+		SPKB0016 /* ActionItemVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0116 /* ActionItemVerifierTests.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -448,6 +450,8 @@
 		SPKB0112 /* TodoReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewService.swift; sourceTree = "<group>"; };
 		SPKB0113 /* ActionItemRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemRenderingTests.swift; sourceTree = "<group>"; };
 		SPKB0114 /* TodoReviewServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewServiceTests.swift; sourceTree = "<group>"; };
+		SPKB0115 /* ActionItemVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemVerifier.swift; sourceTree = "<group>"; };
+		SPKB0116 /* ActionItemVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemVerifierTests.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -806,6 +810,7 @@
 				SPKB0105 /* RelativeDateResolver.swift */,
 				SPKB0106 /* FuzzyText.swift */,
 				SPKB0111 /* ActionItemRendering.swift */,
+				SPKB0115 /* ActionItemVerifier.swift */,
 				SPKB0112 /* TodoReviewService.swift */,
 				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
@@ -981,6 +986,7 @@
 				SPKB0108 /* RelativeDateResolverTests.swift */,
 				SPKB0109 /* FuzzyTextTests.swift */,
 				SPKB0113 /* ActionItemRenderingTests.swift */,
+				SPKB0116 /* ActionItemVerifierTests.swift */,
 				SPKB0114 /* TodoReviewServiceTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
@@ -1318,6 +1324,7 @@
 				SPKB0005 /* RelativeDateResolver.swift in Sources */,
 				SPKB0006 /* FuzzyText.swift in Sources */,
 				SPKB0011 /* ActionItemRendering.swift in Sources */,
+				SPKB0015 /* ActionItemVerifier.swift in Sources */,
 				SPKB0012 /* TodoReviewService.swift in Sources */,
 				ACPS0002 /* AudioClipPlayer.swift in Sources */,
 				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
@@ -1468,6 +1475,7 @@
 				SPKB0008 /* RelativeDateResolverTests.swift in Sources */,
 				SPKB0009 /* FuzzyTextTests.swift in Sources */,
 				SPKB0013 /* ActionItemRenderingTests.swift in Sources */,
+				SPKB0016 /* ActionItemVerifierTests.swift in Sources */,
 				SPKB0014 /* TodoReviewServiceTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,

@@ -1,0 +1,350 @@
+// Casablanca/Services/ActionItemVerifier.swift
+import Foundation
+
+// MARK: - Transcript index
+
+/// A parsed transcript prepared for quote lookups: the timestamped lines, and
+/// their normalised text as one token stream (speaker prefixes of known
+/// speakers and timestamps removed) so a quote can span line boundaries.
+struct TranscriptIndex {
+    /// Timestamped lines in transcript order. A line without a leading `[ts]`
+    /// is appended (after a space) to the previous line's text; untimed text
+    /// before the first timestamped line is dropped.
+    let lines: [TranscriptLine]
+
+    /// The normalised line texts joined by single spaces (bridged once, so
+    /// repeated searches do not re-bridge a long transcript).
+    private let haystack: NSString
+    /// UTF-16 offset in `haystack` where each non-empty line starts, ascending,
+    /// paired with the index of that line in `lines`.
+    private let lineStarts: [(offset: Int, line: Int)]
+    /// All normalised tokens of the transcript, in order.
+    private let tokens: [String]
+    /// For each token: the index in `lines` of the line it belongs to.
+    private let tokenLine: [Int]
+    /// Prefix sums of token lengths in characters (`tokenLengthSums[i]` = sum of the first `i`).
+    private let tokenLengthSums: [Int]
+    /// For each line: its range in `tokens`.
+    private let lineTokens: [Range<Int>]
+    /// Token → every position where it occurs.
+    private let positions: [String: [Int]]
+    /// Each token's characters as dense alphabet codes (see `alphabet`).
+    private let tokenCodes: [[Int]]
+    /// Character → dense code, over every character of the normalised
+    /// transcript plus the space (code 0). Character equality, so the scores
+    /// equal ``FuzzyText/similarity(_:_:)`` on the same normalised text.
+    private let alphabet: [Character: Int]
+
+    init(transcript: String, knownSpeakers: Set<String>) {
+        var parsed: [TranscriptLine] = []
+        // Split on the scalar so CRLF transcripts still split into lines.
+        for scalars in transcript.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false) {
+            var raw = String(String.UnicodeScalarView(scalars))
+            if raw.unicodeScalars.last == "\r" { raw.unicodeScalars.removeLast() }
+            if let line = TranscriptLineFormat.parse(raw, knownSpeakers: knownSpeakers) {
+                parsed.append(line)
+                continue
+            }
+            let continuation = raw.trimmingCharacters(in: .whitespaces)
+            guard !continuation.isEmpty, !parsed.isEmpty else { continue }
+            let last = parsed.count - 1
+            parsed[last].text = parsed[last].text.isEmpty ? continuation : parsed[last].text + " " + continuation
+        }
+        lines = parsed
+
+        var haystack = ""
+        var utf16Count = 0
+        var lineStarts: [(offset: Int, line: Int)] = []
+        var tokens: [String] = []
+        var tokenLine: [Int] = []
+        var sums = [0]
+        var lineTokens: [Range<Int>] = []
+        var positions: [String: [Int]] = [:]
+        var tokenCodes: [[Int]] = []
+        var alphabet: [Character: Int] = [" ": 0]
+        for (lineIndex, line) in parsed.enumerated() {
+            let normalized = FuzzyText.normalized(line.text)
+            let first = tokens.count
+            if !normalized.isEmpty {
+                if !haystack.isEmpty {
+                    haystack.append(" ")
+                    utf16Count += 1
+                }
+                lineStarts.append((utf16Count, lineIndex))
+                haystack.append(normalized)
+                utf16Count += normalized.utf16.count
+                for token in normalized.split(separator: " ") {
+                    let word = String(token)
+                    positions[word, default: []].append(tokens.count)
+                    tokens.append(word)
+                    tokenLine.append(lineIndex)
+                    sums.append(sums[sums.count - 1] + word.count)
+                    tokenCodes.append(word.map { character in
+                        if let code = alphabet[character] { return code }
+                        let code = alphabet.count
+                        alphabet[character] = code
+                        return code
+                    })
+                }
+            }
+            lineTokens.append(first..<tokens.count)
+        }
+        self.haystack = haystack as NSString
+        self.lineStarts = lineStarts
+        self.tokens = tokens
+        self.tokenLine = tokenLine
+        self.tokenLengthSums = sums
+        self.lineTokens = lineTokens
+        self.positions = positions
+        self.tokenCodes = tokenCodes
+        self.alphabet = alphabet
+    }
+
+    /// Lines whose time is within `radius` seconds of `seconds` (inclusive), in order.
+    func window(around seconds: Double, radius: Double) -> [TranscriptLine] {
+        lines.filter { abs($0.seconds - seconds) <= radius }
+    }
+
+    /// How well `quote` occurs in the transcript and the line where the best
+    /// match starts. An exact normalised substring scores 1.0 (the occurrence
+    /// nearest `seconds` wins). Otherwise windows of `k−1…k+1` tokens (`k` =
+    /// the quote's token count) are scored with ``FuzzyText/similarity(_:_:)``:
+    /// first those starting in the ±``ActionItemVerifier/windowRadius`` s window
+    /// around `seconds`, then — only if that stays below
+    /// ``FuzzyText/matchThreshold`` — those anywhere whose first token equals
+    /// one of the quote's first two tokens. `(0, nil)` for an empty quote.
+    func locate(quote: String, near seconds: Double?) -> (score: Double, line: TranscriptLine?) {
+        let needle = FuzzyText.normalized(quote)
+        guard !needle.isEmpty, !tokens.isEmpty else { return (0, nil) }
+
+        if let line = exactMatchLine(needle, near: seconds) { return (1.0, line) }
+
+        let quoteTokens = needle.split(separator: " ").map(String.init)
+        // Characters the transcript never contains get code -1: they match nothing.
+        let quoteCodes = needle.map { alphabet[$0] ?? -1 }
+        var best: (score: Double, start: Int?) = (0, nil)
+
+        if let seconds {
+            var starts: [Int] = []
+            for (i, line) in lines.enumerated() where abs(line.seconds - seconds) <= ActionItemVerifier.windowRadius {
+                starts.append(contentsOf: lineTokens[i])
+            }
+            scoreWindows(starting: starts, quoteCodes: quoteCodes, quoteTokenCount: quoteTokens.count, best: &best)
+        }
+        if best.score < FuzzyText.matchThreshold {
+            var starts = Set<Int>()
+            for token in quoteTokens.prefix(2) { starts.formUnion(positions[token] ?? []) }
+            scoreWindows(starting: starts.sorted(), quoteCodes: quoteCodes, quoteTokenCount: quoteTokens.count,
+                         best: &best)
+        }
+        guard let start = best.start else { return (best.score, nil) }
+        return (best.score, lines[tokenLine[start]])
+    }
+
+    // MARK: Private
+
+    /// The line holding the exact occurrence of `needle` nearest `seconds`
+    /// (the first one when `seconds` is nil), or nil when there is none.
+    private func exactMatchLine(_ needle: String, near seconds: Double?) -> TranscriptLine? {
+        var found: TranscriptLine?
+        var location = 0
+        while location < haystack.length {
+            let range = haystack.range(of: needle, options: .literal,
+                                       range: NSRange(location: location, length: haystack.length - location))
+            guard range.location != NSNotFound else { break }
+            let line = lines[lineIndex(atUTF16Offset: range.location)]
+            guard let seconds else { return line }
+            if found.map({ abs(line.seconds - seconds) < abs($0.seconds - seconds) }) ?? true {
+                found = line
+            }
+            location = range.location + 1
+        }
+        return found
+    }
+
+    /// Index in `lines` of the line whose normalised text contains `offset`.
+    private func lineIndex(atUTF16Offset offset: Int) -> Int {
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineStarts[mid].offset <= offset { low = mid } else { high = mid - 1 }
+        }
+        return lineStarts[low].line
+    }
+
+    /// Scores every window of `k−1…k+1` tokens starting at `starts`, keeping
+    /// the strictly best one in `best`. The score is
+    /// ``FuzzyText/similarity(_:_:)`` — `1 − Levenshtein / longer length` over
+    /// the normalised characters — computed on alphabet codes. A window whose
+    /// length difference alone already rules out beating `best`
+    /// (Levenshtein ≥ |len a − len b|) is skipped, so the result equals scoring
+    /// them all.
+    private func scoreWindows(starting starts: [Int], quoteCodes: [Int], quoteTokenCount k: Int,
+                              best: inout (score: Double, start: Int?)) {
+        let quoteLength = quoteCodes.count
+        let distance = EditDistance(pattern: quoteCodes, alphabetSize: alphabet.count)
+        let sizes = max(1, k - 1)...(k + 1)
+        var window: [Int] = []
+        for start in starts {
+            for size in sizes {
+                let end = start + size
+                guard end <= tokens.count else { break }
+                let length = tokenLengthSums[end] - tokenLengthSums[start] + (size - 1)
+                let longest = max(length, quoteLength)
+                let ceiling = 1 - Double(abs(length - quoteLength)) / Double(longest)
+                guard ceiling > best.score else { continue }
+                window.removeAll(keepingCapacity: true)
+                for t in start..<end {
+                    if t > start { window.append(0) }
+                    window.append(contentsOf: tokenCodes[t])
+                }
+                let score = 1 - Double(distance.to(window)) / Double(longest)
+                if score > best.score { best = (score, start) }
+            }
+        }
+    }
+}
+
+/// Levenshtein distance from one fixed pattern to many texts, over dense
+/// integer codes, with Myers' bit-parallel algorithm in Hyyrö's global
+/// (whole-pattern-to-whole-text) form, blocked in 64-bit words so any
+/// pattern length works. Exact: equals the two-row dynamic programme, at a
+/// few word operations per text symbol and block.
+private struct EditDistance {
+    private let length: Int
+    private let blocks: Int
+    /// `peq[code * blocks + b]`: bit mask of pattern positions `64·b …` holding `code`.
+    private let peq: [UInt64]
+    /// Bit of the pattern's last position inside the last block.
+    private let lastBit: UInt64
+
+    init(pattern: [Int], alphabetSize: Int) {
+        length = pattern.count
+        blocks = max(1, (pattern.count + 63) / 64)
+        var peq = [UInt64](repeating: 0, count: alphabetSize * blocks)
+        for (i, code) in pattern.enumerated() where code >= 0 {
+            peq[code * blocks + i / 64] |= 1 << UInt64(i % 64)
+        }
+        self.peq = peq
+        lastBit = 1 << UInt64((max(pattern.count, 1) - 1) % 64)
+    }
+
+    func to(_ text: [Int]) -> Int {
+        if length == 0 { return text.count }
+        if text.isEmpty { return length }
+        var pv = [UInt64](repeating: ~0, count: blocks)
+        var mv = [UInt64](repeating: 0, count: blocks)
+        var score = length
+        for code in text {
+            // The top row grows by one per text symbol: carry +1 into block 0.
+            var carry = 1
+            for b in 0..<blocks {
+                var eq = peq[code * blocks + b]
+                let xv = eq | mv[b]
+                if carry < 0 { eq |= 1 }
+                let xh = (((eq & pv[b]) &+ pv[b]) ^ pv[b]) | eq
+                var ph = mv[b] | ~(xh | pv[b])
+                var mh = pv[b] & xh
+                let high: UInt64 = b == blocks - 1 ? lastBit : 1 << 63
+                let out = ph & high != 0 ? 1 : (mh & high != 0 ? -1 : 0)
+                ph <<= 1
+                mh <<= 1
+                if carry < 0 { mh |= 1 } else if carry > 0 { ph |= 1 }
+                pv[b] = mh | ~(xv | ph)
+                mv[b] = ph & xv
+                carry = out
+            }
+            score += carry
+        }
+        return score
+    }
+}
+
+// MARK: - Verifier
+
+/// Checks extracted action items and decisions against the transcript. The
+/// deterministic pre-check runs first: a quote that does not occur in the
+/// transcript makes its item unsupported without any LLM call.
+enum ActionItemVerifier {
+    /// Seconds of transcript on each side of a claim's timestamp shown to the verifier.
+    static let windowRadius: Double = 60
+    static let quoteNotFoundReason = "The quoted words do not occur in the transcript."
+
+    enum ClaimKind: String {
+        case actionItem = "action item"
+        case decision
+    }
+
+    /// An item whose quote was found, to be checked by the verifier call.
+    struct Claim: Equatable {
+        /// `a<n>` / `d<n>`: the item's 1-based position in `actionItems` / `decisions`.
+        let id: String
+        let kind: ClaimKind
+        let text: String
+        let owner: String?
+        let due: String?
+        let quote: String
+        /// Time of the line where the quote was found.
+        let seconds: Double
+    }
+
+    /// The deterministic half of verification. Items without a quote stay
+    /// as they are (`.unverified`, never auto-accepted). Items whose quote is
+    /// not found (score below ``FuzzyText/matchThreshold``) become
+    /// `.unsupported` with ``quoteNotFoundReason``. Found items get the
+    /// located line's label as timestamp (fixing a mis-cited `[mm:ss]`) and a
+    /// ``Claim``; claim ids follow list position, so `a3` is always the third
+    /// action item even when earlier ones produced no claim.
+    static func precheck(_ facts: SummaryFacts, index: TranscriptIndex) -> (facts: SummaryFacts, claims: [Claim]) {
+        var result = facts
+        var claims: [Claim] = []
+
+        for (i, item) in facts.actionItems.enumerated() {
+            guard let quote = item.quote, !FuzzyText.normalized(quote).isEmpty else { continue }
+            if let line = located(quote, timestamp: item.timestamp, in: index) {
+                result.actionItems[i].timestamp = line.label
+                claims.append(Claim(id: "a\(i + 1)", kind: .actionItem, text: item.task, owner: item.owner,
+                                    due: item.due, quote: quote, seconds: line.seconds))
+            } else {
+                result.actionItems[i].verified = .unsupported
+                result.actionItems[i].verificationReason = quoteNotFoundReason
+            }
+        }
+
+        for (i, decision) in facts.decisions.enumerated() {
+            guard let quote = decision.quote, !FuzzyText.normalized(quote).isEmpty else { continue }
+            if let line = located(quote, timestamp: decision.timestamp, in: index) {
+                result.decisions[i].timestamp = line.label
+                claims.append(Claim(id: "d\(i + 1)", kind: .decision, text: decision.text, owner: nil,
+                                    due: nil, quote: quote, seconds: line.seconds))
+            } else {
+                result.decisions[i].verified = .unsupported
+                result.decisions[i].verificationReason = quoteNotFoundReason
+            }
+        }
+        return (result, claims)
+    }
+
+    /// Seconds for an item's cited timestamp (`mm:ss` or `h:mm:ss`, optionally
+    /// in brackets), or nil when it is missing or out of range: every
+    /// component after the first, and `mm` of a `mm:ss` label, must be < 60
+    /// (``TranscriptLineFormat/seconds(fromLabel:)`` alone accepts `99:99`).
+    static func itemSeconds(_ timestamp: String?) -> Double? {
+        guard var label = timestamp?.trimmingCharacters(in: .whitespaces) else { return nil }
+        if label.hasPrefix("["), label.hasSuffix("]"), label.count >= 2 {
+            label = String(label.dropFirst().dropLast())
+        }
+        guard let seconds = TranscriptLineFormat.seconds(fromLabel: label) else { return nil }
+        let parts = label.split(separator: ":").compactMap { Int($0) }
+        let bounded = parts.count == 2 ? parts : Array(parts.dropFirst())
+        guard bounded.allSatisfy({ $0 < 60 }) else { return nil }
+        return seconds
+    }
+
+    /// The line where `quote` was found with a score ≥ ``FuzzyText/matchThreshold``.
+    private static func located(_ quote: String, timestamp: String?, in index: TranscriptIndex) -> TranscriptLine? {
+        let match = index.locate(quote: quote, near: itemSeconds(timestamp))
+        guard match.score >= FuzzyText.matchThreshold else { return nil }
+        return match.line
+    }
+}
