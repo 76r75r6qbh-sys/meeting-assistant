@@ -242,4 +242,52 @@ final class TranscriptLineFormatTests: XCTestCase {
         XCTAssertEqual(TranscriptLineFormat.timestampLabel(seconds: 36000), "10:00:00")
         XCTAssertEqual(TranscriptLineFormat.timestampLabel(seconds: .nan), "00:00")
     }
+
+    // MARK: - sanitizedSpeakerName
+
+    func testSanitizedSpeakerNameStripsColonAndBrackets() {
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName("  Dr. A: B  "), "Dr. A B")
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName("[Kim]"), "Kim")
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName("Kim\t\n Owen-Jones"), "Kim Owen-Jones")
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName(" : [ ] "), "")
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName(""), "")
+    }
+
+    func testSanitizedSpeakerNameTruncatesTo40() {
+        let long = String(repeating: "a", count: 50)
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName(long).count, 40)
+        // A cut that lands on a space does not leave a trailing space.
+        let spaced = String(repeating: "b", count: 39) + " cdef"
+        XCTAssertEqual(TranscriptLineFormat.sanitizedSpeakerName(spaced), String(repeating: "b", count: 39))
+    }
+
+    func testRenameWithInvalidNameRoundTripsThroughParse() throws {
+        let transcript = "[00:10] Spreker 1: hallo"
+        let renamed = TranscriptLineFormat.renameSpeaker(in: transcript, from: "Spreker 1", to: "Dr. A: B")
+        let sanitized = TranscriptLineFormat.sanitizedSpeakerName("Dr. A: B")
+        XCTAssertEqual(renamed, "[00:10] Dr. A B: hallo")
+        let line = try XCTUnwrap(TranscriptLineFormat.parse(renamed, knownSpeakers: [sanitized]))
+        XCTAssertEqual(line.speaker, sanitized)
+        XCTAssertEqual(line.text, "hallo")
+    }
+
+    func testRenameToEmptySanitizedNameIsNoOp() {
+        let transcript = "[00:10] Spreker 1: hallo"
+        XCTAssertEqual(TranscriptLineFormat.renameSpeaker(in: transcript, from: "Spreker 1", to: " : "), transcript)
+    }
+
+    func testRenderSanitizesDisplayName() {
+        let speakers = [
+            SpeakerInfo(id: "s1", displayName: "Dr. A: B", source: .system, isUser: false, nameConfirmed: true),
+            SpeakerInfo(id: "s2", displayName: "[ ]", source: .system, isUser: false, nameConfirmed: false),
+        ]
+        let segments = [
+            SpeakerSegment(start: 1, end: 2, speakerID: "s1", text: "ja", words: nil),
+            SpeakerSegment(start: 3, end: 4, speakerID: "s2", text: "nee", words: nil),
+        ]
+        XCTAssertEqual(
+            TranscriptLineFormat.render(segments, speakers: speakers),
+            "[00:01] Dr. A B: ja\n[00:03] nee"
+        )
+    }
 }

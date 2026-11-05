@@ -22,6 +22,21 @@ enum TranscriptLineFormat {
         pattern: #"^\[(\d{1,2}:\d{2}(?::\d{2})?)\] ?(.*)$"#
     )
 
+    // MARK: - Speaker names
+
+    /// A display name that is safe as a line prefix and parses back: trimmed,
+    /// `:` `[` `]` replaced by a space, whitespace runs collapsed to one space,
+    /// cut to ``maxSpeakerNameLength`` characters (then trimmed again).
+    /// `""` when nothing is left; callers treat that as "no name".
+    static func sanitizedSpeakerName(_ raw: String) -> String {
+        let replaced = String(raw.map { ":[]".contains($0) ? " " : $0 })
+        let collapsed = replaced
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return String(collapsed.prefix(maxSpeakerNameLength))
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     // MARK: - Parsing
 
     /// Parses a line without speaker knowledge. A `Name: ` prefix is ambiguous
@@ -91,12 +106,13 @@ enum TranscriptLineFormat {
         return String(format: "%02d:%02d", minutes, secs)
     }
 
-    /// One line per segment, `[label] Name: text`. A `nil` or unknown
-    /// `speakerID` (or an empty display name) gets no prefix.
+    /// One line per segment, `[label] Name: text`, with `Name` passed through
+    /// ``sanitizedSpeakerName(_:)``. A `nil` or unknown `speakerID` (or a
+    /// display name that sanitizes to empty) gets no prefix.
     static func render(_ segments: [SpeakerSegment], speakers: [SpeakerInfo]) -> String {
         var names: [String: String] = [:]
         for speaker in speakers where names[speaker.id] == nil {
-            names[speaker.id] = speaker.displayName
+            names[speaker.id] = sanitizedSpeakerName(speaker.displayName)
         }
         return segments.map { segment in
             let label = "[\(timestampLabel(seconds: segment.start))]"
@@ -115,8 +131,11 @@ enum TranscriptLineFormat {
     /// elsewhere on the line (including another `old: `), lines without a
     /// valid timestamp and all other bytes, line endings (`\n` and `\r\n`)
     /// included, are untouched, so hand edits and terminology fixes survive.
-    static func renameSpeaker(in transcript: String, from old: String, to new: String) -> String {
-        guard !old.isEmpty, old != new else { return transcript }
+    /// `new` is passed through ``sanitizedSpeakerName(_:)``; when that is empty
+    /// the transcript is returned unchanged. `old` is matched as written.
+    static func renameSpeaker(in transcript: String, from old: String, to rawNew: String) -> String {
+        let new = sanitizedSpeakerName(rawNew)
+        guard !old.isEmpty, !new.isEmpty, old != new else { return transcript }
         // Split on the scalar: Swift treats "\r\n" as one Character, so a
         // Character split on "\n" would leave CRLF transcripts as one line.
         let lines = transcript.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false)

@@ -124,6 +124,10 @@ final class AppPreferencesTests: XCTestCase {
         AppPreferences.registerDefaults(in: defaults)
 
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled))
-        XCTAssertNil(defaults.persistentDomain(forName: suite)?[AppPreferenceKey.keepSpeakerTracks])
+        // The registration domain is process-wide (the test host registered it
+        // too), so check what was persisted: exactly the one value set above.
+        // Fails both if registering wrote values and if the domain is unreadable.
+        let persisted = defaults.persistentDomain(forName: suite) ?? [:]
+        XCTAssertEqual(Set(persisted.keys), [AppPreferenceKey.recogniseSpeakersEnabled])
     }
 }

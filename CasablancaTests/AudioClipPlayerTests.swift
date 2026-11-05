@@ -10,6 +10,7 @@ private final class FakePlaybackEngine: AudioPlaybackEngine {
     private(set) var isPlaying = false
     private(set) var playCount = 0
     private(set) var stopCount = 0
+    private(set) var pauseCount = 0
     var playSucceeds = true
 
     init(url: URL) { self.url = url }
@@ -18,6 +19,11 @@ private final class FakePlaybackEngine: AudioPlaybackEngine {
         playCount += 1
         isPlaying = playSucceeds
         return playSucceeds
+    }
+
+    func pause() {
+        pauseCount += 1
+        isPlaying = false
     }
 
     func stop() {
@@ -34,13 +40,26 @@ private final class FakePlaybackEngine: AudioPlaybackEngine {
 private final class ManualTicker {
     private(set) var tick: (@MainActor () -> Void)?
     private(set) var cancelCount = 0
+    private(set) var makeCount = 0
+    private(set) var lastInterval: TimeInterval?
+    private var activeToken = 0
 
     func make(_ interval: TimeInterval, _ tick: @escaping @MainActor () -> Void) -> AnyCancellable {
+        makeCount += 1
+        lastInterval = interval
+        activeToken += 1
+        let token = activeToken
         self.tick = tick
-        return AnyCancellable { [weak self] in self?.cancelCount += 1 }
+        return AnyCancellable { [weak self] in
+            guard let self else { return }
+            self.cancelCount += 1
+            if self.activeToken == token { self.tick = nil }
+        }
     }
 
+    /// Fires the live ticker; a no-op once it was cancelled.
     func fire() { tick?() }
+    var isActive: Bool { tick != nil }
 }
 
 @MainActor
@@ -146,5 +165,91 @@ final class AudioClipPlayerTests: XCTestCase {
         )
         XCTAssertThrowsError(try player.play(url: urlA, from: 0))
         XCTAssertFalse(player.isPlaying)
+    }
+
+    func testPauseResume() throws {
+        let player = makePlayer()
+        try player.play(url: urlA, from: 4)
+        let engine = engines[0]
+
+        engine.currentTime = 6
+        player.pause()
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.playingURL, urlA, "a paused clip stays loaded")
+        XCTAssertEqual(player.currentTime, 6)
+        XCTAssertEqual(engine.pauseCount, 1)
+        XCTAssertEqual(engine.stopCount, 0)
+        XCTAssertFalse(ticker.isActive, "no ticks while paused")
+
+        player.resume()
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.playCount, 2)
+        XCTAssertTrue(ticker.isActive)
+        XCTAssertEqual(engine.currentTime, 6, "resumes where it paused")
+
+        engine.currentTime = 7
+        ticker.fire()
+        XCTAssertEqual(player.currentTime, 7)
+    }
+
+    func testSeekWhilePlaying() throws {
+        let player = makePlayer()
+        try player.play(url: urlA, from: 0)
+        let engine = engines[0]
+
+        player.seek(to: 42)
+        XCTAssertEqual(engine.currentTime, 42)
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertTrue(player.isPlaying)
+
+        player.seek(to: 500)
+        XCTAssertEqual(player.currentTime, 120, "clamped to the file length")
+        player.seek(to: -3)
+        XCTAssertEqual(player.currentTime, 0, "clamped to the start")
+
+        player.pause()
+        player.seek(to: 10)
+        XCTAssertEqual(player.currentTime, 10, "seeking while paused moves the position")
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    func testStopResetsCurrentTime() throws {
+        let player = makePlayer()
+        try player.play(url: urlA, from: 30)
+        engines[0].currentTime = 33
+        ticker.fire()
+        XCTAssertEqual(player.currentTime, 33)
+
+        player.stop()
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertNil(player.playingURL)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    func testDurationPublished() throws {
+        let player = makePlayer()
+        XCTAssertEqual(player.duration, 0)
+        try player.play(url: urlA, from: 0)
+        XCTAssertEqual(player.duration, 120)
+        player.stop()
+        XCTAssertEqual(player.duration, 0, "nothing loaded after stop")
+    }
+
+    func testTickerRunsAtAboutAQuarterSecond() throws {
+        let player = makePlayer()
+        try player.play(url: urlA, from: 0)
+        XCTAssertEqual(ticker.lastInterval, 0.25)
+        XCTAssertEqual(AudioClipPlayer.tickInterval, 0.25)
+    }
+
+    func testPauseAndResumeWithoutClipAreNoOps() {
+        let player = makePlayer()
+        player.pause()
+        player.resume()
+        player.seek(to: 5)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertTrue(engines.isEmpty)
     }
 }
