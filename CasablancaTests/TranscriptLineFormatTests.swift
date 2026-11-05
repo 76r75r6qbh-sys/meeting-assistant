@@ -161,4 +161,85 @@ final class TranscriptLineFormatTests: XCTestCase {
         XCTAssertEqual(SpeakerData.decodeSegments(SpeakerData.encodeSegments(segments)), segments)
         XCTAssertEqual(SpeakerData.decodeSpeakers(SpeakerData.encodeSpeakers(speakers)), speakers)
     }
+
+    // MARK: - Robustness (review fix round)
+
+    func testSecondsFromLabelRejectsOverlongComponents() {
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "999999999999999999:1"))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "999999999999999999999:00"))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "123:45"))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "12:3"))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "1:2:03"))
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "5:07"), 307)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "10:02:03"), 36123)
+    }
+
+    func testRenameLeavesOverflowingLabelLineUnchanged() {
+        let transcript = "[999999999999999999:1] Spreker 1: x\n[00:02] Spreker 1: y"
+        XCTAssertEqual(
+            TranscriptLineFormat.renameSpeaker(in: transcript, from: "Spreker 1", to: "Kim"),
+            "[999999999999999999:1] Spreker 1: x\n[00:02] Kim: y"
+        )
+    }
+
+    func testRenameHandlesCRLFTranscript() {
+        let transcript = "[00:01] Spreker 1: a\r\n[00:02] Youri: b\r\n[00:03] Spreker 1: c\n[00:04] Spreker 1:\r\n"
+        XCTAssertEqual(
+            TranscriptLineFormat.renameSpeaker(in: transcript, from: "Spreker 1", to: "Kim"),
+            "[00:01] Kim: a\r\n[00:02] Youri: b\r\n[00:03] Kim: c\n[00:04] Kim:\r\n"
+        )
+    }
+
+    func testRenameKeepsTrailingNewline() {
+        XCTAssertEqual(
+            TranscriptLineFormat.renameSpeaker(in: "[00:01] Spreker 1: a\n", from: "Spreker 1", to: "Kim"),
+            "[00:01] Kim: a\n"
+        )
+    }
+
+    func testRenamePrefixWithEmptyText() {
+        let transcript = "[00:10] Spreker 1:\n[00:11] Spreker 1: \n[00:12] Spreker 1:x"
+        XCTAssertEqual(
+            TranscriptLineFormat.renameSpeaker(in: transcript, from: "Spreker 1", to: "Kim"),
+            "[00:10] Kim:\n[00:11] Kim: \n[00:12] Spreker 1:x"
+        )
+    }
+
+    func testRenameWithoutSpaceAfterTimestamp() {
+        XCTAssertEqual(
+            TranscriptLineFormat.renameSpeaker(in: "[00:10]Spreker 1: a", from: "Spreker 1", to: "Kim"),
+            "[00:10]Kim: a"
+        )
+    }
+
+    func testParsesKnownSpeakerWithEmptyText() throws {
+        for raw in ["[00:10] Youri:", "[00:10] Youri: "] {
+            let line = try XCTUnwrap(TranscriptLineFormat.parse(raw, knownSpeakers: ["Youri"]), raw)
+            XCTAssertEqual(line.speaker, "Youri", raw)
+            XCTAssertEqual(line.text, "", raw)
+        }
+        let unknown = try XCTUnwrap(TranscriptLineFormat.parse("[00:10] Youri:"))
+        XCTAssertNil(unknown.speaker)
+        XCTAssertEqual(unknown.text, "Youri:")
+    }
+
+    func testParsesLineWithoutSpaceAfterTimestamp() throws {
+        // Documented behaviour: the space after `]` is optional.
+        let line = try XCTUnwrap(TranscriptLineFormat.parse("[00:10]text"))
+        XCTAssertEqual(line.label, "00:10")
+        XCTAssertEqual(line.seconds, 10)
+        XCTAssertNil(line.speaker)
+        XCTAssertEqual(line.text, "text")
+        let spoken = try XCTUnwrap(TranscriptLineFormat.parse("[00:10]Youri: ja", knownSpeakers: ["Youri"]))
+        XCTAssertEqual(spoken.speaker, "Youri")
+        XCTAssertEqual(spoken.text, "ja")
+    }
+
+    func testTimestampLabelClampsHugeValues() {
+        XCTAssertFalse(TranscriptLineFormat.timestampLabel(seconds: 1e30).isEmpty)
+        XCTAssertFalse(TranscriptLineFormat.timestampLabel(seconds: -1e30).isEmpty)
+        XCTAssertFalse(TranscriptLineFormat.timestampLabel(seconds: Double(Int.max)).isEmpty)
+        XCTAssertEqual(TranscriptLineFormat.timestampLabel(seconds: 36000), "10:00:00")
+        XCTAssertEqual(TranscriptLineFormat.timestampLabel(seconds: .nan), "00:00")
+    }
 }

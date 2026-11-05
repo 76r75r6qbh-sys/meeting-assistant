@@ -33,6 +33,10 @@ enum TranscriptLineFormat {
 
     /// Parses a line, treating a `Name: ` prefix as the speaker only when
     /// `Name` is in `knownSpeakers`. `nil` if there is no leading `[ts]`.
+    ///
+    /// The single space after `]` is optional: `[00:10]text` parses as label
+    /// `00:10`, text `text` (and `[00:10]Youri: ja` still yields speaker
+    /// `Youri`). `[00:10] Youri:` and `[00:10] Youri: ` yield empty text.
     static func parse(_ line: String, knownSpeakers: Set<String>) -> TranscriptLine? {
         let range = NSRange(line.startIndex..., in: line)
         guard let match = lineRegex.firstMatch(in: line, range: range),
@@ -51,10 +55,14 @@ enum TranscriptLineFormat {
     }
 
     /// Seconds for a `mm:ss` or `h:mm:ss` label; `nil` if it is neither.
+    /// Grammar: the first component has 1–2 digits, every later one exactly 2
+    /// (`5:07`, `12:34`, `1:02:03`, `10:02:03`), so the sum can never overflow.
     static func seconds(fromLabel label: String) -> Double? {
         let parts = label.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2 || parts.count == 3,
-              parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) })
+              parts.allSatisfy({ $0.allSatisfy(\.isASCIIDigit) }),
+              (1...2).contains(parts[0].count),
+              parts.dropFirst().allSatisfy({ $0.count == 2 })
         else { return nil }
         let values = parts.compactMap { Int($0) }
         guard values.count == parts.count else { return nil }
@@ -65,14 +73,20 @@ enum TranscriptLineFormat {
     // MARK: - Formatting
 
     /// `mm:ss` below one hour, `h:mm:ss` from one hour on. Fractions are
-    /// truncated. Byte-identical to the formatter TranscriptionService used.
+    /// truncated. Byte-identical to the formatter TranscriptionService used
+    /// for every value it could format; non-finite input counts as 0 and
+    /// values beyond `Int`'s range are clamped instead of trapping.
     static func timestampLabel(seconds: Double) -> String {
-        let totalSeconds = seconds.isFinite ? Int(seconds) : 0
+        let finite = seconds.isFinite ? seconds : 0
+        // Double(Int.max) rounds up to 2^63, which Int() cannot hold.
+        let clamped = min(max(finite, Double(Int.min)), Double(Int.max).nextDown)
+        let totalSeconds = Int(clamped)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let secs = totalSeconds % 60
         if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+            // `\(hours)` rather than `%d`: `%d` is 32-bit and would garble large Ints.
+            return "\(hours)" + String(format: ":%02d:%02d", minutes, secs)
         }
         return String(format: "%02d:%02d", minutes, secs)
     }
@@ -95,36 +109,55 @@ enum TranscriptLineFormat {
 
     // MARK: - Renaming
 
-    /// Rewrites the `old: ` speaker prefix to `new: ` on every line that starts
-    /// with `[ts] old: `. Text elsewhere on the line (including another
-    /// `old: `), lines without a timestamp and all other bytes are untouched,
-    /// so hand edits and terminology fixes survive.
+    /// Rewrites the `old` speaker prefix to `new` on every line that starts
+    /// with `[ts] old: ` (or is exactly `[ts] old:`, i.e. empty text). The
+    /// space after `]` is optional, as in `parse`, and kept as found. Text
+    /// elsewhere on the line (including another `old: `), lines without a
+    /// valid timestamp and all other bytes, line endings (`\n` and `\r\n`)
+    /// included, are untouched, so hand edits and terminology fixes survive.
     static func renameSpeaker(in transcript: String, from old: String, to new: String) -> String {
         guard !old.isEmpty, old != new else { return transcript }
-        let oldPrefix = "\(old): "
-        let lines = transcript.split(separator: "\n", omittingEmptySubsequences: false)
-        return lines.map { line -> String in
-            let line = String(line)
-            guard let close = timestampPrefixEnd(line) else { return line }
-            let afterTimestamp = line[close...]
-            guard afterTimestamp.hasPrefix(" " + oldPrefix) else { return line }
-            let textStart = afterTimestamp.index(afterTimestamp.startIndex, offsetBy: 1 + oldPrefix.count)
-            return String(line[..<close]) + " \(new): " + afterTimestamp[textStart...]
+        // Split on the scalar: Swift treats "\r\n" as one Character, so a
+        // Character split on "\n" would leave CRLF transcripts as one line.
+        let lines = transcript.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.map { scalars -> String in
+            var body = String(String.UnicodeScalarView(scalars))
+            var ending = ""
+            if body.unicodeScalars.last == "\r" {
+                body.unicodeScalars.removeLast()
+                ending = "\r"
+            }
+            return renameSpeakerInLine(body, from: old, to: new) + ending
         }.joined(separator: "\n")
+    }
+
+    /// `renameSpeaker` for one line without its line terminator.
+    private static func renameSpeakerInLine(_ line: String, from old: String, to new: String) -> String {
+        guard let close = timestampPrefixEnd(line) else { return line }
+        let afterTimestamp = line[close...]
+        let spacing = afterTimestamp.hasPrefix(" ") ? " " : ""
+        let rest = afterTimestamp.dropFirst(spacing.count)
+        let head = String(line[..<close]) + spacing
+        if rest == "\(old):" {
+            return head + "\(new):"
+        }
+        guard rest.hasPrefix("\(old): ") else { return line }
+        return head + "\(new): " + rest.dropFirst(old.count + 2)
     }
 
     // MARK: - Helpers
 
     /// Splits `Name: text` per the prefix grammar: 1–40 characters without
-    /// `:` or `[`, then `": "`.
+    /// `:` or `[`, then `": "`. A name with a colon at the very end of the line
+    /// (`Name:`) or followed by just a space (`Name: `) has empty text.
     private static func splitSpeakerPrefix(_ rest: String) -> (String, String)? {
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let name = rest[..<colon]
-        guard !name.isEmpty, name.count <= maxSpeakerNameLength, !name.contains("["),
-              rest[rest.index(after: colon)...].hasPrefix(" ")
-        else { return nil }
-        let textStart = rest.index(colon, offsetBy: 2)
-        return (String(name), String(rest[textStart...]))
+        guard !name.isEmpty, name.count <= maxSpeakerNameLength, !name.contains("[") else { return nil }
+        let afterColon = rest[rest.index(after: colon)...]
+        if afterColon.isEmpty { return (String(name), "") }
+        guard afterColon.hasPrefix(" ") else { return nil }
+        return (String(name), String(afterColon.dropFirst()))
     }
 
     /// Index just past the closing `]` of a valid leading `[label]`, if any.
