@@ -240,21 +240,10 @@ struct MeetingSummaryTab: View {
 
     // MARK: - Action item ↔ todo sync
 
-    /// Finds the meeting-scoped `TodoItem` whose text matches a parsed action item.
-    /// To-dos created from the user's own items are stored without the
-    /// `**owner** —` prefix (see `ActionItemOwnership`) and without the rendered
-    /// ` (yyyy-MM-dd) [mm:ss]` suffix (see `ActionItemRendering`), so the full
-    /// bullet, its bare action and the action without suffix all count as a
-    /// match. Rejected to-dos never match.
+    /// The meeting `TodoItem` a parsed action item stands for; see
+    /// `ActionItemTodoMatcher` (accepted before proposed, rejected never).
     private func matchingTodo(for text: String) -> TodoItem? {
-        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let action = ActionItemOwnership.parse(target).action
-        let bareAction = ActionItemRendering.strippingSuffix(action)
-        return meeting.todos.first {
-            guard $0.status != .rejected else { return false }
-            let todoText = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return todoText == target || todoText == action || todoText == bareAction
-        }
+        ActionItemTodoMatcher.matchingTodo(for: text, in: meeting.todos)
     }
 
     private func isActionItemCompleted(_ text: String) -> Bool {

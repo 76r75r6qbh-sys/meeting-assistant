@@ -163,4 +163,52 @@ final class ActionItemRenderingTests: XCTestCase {
         XCTAssertEqual(ActionItemRendering.strippingSuffix("Stuur offerte [1:02:03]"), "Stuur offerte")
         XCTAssertEqual(ActionItemRendering.strippingSuffix("Stuur offerte (2026-11-06)"), "Stuur offerte")
     }
+
+    /// Review fix 3: a second alias heading for the same section is removed,
+    /// so the model's stale bullets cannot reach an export.
+    func testDuplicateAliasSectionsAreRemoved() {
+        let notes = """
+        # Samenvatting
+        Kort.
+
+        ## Action Items
+        - **Kim** — Oud punt
+
+        ## Besluiten
+        - We gaan door
+
+        ## Actiepunten
+        - **Kim** — Ander oud punt
+        - **?** — Nog een
+
+        ## Actielijst
+        - **?** — Derde
+
+        ## Risico's en blockers
+        - Budget
+        """
+        let result = ActionItemRendering.replacingSection(.actionItems, in: notes, bullets: ["**Kim** — Nieuw"])
+        XCTAssertEqual(result, """
+        # Samenvatting
+        Kort.
+
+        ## Action Items
+        - **Kim** — Nieuw
+
+        ## Besluiten
+        - We gaan door
+
+        ## Risico's en blockers
+        - Budget
+        """)
+        XCTAssertEqual(SummaryResponseParser.parse(result).todoTexts, ["**Kim** — Nieuw"])
+    }
+
+    func testDuplicateAliasSectionAtTheEndIsRemoved() {
+        let notes = "# Summary\nShort.\n\n## Decisions\n- Old\n\n## Action Items\n- **?** — Mail\n\n## Besluiten\n- Stale\n"
+        XCTAssertEqual(
+            ActionItemRendering.replacingSection(.decisions, in: notes, bullets: ["New"]),
+            "# Summary\nShort.\n\n## Decisions\n- New\n\n## Action Items\n- **?** — Mail\n"
+        )
+    }
 }

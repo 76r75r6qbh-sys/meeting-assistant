@@ -129,4 +129,66 @@ final class TodoReviewServiceTests: XCTestCase {
         XCTAssertFalse(summary.contains("Voorgesteld"))
         XCTAssertFalse(summary.contains("Afgewezen"))
     }
+
+    /// Review fix 1: to-dos checked off in the summary tab store the full
+    /// bullet (rendered or legacy); re-summarizing never proposes them again.
+    func testReplaceSkipsTasksMatchingAcceptedFullBulletTodos() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        context.insert(TodoItem(text: "**?** — Plan de demo [00:20]", meeting: meeting))
+        context.insert(TodoItem(text: "**Youri** — Stuur release notes", meeting: meeting))
+        context.insert(TodoItem(text: "**Youri** — Mail Kim (2026-11-06) [1:02:03]", meeting: meeting))
+        try context.save()
+
+        try TodoReviewService.replaceProposedTodos(
+            for: meeting,
+            with: [item("Plan de demo"), item("Stuur de release notes."), item("Mail Kim"),
+                   item("Plan Q4 budget"), item("Bel leverancier")],
+            in: context
+        )
+        try context.save()
+
+        let proposed = try todos(of: meeting, in: context).filter { $0.status == .proposed }.map(\.text)
+        XCTAssertEqual(proposed, ["Bel leverancier", "Plan Q4 budget"])
+    }
+
+    func testReplaceKeepsDigitAndShortTextRulesOfTheFuzzyMatch() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        context.insert(TodoItem(text: "**Youri** — Plan Q3 budget", meeting: meeting))
+        context.insert(TodoItem(text: "Bel Kim", meeting: meeting))
+        try context.save()
+
+        try TodoReviewService.replaceProposedTodos(
+            for: meeting, with: [item("Plan Q4 budget"), item("Bel Tim"), item("Bel Kim.")], in: context
+        )
+        try context.save()
+
+        let proposed = try todos(of: meeting, in: context).filter { $0.status == .proposed }.map(\.text)
+        XCTAssertEqual(proposed, ["Bel Tim", "Plan Q4 budget"])
+    }
+
+    /// Review fix 2: an accepted match wins over a proposed one, so a checked
+    /// item never shows "In review"; ties go to the oldest row.
+    func testMatchingTodoPrefersAcceptedOverProposed() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let proposed = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 100), meeting: meeting)
+        proposed.status = .proposed
+        let rejected = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 50), meeting: meeting)
+        rejected.status = .rejected
+        let newerAccepted = TodoItem(text: "**Youri** — Plan de demo [00:20]", isCompleted: true,
+                                     createdAt: Date(timeIntervalSince1970: 300), meeting: meeting)
+        let olderAccepted = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 200), meeting: meeting)
+        let bullet = "**Youri** — Plan de demo [00:20]"
+
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [proposed, rejected, newerAccepted, olderAccepted]) === olderAccepted)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [proposed, rejected, newerAccepted]) === newerAccepted)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [rejected, proposed]) === proposed)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [rejected]))
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Iets anders", in: [olderAccepted]))
+    }
 }

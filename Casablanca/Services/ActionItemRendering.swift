@@ -68,12 +68,29 @@ enum ActionItemRendering {
     /// occurrence). Without one, a heading is inserted: Dutch when the notes
     /// are Dutch; Decisions before Action Items (else before the risks heading,
     /// else at the end); Action Items directly after Decisions (else before the
-    /// risks heading, else at the end).
+    /// risks heading, else at the end). Further headings for the same section
+    /// (another alias, or a repeat) are removed with their bodies.
     static func replacingSection(_ field: SummaryResponseParser.Field, in markdown: String, bullets: [String]) -> String {
         var lines = markdown.components(separatedBy: "\n")
         let body = bullets.map { "- " + singleLine($0) }
 
-        if let heading = headingIndex(field, in: lines) {
+        if var heading = headingIndex(field, in: lines) {
+            // Other headings for the same section (`## Actiepunten` next to
+            // `## Action Items`) go, so the model's stale bullets can't reach
+            // an export. Bottom-up, so earlier indices stay valid.
+            let keys = Set(SummaryResponseParser.headingAliases(for: field).map(SummaryResponseParser.normalizeTitle))
+            let duplicates = lines.indices.filter { $0 != heading && (title(of: lines[$0]).map(keys.contains) ?? false) }
+            for duplicate in duplicates.reversed() {
+                let end = nextHeading(after: duplicate, in: lines)
+                lines.removeSubrange(duplicate..<end)
+                if duplicate < heading { heading -= end - duplicate }
+                if end >= lines.count + (end - duplicate) {
+                    // The removed section ran to the end: keep the document's
+                    // own trailing newline, no extra blank lines.
+                    while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+                    if markdown.hasSuffix("\n") { lines.append("") }
+                }
+            }
             let end = nextHeading(after: heading, in: lines)
             var replacement = body
             if end < lines.count || markdown.hasSuffix("\n") { replacement.append("") }
