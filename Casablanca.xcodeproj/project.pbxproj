@@ -277,9 +277,11 @@
 		E089A42E8333E50171E0249F /* AskCorpusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536FA138501F184E5CF9B2AA /* AskCorpusTests.swift */; };
 		E14B9E3C42DDFF387EF53739 /* TerminologyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EE29FDF8FFC1ABF7924FBC /* TerminologyService.swift */; };
 		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
+		E37157D46802924137427D9C /* AskPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323D33001F55D2B58702027B /* AskPromptTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
 		E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */; };
 		E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */; };
+		E95332C441C52B5035BC0F76 /* AskPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58926EE4B2F9FE05A4707DD4 /* AskPrompt.swift */; };
 		EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
 		EE2603CEF476CBAD683D007C /* ApplicationsLocationCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D64BC5E807A9D8403D0DAC0 /* ApplicationsLocationCheck.swift */; };
@@ -350,6 +352,7 @@
 		2ED040940F5803E66DD0C95A /* SleepPreventer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepPreventer.swift; sourceTree = "<group>"; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		3112D1EC465D41751FAC75BD /* TicketDraftBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TicketDraftBody.swift; sourceTree = SOURCE_ROOT; };
+		323D33001F55D2B58702027B /* AskPromptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AskPromptTests.swift; sourceTree = SOURCE_ROOT; };
 		32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/StubLLMProvider.swift; sourceTree = SOURCE_ROOT; };
 		348E68C9FBB335806B18BFE3 /* ActionQueueModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionQueueModel.swift; sourceTree = "<group>"; };
 		3AA7A06D80FD840FA9F5BE53 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
@@ -374,6 +377,7 @@
 		5674AC1D358C93873946B16C /* NoRealVaultWritesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NoRealVaultWritesTests.swift; sourceTree = "<group>"; };
 		56AB2FCC508033335CEBE22B /* EvaluationExport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/EvaluationExport.swift; sourceTree = SOURCE_ROOT; };
 		57896A2F7F0787F58D67E20C /* RecordingResumeSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeSessionStoreTests.swift; sourceTree = "<group>"; };
+		58926EE4B2F9FE05A4707DD4 /* AskPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/AskPrompt.swift; sourceTree = SOURCE_ROOT; };
 		58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Models/ActionCardBodies/TopdeskResponseBody.swift; sourceTree = SOURCE_ROOT; };
 		5F665A23474FE05E8763B831 /* DockBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DockBadge.swift; sourceTree = SOURCE_ROOT; };
 		61E245460A1EA003B67878DC /* RecordingInterruptionHandling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/RecordingInterruptionHandling.swift; sourceTree = SOURCE_ROOT; };
@@ -846,6 +850,7 @@
 				6B51A5FEE84D7AA0E45C3B65 /* AskTokenizer.swift */,
 				0043D9098C1CBAB1B1678EDB /* AskCorpus.swift */,
 				10867AF7D3054FEB207B4B61 /* BM25Index.swift */,
+				58926EE4B2F9FE05A4707DD4 /* AskPrompt.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1044,6 +1049,7 @@
 				14B7B2221C04FD81B59C7973 /* AskTokenizerTests.swift */,
 				536FA138501F184E5CF9B2AA /* AskCorpusTests.swift */,
 				ECECD7A30A1D849ED3B4A63D /* BM25IndexTests.swift */,
+				323D33001F55D2B58702027B /* AskPromptTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1420,6 +1426,7 @@
 				4D01944C56893B068F76C3F4 /* AskTokenizer.swift in Sources */,
 				1F967E05ED06028C68BB76AB /* AskCorpus.swift in Sources */,
 				FECF07D7AA365B31354D6468 /* BM25Index.swift in Sources */,
+				E95332C441C52B5035BC0F76 /* AskPrompt.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1536,6 +1543,7 @@
 				2AB97E322FBF8F7E28C727FA /* AskTokenizerTests.swift in Sources */,
 				E089A42E8333E50171E0249F /* AskCorpusTests.swift in Sources */,
 				2E3A4734EE01F724B28C0AD0 /* BM25IndexTests.swift in Sources */,
+				E37157D46802924137427D9C /* AskPromptTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
