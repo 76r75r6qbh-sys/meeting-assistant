@@ -229,7 +229,9 @@ final class RecordingSessionRecoveryTests: XCTestCase {
                 systemAudioPCM: systemURL,
                 systemAudioPCMByteCount: 600 * 4
             ),
-            store: store
+            store: store,
+            // Plenty of space, whatever the machine running the test has.
+            availableCapacity: { _ in .max }
         )
 
         XCTAssertTrue(rendered)

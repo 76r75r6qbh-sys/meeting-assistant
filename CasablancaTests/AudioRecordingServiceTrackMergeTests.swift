@@ -54,7 +54,16 @@ final class AudioRecordingServiceTrackMergeTests: XCTestCase {
 
         let service = AudioRecordingService(
             sessionStore: store,
-            makeFinalOutputURL: { _ in finalURL }
+            makeFinalOutputURL: { _ in finalURL },
+            // The real merger, with plenty of space, so the nil tracks come
+            // from the unreadable kept PCM and not from the machine's disk.
+            mergeTracks: { segmentWAVs, recordingURL in
+                await RecordingTrackMerger.mergeInBackground(
+                    segmentWAVs: segmentWAVs,
+                    recordingURL: recordingURL,
+                    availableCapacity: { _ in .max }
+                )
+            }
         )
 
         let result = try await service.stopRecording(for: meeting)

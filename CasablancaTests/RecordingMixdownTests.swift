@@ -301,7 +301,8 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
             microphoneFrames: 0,
             systemAudioFrames: 2,
             outputURL: output,
-            expectedOutputFrames: 2
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
         ).render()
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path))
