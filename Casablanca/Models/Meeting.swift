@@ -112,6 +112,16 @@ final class Meeting {
     var appleNotesSummaryNoteID: String?
     var appleNotesRawNotesNoteID: String?
     var localPrepNotes: String = ""
+    // Schema V3 — all optional so the V2 → V3 migration is additive.
+    /// JSON `[SpeakerSegment]`; use ``speakerSegments``.
+    var speakerSegmentsData: Data?
+    /// JSON `[SpeakerInfo]`; use ``speakers``.
+    var speakersData: Data?
+    /// JSON `[ExtractedActionItem]`; use ``actionItems``.
+    var actionItemsData: Data?
+    var summaryTemplateID: String?
+    var micTrackFileURL: String?
+    var systemTrackFileURL: String?
     var createdAt: Date
     @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
 
@@ -134,6 +144,23 @@ final class Meeting {
         self.transcriptionLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.defaultTranscriptionLanguage) ?? "en-US"
         self.createdAt = Date()
         self.todos = []
+    }
+
+    // MARK: - Speaker and action item data
+
+    var speakerSegments: [SpeakerSegment] {
+        get { SpeakerData.decodeSegments(speakerSegmentsData) }
+        set { speakerSegmentsData = SpeakerData.encodeSegments(newValue) }
+    }
+
+    var speakers: [SpeakerInfo] {
+        get { SpeakerData.decodeSpeakers(speakersData) }
+        set { speakersData = SpeakerData.encodeSpeakers(newValue) }
+    }
+
+    var actionItems: [ExtractedActionItem] {
+        get { ActionItemData.decode(actionItemsData) }
+        set { actionItemsData = ActionItemData.encode(newValue) }
     }
 
     var isUpcoming: Bool {
