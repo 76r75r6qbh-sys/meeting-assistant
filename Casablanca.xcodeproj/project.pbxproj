@@ -108,6 +108,9 @@
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
 		TCHK0001 /* TranscriptChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCHK0101 /* TranscriptChunker.swift */; };
+		SPKT0003 /* TranscriptLineFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0103 /* TranscriptLineFormat.swift */; };
+		SPKT0002 /* ExtractedActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0102 /* ExtractedActionItem.swift */; };
+		SPKT0001 /* SpeakerTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0101 /* SpeakerTranscript.swift */; };
 		A10023 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* ExportService.swift */; };
 		A10024 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = J10002 /* WhisperKit */; };
 		A10025 /* MenuBarMeetingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* MenuBarMeetingView.swift */; };
@@ -187,6 +190,8 @@
 		A10217 /* ProcessingStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10217 /* ProcessingStatusCard.swift */; };
 		A10218 /* MeetingPipelineStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10218 /* MeetingPipelineStateTests.swift */; };
 		TCHK0002 /* TranscriptChunkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCHK0102 /* TranscriptChunkerTests.swift */; };
+		SPKT0005 /* ExtractedActionItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0105 /* ExtractedActionItemTests.swift */; };
+		SPKT0004 /* TranscriptLineFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0104 /* TranscriptLineFormatTests.swift */; };
 		A10220 /* SkeletonModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10220 /* SkeletonModifier.swift */; };
 		A10221 /* ToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10221 /* ToastCenter.swift */; };
 		A10222 /* StringHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10222 /* StringHighlighting.swift */; };
@@ -410,6 +415,9 @@
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
 		TCHK0101 /* TranscriptChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptChunker.swift; sourceTree = "<group>"; };
+		SPKT0103 /* TranscriptLineFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLineFormat.swift; sourceTree = "<group>"; };
+		SPKT0102 /* ExtractedActionItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedActionItem.swift; sourceTree = "<group>"; };
+		SPKT0101 /* SpeakerTranscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscript.swift; sourceTree = "<group>"; };
 		B10024 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		B10025 /* MenuBarMeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMeetingView.swift; sourceTree = "<group>"; };
 		B10026 /* TodoItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoItem.swift; sourceTree = "<group>"; };
@@ -488,6 +496,8 @@
 		B10217 /* ProcessingStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingStatusCard.swift; sourceTree = "<group>"; };
 		B10218 /* MeetingPipelineStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPipelineStateTests.swift; sourceTree = "<group>"; };
 		TCHK0102 /* TranscriptChunkerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptChunkerTests.swift; sourceTree = "<group>"; };
+		SPKT0105 /* ExtractedActionItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedActionItemTests.swift; sourceTree = "<group>"; };
+		SPKT0104 /* TranscriptLineFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLineFormatTests.swift; sourceTree = "<group>"; };
 		B10220 /* SkeletonModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonModifier.swift; sourceTree = "<group>"; };
 		B10221 /* ToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastCenter.swift; sourceTree = "<group>"; };
 		B10222 /* StringHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHighlighting.swift; sourceTree = "<group>"; };
@@ -736,6 +746,8 @@
 				F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */,
 				2A95FA4950E5A2B5E259868C /* ActionQueueDisplay.swift */,
 				1F5FB51D6114AB97758F1F61 /* JiraLink.swift */,
+				SPKT0102 /* ExtractedActionItem.swift */,
+				SPKT0101 /* SpeakerTranscript.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -748,6 +760,7 @@
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
+				SPKT0103 /* TranscriptLineFormat.swift */,
 				CHAT0102 /* MeetingChatService.swift */,
 				B10024 /* ExportService.swift */,
 				B10215 /* MeetingPipelineState.swift */,
@@ -939,6 +952,8 @@
 				B10210 /* MeetingDetailPresentationTests.swift */,
 				B10218 /* MeetingPipelineStateTests.swift */,
 				TCHK0102 /* TranscriptChunkerTests.swift */,
+				SPKT0105 /* ExtractedActionItemTests.swift */,
+				SPKT0104 /* TranscriptLineFormatTests.swift */,
 				B10224 /* TranscriptPresentationTests.swift */,
 				B10225 /* StringHighlightingTests.swift */,
 				B10226 /* MeetingSoftDeleteTests.swift */,
@@ -1231,6 +1246,9 @@
 				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
 				TCHK0001 /* TranscriptChunker.swift in Sources */,
+				SPKT0003 /* TranscriptLineFormat.swift in Sources */,
+				SPKT0002 /* ExtractedActionItem.swift in Sources */,
+				SPKT0001 /* SpeakerTranscript.swift in Sources */,
 				A10023 /* ExportService.swift in Sources */,
 				A10215 /* MeetingPipelineState.swift in Sources */,
 				A10216 /* ExportStatusCenter.swift in Sources */,
@@ -1406,6 +1424,8 @@
 				A10210 /* MeetingDetailPresentationTests.swift in Sources */,
 				A10218 /* MeetingPipelineStateTests.swift in Sources */,
 				TCHK0002 /* TranscriptChunkerTests.swift in Sources */,
+				SPKT0005 /* ExtractedActionItemTests.swift in Sources */,
+				SPKT0004 /* TranscriptLineFormatTests.swift in Sources */,
 				A10224 /* TranscriptPresentationTests.swift in Sources */,
 				A10225 /* StringHighlightingTests.swift in Sources */,
 				A10226 /* MeetingSoftDeleteTests.swift in Sources */,
