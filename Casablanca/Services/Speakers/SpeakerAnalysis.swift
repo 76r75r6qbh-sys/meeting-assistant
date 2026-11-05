@@ -72,9 +72,9 @@ enum SpeakerAnalysisOutcome: Equatable {
 /// downloadable (offline), a model error, the timeout — keeps the attribution
 /// as it was (`Others`), with `diarization: .failed(reason)`, a status line and
 /// `SpeakerModelStatus.failed` as the non-blocking notice. The outcome goes
-/// into the meeting's `SpeakerAnalysisRecord` sidecar, with the LLM's name
-/// suggestions (Task A6) when a `nameProposer` is given: never applied, the
-/// speakers bar offers them.
+/// into the meeting's `SpeakerAnalysisRecord` sidecar. Name suggestions
+/// (Task A6) are not part of this step: they run afterwards, see
+/// ``liveNameSuggester(defaults:store:proposer:)``.
 enum SpeakerAnalysis {
 
     /// How long one diarization may take before the speaker step gives up on
@@ -89,8 +89,7 @@ enum SpeakerAnalysis {
         store: SpeakerAnalysisStore = SpeakerAnalysisStore(),
         modelStatus: SpeakerModelStatus = .shared,
         status: @escaping @MainActor (String) -> Void = { _ in },
-        diarizationTimeout: Duration = defaultDiarizationTimeout,
-        nameProposer: SpeakerNameProposer? = nil
+        diarizationTimeout: Duration = defaultDiarizationTimeout
     ) -> PostTranscriptionPipeline.SpeakerAnalyzer {
         { meeting, result in
             guard defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled) else { return .disabled }
@@ -100,7 +99,6 @@ enum SpeakerAnalysis {
             let systemTrackPath = meeting.systemTrackFileURL
             let language = meeting.transcriptionLanguage
             let userAliases = AppPreferences.userNameAliases(in: defaults)
-            let participants = meeting.participants
             let segments = result.segments
             let outcome = await analyze(
                 micTrackPath: micTrackPath,
@@ -122,13 +120,8 @@ enum SpeakerAnalysis {
                 status: status,
                 timeout: diarizationTimeout
             )
-            let suggestions = await suggestNames(for: diarized, participants: participants, proposer: nameProposer)
             do {
-                try store.save(SpeakerAnalysisRecord(
-                    meetingID: meetingID,
-                    diarization: diarized.diarization,
-                    suggestions: suggestions
-                ))
+                try store.save(SpeakerAnalysisRecord(meetingID: meetingID, diarization: diarized.diarization, suggestions: []))
             } catch {
                 Log.transcription.error(
                     "Could not save the speaker analysis record: \(error.localizedDescription, privacy: .public)"
@@ -138,26 +131,85 @@ enum SpeakerAnalysis {
         }
     }
 
-    /// Name suggestions for a diarized meeting, for the sidecar. Asks
-    /// `proposer` only when diarization succeeded and left at least one
-    /// unconfirmed non-user speaker, and there is something to go on (the
-    /// participant list or the transcript). The transcript the LLM sees is the
-    /// render of `diarized`, the same labels the meeting is about to show. A
-    /// failed proposal is logged by the proposer and gives `[]`. `nil`
-    /// proposer: no suggestions (tests and callers without an LLM).
+    // MARK: - Name suggestions (Task A6)
+
+    /// The pipeline's name-suggestion step: after the transcript and status
+    /// are saved, asks `proposer` in the background and writes the answers
+    /// into the sidecar (the speakers bar refreshes on the store's change
+    /// notification). Returns the background task, or `nil` when nothing runs:
+    /// the user has not opted in (`SpeakerPreferenceKey`, default off — no
+    /// automatic LLM call without consent), diarization did not succeed, or no
+    /// unconfirmed non-user speaker is left. A failure or timeout is only a log
+    /// line (the proposer's), and the sidecar stays as it was.
     @MainActor
-    static func suggestNames(
-        for diarized: SpeakerAnalysisResult,
-        participants: [String],
-        proposer: SpeakerNameProposer?
+    static func liveNameSuggester(
+        defaults: UserDefaults = .standard,
+        store: SpeakerAnalysisStore = SpeakerAnalysisStore(),
+        proposer: SpeakerNameProposer = SpeakerNameProposer()
+    ) -> PostTranscriptionPipeline.SpeakerNameSuggester {
+        { meeting in
+            guard defaults.bool(forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically) else { return nil }
+            // Read the meeting now: it may be deleted while the LLM runs.
+            let meetingID = meeting.id
+            let speakers = meeting.speakers
+            let participants = meeting.participants
+            let transcript = meeting.transcript ?? ""
+            guard let record = store.load(meetingID),
+                  case .succeeded = record.diarization,
+                  !SpeakerNameProposer.candidates(speakers).isEmpty,
+                  !participants.isEmpty || !transcript.isEmpty
+            else { return nil }
+            return Task { @MainActor in
+                let suggestions = await proposer.propose(
+                    speakers: speakers,
+                    participants: participants,
+                    transcript: transcript
+                )
+                guard !suggestions.isEmpty else { return }
+                // No sidecar any more means the meeting was deleted meanwhile.
+                storeSuggestions(suggestions, meetingID: meetingID, store: store, createIfMissing: false)
+            }
+        }
+    }
+
+    /// The speakers bar's "Suggest names": runs `proposer` now, whatever the
+    /// automatic setting, and stores the answers (replacing earlier ones),
+    /// creating the sidecar for a meeting that has none. Never applies a name.
+    @MainActor
+    static func suggestNamesNow(
+        for meeting: Meeting,
+        store: SpeakerAnalysisStore,
+        proposer: SpeakerNameProposer
     ) async -> [SpeakerNameSuggestion] {
-        guard let proposer,
-              case .succeeded = diarized.diarization,
-              !SpeakerNameProposer.candidates(diarized.speakers).isEmpty
-        else { return [] }
-        let transcript = TranscriptLineFormat.render(diarized.segments, speakers: diarized.speakers)
-        guard !participants.isEmpty || !transcript.isEmpty else { return [] }
-        return await proposer.propose(speakers: diarized.speakers, participants: participants, transcript: transcript)
+        let meetingID = meeting.id
+        let suggestions = await proposer.propose(for: meeting)
+        storeSuggestions(suggestions, meetingID: meetingID, store: store, createIfMissing: !suggestions.isEmpty)
+        return suggestions
+    }
+
+    @MainActor
+    private static func storeSuggestions(
+        _ suggestions: [SpeakerNameSuggestion],
+        meetingID: UUID,
+        store: SpeakerAnalysisStore,
+        createIfMissing: Bool
+    ) {
+        var record: SpeakerAnalysisRecord
+        if let existing = store.load(meetingID) {
+            record = existing
+        } else if createIfMissing {
+            record = SpeakerAnalysisRecord(meetingID: meetingID, diarization: .notRun, suggestions: [])
+        } else {
+            return
+        }
+        record.suggestions = suggestions
+        do {
+            try store.save(record)
+        } catch {
+            Log.transcription.error(
+                "Could not save speaker name suggestions: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     /// `attributed` with the diarizer's clusters applied, or unchanged with

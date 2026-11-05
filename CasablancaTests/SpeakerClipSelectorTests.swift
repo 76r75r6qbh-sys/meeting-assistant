@@ -102,4 +102,38 @@ final class SpeakerClipSelectorTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(shares["S1"]), 0.4, accuracy: 1e-9)
         XCTAssertEqual(SpeakerClipSelector.talkTimeShares([]), [:])
     }
+
+    func testCrossSourceMergeUsesEachSegmentsOwnTrack() throws {
+        let store = SpeakerAnalysisStore(directory: directory.appendingPathComponent("Speakers", isDirectory: true))
+        let meeting = makeMeeting(segments: [
+            segment(0, 2, "me"),
+            segment(5, 14, "S1"), // the longest, heard on the system track
+        ])
+        meeting.speakers = [meeting.speakers[0], meeting.speakers[1]]
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Me", in: meeting, store: store)
+        XCTAssertEqual(meeting.speakers.map(\.id), ["me"])
+
+        let overrides = store.load(meeting.id)?.segmentSources ?? [:]
+        XCTAssertEqual(
+            SpeakerClipSelector.clip(for: "me", meeting: meeting, sourceOverrides: overrides),
+            SpeakerClip(url: systemURL, start: 5, duration: 5),
+            "The moved system segment plays from the system track, not the user's mic"
+        )
+    }
+
+    func testTalkTimePercentagesAddUpTo100() {
+        // Three equal speakers: 33.33 % each would round to 99.
+        let thirds = SpeakerClipSelector.talkTimePercentages([
+            segment(0, 1, "a"), segment(1, 2, "b"), segment(2, 3, "c"),
+        ])
+        XCTAssertEqual(thirds.values.reduce(0, +), 100)
+        XCTAssertEqual(thirds, ["a": 34, "b": 33, "c": 33], "Ties go to the earliest id")
+
+        // 0.5/0.5/99 % style shares: each rounds up, the sum would be 101.
+        let skewed = SpeakerClipSelector.talkTimePercentages([
+            segment(0, 0.5, "a"), segment(1, 1.5, "b"), segment(2, 101, "c"),
+        ])
+        XCTAssertEqual(skewed.values.reduce(0, +), 100)
+        XCTAssertEqual(SpeakerClipSelector.talkTimePercentages([]), [:])
+    }
 }

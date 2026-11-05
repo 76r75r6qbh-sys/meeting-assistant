@@ -42,6 +42,10 @@ struct PostTranscriptionPipeline {
     /// outcome but `.analysed` means "no labels", and the legacy transcript is
     /// stored. The outcome also decides what happens to unkept tracks.
     typealias SpeakerAnalyzer = @MainActor (Meeting, TranscriptionResult) async -> SpeakerAnalysisOutcome
+    /// Starts the (opt-in) speaker-name suggestions for a stored, labelled
+    /// meeting in the background and returns at once; the task is returned
+    /// for tests. Never delays the transcript.
+    typealias SpeakerNameSuggester = @MainActor (Meeting) -> Task<Void, Never>?
     /// The transcript, its terms, and how to correct it (see
     /// `TerminologyCorrectionContext`).
     typealias TerminologyCorrector = @MainActor (String, [TerminologyEntry], TerminologyCorrectionContext) async -> String
@@ -51,6 +55,7 @@ struct PostTranscriptionPipeline {
     typealias TrackCompressor = Compressor
 
     private let analyzeSpeakers: SpeakerAnalyzer
+    private let suggestSpeakerNames: SpeakerNameSuggester
     private let correctTerminology: TerminologyCorrector
     private let saveTranscript: TranscriptSaver
     private let export: Exporter
@@ -63,6 +68,7 @@ struct PostTranscriptionPipeline {
     /// behaviour.
     init(
         analyzeSpeakers: @escaping SpeakerAnalyzer = { _, _ in .skipped },
+        suggestSpeakerNames: @escaping SpeakerNameSuggester = { _ in nil },
         correctTerminology: @escaping TerminologyCorrector,
         saveTranscript: @escaping TranscriptSaver,
         export: @escaping Exporter,
@@ -71,6 +77,7 @@ struct PostTranscriptionPipeline {
         defaults: UserDefaults = .standard
     ) {
         self.analyzeSpeakers = analyzeSpeakers
+        self.suggestSpeakerNames = suggestSpeakerNames
         self.correctTerminology = correctTerminology
         self.saveTranscript = saveTranscript
         self.export = export
@@ -88,10 +95,10 @@ struct PostTranscriptionPipeline {
         speakerStatus: @escaping @MainActor (String) -> Void = { _ in }
     ) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
-            analyzeSpeakers: SpeakerAnalysis.live(
+            analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults, status: speakerStatus),
+            suggestSpeakerNames: SpeakerAnalysis.liveNameSuggester(
                 defaults: defaults,
-                status: speakerStatus,
-                nameProposer: SpeakerNameProposer(providerFactory: { LLMProviderFactory.current(defaults: defaults) })
+                proposer: SpeakerNameProposer(providerFactory: { LLMProviderFactory.current(defaults: defaults) })
             ),
             correctTerminology: terminologyCorrector(using: terminologyService),
             saveTranscript: { meeting, result in
@@ -166,6 +173,8 @@ struct PostTranscriptionPipeline {
         }
         meeting.status = .completed
         save(modelContext)
+        // After the save, never awaited: the LLM must not hold up anything below.
+        if analysis != nil { _ = suggestSpeakerNames(meeting) }
 
         let saveAndExportStart = ContinuousClock.now
         _ = try? saveTranscript(meeting, result)

@@ -1,5 +1,14 @@
 import Foundation
 
+/// Speaker preference keys owned by Track A. `AppPreferenceKey` lives in the
+/// reserved `Meeting.swift`; Phase 2 moves this key there.
+enum SpeakerPreferenceKey {
+    /// Ask the LLM for speaker names after each transcription. Default off:
+    /// no automatic LLM call without the user's opt-in. "Suggest names" in the
+    /// speakers bar works either way.
+    static let suggestSpeakerNamesAutomatically = "suggestSpeakerNamesAutomatically"
+}
+
 /// Asks the LLM who the anonymous speakers are, from the participant list and
 /// the first minutes of the transcript.
 ///

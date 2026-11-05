@@ -190,38 +190,135 @@ final class SpeakerNameProposerTests: XCTestCase {
         XCTAssertEqual(stub.calls.count, 0)
     }
 
-    // MARK: - Speaker step wiring
+    // MARK: - Automatic (opt-in, non-blocking) and manual suggestions
 
-    func testSpeakerStepProposesOnlyAfterDiarizationWithUnnamedSpeakers() async {
-        let stub = StubLLMProvider(outcomes: [
-            .success(#"[{"speakerID": "S1", "name": "Jan", "evidence": "Ik ben Jan"}]"#),
-        ])
-        let proposer = SpeakerNameProposer(providerFactory: { stub })
-        let segments = [
-            SpeakerSegment(start: 4, end: 12, speakerID: "S1", text: "Ja hoor. Ik ben Jan en ik doe de integraties.", words: nil),
-        ]
-        let diarized = SpeakerAnalysisResult(
-            segments: segments,
-            speakers: [speakers[1]],
-            diarization: .succeeded(clusterCount: 1)
+    private func makeStore() -> (SpeakerAnalysisStore, URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpeakerNameProposerTests-\(UUID().uuidString)", isDirectory: true)
+        return (SpeakerAnalysisStore(directory: directory), directory)
+    }
+
+    private func makeDefaults(autoSuggest: Bool?) -> UserDefaults {
+        let suite = "SpeakerNameProposerTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        if let autoSuggest {
+            defaults.set(autoSuggest, forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically)
+        }
+        return defaults
+    }
+
+    private let janAnswer = #"[{"speakerID": "S1", "name": "Jan", "evidence": "Ik ben Jan"}]"#
+
+    func testAutomaticSuggestionsAreOffByDefault() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let meeting = makeMeeting()
+        try store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: .succeeded(clusterCount: 2), suggestions: []))
+        let stub = StubLLMProvider(outcomes: [.success(janAnswer)])
+        let suggester = SpeakerAnalysis.liveNameSuggester(
+            defaults: makeDefaults(autoSuggest: nil),
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
         )
 
-        let suggestions = await SpeakerAnalysis.suggestNames(for: diarized, participants: participants, proposer: proposer)
-        XCTAssertEqual(suggestions.map(\.name), ["Jan de Vries"])
+        XCTAssertNil(suggester(meeting), "No automatic LLM call without the opt-in")
+        XCTAssertEqual(stub.calls.count, 0)
+    }
+
+    func testAutomaticSuggestionsWriteTheSidecarWhenEnabled() async throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let meeting = makeMeeting()
+        try store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: .succeeded(clusterCount: 2), suggestions: []))
+        let stub = StubLLMProvider(outcomes: [.success(janAnswer)])
+        let suggester = SpeakerAnalysis.liveNameSuggester(
+            defaults: makeDefaults(autoSuggest: true),
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
+        )
+
+        let task = try XCTUnwrap(suggester(meeting))
+        await task.value
+
+        XCTAssertEqual(store.load(meeting.id)?.suggestions.map(\.name), ["Jan de Vries"])
+        XCTAssertEqual(store.load(meeting.id)?.diarization, .succeeded(clusterCount: 2), "The record keeps its outcome")
+        XCTAssertEqual(meeting.speakers, speakers, "Suggestions never touch the meeting")
         XCTAssertTrue(stub.calls.first?.prompt.contains("[00:04] Speaker 1: Ja hoor.") ?? false)
+    }
 
-        var failed = diarized
-        failed.diarization = .failed(reason: "offline")
-        let none = await SpeakerAnalysis.suggestNames(for: failed, participants: participants, proposer: proposer)
-        XCTAssertEqual(none, [])
+    func testAutomaticSuggestionsNeedASucceededDiarizationAndUnnamedSpeakers() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stub = StubLLMProvider(outcomes: [.success(janAnswer)])
+        let suggester = SpeakerAnalysis.liveNameSuggester(
+            defaults: makeDefaults(autoSuggest: true),
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
+        )
 
-        var named = diarized
-        named.speakers[0].nameConfirmed = true
-        let noCandidates = await SpeakerAnalysis.suggestNames(for: named, participants: participants, proposer: proposer)
-        XCTAssertEqual(noCandidates, [])
+        let failed = makeMeeting()
+        try store.save(SpeakerAnalysisRecord(meetingID: failed.id, diarization: .failed(reason: "offline"), suggestions: []))
+        XCTAssertNil(suggester(failed))
 
-        let noProposer = await SpeakerAnalysis.suggestNames(for: diarized, participants: participants, proposer: nil)
-        XCTAssertEqual(noProposer, [])
-        XCTAssertEqual(stub.calls.count, 1, "Only the first case reaches the LLM")
+        let noRecord = makeMeeting()
+        XCTAssertNil(suggester(noRecord))
+
+        let named = makeMeeting()
+        named.speakers = speakers.map { var s = $0; s.nameConfirmed = true; return s }
+        try store.save(SpeakerAnalysisRecord(meetingID: named.id, diarization: .succeeded(clusterCount: 2), suggestions: []))
+        XCTAssertNil(suggester(named))
+
+        XCTAssertEqual(stub.calls.count, 0)
+    }
+
+    func testAutomaticSuggestionFailureLeavesTheSidecarAlone() async throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let meeting = makeMeeting()
+        let record = SpeakerAnalysisRecord(meetingID: meeting.id, diarization: .succeeded(clusterCount: 2), suggestions: [])
+        try store.save(record)
+        let stub = StubLLMProvider(outcomes: [.failure(StubLLMProvider.transientFailure())])
+        let suggester = SpeakerAnalysis.liveNameSuggester(
+            defaults: makeDefaults(autoSuggest: true),
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
+        )
+
+        await suggester(meeting)?.value
+
+        XCTAssertEqual(store.load(meeting.id), record)
+        XCTAssertEqual(stub.calls.count, 1)
+    }
+
+    func testManualSuggestRunsEvenWhenTheSettingIsOff() async throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let meeting = makeMeeting()
+        let stub = StubLLMProvider(outcomes: [.success(janAnswer)])
+
+        // No sidecar yet (an older meeting): the manual path creates one.
+        let suggestions = await SpeakerAnalysis.suggestNamesNow(
+            for: meeting,
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
+        )
+
+        XCTAssertEqual(suggestions.map(\.speakerID), ["S1"])
+        XCTAssertEqual(store.load(meeting.id)?.suggestions, suggestions)
+        XCTAssertEqual(store.load(meeting.id)?.diarization, .notRun)
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(meeting.speakers, speakers)
+    }
+
+    func testStoreSaveAnnouncesTheChangedRecord() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = UUID()
+        let announced = expectation(forNotification: SpeakerAnalysisStore.recordDidChange, object: nil) { note in
+            note.userInfo?[SpeakerAnalysisStore.meetingIDKey] as? UUID == id
+        }
+        try store.save(SpeakerAnalysisRecord(meetingID: id, diarization: .notRun, suggestions: []))
+        wait(for: [announced], timeout: 1)
     }
 }

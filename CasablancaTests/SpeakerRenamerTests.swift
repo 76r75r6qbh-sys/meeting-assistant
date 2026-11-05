@@ -182,4 +182,92 @@ final class SpeakerRenamerTests: XCTestCase {
         XCTAssertEqual(meeting.speakers.map(\.isUser), [false, false])
         XCTAssertEqual(meeting.transcript, "[00:00] Speaker 1: Hi.\n[00:03] Speaker 2: Hello.")
     }
+
+    // MARK: - Review fixes
+
+    func testRenameOntoAnotherSpeakersPlaceholderLabelDoesNotMerge() throws {
+        let meeting = makeMeeting(
+            transcript: "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two.",
+            speakers: [cluster("S1", "Speaker 1"), cluster("S2", "Speaker 2")],
+            segments: [
+                SpeakerSegment(start: 0, end: 5, speakerID: "S1", text: "One.", words: nil),
+                SpeakerSegment(start: 5, end: 9, speakerID: "S2", text: "Two.", words: nil),
+            ]
+        )
+
+        XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S1", to: "Speaker 2", in: meeting))
+        XCTAssertEqual(meeting.speakers.map(\.id), ["S1", "S2"], "A placeholder label is not a person to merge into")
+        XCTAssertEqual(meeting.speakerSegments.map(\.speakerID), ["S1", "S2"])
+    }
+
+    func testRenameOntoTheUsersUnconfirmedNameMergesIntoTheUser() throws {
+        let meeting = makeMeeting(
+            transcript: "[00:00] Me: One.\n[00:05] Speaker 1: Two.",
+            speakers: [
+                SpeakerInfo(id: "me", displayName: "Me", source: .microphone, isUser: true, nameConfirmed: false),
+                cluster("S1", "Speaker 1"),
+            ],
+            segments: [
+                SpeakerSegment(start: 0, end: 5, speakerID: "me", text: "One.", words: nil),
+                SpeakerSegment(start: 5, end: 9, speakerID: "S1", text: "Two.", words: nil),
+            ]
+        )
+
+        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S1", to: "me", in: meeting))
+        XCTAssertEqual(meeting.speakers.map(\.id), ["me"])
+        XCTAssertEqual(meeting.transcript, "[00:00] Me: One.\n[00:05] Me: Two.")
+    }
+
+    func testRenameJanLeavesJanWillemAlone() throws {
+        let meeting = makeMeeting(
+            transcript: "[00:00] Jan: Hoi.\n[00:04] Jan-Willem: Hallo Jan.\n[00:08] Jan Willem: Ook hoi.",
+            speakers: [
+                SpeakerInfo(id: "S1", displayName: "Jan", source: .system, isUser: false, nameConfirmed: false),
+                SpeakerInfo(id: "S2", displayName: "Jan-Willem", source: .system, isUser: false, nameConfirmed: false),
+                SpeakerInfo(id: "S3", displayName: "Jan Willem", source: .system, isUser: false, nameConfirmed: false),
+            ]
+        )
+
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Jan de Vries", in: meeting)
+        XCTAssertEqual(meeting.transcript, "[00:00] Jan de Vries: Hoi.\n[00:04] Jan-Willem: Hallo Jan.\n[00:08] Jan Willem: Ook hoi.")
+
+        try SpeakerRenamer.rename(speakerID: "S2", to: "Jan-Willem Bakker", in: meeting)
+        XCTAssertEqual(meeting.transcript, "[00:00] Jan de Vries: Hoi.\n[00:04] Jan-Willem Bakker: Hallo Jan.\n[00:08] Jan Willem: Ook hoi.")
+    }
+
+    func testRenameKeepsCRLFLineEndings() throws {
+        let meeting = makeMeeting(
+            transcript: "[00:00] Speaker 1: Een.\r\n[00:05] Me: Twee.\r\n[00:09] Speaker 1:\r\n",
+            raw: "[00:00] Speaker 1: een.\r\n",
+            speakers: [cluster("S1", "Speaker 1")]
+        )
+
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting)
+
+        XCTAssertEqual(meeting.transcript, "[00:00] Kim: Een.\r\n[00:05] Me: Twee.\r\n[00:09] Kim:\r\n")
+        XCTAssertEqual(meeting.rawTranscript, "[00:00] Kim: een.\r\n")
+    }
+
+    func testCrossSourceMergeRecordsEachMovedSegmentsSource() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpeakerRenamerTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SpeakerAnalysisStore(directory: directory)
+        let meeting = makeMeeting(
+            transcript: "[00:00] Youri: One.\n[00:05] Speaker 1: Two.",
+            speakers: [
+                SpeakerInfo(id: "me", displayName: "Youri", source: .microphone, isUser: true, nameConfirmed: true),
+                cluster("S1", "Speaker 1"),
+            ],
+            segments: [
+                SpeakerSegment(start: 0, end: 2, speakerID: "me", text: "One.", words: nil),
+                SpeakerSegment(start: 5, end: 14, speakerID: "S1", text: "Two.", words: nil),
+            ]
+        )
+
+        XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S1", to: "Youri", in: meeting, store: store))
+
+        let sources = try XCTUnwrap(store.load(meeting.id)?.segmentSources)
+        XCTAssertEqual(sources, [SpeakerClipSelector.segmentKey(meeting.speakerSegments[1]): .system])
+    }
 }

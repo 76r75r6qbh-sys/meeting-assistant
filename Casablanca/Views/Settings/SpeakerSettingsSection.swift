@@ -6,6 +6,7 @@ struct SpeakerSettingsSection: View {
     @AppStorage(AppPreferenceKey.recogniseSpeakersEnabled) private var recogniseSpeakersEnabled = true
     @AppStorage(AppPreferenceKey.keepSpeakerTracks) private var keepSpeakerTracks = true
     @AppStorage(AppPreferenceKey.wordTimestampsEnabled) private var wordTimestampsEnabled = true
+    @AppStorage(SpeakerPreferenceKey.suggestSpeakerNamesAutomatically) private var suggestNamesAutomatically = false
 
     @State private var modelStatus = SpeakerModelStatus.shared
     var diarizer: SpeakerDiarizing = FluidAudioDiarizer.shared
@@ -15,6 +16,10 @@ struct SpeakerSettingsSection: View {
             Toggle("Recognise speakers", isOn: $recogniseSpeakersEnabled)
             Toggle("Keep separate speaker tracks", isOn: $keepSpeakerTracks)
             Toggle("Word timestamps", isOn: $wordTimestampsEnabled)
+            Toggle(isOn: $suggestNamesAutomatically) {
+                Text("Suggest speaker names automatically")
+                Text("After each transcription, sends the participants and the first 10 minutes to your AI provider. Names are only suggested; you confirm each one.")
+            }
             modelRow
         } header: {
             Text("Speakers")

@@ -500,6 +500,58 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertNil(fixture.store.load(fixture.meeting.id))
     }
 
+    /// Name suggestions (opt-in) never hold up the transcript: the meeting is
+    /// stored and `.completed` while the LLM is still thinking, and the
+    /// suggestions land in the sidecar afterwards.
+    func testTranscriptIsStoredBeforeNameSuggestionsFinish() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000), participants: ["Jan de Vries"])
+        context.insert(meeting)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-suggest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SpeakerAnalysisStore(directory: directory)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically)
+        let analysis = SpeakerAnalysisResult(
+            segments: [SpeakerSegment(start: 0, end: 4, speakerID: "S1", text: "Ik ben Jan.", words: nil)],
+            speakers: [SpeakerInfo(id: "S1", displayName: "Speaker 1", source: .system, isUser: false, nameConfirmed: false)],
+            diarization: .succeeded(clusterCount: 1)
+        )
+        let provider = GatedLLMProvider(answer: #"[{"speakerID": "S1", "name": "Jan", "evidence": "Ik ben Jan"}]"#)
+
+        let pipeline = PostTranscriptionPipeline(
+            analyzeSpeakers: { meeting, _ in
+                try? store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: analysis.diarization, suggestions: []))
+                return .analysed(analysis)
+            },
+            suggestSpeakerNames: SpeakerAnalysis.liveNameSuggester(
+                defaults: defaults,
+                store: store,
+                proposer: SpeakerNameProposer(providerFactory: { provider })
+            ),
+            correctTerminology: { transcript, _, _ in transcript },
+            saveTranscript: { _, _ in URL(fileURLWithPath: "/dev/null") },
+            export: { _ in },
+            compress: { $0 },
+            defaults: defaults
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "Ik ben Jan."), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.status, .completed)
+        XCTAssertEqual(meeting.transcript, "[00:00] Speaker 1: Ik ben Jan.")
+        XCTAssertEqual(store.load(meeting.id)?.suggestions, [], "The proposer is still running")
+
+        provider.release()
+        let deadline = Date().addingTimeInterval(3)
+        while store.load(meeting.id)?.suggestions.isEmpty ?? true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(store.load(meeting.id)?.suggestions.map(\.name), ["Jan de Vries"])
+        XCTAssertEqual(meeting.speakers.first?.displayName, "Speaker 1", "Suggestions are never applied")
+        XCTAssertTrue(provider.started)
+    }
+
     func testDiarizedSystemTrackNamesClusters() async throws {
         let fixture = try makeDiarizationFixture()
         defer { fixture.cleanUp() }
@@ -1084,4 +1136,40 @@ private final class FakeSleepPreventer: SleepPreventing {
 
 private final class FakeMemoryPressureMonitor: MemoryPressureMonitoring {
     func start(handler: @escaping @Sendable () -> Void) {}
+}
+
+/// A provider that answers only once `release()` is called, standing in for a
+/// slow LLM.
+private final class GatedLLMProvider: LLMProvider, @unchecked Sendable {
+    let displayName = "Gated"
+    let endpoint = "stub://gated"
+    let preferredTimeout: TimeInterval? = nil
+    let supportsFullTranscriptEcho = true
+    let promptTokenBudget = LLMPromptSupport.localPromptTokenBudget
+
+    private let answer: String
+    private let lock = NSLock()
+    private var isReleased = false
+    private var didStart = false
+
+    init(answer: String) { self.answer = answer }
+
+    var started: Bool { lock.withLock { didStart } }
+    func release() { lock.withLock { isReleased = true } }
+
+    func generate(
+        prompt: String,
+        temperature: Double?,
+        maxTokens: Int?,
+        timeout: TimeInterval,
+        truncated: ((Bool) -> Void)?
+    ) async throws -> String {
+        lock.withLock { didStart = true }
+        while !lock.withLock({ isReleased }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return answer
+    }
+
+    func fetchAvailableModels(endpoint: String) async throws -> [String] { [] }
 }

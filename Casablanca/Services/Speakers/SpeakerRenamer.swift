@@ -22,12 +22,23 @@ enum SpeakerRenamer {
 
     /// Renames `speakerID` to `name` and marks the name confirmed.
     ///
-    /// When another speaker already has that name (case-insensitively), the two
-    /// are the same person: this speaker's segments move to the other id, its
-    /// `SpeakerInfo` is dropped, its prefixes take the other speaker's spelling,
-    /// and the result is `true`.
+    /// When another speaker already has that name (case-insensitively) and
+    /// that name is a person's (confirmed, or the user's), the two are the
+    /// same person: this speaker's segments move to the other id, its
+    /// `SpeakerInfo` is dropped, its prefixes take the other speaker's
+    /// spelling, and the result is `true`. Another speaker's placeholder label
+    /// ("Speaker 2") is never a merge target.
+    ///
+    /// When the merged speakers were heard on different tracks and a `store`
+    /// is given, the moved segments' own source is kept in the sidecar
+    /// (`segmentSources`), so their samples still play from the right track.
     @discardableResult
-    static func rename(speakerID: String, to name: String, in meeting: Meeting) throws -> Bool {
+    static func rename(
+        speakerID: String,
+        to name: String,
+        in meeting: Meeting,
+        store: SpeakerAnalysisStore? = nil
+    ) throws -> Bool {
         let newName = sanitize(name)
         guard !newName.isEmpty else { throw RenameError.emptyName }
         var speakers = meeting.speakers
@@ -37,9 +48,19 @@ enum SpeakerRenamer {
         let oldName = sanitize(speakers[index].displayName)
 
         if let targetIndex = speakers.firstIndex(where: {
-            $0.id != speakerID && sanitize($0.displayName).caseInsensitiveCompare(newName) == .orderedSame
+            $0.id != speakerID
+                && ($0.nameConfirmed || $0.isUser)
+                && sanitize($0.displayName).caseInsensitiveCompare(newName) == .orderedSame
         }) {
             let target = speakers[targetIndex]
+            if let store, speakers[index].source != target.source {
+                recordSources(
+                    of: meeting.speakerSegments.filter { $0.speakerID == speakerID },
+                    source: speakers[index].source,
+                    meetingID: meeting.id,
+                    store: store
+                )
+            }
             rewritePrefixes(in: meeting, from: oldName, to: sanitize(target.displayName))
             meeting.speakerSegments = meeting.speakerSegments.map { segment in
                 guard segment.speakerID == speakerID else { return segment }
@@ -76,6 +97,33 @@ enum SpeakerRenamer {
             }
         }
         meeting.speakers = speakers
+    }
+
+    /// Adds `source` for each moved segment that has no recorded source yet
+    /// (an earlier merge already knows the true one). Best-effort: a sidecar
+    /// that cannot be written only costs the right sample track.
+    private static func recordSources(
+        of segments: [SpeakerSegment],
+        source: SpeakerSource,
+        meetingID: UUID,
+        store: SpeakerAnalysisStore
+    ) {
+        guard !segments.isEmpty else { return }
+        var record = store.load(meetingID)
+            ?? SpeakerAnalysisRecord(meetingID: meetingID, diarization: .notRun, suggestions: [])
+        var sources = record.segmentSources ?? [:]
+        for segment in segments {
+            let key = SpeakerClipSelector.segmentKey(segment)
+            if sources[key] == nil { sources[key] = source }
+        }
+        record.segmentSources = sources
+        do {
+            try store.save(record)
+        } catch {
+            Log.transcription.error(
+                "Could not record merged segment sources: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     private static func rewritePrefixes(in meeting: Meeting, from oldName: String, to newName: String) {

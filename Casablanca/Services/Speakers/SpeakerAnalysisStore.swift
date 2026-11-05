@@ -20,6 +20,11 @@ struct SpeakerAnalysisRecord: Codable, Equatable, Sendable {
     var meetingID: UUID
     var diarization: DiarizationOutcome
     var suggestions: [SpeakerNameSuggestion]
+    /// The capture source of segments that a cross-source merge moved to a
+    /// speaker heard on another track, keyed by
+    /// `SpeakerClipSelector.segmentKey`, so their samples still play from the
+    /// track they were recorded on. Absent in older sidecars.
+    var segmentSources: [String: SpeakerSource]? = nil
 }
 
 /// One JSON sidecar per meeting, `<meetingID>.json`, under
@@ -41,11 +46,26 @@ struct SpeakerAnalysisStore: Sendable {
         return try? JSONDecoder().decode(SpeakerAnalysisRecord.self, from: data)
     }
 
+    /// Posted after every successful `save`, with the meeting's id under
+    /// ``meetingIDKey``, so a speakers bar shows suggestions that arrive after
+    /// it appeared. Posted on the main thread.
+    static let recordDidChange = Notification.Name("SpeakerAnalysisStore.recordDidChange")
+    static let meetingIDKey = "meetingID"
+
     func save(_ record: SpeakerAnalysisRecord) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(record).write(to: fileURL(record.meetingID), options: .atomic)
+        let meetingID = record.meetingID
+        let post: @Sendable () -> Void = {
+            NotificationCenter.default.post(
+                name: Self.recordDidChange,
+                object: nil,
+                userInfo: [Self.meetingIDKey: meetingID]
+            )
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
     }
 
     /// Best-effort: a missing sidecar is fine.

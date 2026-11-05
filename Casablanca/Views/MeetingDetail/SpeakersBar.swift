@@ -4,6 +4,10 @@ import SwiftUI
 /// name, its share of the talk time, a ▶ sample from its speaker track, and a
 /// rename popover with participant names and the LLM's suggestions.
 ///
+/// "Suggest names" asks the LLM on demand (whatever the automatic setting);
+/// suggestions that arrive later (the pipeline's opt-in step) show up through
+/// the store's change notification. Nothing is applied without a tap.
+///
 /// Renames rewrite only the transcript's line prefixes (`SpeakerRenamer`).
 /// `onSpeakersChanged` runs after every rename, merge or "this is me" change,
 /// so the owner can save and (Phase 2) offer to regenerate the summary.
@@ -11,6 +15,7 @@ struct SpeakersBar: View {
     let meeting: Meeting
     let store: SpeakerAnalysisStore
     var onSpeakersChanged: ((Meeting) -> Void)? = nil
+    private let proposer: SpeakerNameProposer
 
     @ObservedObject private var player = AudioClipPlayer.shared
     @State private var record: SpeakerAnalysisRecord?
@@ -20,22 +25,39 @@ struct SpeakersBar: View {
     /// Speakers whose clip failed to play.
     @State private var unavailableClips: Set<String> = []
     @State private var renamingSpeakerID: String?
+    @State private var isSuggesting = false
+    /// Shown after "Suggest names" found nothing.
+    @State private var suggestionNote: String?
 
-    init(meeting: Meeting, store: SpeakerAnalysisStore, onSpeakersChanged: ((Meeting) -> Void)? = nil) {
+    init(
+        meeting: Meeting,
+        store: SpeakerAnalysisStore,
+        proposer: SpeakerNameProposer = SpeakerNameProposer(),
+        onSpeakersChanged: ((Meeting) -> Void)? = nil
+    ) {
         self.meeting = meeting
         self.store = store
+        self.proposer = proposer
         self.onSpeakersChanged = onSpeakersChanged
     }
 
     var body: some View {
         let speakers = meeting.speakers
-        let shares = SpeakerClipSelector.talkTimeShares(meeting.speakerSegments)
+        let percentages = SpeakerClipSelector.talkTimePercentages(meeting.speakerSegments)
 
         VStack(alignment: .leading, spacing: CasaSpace.xs) {
             FlowLayout(spacing: CasaSpace.xs) {
                 ForEach(speakers) { speaker in
-                    chip(for: speaker, share: shares[speaker.id])
+                    chip(for: speaker, percentage: percentages[speaker.id])
                 }
+                if canSuggestNames {
+                    suggestButton
+                }
+            }
+            if let suggestionNote {
+                Text(suggestionNote)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
             }
             if let caption = Self.failureCaption(record?.diarization) {
                 Text(caption)
@@ -49,6 +71,11 @@ struct SpeakersBar: View {
         .task(id: meeting.id) {
             record = store.load(meeting.id)
             unavailableClips = []
+            suggestionNote = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SpeakerAnalysisStore.recordDidChange)) { note in
+            guard note.userInfo?[SpeakerAnalysisStore.meetingIDKey] as? UUID == meeting.id else { return }
+            record = store.load(meeting.id)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Speakers")
@@ -67,7 +94,7 @@ struct SpeakersBar: View {
     // MARK: - Chip
 
     @ViewBuilder
-    private func chip(for speaker: SpeakerInfo, share: Double?) -> some View {
+    private func chip(for speaker: SpeakerInfo, percentage: Int?) -> some View {
         let suggestions = suggestions(for: speaker.id)
         HStack(spacing: CasaSpace.xs) {
             Button {
@@ -107,11 +134,11 @@ struct SpeakersBar: View {
                 )
             }
 
-            if let share {
-                Text("\(Int((share * 100).rounded()))%")
+            if let percentage {
+                Text("\(percentage)%")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(Color.textTertiary)
-                    .accessibilityLabel("\(Int((share * 100).rounded())) percent of talk time")
+                    .accessibilityLabel("\(percentage) percent of talk time")
             }
 
             clipButton(for: speaker)
@@ -129,7 +156,11 @@ struct SpeakersBar: View {
                 .foregroundStyle(Color.textTertiary)
                 .help("Sample unavailable")
                 .accessibilityLabel("Sample unavailable")
-        } else if let clip = SpeakerClipSelector.clip(for: speaker.id, meeting: meeting) {
+        } else if let clip = SpeakerClipSelector.clip(
+            for: speaker.id,
+            meeting: meeting,
+            sourceOverrides: record?.segmentSources ?? [:]
+        ) {
             let isPlaying = player.isPlaying && player.playingURL == clip.url && playingSpeakerID == speaker.id
             Button {
                 if isPlaying {
@@ -167,7 +198,7 @@ struct SpeakersBar: View {
     /// name is confirmed now). Returns an error message, or nil on success.
     private func rename(_ speakerID: String, to name: String) -> String? {
         do {
-            try SpeakerRenamer.rename(speakerID: speakerID, to: name, in: meeting)
+            try SpeakerRenamer.rename(speakerID: speakerID, to: name, in: meeting, store: store)
         } catch SpeakerRenamer.RenameError.emptyName {
             return "Enter a name."
         } catch {
@@ -176,6 +207,42 @@ struct SpeakersBar: View {
         removeSuggestions(for: speakerID)
         onSpeakersChanged?(meeting)
         return nil
+    }
+
+    /// Whether "Suggest names" has something to work on.
+    private var canSuggestNames: Bool {
+        !SpeakerNameProposer.candidates(meeting.speakers).isEmpty
+            && !(meeting.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var suggestButton: some View {
+        Button {
+            Task { await suggestNames() }
+        } label: {
+            HStack(spacing: CasaSpace.xxs) {
+                if isSuggesting {
+                    ProgressView().controlSize(.mini)
+                    Text("Suggesting\u{2026}")
+                } else {
+                    Image(systemName: "sparkles")
+                    Text("Suggest names")
+                }
+            }
+            .font(.caption)
+        }
+        .buttonStyle(GhostButtonStyle())
+        .disabled(isSuggesting)
+        .help("Ask the AI provider who the unnamed speakers are, from the participants and the first 10 minutes. Nothing changes until you pick a name.")
+    }
+
+    private func suggestNames() async {
+        guard !isSuggesting else { return }
+        isSuggesting = true
+        suggestionNote = nil
+        let suggestions = await SpeakerAnalysis.suggestNamesNow(for: meeting, store: store, proposer: proposer)
+        isSuggesting = false
+        record = store.load(meeting.id)
+        suggestionNote = suggestions.isEmpty ? "No names found in the transcript." : nil
     }
 
     private func setIsUser(_ isUser: Bool, speakerID: String) {
