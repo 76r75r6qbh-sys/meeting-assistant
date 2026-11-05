@@ -24,9 +24,11 @@ enum AppleNotesBodyRenderer {
             sections.append(markdownToHTML(summary))
         }
 
-        if !meeting.todos.isEmpty {
+        // Proposed and rejected to-dos stay out of Apple Notes until accepted.
+        let todos = meeting.todos.filter { $0.status == .accepted }
+        if !todos.isEmpty {
             sections.append("<h2>Action Items</h2>")
-            sections.append(todoList(meeting.todos))
+            sections.append(todoList(todos))
         }
 
         sections.append(markerParagraph(meetingId: meeting.id, kind: .summary))

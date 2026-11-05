@@ -106,3 +106,25 @@ enum SummaryResponseParser {
         return sections
     }
 }
+
+// MARK: - Section aliases for renderers
+
+extension SummaryResponseParser {
+    /// A closing section that is rendered from structured facts.
+    enum Field {
+        case decisions, actionItems
+
+        fileprivate var key: String {
+            switch self {
+            case .decisions: return "decisions"
+            case .actionItems: return "todoTexts"
+            }
+        }
+    }
+
+    /// The `## ` heading titles the parser accepts for `field`, in the order
+    /// the parser tries them.
+    static func headingAliases(for field: Field) -> [String] {
+        sectionAliases[field.key] ?? []
+    }
+}

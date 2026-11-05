@@ -93,9 +93,11 @@ enum ObsidianMeetingExporter {
     private static func summaryMarkdown(for meeting: Meeting, notesFileName: String) -> String {
         let summary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let notesLink = "[[\(notesFileName)]]"
-        let actionItemsSection = meeting.todos.isEmpty
+        // Proposed and rejected to-dos stay out of the vault until accepted.
+        let todos = meeting.todos.filter { $0.status == .accepted }
+        let actionItemsSection = todos.isEmpty
             ? ""
-            : "\n\n## Action Items\n\n" + meeting.todos.map { "- [\($0.isCompleted ? "x" : " ")] \($0.text)" }.joined(separator: "\n")
+            : "\n\n## Action Items\n\n" + todos.map { "- [\($0.isCompleted ? "x" : " ")] \($0.text)" }.joined(separator: "\n")
 
         return """
         ---

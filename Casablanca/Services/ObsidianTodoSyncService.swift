@@ -220,13 +220,17 @@ enum ObsidianTodoSyncService {
         let sourceFilePath: String
     }
 
+    // Only `.accepted` rows take part in the vault sync below: proposed and
+    // rejected to-dos live in SwiftData only, so they are never written to a
+    // file and never deleted because a file lacks them.
+
     private static func bootstrapLegacyGenericTodos(
         in modelContext: ModelContext,
         userDefaults: UserDefaults,
         fileManager: FileManager
     ) throws {
         let legacyTodos = try modelContext.fetch(FetchDescriptor<TodoItem>())
-            .filter { $0.meeting == nil && $0.sourceFilePath == nil }
+            .filter { $0.meeting == nil && $0.sourceFilePath == nil && $0.status == .accepted }
         guard !legacyTodos.isEmpty else { return }
 
         let genericURL = try genericTodosURL(userDefaults: userDefaults)
@@ -255,7 +259,7 @@ enum ObsidianTodoSyncService {
         in modelContext: ModelContext,
         fileManager: FileManager
     ) throws {
-        let legacyTodos = meeting.todos.filter { $0.sourceFilePath == nil }
+        let legacyTodos = meeting.todos.filter { $0.sourceFilePath == nil && $0.status == .accepted }
         guard !legacyTodos.isEmpty else { return }
 
         try ensureParentDirectory(for: files.canonicalTodoWriteURL, fileManager: fileManager)
@@ -408,7 +412,8 @@ enum ObsidianTodoSyncService {
         index: TodoIndex
     ) {
         for todo in Array(index.byID.values)
-        where todo.meeting == nil && todo.sourceFilePath == sourceFilePath && !importedIDs.contains(todo.id) {
+        where todo.meeting == nil && todo.status == .accepted
+            && todo.sourceFilePath == sourceFilePath && !importedIDs.contains(todo.id) {
             index.remove(todo)
             modelContext.delete(todo)
         }
@@ -423,6 +428,7 @@ enum ObsidianTodoSyncService {
     ) {
         for todo in Array(index.byID.values)
         where todo.meeting?.id == meeting.id
+            && todo.status == .accepted
             && (todo.sourceFilePath.map(sourcePaths.contains) ?? false)
             && !importedIDs.contains(todo.id) {
             index.remove(todo)

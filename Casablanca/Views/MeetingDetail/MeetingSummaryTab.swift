@@ -178,18 +178,31 @@ struct MeetingSummaryTab: View {
             }
 
             ForEach(Array(texts.enumerated()), id: \.offset) { _, text in
-                let completed = isActionItemCompleted(text)
+                let match = matchingTodo(for: text)
+                let completed = match?.isCompleted ?? false
                 HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
-                    Button {
-                        toggleActionItem(text)
-                    } label: {
-                        Image(systemName: completed ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
-                            .symbolEffect(.bounce, value: completed)
+                    if match?.status == .proposed {
+                        // A proposal is reviewed first; it cannot be checked off yet.
+                        Text("In review")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.textSecondary)
+                            .padding(.horizontal, CasaSpace.xs)
+                            .padding(.vertical, 1)
+                            .background(Color.textTertiary.opacity(0.15), in: Capsule())
+                            .help("Proposed to-do, waiting for review")
+                            .accessibilityLabel("In review: \(text)")
+                    } else {
+                        Button {
+                            toggleActionItem(text)
+                        } label: {
+                            Image(systemName: completed ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
+                                .symbolEffect(.bounce, value: completed)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(completed ? "Mark as not done" : "Mark as done")
+                        .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
                     }
-                    .buttonStyle(.borderless)
-                    .help(completed ? "Mark as not done" : "Mark as done")
-                    .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
 
                     Text(text)
                         .font(.body)
@@ -229,14 +242,18 @@ struct MeetingSummaryTab: View {
 
     /// Finds the meeting-scoped `TodoItem` whose text matches a parsed action item.
     /// To-dos created from the user's own items are stored without the
-    /// `**owner** —` prefix (see `ActionItemOwnership`), so both the full bullet
-    /// and its bare action text count as a match.
+    /// `**owner** —` prefix (see `ActionItemOwnership`) and without the rendered
+    /// ` (yyyy-MM-dd) [mm:ss]` suffix (see `ActionItemRendering`), so the full
+    /// bullet, its bare action and the action without suffix all count as a
+    /// match. Rejected to-dos never match.
     private func matchingTodo(for text: String) -> TodoItem? {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = ActionItemOwnership.parse(target).action
+        let bareAction = ActionItemRendering.strippingSuffix(action)
         return meeting.todos.first {
+            guard $0.status != .rejected else { return false }
             let todoText = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return todoText == target || todoText == action
+            return todoText == target || todoText == action || todoText == bareAction
         }
     }
 

@@ -238,11 +238,12 @@ final class SummarizationService {
 
     /// Summarize in a service-owned task that is NOT tied to any view's
     /// lifecycle, so it keeps running if the user navigates away. On success it
-    /// stores the summary on the meeting and silently saves the user's own newly
-    /// extracted action items as meeting to-dos (deduped; see
-    /// `ActionItemOwnership`), then persists. Items owned by others stay in the
-    /// summary only.
-    func summarizeInBackground(meeting: Meeting, modelContext: ModelContext) {
+    /// stores the (rendered) summary, every extracted action item (all owners)
+    /// and the template on the meeting, replaces the meeting's pending
+    /// proposals with the user's own items as `.proposed` to-dos (SwiftData
+    /// only — nothing reaches the vault until accepted; see
+    /// `ProposedTodoPlanner` / `TodoReviewService`), then persists.
+    func summarizeInBackground(meeting: Meeting, modelContext: ModelContext, templateID: String? = nil) {
         // If a summary is already in flight, do nothing — never cancel/restart a
         // running summary (e.g. when the view re-appears and re-triggers this).
         guard !isSummarizing else { return }
@@ -260,30 +261,25 @@ final class SummarizationService {
                 self.summarizationStartedAt = nil
             }
             do {
-                let parsed = try await self.summarize(meeting: meeting)
-                meeting.summary = parsed.rawMarkdown
+                let outcome = try await self.summarizeWithFacts(meeting: meeting, templateID: templateID)
+                meeting.summary = outcome.parsed.rawMarkdown
+                meeting.actionItems = outcome.facts.actionItems
+                meeting.summaryTemplateID = outcome.templateID
 
-                let todoTexts = ActionItemOwnership.todoTexts(
-                    from: parsed.todoTexts,
+                let proposals = ProposedTodoPlanner.itemsToPropose(
+                    outcome.facts.actionItems,
                     aliases: AppPreferences.userNameAliases(in: self.userDefaults),
-                    includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults),
-                    existing: Set(meeting.todos.map(\.text))
+                    includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults)
                 )
-                for text in todoTexts {
-                    do {
-                        try ObsidianTodoSyncService.createMeetingTodo(
-                            text: text,
-                            meeting: meeting,
-                            in: modelContext
-                        )
-                    } catch {
-                        // The summary itself succeeded; a failed to-do is a warning, not a failure.
-                        Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription)")
-                        // Surfaced by MeetingPipelinePresentation (errorMessage ??
-                        // warningMessage) in the ProcessingStatusCard error row,
-                        // with a Dismiss affordance.
-                        self.warningMessage = "Summary generated, but creating its to-dos failed: \(error.localizedDescription)"
-                    }
+                do {
+                    try TodoReviewService.replaceProposedTodos(for: meeting, with: proposals, in: modelContext)
+                } catch {
+                    // The summary itself succeeded; failed proposals are a warning, not a failure.
+                    Log.summarization.warning("Proposing meeting to-dos failed: \(error.localizedDescription)")
+                    // Surfaced by MeetingPipelinePresentation (errorMessage ??
+                    // warningMessage) in the ProcessingStatusCard error row,
+                    // with a Dismiss affordance.
+                    self.warningMessage = "Summary generated, but proposing its to-dos failed: \(error.localizedDescription)"
                 }
                 do {
                     try modelContext.save()
@@ -420,7 +416,7 @@ final class SummarizationService {
         let stripped = Self.stripReasoning(summary)
         let facts: SummaryFacts
         let factsSource: FactsSource
-        let parsed: SummaryResponseParser.ParsedResponse
+        var parsed: SummaryResponseParser.ParsedResponse
         if isSinglePass {
             // The stored summary never shows the JSON block.
             let split = SummaryFactsParser.splitSinglePass(stripped)
@@ -459,6 +455,12 @@ final class SummarizationService {
             facts = SummaryFacts.merged([SummaryFacts.fromMarkdown(parsed)] + decodedPartFacts)
             factsSource = .markdownFallback
             warnings.append(Self.factsFallbackWarning)
+        }
+
+        // Structured facts render the Decisions and Action Items sections; a
+        // markdown-fallback summary is kept exactly as the model wrote it.
+        if factsSource != .markdownFallback {
+            parsed = SummaryResponseParser.parse(ActionItemRendering.render(facts, into: parsed.rawMarkdown))
         }
 
         if !warnings.isEmpty {
@@ -825,10 +827,9 @@ final class SummarizationService {
     /// Heading above the de-duplicated action items appended to the reduce input.
     static let reducedActionItemsHeading = "Action items already extracted from the transcript (de-duplicated; use exactly these in the action items section):"
 
-    /// `"\n\n" + heading + "\n"` and one `- **<owner or ?>** — <task>` line per item.
+    /// `"\n\n" + heading + "\n"` and one `- ` + `ActionItemRendering.bullet` line per item.
     static func reducedActionItemsBlock(_ facts: SummaryFacts) -> String {
-        // Task 5 swaps the line format for `ActionItemRendering.bullet`.
-        let lines = facts.actionItems.map { "- **\($0.owner ?? "?")** — \($0.task)" }
+        let lines = facts.actionItems.map { "- " + ActionItemRendering.bullet(for: $0) }
         return "\n\n" + reducedActionItemsHeading + "\n" + lines.joined(separator: "\n")
     }
 

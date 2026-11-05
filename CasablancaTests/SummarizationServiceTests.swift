@@ -1267,6 +1267,15 @@ final class SummarizationServiceTests: XCTestCase {
     ## Opvolging
     """
 
+    /// `kimNotes` as stored after `kimActionJSON`: the Action Items bullet is
+    /// rendered from the facts; the JSON has no decisions, so the markdown's stay.
+    private var renderedKimNotes: String {
+        kimNotes.replacingOccurrences(
+            of: "- **Kim** — Mail de offerte\n",
+            with: "- **Kim** — Mail de offerte (2026-11-06) [00:10]\n"
+        )
+    }
+
     private func notes(actionItems: [String]) -> String {
         """
         # Samenvatting
@@ -1332,7 +1341,8 @@ final class SummarizationServiceTests: XCTestCase {
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("```"))
-            XCTAssertEqual(outcome.parsed.todoTexts, ["**Kim** — Mail de offerte"])
+            XCTAssertEqual(outcome.parsed.todoTexts, ["**Kim** — Mail de offerte (2026-11-06) [00:10]"],
+                           "the Action Items section is rendered from the facts")
             XCTAssertEqual(outcome.factsSource, .singlePassJSON)
             XCTAssertEqual(outcome.facts.actionItems.first?.owner, "Kim")
             XCTAssertEqual(outcome.facts.actionItems.first?.due, "2026-11-06", "vrijdag resolves against the meeting date")
@@ -1347,7 +1357,7 @@ final class SummarizationServiceTests: XCTestCase {
 
         let parsed = try await service.summarize(meeting: makeFactsMeeting(speakers: true))
 
-        XCTAssertEqual(parsed.rawMarkdown, kimNotes)
+        XCTAssertEqual(parsed.rawMarkdown, renderedKimNotes)
         XCTAssertEqual(stub.calls.count, 1)
     }
 
@@ -1603,7 +1613,7 @@ final class SummarizationServiceTests: XCTestCase {
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
             XCTAssertEqual(stub.calls.count, 1)
-            XCTAssertEqual(outcome.parsed.rawMarkdown, kimNotes)
+            XCTAssertEqual(outcome.parsed.rawMarkdown, renderedKimNotes)
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("<think>"))
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("```"))
             XCTAssertEqual(outcome.factsSource, .singlePassJSON)
@@ -1622,6 +1632,155 @@ final class SummarizationServiceTests: XCTestCase {
     func testRepairingAndVerifyingStatusMessages() {
         XCTAssertEqual(SummarizationService.repairingStatus, "Repairing the structured notes…")
         XCTAssertEqual(SummarizationService.verifyingStatus, "Checking action items against the transcript…")
+    }
+
+    // MARK: - Rendered sections, stored items and proposed to-dos (Task 5)
+
+    /// Kim's item due vrijdag at 00:10, Youri's at 00:20 without a due date.
+    private let kimAndYouriJSON = #"""
+    {"topics":["Offerte"],"decisions":[{"text":"We gaan door","quote":"we gaan door","timestamp":"00:05"}],"action_items":[{"task":"Mail de offerte","owner":"Kim","due":"vrijdag","due_is_explicit":true,"confidence":0.8,"quote":"ik mail de offerte","timestamp":"00:10"},{"task":"Plan de demo","owner":"Youri","due":null,"confidence":0.9,"quote":"prima","timestamp":"00:20"}],"open_questions":[],"facts":[]}
+    """#
+
+    private func makeTodoContext() throws -> ModelContext {
+        let schema = Schema([Meeting.self, TodoItem.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+        )
+        return ModelContext(container)
+    }
+
+    /// Only "Youri" is the user; unassigned items are explicitly off (R12).
+    private func makeBackgroundService(_ stub: StubLLMProvider) -> SummarizationService {
+        let defaults = makeDefaults()
+        defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+        defaults.set(false, forKey: AppPreferenceKey.includeUnassignedActionItems)
+        defaults.set(false, forKey: AppPreferenceKey.summaryThinkingEnabled)
+        return SummarizationService(
+            providerFactory: { stub },
+            userDefaults: defaults,
+            attendeeProvider: StaticAttendeeProvider(attendees: []),
+            prepLoader: { _, _ in nil },
+            calendar: SummaryFixtures.amsterdamCalendar
+        )
+    }
+
+    private func runInBackground(_ service: SummarizationService, _ meeting: Meeting, _ context: ModelContext) async throws {
+        service.summarizeInBackground(meeting: meeting, modelContext: context)
+        let deadline = Date().addingTimeInterval(5)
+        while service.isSummarizing, Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(service.isSummarizing)
+        XCTAssertNil(service.errorMessage)
+    }
+
+    func testBackgroundSummaryStoresAllItemsAndProposesOnlyMine() async throws {
+        for speakers in [true, false] {
+            let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo"])
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON))])
+            let service = makeBackgroundService(stub)
+            let context = try makeTodoContext()
+            let meeting = makeFactsMeeting(speakers: speakers)
+            context.insert(meeting)
+
+            try await runInBackground(service, meeting, context)
+
+            XCTAssertEqual(meeting.actionItems.count, 2, "every owner's item is stored on the meeting")
+            XCTAssertEqual(meeting.actionItems.map(\.owner), ["Kim", "Youri"])
+            XCTAssertEqual(meeting.summaryTemplateID, "general")
+            let todos = try context.fetch(FetchDescriptor<TodoItem>())
+            XCTAssertEqual(todos.map(\.text), ["Plan de demo"], "only the user's own item becomes a to-do")
+            XCTAssertEqual(todos.first?.status, .proposed)
+            XCTAssertNil(todos.first?.sourceFilePath)
+            XCTAssertEqual(todos.first?.sourceTimestamp, "00:20")
+            let summary = try XCTUnwrap(meeting.summary)
+            XCTAssertTrue(summary.contains("**Kim** — "))
+            XCTAssertTrue(summary.contains("- **Kim** — Mail de offerte (2026-11-06) [00:10]"))
+            XCTAssertTrue(summary.contains("- **Youri** — Plan de demo [00:20]"))
+            XCTAssertTrue(summary.contains("## Besluiten\n- We gaan door [00:05]\n"))
+            XCTAssertFalse(summary.contains("```"))
+        }
+    }
+
+    func testBackgroundSummaryReplacesEarlierProposalsAndKeepsAcceptedTodos() async throws {
+        let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo"])
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON))])
+        let service = makeBackgroundService(stub)
+        let context = try makeTodoContext()
+        let meeting = makeFactsMeeting(speakers: true)
+        context.insert(meeting)
+        let accepted = TodoItem(text: "Bel de klant", meeting: meeting)
+        let stale = TodoItem(text: "Oud voorstel", meeting: meeting)
+        stale.status = .proposed
+        context.insert(accepted)
+        context.insert(stale)
+        try context.save()
+
+        try await runInBackground(service, meeting, context)
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>(sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(todos.map(\.text), ["Bel de klant", "Plan de demo"])
+        XCTAssertEqual(todos.map(\.status), [.accepted, .proposed])
+    }
+
+    func testFallbackSummaryIsStoredVerbatim() async throws {
+        for speakers in [true, false] {
+            let markdown = notes(actionItems: ["**Youri** — Mail Kim", "**Kim** — Plan de demo"])
+            let stub = StubLLMProvider(outcomes: [.success(markdown), .success("still {bad")])
+            let service = makeBackgroundService(stub)
+            let context = try makeTodoContext()
+            let meeting = makeFactsMeeting(speakers: speakers)
+            context.insert(meeting)
+
+            try await runInBackground(service, meeting, context)
+
+            XCTAssertEqual(meeting.summary, markdown, "a markdown-fallback summary is not re-rendered")
+            XCTAssertEqual(meeting.actionItems.map(\.task), ["Mail Kim", "Plan de demo"])
+            let todos = try context.fetch(FetchDescriptor<TodoItem>())
+            XCTAssertEqual(todos.map(\.text), ["Mail Kim"])
+            XCTAssertEqual(todos.first?.status, .proposed)
+            XCTAssertTrue(try XCTUnwrap(service.warningMessage).contains(SummarizationService.factsFallbackWarning))
+        }
+    }
+
+    /// Review focus 1: a summary written before Track B parses exactly as it
+    /// did, and the meeting carries no structured items.
+    func testLegacySummaryRendersUnchanged() throws {
+        let meeting = Meeting(title: "Weekly", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.summary = """
+        # Samenvatting
+        We bespraken de release.
+
+        ## Release
+        - **planning:** vrijdag
+
+        ## Besluiten
+        - Release gaat vrijdag live
+
+        ## Actiepunten
+        - **Youri** — Stuur release notes
+        - **?** — Check monitoring
+
+        ## Risico\u{2019}s en blockers
+        - Testomgeving kan uitvallen
+
+        ## Opvolging
+        - Retro inplannen
+        """
+        XCTAssertNil(meeting.actionItemsData)
+        XCTAssertTrue(meeting.actionItems.isEmpty)
+
+        let parsed = SummaryResponseParser.parse(meeting.summary!)
+
+        XCTAssertEqual(parsed.summary, "# Samenvatting\nWe bespraken de release.")
+        XCTAssertEqual(parsed.decisions, ["Release gaat vrijdag live"])
+        XCTAssertEqual(parsed.todoTexts, ["**Youri** — Stuur release notes", "**?** — Check monitoring"])
+        XCTAssertEqual(parsed.risks, ["Testomgeving kan uitvallen"])
+        XCTAssertEqual(parsed.followUps, ["Retro inplannen"])
+        XCTAssertEqual(parsed.rawMarkdown, meeting.summary)
+        XCTAssertEqual(parsed.todoTexts.map { ActionItemRendering.strippingSuffix(ActionItemOwnership.parse($0).action) },
+                       ["Stuur release notes", "Check monitoring"], "legacy to-do texts still match their bullets")
     }
 }
 

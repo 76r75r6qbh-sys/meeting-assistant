@@ -423,6 +423,56 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: brokenURL), unreadable)
     }
 
+    /// Review focus 3: a proposed row (SwiftData only, no source file) is
+    /// neither written to the meeting's file nor deleted by the refresh.
+    func testRefreshNeverWritesProposedTodosToTheVault() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        meeting.userNotes = "notes"
+        context.insert(meeting)
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        let proposal = TodoItem(text: "Proposed follow-up", meeting: meeting)
+        proposal.status = .proposed
+        context.insert(proposal)
+        try context.save()
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+
+        let files = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults))
+        let markdown = try String(contentsOf: files.notesURL, encoding: .utf8)
+        XCTAssertFalse(markdown.contains("Proposed follow-up"))
+        XCTAssertFalse(markdown.contains(proposal.id.uuidString))
+        let rows = try context.fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .proposed)
+        XCTAssertNil(rows.first?.sourceFilePath)
+    }
+
+    /// Existing behaviour: an accepted row without a source file is still
+    /// bootstrapped into the meeting's file.
+    func testRefreshStillBootstrapsLegacyAcceptedTodos() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        meeting.userNotes = "notes"
+        context.insert(meeting)
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        let legacy = TodoItem(text: "Legacy accepted todo", meeting: meeting)
+        context.insert(legacy)
+        try context.save()
+        XCTAssertEqual(legacy.status, .accepted)
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let files = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults))
+        let markdown = try String(contentsOf: files.canonicalTodoWriteURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("- [ ] Legacy accepted todo <!-- casablanca-todo: \(legacy.id.uuidString) -->"))
+        XCTAssertEqual(legacy.sourceFilePath, files.canonicalTodoWriteURL.path)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<TodoItem>()).count, 1)
+    }
+
     private func makeVault() throws -> URL {
         makeScratchVault("todo-sync")
     }
