@@ -371,6 +371,177 @@ final class ActionItemVerifierTests: XCTestCase {
         XCTAssertEqual(out.actionItems.dropFirst().map(\.verified), [.unsupported, .unsupported, .unsupported, .unsupported, .unverified, .unsupported])
         XCTAssertLessThan(elapsed, 3, "pre-check on a 150k-char transcript took \(elapsed) s")
     }
+
+    // MARK: - Verification prompt (Task 7)
+
+    private static let calendar = SummaryFixtures.amsterdamCalendar
+
+    /// The claims the pre-check emits for an action item at 03:10 and a decision at 03:40.
+    private func claimsAndFacts(_ index: TranscriptIndex) -> (facts: SummaryFacts, claims: [ActionItemVerifier.Claim]) {
+        let input = facts(
+            items: [item("Offerte naar Kim sturen", quote: "Ik stuur de offerte vrijdag naar Kim",
+                         timestamp: "03:10", owner: "Youri")],
+            decisions: [ExtractedDecision(text: "Release uitgesteld tot december",
+                                          quote: "we besluiten om de release uit te stellen", timestamp: "03:40")]
+        )
+        return ActionItemVerifier.precheck(input, index: index)
+    }
+
+    func testPromptListsEveryClaimWithItsWindow() throws {
+        for (name, index) in Self.indexes {
+            let (_, claims) = claimsAndFacts(index)
+            XCTAssertEqual(claims.map(\.id), ["a1", "d1"], name)
+
+            let prompt = ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                   calendar: Self.calendar, budgetTokens: 25_000)
+
+            XCTAssertTrue(prompt.hasPrefix("You are checking meeting notes against the transcript they were written from.\n"), name)
+            XCTAssertTrue(prompt.contains("\nWhen in doubt, answer false.\n\nMeeting date: 2026-11-04\n\nClaims:\n### a1 (action item)\n"), name)
+            // ±60 s around 03:10 (190 s): 03:10 and 03:40; around 03:40 (220 s): 03:10 … 04:20.
+            XCTAssertTrue(prompt.contains("""
+            ### a1 (action item)
+            Claim: Offerte naar Kim sturen
+            Owner: Youri
+            Due: none
+            Quote: "Ik stuur de offerte vrijdag naar Kim"
+            Transcript excerpt (03:10–03:40):
+            """), name)
+            XCTAssertTrue(prompt.contains("""
+            ### d1 (decision)
+            Claim: Release uitgesteld tot december
+            Owner: none
+            Due: none
+            Quote: "we besluiten om de release uit te stellen"
+            Transcript excerpt (03:10–04:20):
+            """), name)
+            let blocks = Array(prompt.components(separatedBy: "\n### ").dropFirst())
+            XCTAssertEqual(blocks.count, 2, name)
+            for block in blocks {
+                XCTAssertFalse(block.contains("[02:05]"), name)
+                XCTAssertTrue(block.contains("[03:10]"), name)
+                XCTAssertTrue(block.contains("[03:40]"), name)
+                XCTAssertFalse(block.contains("[05:00]"), name)
+            }
+            XCTAssertFalse(blocks[0].contains("[04:15]"), name)
+            XCTAssertTrue(blocks[1].contains("[04:20]"), name)
+            // Original text: speaker prefixes stay, nothing is normalised.
+            let line = name == "prefixed" ? "[03:10] Youri: Ik stuur de offerte vrijdag naar Kim." : "[03:10] Ik stuur de offerte vrijdag naar Kim."
+            XCTAssertTrue(prompt.contains("\n" + line + "\n"), name)
+        }
+    }
+
+    func testPromptShowsGappedIdsAsTheyAre() {
+        for (name, index) in Self.indexes {
+            let input = facts(items: [item("Verzonnen", quote: "ik verhuis het kantoor naar Utrecht", timestamp: nil),
+                                      item("Demo", quote: "De klant wil graag een demo zien", timestamp: "02:05")])
+            let (_, claims) = ActionItemVerifier.precheck(input, index: index)
+            let prompt = ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                   calendar: Self.calendar, budgetTokens: 25_000)
+            XCTAssertTrue(prompt.contains("### a2 (action item)"), name)
+            XCTAssertFalse(prompt.contains("### a1 "), name)
+            XCTAssertFalse(prompt.contains("verhuis"), name)
+        }
+    }
+
+    /// A long, dense transcript: one long line every 2 s.
+    private func denseTranscript(speakers: Bool) -> String {
+        (0..<600).map { n in
+            let label = TranscriptLineFormat.timestampLabel(seconds: Double(n * 2))
+            let body: String
+            switch n {
+            case 150: body = "Ik stuur de offerte vrijdag naar Kim."
+            case 450: body = "We besluiten om de release uit te stellen tot december."
+            default: body = "We bespreken punt \(n) van de agenda uitgebreid met iedereen in de ruimte erbij."
+            }
+            return "[\(label)] " + (speakers ? (n.isMultiple(of: 2) ? "Youri: " : "Spreker 1: ") : "") + body
+        }.joined(separator: "\n")
+    }
+
+    func testPromptShrinksWindowsToFitTheBudget() throws {
+        for speakers in [true, false] {
+            let index = TranscriptIndex(transcript: denseTranscript(speakers: speakers),
+                                        knownSpeakers: speakers ? Self.speakers : [])
+            let input = facts(
+                items: [item("Offerte", quote: "Ik stuur de offerte vrijdag naar Kim", timestamp: "05:00", owner: "Youri")],
+                decisions: [ExtractedDecision(text: "Release later", quote: "we besluiten om de release uit te stellen",
+                                              timestamp: "15:00")]
+            )
+            let (_, claims) = ActionItemVerifier.precheck(input, index: index)
+            XCTAssertEqual(claims.map(\.id), ["a1", "d1"])
+
+            let roomy = ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                  calendar: Self.calendar, budgetTokens: 25_000)
+            XCTAssertGreaterThan(LLMPromptSupport.budgetTokens(roomy), 3_000, "±60 s of this transcript is large")
+            XCTAssertTrue(roomy.contains("Transcript excerpt (04:00–06:00):"))
+
+            // ±30 s fits in 3,000 tokens.
+            let narrower = ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                     calendar: Self.calendar, budgetTokens: 3_000)
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(narrower), 3_000)
+            XCTAssertTrue(narrower.contains("Transcript excerpt (04:30–05:30):"))
+            XCTAssertFalse(narrower.contains("truncated"))
+
+            // 800 tokens: the ±30 s excerpts are middle-elided to an equal share.
+            let tight = ActionItemVerifier.prompt(claims: claims, index: index, meetingDate: SummaryFixtures.meetingDate,
+                                                  calendar: Self.calendar, budgetTokens: 800)
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(tight), 800)
+            XCTAssertTrue(tight.contains("### a1 (action item)"))
+            XCTAssertTrue(tight.contains("### d1 (decision)"))
+            XCTAssertTrue(tight.contains("Claim: Offerte"))
+            XCTAssertTrue(tight.contains("Claim: Release later"))
+            XCTAssertTrue(tight.contains("Transcript excerpt (04:30–05:30):"))
+            XCTAssertTrue(tight.contains("truncated"))
+        }
+    }
+
+    // MARK: - Applying the verdicts (Task 7)
+
+    func testApplyMapsSupportedAndUnsupported() throws {
+        for (name, index) in Self.indexes {
+            let (checked, claims) = claimsAndFacts(index)
+            let response = """
+            ```json
+            [{"id": "a1", "supported": true, "reason": "Youri zegt het zelf."},
+             {"id": "d1", "supported": false, "reason": "Er is alleen over gesproken."}]
+            ```
+            """
+            let out = try XCTUnwrap(ActionItemVerifier.apply(response: response, claims: claims, to: checked), name)
+            XCTAssertEqual(out.actionItems[0].verified, .supported, name)
+            XCTAssertEqual(out.actionItems[0].verificationReason, "Youri zegt het zelf.", name)
+            XCTAssertEqual(out.decisions[0].verified, .unsupported, name)
+            XCTAssertEqual(out.decisions[0].verificationReason, "Er is alleen over gesproken.", name)
+            XCTAssertEqual(out.actionItems[0].timestamp, "03:10", name)
+        }
+    }
+
+    func testApplyMissingIdStaysUnverified() throws {
+        for (name, index) in Self.indexes {
+            let (checked, claims) = claimsAndFacts(index)
+            let response = #"[{"id": "d1", "supported": "true", "reason": "ok"}, {"id": "a7", "supported": false}, {"id": "x"}]"#
+            let out = try XCTUnwrap(ActionItemVerifier.apply(response: response, claims: claims, to: checked), name)
+            XCTAssertEqual(out.actionItems[0].verified, .unverified, name)
+            XCTAssertNil(out.actionItems[0].verificationReason, name)
+            XCTAssertEqual(out.decisions[0].verified, .supported, name)
+            XCTAssertEqual(out.actionItems.count, 1, name)
+        }
+    }
+
+    func testApplyIgnoresIdsThatAreNotClaims() throws {
+        // a1 has no quote, so it is no claim: a verdict for it is ignored.
+        let input = facts(items: [item("Geen bewijs", quote: nil, timestamp: nil)])
+        let out = try XCTUnwrap(ActionItemVerifier.apply(response: #"[{"id":"a1","supported":true,"reason":"ja"}]"#,
+                                                         claims: [], to: input))
+        XCTAssertEqual(out.actionItems[0].verified, .unverified)
+    }
+
+    func testApplyUnreadableIsNil() {
+        for (name, index) in Self.indexes {
+            let (checked, claims) = claimsAndFacts(index)
+            XCTAssertNil(ActionItemVerifier.apply(response: "Both claims are supported.", claims: claims, to: checked), name)
+            XCTAssertNil(ActionItemVerifier.apply(response: #"[{"id": "a1", "supported": tru"#, claims: claims, to: checked), name)
+            XCTAssertNil(ActionItemVerifier.apply(response: #"{"id": "a1", "supported": true}"#, claims: claims, to: checked), name)
+        }
+    }
 }
 
 /// Deterministic pseudo-random numbers for the equivalence test.

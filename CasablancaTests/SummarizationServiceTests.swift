@@ -1267,6 +1267,10 @@ final class SummarizationServiceTests: XCTestCase {
     ## Opvolging
     """
 
+    /// The verification call's reply for `kimActionJSON`'s one claim (its quote
+    /// is in `factsTranscript`, so every run with it makes that call).
+    private let kimVerdict: Result<String, Error> = .success(#"[{"id": "a1", "supported": true, "reason": "Kim zegt het."}]"#)
+
     /// `kimNotes` as stored after `kimActionJSON`: the Action Items bullet is
     /// rendered from the facts; the JSON has no decisions, so the markdown's stay.
     private var renderedKimNotes: String {
@@ -1319,12 +1323,13 @@ final class SummarizationServiceTests: XCTestCase {
 
     func testSinglePassAsksForTheJSONBlockInTheSameCall() async throws {
         for speakers in [true, false] {
-            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON))])
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)), kimVerdict])
             let service = makeFactsService(stub)
 
             _ = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
-            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(stub.calls.count, 2, "the summary, then only the verification call")
+            XCTAssertTrue(stub.calls[1].prompt.hasPrefix("You are checking meeting notes"))
             let prompt = try XCTUnwrap(stub.calls.first?.prompt)
             XCTAssertTrue(prompt.contains("add one fenced code block that starts with ```json"))
             XCTAssertTrue(prompt.contains("2026-11-04"))
@@ -1335,7 +1340,7 @@ final class SummarizationServiceTests: XCTestCase {
 
     func testJSONBlockIsStrippedFromTheStoredSummary() async throws {
         for speakers in [true, false] {
-            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON))])
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)), kimVerdict])
             let service = makeFactsService(stub)
 
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
@@ -1352,26 +1357,27 @@ final class SummarizationServiceTests: XCTestCase {
     }
 
     func testSummarizeReturnsTheParsedPartOfTheOutcome() async throws {
-        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON))])
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)), kimVerdict])
         let service = makeFactsService(stub)
 
         let parsed = try await service.summarize(meeting: makeFactsMeeting(speakers: true))
 
         XCTAssertEqual(parsed.rawMarkdown, renderedKimNotes)
-        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(stub.calls.count, 2, "summary + verification")
     }
 
     func testInvalidJSONGetsOneRepairCall() async throws {
         for speakers in [true, false] {
             let stub = StubLLMProvider(outcomes: [
                 .success(SummaryFixtures.withFacts(kimNotes, json: "{oops")),
-                .success(SummaryFixtures.kimActionJSON)
+                .success(SummaryFixtures.kimActionJSON),
+                kimVerdict
             ])
             let service = makeFactsService(stub)
 
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
-            XCTAssertEqual(stub.calls.count, 2)
+            XCTAssertEqual(stub.calls.count, 3, "summary, repair, verification")
             let repair = stub.calls[1]
             XCTAssertTrue(repair.prompt.hasPrefix("The text below was meant to be one JSON object"))
             XCTAssertTrue(repair.prompt.contains("Text:\n{oops"))
@@ -1386,13 +1392,14 @@ final class SummarizationServiceTests: XCTestCase {
     func testTheRepairCallIsUncappedWhenThinkingIsOn() async throws {
         let stub = StubLLMProvider(outcomes: [
             .success(SummaryFixtures.withFacts(kimNotes, json: "{oops")),
-            .success(SummaryFixtures.kimActionJSON)
+            .success(SummaryFixtures.kimActionJSON),
+            kimVerdict
         ])
         let service = makeFactsService(stub, thinking: true)
 
         _ = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: true))
 
-        XCTAssertEqual(stub.calls.count, 2)
+        XCTAssertEqual(stub.calls.count, 3)
         XCTAssertNil(stub.calls[1].maxTokens)
     }
 
@@ -1403,13 +1410,14 @@ final class SummarizationServiceTests: XCTestCase {
             let truncated = #"{"topics":["Offerte"],"action_items":[{"task":"Mail de offerte","owner":"Kim"},{"task":"Bel de lev"#
             let stub = StubLLMProvider(outcomes: [
                 .success(kimNotes + "\n\n```json\n" + truncated),
-                .success(SummaryFixtures.kimActionJSON)
+                .success(SummaryFixtures.kimActionJSON),
+                kimVerdict
             ])
             let service = makeFactsService(stub)
 
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
-            XCTAssertEqual(stub.calls.count, 2)
+            XCTAssertEqual(stub.calls.count, 3)
             XCTAssertTrue(stub.calls[1].prompt.contains("Text:\n" + truncated))
             XCTAssertEqual(outcome.factsSource, .repairedJSON)
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("```"))
@@ -1418,13 +1426,13 @@ final class SummarizationServiceTests: XCTestCase {
 
     func testMissingBlockRebuildsFromClosingSectionsWithoutTheTranscript() async throws {
         for speakers in [true, false] {
-            let stub = StubLLMProvider(outcomes: [.success(kimNotes), .success(SummaryFixtures.kimActionJSON)])
+            let stub = StubLLMProvider(outcomes: [.success(kimNotes), .success(SummaryFixtures.kimActionJSON), kimVerdict])
             let service = makeFactsService(stub)
             let meeting = makeFactsMeeting(speakers: speakers)
 
             let outcome = try await service.summarizeWithFacts(meeting: meeting)
 
-            XCTAssertEqual(stub.calls.count, 2)
+            XCTAssertEqual(stub.calls.count, 3, "summary, rebuild, verification")
             let rebuild = stub.calls[1].prompt
             XCTAssertTrue(rebuild.hasPrefix("These are the closing sections"))
             XCTAssertFalse(rebuild.contains(factsTranscript(speakers: speakers)))
@@ -1539,7 +1547,7 @@ final class SummarizationServiceTests: XCTestCase {
         for speakers in [true, false] {
             let recorder = PhaseRecorder()
             let stub = StubLLMProvider(
-                outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: "{oops")), .success(SummaryFixtures.kimActionJSON)],
+                outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: "{oops")), .success(SummaryFixtures.kimActionJSON), kimVerdict],
                 onGenerate: { recorder.record() }
             )
             let service = makeFactsService(stub)
@@ -1547,8 +1555,8 @@ final class SummarizationServiceTests: XCTestCase {
 
             _ = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
-            XCTAssertEqual(recorder.phases, [.sending, .repairing])
-            XCTAssertEqual(recorder.statuses.last, "Repairing the structured notes…")
+            XCTAssertEqual(recorder.phases, [.sending, .repairing, .verifying])
+            XCTAssertEqual(recorder.statuses[1], "Repairing the structured notes…")
             XCTAssertEqual(service.phase, .idle)
         }
     }
@@ -1607,12 +1615,12 @@ final class SummarizationServiceTests: XCTestCase {
         for speakers in [true, false] {
             let reply = "<think>Eerst de offerte, dan {\"x\": 1} checken.</think>\n"
                 + SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)
-            let stub = StubLLMProvider(outcomes: [.success(reply)])
+            let stub = StubLLMProvider(outcomes: [.success(reply), kimVerdict])
             let service = makeFactsService(stub, thinking: true)
 
             let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
 
-            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(stub.calls.count, 2, "summary + verification")
             XCTAssertEqual(outcome.parsed.rawMarkdown, renderedKimNotes)
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("<think>"))
             XCTAssertFalse(outcome.parsed.rawMarkdown.contains("```"))
@@ -1678,7 +1686,7 @@ final class SummarizationServiceTests: XCTestCase {
     func testBackgroundSummaryStoresAllItemsAndProposesOnlyMine() async throws {
         for speakers in [true, false] {
             let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo"])
-            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON))])
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON)), kimVerdict])
             let service = makeBackgroundService(stub)
             let context = try makeTodoContext()
             let meeting = makeFactsMeeting(speakers: speakers)
@@ -1698,14 +1706,17 @@ final class SummarizationServiceTests: XCTestCase {
             XCTAssertTrue(summary.contains("**Kim** — "))
             XCTAssertTrue(summary.contains("- **Kim** — Mail de offerte (2026-11-06) [00:10]"))
             XCTAssertTrue(summary.contains("- **Youri** — Plan de demo [00:20]"))
-            XCTAssertTrue(summary.contains("## Besluiten\n- We gaan door [00:05]\n"))
+            // "we gaan door" is not in the transcript: the pre-check flags the decision.
+            XCTAssertTrue(summary.contains("## Besluiten\n- ⚠︎ We gaan door [00:05]\n"))
+            XCTAssertEqual(meeting.actionItems.map(\.verified), [.supported, .unverified], "Youri's 'prima' is too short to count")
+            XCTAssertNil(service.warningMessage)
             XCTAssertFalse(summary.contains("```"))
         }
     }
 
     func testBackgroundSummaryReplacesEarlierProposalsAndKeepsAcceptedTodos() async throws {
         let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo"])
-        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON))])
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: kimAndYouriJSON)), kimVerdict])
         let service = makeBackgroundService(stub)
         let context = try makeTodoContext()
         let meeting = makeFactsMeeting(speakers: true)
@@ -1781,6 +1792,256 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(parsed.rawMarkdown, meeting.summary)
         XCTAssertEqual(parsed.todoTexts.map { ActionItemRendering.strippingSuffix(ActionItemOwnership.parse($0).action) },
                        ["Stuur release notes", "Check monitoring"], "legacy to-do texts still match their bullets")
+    }
+
+    // MARK: - Verification call (Task 7)
+
+    private func verifyTranscript(speakers: Bool) -> String {
+        let lines = [
+            ("00:10", "Kim", "Ik mail de offerte vrijdag naar de klant."),
+            ("00:20", "Youri", "Prima, dan plan ik de demo voor volgende week."),
+            ("00:30", "Kim", "Dan gaan we door met het nieuwe pakket."),
+        ]
+        return lines.map { "[\($0.0)] " + (speakers ? $0.1 + ": " : "") + $0.2 }.joined(separator: "\n")
+    }
+
+    private func makeVerifyMeeting(speakers: Bool) -> Meeting {
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.transcript = verifyTranscript(speakers: speakers)
+        if speakers {
+            meeting.speakers = ["Kim", "Youri"].map {
+                SpeakerInfo(id: $0, displayName: $0, source: .room, isUser: $0 == "Youri", nameConfirmed: true)
+            }
+        }
+        return meeting
+    }
+
+    /// Two quoted items (Kim at 00:10, Youri at 00:20) and one quoted decision at 00:30.
+    private func verifyJSON(firstQuote: String = "ik mail de offerte vrijdag", quotes: Bool = true) -> String {
+        func q(_ text: String) -> String { quotes ? "\"\(text)\"" : "null" }
+        return """
+        {"topics":["Offerte"],"decisions":[{"text":"Door met het nieuwe pakket","quote":\(q("dan gaan we door met het nieuwe pakket")),"timestamp":"00:30"}],"action_items":[{"task":"Mail de offerte","owner":"Kim","due":null,"confidence":0.8,"quote":\(q(firstQuote)),"timestamp":"00:10"},{"task":"Plan de demo","owner":"Youri","due":null,"confidence":0.9,"quote":\(q("dan plan ik de demo")),"timestamp":"00:20"}],"open_questions":[],"facts":[]}
+        """
+    }
+
+    private var verifyNotes: String {
+        notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo"])
+    }
+
+    private let verdicts = #"""
+    [{"id": "a1", "supported": true, "reason": "Kim zegt het zelf."},
+     {"id": "a2", "supported": false, "reason": "Er is geen demo afgesproken."},
+     {"id": "d1", "supported": false, "reason": "Er werd niets besloten."}]
+    """#
+
+    func testVerificationIsOneCallAfterTheSummary() async throws {
+        for speakers in [true, false] {
+            let recorder = PhaseRecorder()
+            let stub = StubLLMProvider(
+                outcomes: [.success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())), .success(verdicts)],
+                onGenerate: { recorder.record() }
+            )
+            let service = makeBackgroundService(stub)
+            recorder.service = service
+            let context = try makeTodoContext()
+            let meeting = makeVerifyMeeting(speakers: speakers)
+            context.insert(meeting)
+
+            try await runInBackground(service, meeting, context)
+
+            XCTAssertEqual(stub.calls.count, 2)
+            let prompt = try XCTUnwrap(stub.calls.last?.prompt)
+            XCTAssertTrue(prompt.hasPrefix("You are checking meeting notes"))
+            XCTAssertTrue(prompt.contains("### a1 (action item)"))
+            XCTAssertTrue(prompt.contains("### a2 (action item)"))
+            XCTAssertTrue(prompt.contains("### d1 (decision)"))
+            XCTAssertTrue(prompt.contains("Meeting date: 2026-11-04"))
+            XCTAssertTrue(prompt.contains("\n" + verifyTranscript(speakers: speakers) + "\n"), "the original transcript lines")
+            XCTAssertTrue(prompt.hasSuffix(LLMPromptSupport.noThinkSuffix))
+            XCTAssertEqual(recorder.phases, [.sending, .verifying])
+            XCTAssertEqual(recorder.statuses.last, SummarizationService.verifyingStatus)
+
+            XCTAssertEqual(meeting.actionItems.map(\.verified), [.supported, .unsupported])
+            XCTAssertEqual(meeting.actionItems.map(\.verificationReason), ["Kim zegt het zelf.", "Er is geen demo afgesproken."])
+            let summary = try XCTUnwrap(meeting.summary)
+            XCTAssertTrue(summary.contains("## Besluiten\n- ⚠︎ Door met het nieuwe pakket [00:30]\n"), summary)
+            XCTAssertTrue(summary.contains("- **Youri** — Plan de demo [00:20]"))
+            let todos = try context.fetch(FetchDescriptor<TodoItem>())
+            XCTAssertEqual(todos.map(\.text), ["Plan de demo"])
+            XCTAssertEqual(todos.first?.status, .proposed, "an unsupported item is flagged, never auto-accepted")
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    func testInventedQuoteNeverReachesTheVerifierCall() async throws {
+        for speakers in [true, false] {
+            let stub = StubLLMProvider(outcomes: [
+                .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON(firstQuote: "ik verhuis het kantoor naar Utrecht"))),
+                .success(#"[{"id": "a2", "supported": true, "reason": "ja"}, {"id": "d1", "supported": true, "reason": "ja"}]"#),
+            ])
+            let service = makeFactsService(stub)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 2)
+            let prompt = try XCTUnwrap(stub.calls.last?.prompt)
+            XCTAssertFalse(prompt.contains("### a1 "))
+            XCTAssertFalse(prompt.contains("verhuis"))
+            XCTAssertTrue(prompt.contains("### a2 (action item)"))
+            XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.unsupported, .supported])
+            XCTAssertEqual(outcome.facts.actionItems[0].verificationReason, ActionItemVerifier.quoteNotFoundReason)
+            XCTAssertEqual(outcome.facts.decisions.map(\.verified), [.supported])
+            XCTAssertTrue(outcome.parsed.rawMarkdown.contains("## Besluiten\n- Door met het nieuwe pakket [00:30]\n"))
+        }
+    }
+
+    func testNoVerificationCallForMarkdownFallback() async throws {
+        // Three markdown items against one JSON item: the guard falls back to
+        // the markdown's items (the JSON's quoted decision stays).
+        let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo", "**?** — Boek een zaal"])
+        for speakers in [true, false] {
+            let recorder = PhaseRecorder()
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: verifyJSON()))],
+                                       onGenerate: { recorder.record() })
+            let service = makeFactsService(stub)
+            recorder.service = service
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(outcome.factsSource, .markdownFallback)
+            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(recorder.phases, [.sending])
+        }
+    }
+
+    func testNoVerificationCallWithoutQuotes() async throws {
+        for speakers in [true, false] {
+            let recorder = PhaseRecorder()
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON(quotes: false)))],
+                                       onGenerate: { recorder.record() })
+            let service = makeFactsService(stub)
+            recorder.service = service
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(outcome.factsSource, .singlePassJSON)
+            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(recorder.phases, [.sending])
+            XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.unverified, .unverified])
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    func testVerifierFailureKeepsSummaryAndWarns() async throws {
+        for speakers in [true, false] {
+            let stub = StubLLMProvider(outcomes: [
+                .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON(firstQuote: "ik verhuis het kantoor naar Utrecht"))),
+                .failure(LLMProviderError.requestFailed(provider: "Stub", kind: .httpStatus(400), message: "bad")),
+            ])
+            let service = makeFactsService(stub)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 2)
+            XCTAssertEqual(outcome.factsSource, .singlePassJSON)
+            XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.unsupported, .unverified], "the pre-check verdict stays")
+            XCTAssertEqual(outcome.facts.decisions.map(\.verified), [.unverified])
+            XCTAssertEqual(service.warningMessage, SummarizationService.verificationFailedWarning)
+            XCTAssertNil(service.errorMessage)
+            XCTAssertTrue(outcome.parsed.rawMarkdown.contains("- **Youri** — Plan de demo [00:20]"))
+        }
+    }
+
+    func testUnreadableVerdictsGetOneRepairCall() async throws {
+        for speakers in [true, false] {
+            let recorder = PhaseRecorder()
+            let stub = StubLLMProvider(
+                outcomes: [
+                    .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())),
+                    .success(#"[{"id": "a1", "supported": true, "reason": "ja"} {"id": "a2""#),
+                    .success(verdicts),
+                ],
+                onGenerate: { recorder.record() }
+            )
+            let service = makeFactsService(stub)
+            recorder.service = service
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 3)
+            let repair = try XCTUnwrap(stub.calls.last?.prompt)
+            XCTAssertTrue(repair.hasPrefix("The text below was meant to be one JSON array of objects"))
+            XCTAssertTrue(repair.contains("Text:\n[{\"id\": \"a1\", \"supported\": true, \"reason\": \"ja\"} {\"id\": \"a2\""))
+            XCTAssertEqual(recorder.phases, [.sending, .verifying, .verifying])
+            XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.supported, .unsupported])
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    func testUnreadableVerdictsAfterRepairKeepThePrecheckAndWarn() async throws {
+        let stub = StubLLMProvider(outcomes: [
+            .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())),
+            .success("All claims are supported."),
+            .success("Still no JSON."),
+        ])
+        let service = makeFactsService(stub)
+
+        let outcome = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: true))
+
+        XCTAssertEqual(stub.calls.count, 3)
+        XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.unverified, .unverified])
+        XCTAssertEqual(outcome.facts.decisions.map(\.verified), [.unverified])
+        XCTAssertEqual(service.warningMessage, SummarizationService.verificationFailedWarning)
+    }
+
+    func testCancellationDuringTheVerificationCallPropagates() async throws {
+        let stub = StubLLMProvider(outcomes: [
+            .success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())),
+            .failure(CancellationError()),
+        ])
+        let service = makeFactsService(stub)
+
+        do {
+            _ = try await service.summarizeWithFacts(meeting: makeVerifyMeeting(speakers: false))
+            XCTFail("cancellation must propagate")
+        } catch is CancellationError {
+        }
+    }
+
+    func testVerificationPromptFitsALocalBudget() async throws {
+        // A transcript that fits one local pass, but whose ±60 s windows around
+        // three claims add up to more than the 6k budget.
+        let filler = String(repeating: "We bespreken de planning. ", count: 5)
+        var lines: [String] = []
+        for second in 0...60 {
+            let label = TranscriptLineFormat.timestampLabel(seconds: Double(second))
+            switch second {
+            case 10: lines.append("[\(label)] Kim: Ik mail de offerte vrijdag naar de klant.")
+            case 20: lines.append("[\(label)] Youri: Prima, dan plan ik de demo voor volgende week.")
+            case 30: lines.append("[\(label)] Kim: Dan gaan we door met het nieuwe pakket.")
+            default: lines.append("[\(label)] Kim: \(filler)")
+            }
+        }
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.transcript = lines.joined(separator: "\n")
+        XCTAssertGreaterThan(LLMPromptSupport.budgetTokens(meeting.transcript!) * 3, LLMPromptSupport.localPromptTokenBudget)
+        let stub = StubLLMProvider(
+            promptTokenBudget: LLMPromptSupport.localPromptTokenBudget,
+            outcomes: [.success(SummaryFixtures.withFacts(verifyNotes, json: verifyJSON())), .success(verdicts)]
+        )
+        let service = makeFactsService(stub)
+
+        let outcome = try await service.summarizeWithFacts(meeting: meeting)
+
+        XCTAssertEqual(stub.calls.count, 2, "one pass, then one verification call")
+        let prompt = try XCTUnwrap(stub.calls.last?.prompt)
+        XCTAssertTrue(prompt.hasPrefix("You are checking meeting notes"))
+        XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(prompt), LLMPromptSupport.localPromptTokenBudget,
+                                 "the whole call, thinking switch included")
+        for id in ["### a1 (action item)", "### a2 (action item)", "### d1 (decision)"] {
+            XCTAssertTrue(prompt.contains(id))
+        }
+        XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.supported, .unsupported])
     }
 }
 

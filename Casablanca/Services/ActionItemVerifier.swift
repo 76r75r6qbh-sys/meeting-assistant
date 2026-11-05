@@ -390,3 +390,171 @@ enum ActionItemVerifier {
         return .found(line, quote: quote)
     }
 }
+
+// MARK: - Verification call
+
+extension ActionItemVerifier {
+    /// Seconds on each side of a claim when the ±``windowRadius`` excerpts do not fit the budget.
+    static let narrowWindowRadius: Double = 30
+
+    /// The one verification prompt: every claim with its transcript excerpt
+    /// (original line text, speaker prefixes included). Fits `budgetTokens`
+    /// (``LLMPromptSupport/budgetTokens(_:)``): excerpts span ±``windowRadius``
+    /// s, else ±``narrowWindowRadius`` s, else the narrow excerpts are each
+    /// middle-elided to an equal share of the room left. Should even the
+    /// claims without excerpts not fit, trailing claims are left out (their
+    /// items stay `.unverified`). Ids are shown as they are (`a1`, `a3`, `d2`):
+    /// they follow list positions, so they can have gaps.
+    static func prompt(claims: [Claim], index: TranscriptIndex, meetingDate: Date, calendar: Calendar,
+                       budgetTokens: Int) -> String {
+        let date = isoDate(meetingDate, calendar)
+        func fits(_ text: String) -> Bool { LLMPromptSupport.budgetTokens(text) <= budgetTokens }
+
+        for radius in [windowRadius, narrowWindowRadius] {
+            let text = render(claims, excerpts: claims.map { excerpt(for: $0, index: index, radius: radius) }, date: date)
+            if fits(text) { return text }
+        }
+
+        // Equal shares of the characters left after everything but the excerpts.
+        let maxChars = max(0, budgetTokens) * LLMPromptSupport.budgetCharsPerToken
+        let narrow = claims.map { excerpt(for: $0, index: index, radius: narrowWindowRadius) }
+        var count = claims.count
+        while count > 0 {
+            let kept = Array(claims.prefix(count))
+            let excerpts = Array(narrow.prefix(count))
+            let overhead = render(kept, excerpts: excerpts.map { ($0.header, "") }, date: date).count
+            let share = (maxChars - overhead) / count
+            if share >= 0 {
+                let text = render(kept, excerpts: excerpts.map {
+                    ($0.header, LLMPromptSupport.middleElide($0.lines, toCharBudget: share))
+                }, date: date)
+                if fits(text) { return text }
+            }
+            count -= 1
+        }
+        return render([], excerpts: [], date: date)
+    }
+
+    /// The claims' verdicts applied to `facts`: `supported: true` → `.supported`,
+    /// `false` → `.unsupported`, each with its `reason`. Ids that are not a
+    /// claim's, entries without a readable `supported`, and claims the reply
+    /// leaves out change nothing (those items stay `.unverified`); the first
+    /// entry for an id wins. Lenient: the text from the first `[` to the last
+    /// `]` (fence and reasoning tags around it are fine), booleans also as
+    /// `"true"`/`"false"` or 1/0. `nil` when no JSON array can be read.
+    static func apply(response: String, claims: [Claim], to facts: SummaryFacts) -> SummaryFacts? {
+        guard let arrayText = SummaryFactsParser.extractJSONArray(LLMPromptSupport.stripReasoningTags(response)),
+              let data = arrayText.data(using: .utf8),
+              let entries = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
+        else { return nil }
+
+        let claimIDs = Set(claims.map { $0.id.lowercased() })
+        var seen = Set<String>()
+        var result = facts
+        for case let entry as [String: Any] in entries {
+            guard let rawID = entry["id"] as? String else { continue }
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard claimIDs.contains(id), let supported = boolean(entry["supported"]),
+                  seen.insert(id).inserted, let position = Int(id.dropFirst()), position >= 1
+            else { continue }
+            let verdict: VerificationState = supported ? .supported : .unsupported
+            let reason = (entry["reason"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let kept = reason.flatMap { $0.isEmpty ? nil : $0 }
+            switch id.first {
+            case "a" where position <= result.actionItems.count:
+                result.actionItems[position - 1].verified = verdict
+                result.actionItems[position - 1].verificationReason = kept
+            case "d" where position <= result.decisions.count:
+                result.decisions[position - 1].verified = verdict
+                result.decisions[position - 1].verificationReason = kept
+            default:
+                continue
+            }
+        }
+        return result
+    }
+
+    /// The verification repair prompt for an unreadable reply.
+    static func repairPrompt(broken: String) -> String {
+        """
+        The text below was meant to be one JSON array of objects {"id": "...", "supported": true or false, "reason": "..."}, but it is not valid JSON. Return only the corrected JSON array — no prose and no code fence. Keep every entry; do not add entries.
+
+        Text:
+        \(broken)
+        """
+    }
+
+    // MARK: Private
+
+    private static let instructions = """
+    You are checking meeting notes against the transcript they were written from.
+    For each claim below, decide whether the transcript excerpt supports it. A decision is supported only if the excerpt shows it was actually decided or agreed. An action item is supported only if the excerpt shows the action was taken on — by the named owner, if one is given — and the due date, if one is given, was said or clearly implied.
+    Answer with only one JSON array, no prose and no code fence, with one object per claim in the same order:
+    [{"id": "<claim id>", "supported": true, "reason": "<one short sentence in the language of the transcript>"}]
+    When in doubt, answer false.
+    """
+
+    /// The excerpt heading (`Transcript excerpt (03:10–04:20):`) and its lines.
+    private static func excerpt(for claim: Claim, index: TranscriptIndex,
+                                radius: Double) -> (header: String, lines: String) {
+        let window = index.window(around: claim.seconds, radius: radius)
+        let first = window.first?.label ?? TranscriptLineFormat.timestampLabel(seconds: claim.seconds)
+        let last = window.last?.label ?? first
+        let header = "Transcript excerpt (\(first)–\(last)):"
+        let lines = window.map { line in
+            "[\(line.label)] " + (line.speaker.map { "\($0): " } ?? "") + line.text
+        }
+        return (header, lines.joined(separator: "\n"))
+    }
+
+    private static func render(_ claims: [Claim], excerpts: [(header: String, lines: String)], date: String) -> String {
+        let blocks = zip(claims, excerpts).map { claim, excerpt in
+            """
+            ### \(claim.id) (\(claim.kind.rawValue))
+            Claim: \(singleLine(claim.text))
+            Owner: \(claim.owner.map(singleLine).flatMap { $0.isEmpty ? nil : $0 } ?? "none")
+            Due: \(claim.due.map(singleLine).flatMap { $0.isEmpty ? nil : $0 } ?? "none")
+            Quote: "\(singleLine(claim.quote))"
+            \(excerpt.header)
+            \(excerpt.lines)
+            """
+        }
+        return instructions + "\n\nMeeting date: \(date)\n\nClaims:\n" + blocks.joined(separator: "\n\n")
+    }
+
+    private static func singleLine(_ text: String) -> String {
+        text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// `yyyy-MM-dd` of `date` in `calendar`'s time zone.
+    private static func isoDate(_ date: Date, _ calendar: Calendar) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func boolean(_ value: Any?) -> Bool? {
+        switch value {
+        case let number as NSNumber:
+            // JSON true/false and 1/0 both arrive as NSNumber.
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue }
+            switch number.intValue {
+            case 1: return true
+            case 0: return false
+            default: return nil
+            }
+        case let text as String:
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1": return true
+            case "false", "no", "0": return false
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+}

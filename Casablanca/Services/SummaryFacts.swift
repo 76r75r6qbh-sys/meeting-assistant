@@ -226,6 +226,15 @@ enum SummaryFactsParser {
     /// Strips one surrounding code fence, then returns the text from the first
     /// `{` to the last `}`; `nil` when there is no such span.
     static func extractJSONObject(_ text: String) -> String? {
+        extractJSON(text, open: "{", close: "}")
+    }
+
+    /// As ``extractJSONObject(_:)``, from the first `[` to the last `]`.
+    static func extractJSONArray(_ text: String) -> String? {
+        extractJSON(text, open: "[", close: "]")
+    }
+
+    private static func extractJSON(_ text: String, open: Character, close: Character) -> String? {
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.hasPrefix("```") {
             if let newline = body.firstIndex(of: "\n") {
@@ -236,7 +245,7 @@ enum SummaryFactsParser {
             body = body.trimmingCharacters(in: .whitespacesAndNewlines)
             if body.hasSuffix("```") { body = String(body.dropLast(3)) }
         }
-        guard let first = body.firstIndex(of: "{"), let last = body.lastIndex(of: "}"), first < last else { return nil }
+        guard let first = body.firstIndex(of: open), let last = body.lastIndex(of: close), first < last else { return nil }
         return String(body[first...last])
     }
 
