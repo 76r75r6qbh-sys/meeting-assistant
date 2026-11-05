@@ -223,7 +223,7 @@ today's behaviour.
 | No Screen Recording permission | callName nil → today's behaviour |
 | Teams main window only (call window not yet created) | parser rejects section titles → nil → today's |
 | Pre-join title `Meeting join \| X \| …` | `X` |
-| Two call windows | nil → today's |
+| Two call windows | newest window (highest `kCGWindowNumber`) wins; logged |
 | Calendar subject edited locally, differs from the Teams title | no match → manual meeting named after the call. Accepted: rare, and the recording is still named |
 | Call name equal to an event that started > 10 min early-window rules allow (joined 15 min early) | no live event → manual meeting named after the call (same as today, but named) |
 | Already recording when the call starts | unchanged (links the active recording, no title read) |
