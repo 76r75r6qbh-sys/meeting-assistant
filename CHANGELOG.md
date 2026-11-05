@@ -2,6 +2,15 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] — 2026-11-05
+
+Teams auto-record now knows which call it is recording. An ad-hoc 1:1 taken during a calendar item no longer ends up in that item's meeting, and a call that follows another without a break is recorded too.
+
+### Changed
+
+- **Teams auto-record names the recording after the call.** Casablanca reads the Teams call window's title (a person, e.g. "Marco Spoor", or a meeting subject) with the Screen Recording permission it already has. A call whose name matches a running calendar event is recorded into that event, even when another event overlaps. An ad-hoc call whose name matches no running event no longer lands in an overlapping calendar event: it becomes a meeting named after the call. Without a readable title, the old time-based choice applies.
+- **A new Teams call during a running one is recorded too.** Teams can keep the microphone open from one call into the next, so a 1:1 right after a meeting used to look like the same call and was never recorded. With auto-record on, Casablanca now checks the Teams call windows every 10 seconds during a call: once a new call window has been the newest for 10 seconds, it ends the old call (stopping its recording when auto-stop is on) and starts recording the new one. Detection takes up to about 25 seconds, and the new recording starts once the previous one has stopped, so the start of the new call is not recorded.
+
 ## [0.19.1] — 2026-11-05
 
 Long meetings are now summarized in full. Until now every transcript was cut to about 24,000 characters before summarizing, so a 2.5-hour meeting lost about 84 % of its content (only the start and end were used).

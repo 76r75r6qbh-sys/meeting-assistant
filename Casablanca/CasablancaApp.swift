@@ -251,6 +251,9 @@ final class AppModel {
     /// Created on first enable: it holds `self` (weakly) as its host.
     private var teamsAutoRecordCoordinator: TeamsAutoRecordCoordinator?
     private let autoRecordNotifier = RecordingNotificationCenter()
+    /// Reads the Teams call window's title at call start (Screen Recording
+    /// only; never prompts). Replaceable so the host path can be faked.
+    @ObservationIgnored var teamsWindowTitleReader: any TeamsWindowTitleReading = CGTeamsWindowTitleReader()
     private let housekeeping: UpdateLaunchHousekeeping
     @ObservationIgnored private var bootstrapGate = RunOnceGate()
     /// Sleep/lock/device auto-pause for the whole app run, created once at
@@ -762,6 +765,10 @@ extension AppModel: TeamsAutoRecordHost {
 
     func teamsCallCandidates() -> [TeamsCallEventCandidate] {
         calendarService.events.compactMap(TeamsCallEventCandidate.init(event:))
+    }
+
+    func teamsCallWindows(isPeriodic: Bool) -> [TeamsCallWindowName] {
+        TeamsCallWindowTitle.callWindows(fromWindows: teamsWindowTitleReader.teamsWindows(isPeriodic: isPeriodic))
     }
 
     func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {
