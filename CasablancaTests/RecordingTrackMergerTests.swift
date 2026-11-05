@@ -63,7 +63,8 @@ final class RecordingTrackMergerTests: XCTestCase {
         let result = try RecordingTrackMerger.merge(
             segmentWAVs: [segment1, segment2],
             recordingURL: recording,
-            chunkFrames: 2
+            chunkFrames: 2,
+            availableCapacity: Self.ampleCapacity
         )
 
         let micURL = try XCTUnwrap(result.microphone)
@@ -89,7 +90,11 @@ final class RecordingTrackMergerTests: XCTestCase {
         let segment2 = try makeSegment(number: 2, wavFrames: 2, mic: n, system: nil)
         let recording = directory.appendingPathComponent("final.wav")
 
-        let result = try RecordingTrackMerger.merge(segmentWAVs: [segment1, segment2], recordingURL: recording)
+        let result = try RecordingTrackMerger.merge(
+            segmentWAVs: [segment1, segment2],
+            recordingURL: recording,
+            availableCapacity: Self.ampleCapacity
+        )
 
         let micURL = try XCTUnwrap(result.microphone)
         XCTAssertEqual(try samples(in: micURL), [0, 0, 0] + RecordingTrackMerger.int16Samples(fromFloat: n))
@@ -101,7 +106,11 @@ final class RecordingTrackMergerTests: XCTestCase {
         let segment = try makeSegment(number: 1, wavFrames: 2, mic: m, system: nil)
         let recording = directory.appendingPathComponent("final.wav")
 
-        let result = try RecordingTrackMerger.merge(segmentWAVs: [segment], recordingURL: recording)
+        let result = try RecordingTrackMerger.merge(
+            segmentWAVs: [segment],
+            recordingURL: recording,
+            availableCapacity: Self.ampleCapacity
+        )
 
         XCTAssertEqual(
             try samples(in: try XCTUnwrap(result.microphone)),
@@ -113,7 +122,11 @@ final class RecordingTrackMergerTests: XCTestCase {
         let segment = try makeSegment(number: 1, wavFrames: 3, mic: [0.1, 0.2, 0.3], system: nil)
         let recording = directory.appendingPathComponent("final.wav")
 
-        let result = try RecordingTrackMerger.merge(segmentWAVs: [segment], recordingURL: recording)
+        let result = try RecordingTrackMerger.merge(
+            segmentWAVs: [segment],
+            recordingURL: recording,
+            availableCapacity: Self.ampleCapacity
+        )
 
         XCTAssertNotNil(result.microphone)
         XCTAssertNil(result.system)
@@ -133,7 +146,11 @@ final class RecordingTrackMergerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
         let recording = directory.appendingPathComponent("final.wav")
 
-        let result = await RecordingTrackMerger.mergeInBackground(segmentWAVs: [segment], recordingURL: recording)
+        let result = await RecordingTrackMerger.mergeInBackground(
+            segmentWAVs: [segment],
+            recordingURL: recording,
+            availableCapacity: Self.ampleCapacity
+        )
 
         XCTAssertEqual(result, SpeakerTrackFiles())
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -144,6 +161,45 @@ final class RecordingTrackMergerTests: XCTestCase {
         XCTAssertTrue(leftovers.contains("segment-001.mic.kept.pcm"))
         XCTAssertTrue(leftovers.contains("segment-001.system.kept.pcm"))
     }
+
+    /// Low disk space at Stop: no track WAVs are written, a stale one is
+    /// removed, and the mix (already merged) is untouched.
+    func testLowDiskSpaceSkipsAndRemovesTrackWAVs() async throws {
+        let segment = try makeSegment(number: 1, wavFrames: 3, mic: [0.1, 0.2, 0.3], system: [0.1, 0.2, 0.3])
+        let recording = directory.appendingPathComponent("final.wav")
+        _ = try RecordingSegmentMerger.merge(segmentURLs: [segment], into: recording)
+        let mixBytes = try Data(contentsOf: recording)
+        let staleMic = RecordingFiles.speakerTrackURL(forRecording: recording, kind: .microphone)
+        try Data(repeating: 0x22, count: 64).write(to: staleMic)
+
+        let result = await RecordingTrackMerger.mergeInBackground(
+            segmentWAVs: [segment],
+            recordingURL: recording,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks - 1 }
+        )
+
+        XCTAssertEqual(result, SpeakerTrackFiles())
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertFalse(files.contains("final.mic.wav"), "files: \(files)")
+        XCTAssertFalse(files.contains("final.system.wav"))
+        XCTAssertFalse(files.contains { $0.hasSuffix(".partial") })
+        XCTAssertEqual(try Data(contentsOf: recording), mixBytes)
+    }
+
+    func testEnoughDiskSpaceWritesTrackWAVs() throws {
+        let segment = try makeSegment(number: 1, wavFrames: 3, mic: [0.1, 0.2, 0.3], system: nil)
+        let recording = directory.appendingPathComponent("final.wav")
+
+        let result = try RecordingTrackMerger.merge(
+            segmentWAVs: [segment],
+            recordingURL: recording,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks }
+        )
+
+        XCTAssertNotNil(result.microphone)
+    }
+
+    private static let ampleCapacity: RecordingDiskSpace.CapacityProvider = { _ in .max }
 
     // MARK: - Helpers
 

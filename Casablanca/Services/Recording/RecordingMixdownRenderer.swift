@@ -14,6 +14,11 @@ struct RecordingMixdownRenderer {
     let systemAudioFrames: AVAudioFramePosition
     let outputURL: URL
     let expectedOutputFrames: AVAudioFramePosition
+    /// Free space on the recording volume. Below
+    /// `RecordingDiskSpace.minimumFreeBytesForSpeakerTracks` the temp tracks
+    /// are deleted instead of kept, so the speaker tracks never cost the live
+    /// recording its disk.
+    var availableCapacity: RecordingDiskSpace.CapacityProvider = RecordingDiskSpace.systemCapacity
 
     func render() throws {
         let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneURL)
@@ -126,12 +131,12 @@ struct RecordingMixdownRenderer {
         // track that was not read is removed only when it holds no whole
         // sample, and is never kept.
         if microphoneHandle != nil {
-            Self.keepTrack(at: microphoneURL)
+            keepTrack(at: microphoneURL)
         } else if microphoneBytes < Int64(MemoryLayout<Float>.size) {
             bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneURL) }
         }
         if systemAudioHandle != nil {
-            Self.keepTrack(at: systemAudioURL)
+            keepTrack(at: systemAudioURL)
         } else if systemAudioBytes < Int64(MemoryLayout<Float>.size) {
             bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioURL) }
         }
@@ -141,9 +146,15 @@ struct RecordingMixdownRenderer {
     /// replacing a kept file an earlier render of the segment left. If the
     /// move fails the track is deleted as before: the mix already holds its
     /// audio, and a temp track left under its capture name would be rendered
-    /// again by launch recovery.
-    private static func keepTrack(at url: URL) {
+    /// again by launch recovery. When disk space is low the track is deleted
+    /// without trying to keep it (logged once per session).
+    private func keepTrack(at url: URL) {
         let fileManager = FileManager.default
+        guard RecordingDiskSpace.allowsSpeakerTracks(at: url, capacity: availableCapacity) else {
+            RecordingDiskSpace.noteLowSpace(for: url.deletingLastPathComponent(), capacity: availableCapacity)
+            bestEffort("remove temp track on low disk space", Log.recording) { try fileManager.removeItem(at: url) }
+            return
+        }
         let keptURL = RecordingFiles.keptTrackURL(for: url)
         do {
             if fileManager.fileExists(atPath: keptURL.path) {

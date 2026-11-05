@@ -27,8 +27,21 @@ enum RecordingTrackMerger {
     /// behind, and returns no tracks, because the speaker tracks are an
     /// enhancement and must never fail the Stop.
     static func mergeInBackground(segmentWAVs: [URL], recordingURL: URL) async -> SpeakerTrackFiles {
+        await mergeInBackground(
+            segmentWAVs: segmentWAVs,
+            recordingURL: recordingURL,
+            availableCapacity: RecordingDiskSpace.systemCapacity
+        )
+    }
+
+    /// `mergeInBackground` with an injectable free-space provider (tests).
+    static func mergeInBackground(
+        segmentWAVs: [URL],
+        recordingURL: URL,
+        availableCapacity: RecordingDiskSpace.CapacityProvider
+    ) async -> SpeakerTrackFiles {
         do {
-            return try merge(segmentWAVs: segmentWAVs, recordingURL: recordingURL)
+            return try merge(segmentWAVs: segmentWAVs, recordingURL: recordingURL, availableCapacity: availableCapacity)
         } catch {
             Log.recording.error(
                 "Speaker track merge failed for \(recordingURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public); continuing without speaker tracks"
@@ -41,12 +54,22 @@ enum RecordingTrackMerger {
     /// `chunkFrames` pieces and writes each track to a partial file that is
     /// moved into place, as `RecordingSegmentMerger.merge` does. On failure
     /// every track this call wrote is removed again before rethrowing.
+    ///
+    /// Free space is checked before each track: below
+    /// `RecordingDiskSpace.minimumFreeBytesForSpeakerTracks` no track is
+    /// written, any track WAV already beside the recording is removed, and the
+    /// result is empty. The mix, already merged, is never touched.
     static func merge(
         segmentWAVs: [URL],
         recordingURL: URL,
-        chunkFrames: Int = 65_536
+        chunkFrames: Int = 65_536,
+        availableCapacity: RecordingDiskSpace.CapacityProvider = RecordingDiskSpace.systemCapacity
     ) throws -> SpeakerTrackFiles {
         let mixFrames = try segmentWAVs.map(mixFrameCount(ofSegment:))
+        func hasRoom() -> Bool {
+            RecordingDiskSpace.allowsSpeakerTracks(at: recordingURL, capacity: availableCapacity)
+        }
+        guard hasRoom() else { return skipForLowDiskSpace(recordingURL: recordingURL, capacity: availableCapacity) }
         var written: [URL] = []
         do {
             let microphone = try mergeTrack(
@@ -57,6 +80,7 @@ enum RecordingTrackMerger {
                 chunkFrames: max(1, chunkFrames)
             )
             if let microphone { written.append(microphone) }
+            guard hasRoom() else { return skipForLowDiskSpace(recordingURL: recordingURL, capacity: availableCapacity) }
             let system = try mergeTrack(
                 .systemAudio,
                 segmentWAVs: segmentWAVs,
@@ -84,6 +108,23 @@ enum RecordingTrackMerger {
     }
 
     // MARK: - Private
+
+    /// Removes every speaker track WAV beside `recordingURL` and returns none.
+    private static func skipForLowDiskSpace(
+        recordingURL: URL,
+        capacity: RecordingDiskSpace.CapacityProvider
+    ) -> SpeakerTrackFiles {
+        RecordingDiskSpace.noteLowSpace(for: recordingURL.deletingLastPathComponent(), capacity: capacity)
+        for kind in [RecordingTrackKind.microphone, .systemAudio] {
+            let url = RecordingFiles.speakerTrackURL(forRecording: recordingURL, kind: kind)
+            if FileManager.default.fileExists(atPath: url.path) {
+                bestEffort("remove speaker track on low disk space", Log.recording) {
+                    try FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+        return SpeakerTrackFiles()
+    }
 
     private static func mergeTrack(
         _ kind: RecordingTrackKind,
@@ -157,7 +198,13 @@ enum RecordingTrackMerger {
             let input = try FileHandle(forReadingFrom: keptURL)
             defer { try? input.close() }
 
-            let trackFrames = (RecordingFiles.byteCount(of: keptURL) ?? 0) / MemoryLayout<Float>.size
+            // An unknown size fails the merge, matching `holdsAudio`, where an
+            // unknown size counts as audio: never silently turn speech into
+            // silence.
+            guard let keptByteCount = RecordingFiles.byteCount(of: keptURL) else {
+                throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: keptURL.path])
+            }
+            let trackFrames = keptByteCount / MemoryLayout<Float>.size
             var toRead = min(trackFrames, mixFrames)
             while toRead > 0 {
                 guard let data = try input.read(upToCount: min(chunkFrames, toRead) * MemoryLayout<Float>.size),

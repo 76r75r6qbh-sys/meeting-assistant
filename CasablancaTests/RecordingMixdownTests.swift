@@ -177,7 +177,8 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
             microphoneFrames: 2,
             systemAudioFrames: 2,
             outputURL: output,
-            expectedOutputFrames: 2
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
         ).render()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
@@ -207,7 +208,8 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
             microphoneFrames: 3,
             systemAudioFrames: 0,
             outputURL: output,
-            expectedOutputFrames: 3
+            expectedOutputFrames: 3,
+            availableCapacity: Self.ampleCapacity
         ).render()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
@@ -228,11 +230,59 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
             microphoneFrames: 2,
             systemAudioFrames: 0,
             outputURL: output,
-            expectedOutputFrames: 2
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
         ).render()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: system).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
+    }
+
+    private static let ampleCapacity: RecordingDiskSpace.CapacityProvider = { _ in .max }
+
+    /// Low disk space: the speaker tracks are a luxury the live recording
+    /// cannot afford. The temp tracks are deleted as before, and the mix still
+    /// finalises.
+    func testLowDiskSpaceDeletesTracksInsteadOfKeepingThem() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks - 1 }
+        ).render()
+
+        for url in [mic, system, RecordingFiles.keptTrackURL(for: mic), RecordingFiles.keptTrackURL(for: system)] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), url.lastPathComponent)
+        }
+        XCTAssertEqual(try Data(contentsOf: output).count, 44 + 2 * MemoryLayout<Int16>.size)
+    }
+
+    func testEnoughDiskSpaceKeepsTracks() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks }
+        ).render()
+
         XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
     }
 
@@ -257,5 +307,36 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
+    }
+}
+
+/// The free-space guard that protects a live recording from the kept speaker
+/// tracks.
+final class RecordingDiskSpaceTests: XCTestCase {
+    private let probe = URL(fileURLWithPath: "/tmp/segment-001.mic.pcm")
+
+    func testThresholdIsTwoGigabytesInclusive() {
+        let threshold = RecordingDiskSpace.minimumFreeBytesForSpeakerTracks
+        XCTAssertEqual(threshold, 2_000_000_000)
+        XCTAssertTrue(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in threshold }))
+        XCTAssertFalse(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in threshold - 1 }))
+    }
+
+    /// An unknown capacity is treated as low: the recording comes first.
+    func testUnknownCapacityCountsAsLow() {
+        XCTAssertFalse(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in nil }))
+    }
+
+    func testSystemCapacityReadsTheTemporaryVolume() {
+        let capacity = RecordingDiskSpace.systemCapacity(FileManager.default.temporaryDirectory.appendingPathComponent("x.pcm"))
+        XCTAssertNotNil(capacity)
+        XCTAssertGreaterThan(capacity ?? 0, 0)
+    }
+
+    func testLowSpaceIsLoggedOncePerSession() {
+        let session = URL(fileURLWithPath: "/tmp/\(UUID().uuidString)", isDirectory: true)
+        XCTAssertTrue(RecordingDiskSpace.claimLowSpaceLog(for: session))
+        XCTAssertFalse(RecordingDiskSpace.claimLowSpaceLog(for: session))
+        XCTAssertTrue(RecordingDiskSpace.claimLowSpaceLog(for: URL(fileURLWithPath: "/tmp/\(UUID().uuidString)")))
     }
 }

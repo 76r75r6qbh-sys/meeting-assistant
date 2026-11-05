@@ -371,6 +371,9 @@ final class AudioRecordingService {
         defer { mergingMeetingIDs.remove(meeting.id) }
         let duration = try await mergeSegments(segmentURLs, finalURL)
         // Before the session is deleted: the kept per-source PCM lives in it.
+        // If `deleteSession` below throws, the Stop fails and these track WAVs
+        // stay beside the recording unrecorded on the meeting; a retried Stop
+        // overwrites them (the merger replaces existing files).
         let tracks = await mergeTracks(segmentURLs, finalURL)
         try sessionStore.deleteSession(for: meeting.id)
 

@@ -64,3 +64,67 @@ enum RecordingFiles {
         }
     }
 }
+
+/// The free-space guard for the per-source speaker tracks. Kept float32 PCM
+/// grows for the whole meeting (about 920 MB per two hours for both sources)
+/// and the track WAVs add more at Stop; the live recording must never run out
+/// of disk because of them. Below the threshold the tracks are dropped, never
+/// the mix.
+enum RecordingDiskSpace {
+    /// Bytes available on the volume that holds `url`, or `nil` when unknown.
+    typealias CapacityProvider = @Sendable (URL) -> Int64?
+
+    static let minimumFreeBytesForSpeakerTracks: Int64 = 2_000_000_000
+
+    /// The volume's capacity for important usage, falling back to its plain
+    /// available capacity. Asks about the file's directory, which exists.
+    static let systemCapacity: CapacityProvider = { url in
+        let directory = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
+        guard let values = try? directory.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]
+        ) else { return nil }
+        if let important = values.volumeAvailableCapacityForImportantUsage {
+            return important
+        }
+        return values.volumeAvailableCapacity.map(Int64.init)
+    }
+
+    /// Whether there is room to keep speaker tracks beside `url`. An unknown
+    /// capacity counts as low: the recording comes first.
+    static func allowsSpeakerTracks(at url: URL, capacity: CapacityProvider) -> Bool {
+        guard let available = capacity(url) else { return false }
+        return available >= minimumFreeBytesForSpeakerTracks
+    }
+
+    /// Logs the low-space decision at most once per session directory (or
+    /// recording folder). Privacy-safe: no paths, names or meeting IDs.
+    static func noteLowSpace(for directory: URL, capacity: CapacityProvider) {
+        guard claimLowSpaceLog(for: directory) else { return }
+        let available = capacity(directory).map { String($0 / 1_000_000) } ?? "unknown"
+        Log.recording.notice(
+            "Low disk space (\(available, privacy: .public) MB available, need \(minimumFreeBytesForSpeakerTracks / 1_000_000, privacy: .public) MB); not keeping speaker tracks for this recording"
+        )
+    }
+
+    /// `true` the first time it is asked about `directory`. `internal` so the
+    /// once-per-session rule can be tested.
+    static func claimLowSpaceLog(for directory: URL) -> Bool {
+        let key = directory.standardizedFileURL.path
+        return loggedDirectories.withLock { $0.insert(key).inserted }
+    }
+
+    private static let loggedDirectories = LockedSet()
+}
+
+/// A tiny lock-protected set; the renderer runs on whichever queue finalises
+/// the segment.
+private final class LockedSet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: Set<String> = []
+
+    func withLock<T>(_ body: (inout Set<String>) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&values)
+    }
+}

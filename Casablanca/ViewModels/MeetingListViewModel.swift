@@ -334,12 +334,26 @@ final class MeetingListViewModel {
     func deleteMeeting(_ meeting: Meeting) throws {
         guard let modelContext else { return }
 
-        // The recording and its per-source speaker tracks.
-        for path in [meeting.recordingFileURL, meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
+        if let recordingPath = meeting.recordingFileURL {
+            let recordingURL = URL(fileURLWithPath: recordingPath)
             do {
-                try removeItemAtURL(URL(fileURLWithPath: path))
+                try removeItemAtURL(recordingURL)
             } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
                 // Missing recording files should not block deleting the meeting record.
+            }
+        }
+
+        // The per-source speaker tracks are best-effort: once the recording is
+        // gone, a track that will not delete must not abort the meeting delete.
+        for trackPath in [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
+            do {
+                try removeItemAtURL(URL(fileURLWithPath: trackPath))
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                // Already gone.
+            } catch {
+                Log.recording.error(
+                    "Could not remove a speaker track while deleting a meeting: \(error.localizedDescription, privacy: .public)"
+                )
             }
         }
 
