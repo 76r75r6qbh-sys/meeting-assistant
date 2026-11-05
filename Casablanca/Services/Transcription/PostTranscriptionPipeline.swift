@@ -88,7 +88,11 @@ struct PostTranscriptionPipeline {
         speakerStatus: @escaping @MainActor (String) -> Void = { _ in }
     ) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
-            analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults, status: speakerStatus),
+            analyzeSpeakers: SpeakerAnalysis.live(
+                defaults: defaults,
+                status: speakerStatus,
+                nameProposer: SpeakerNameProposer(providerFactory: { LLMProviderFactory.current(defaults: defaults) })
+            ),
             correctTerminology: terminologyCorrector(using: terminologyService),
             saveTranscript: { meeting, result in
                 try TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)

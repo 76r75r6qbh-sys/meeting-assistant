@@ -6,6 +6,10 @@ struct MeetingTranscriptTab: View {
     let terminologyService: TerminologyService
     let onTranscribe: () -> Void
     let onSave: () -> Void
+    var speakerAnalysisStore = SpeakerAnalysisStore()
+    /// Runs after the speakers bar renamed or merged a speaker, once the
+    /// meeting is saved (Phase 2: the "regenerate summary with names" offer).
+    var onSpeakersChanged: ((Meeting) -> Void)? = nil
 
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
@@ -85,6 +89,13 @@ struct MeetingTranscriptTab: View {
                 }
                 .padding(CasaSpace.sm)
                 .background(Color.accentWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            if !meeting.speakers.isEmpty {
+                SpeakersBar(meeting: meeting, store: speakerAnalysisStore) { changed in
+                    onSave()
+                    onSpeakersChanged?(changed)
+                }
             }
 
             if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
