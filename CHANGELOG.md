@@ -2,7 +2,9 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0] — 2026-11-05
+
+Teams auto-record now knows which call it is recording. An ad-hoc 1:1 taken during a calendar item no longer ends up in that item's meeting, and a call that follows another without a break is recorded too.
 
 ### Changed
 
