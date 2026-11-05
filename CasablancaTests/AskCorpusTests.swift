@@ -239,6 +239,57 @@ final class AskCorpusTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testLoadPagesDeterministicallyWhenDatesTie() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let shared = date(2026, 11, 3, 9)
+        let createdAt = date(2026, 11, 1, 8)
+        var ids: [UUID] = []
+        for n in 1...3 {
+            let meeting = Meeting(title: "Gelijk \(n)", date: shared, status: .completed)
+            meeting.summary = "Samenvatting \(n)"
+            meeting.createdAt = createdAt   // force a full tie on date AND createdAt
+            context.insert(meeting)
+            ids.append(meeting.id)
+        }
+        try context.save()
+
+        func pageThrough() throws -> [UUID] {
+            var result: [UUID] = []
+            for offset in 0..<4 {
+                result += try AskCorpus.load(from: context, limit: 1, offset: offset) { _ in false }.map(\.id)
+            }
+            return result
+        }
+        let first = try pageThrough()
+        XCTAssertEqual(first.count, 3)
+        XCTAssertEqual(Set(first), Set(ids), "every meeting exactly once")
+        XCTAssertEqual(first, ids.sorted(), "ties fall back to id ascending")
+        XCTAssertEqual(try pageThrough(), first, "order is stable across runs")
+        XCTAssertEqual(try AskCorpus.load(from: context) { _ in false }.map(\.id), first)
+    }
+
+    @MainActor
+    func testLoadPageReportsFetchedRowsSoSkippedRowsDoNotEndPaging() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let newest = Meeting(title: "Leeg", date: date(2026, 11, 3, 9), status: .completed)   // skipped: empty
+        let older = Meeting(title: "Ouder", date: date(2026, 11, 2, 9), status: .completed)
+        older.summary = "Samenvatting"
+        context.insert(newest)
+        context.insert(older)
+        try context.save()
+
+        let first = try AskCorpus.loadPage(from: context, limit: 1, offset: 0) { _ in false }
+        XCTAssertEqual(first.snapshots, [])
+        XCTAssertEqual(first.fetchedRows, 1, "an all-skipped page is not the last page")
+        let second = try AskCorpus.loadPage(from: context, limit: 1, offset: 1) { _ in false }
+        XCTAssertEqual(second.snapshots.map(\.title), ["Ouder"])
+        let third = try AskCorpus.loadPage(from: context, limit: 1, offset: 2) { _ in false }
+        XCTAssertEqual(third.fetchedRows, 0)
+    }
+
     /// Seeds (and saves) on the main actor: the app's `SidebarMeetingsProvider`
     /// observes every `ModelContext.didSave` with `MainActor.assumeIsolated`,
     /// so an off-main save traps in the test host. Only the fetch runs off-main.

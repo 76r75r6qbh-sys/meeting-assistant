@@ -180,16 +180,44 @@ enum AskCorpus {
     /// `isPendingDeletion` is true, upcoming and recording meetings, and
     /// meetings with neither summary nor transcript. Works on any context,
     /// so callers can run it on a background `ModelContext` in batches.
+    ///
+    /// Order is `date` desc, then `createdAt` desc, then `id` asc, so it is
+    /// deterministic even when meetings share a date and offset paging is
+    /// stable. Paging contract: skipped rows still count towards
+    /// `limit`/`offset`, so a page can hold fewer snapshots than `limit` (even
+    /// none) and still not be the last. Page with
+    /// ``loadPage(from:limit:offset:isPendingDeletion:)``: advance `offset`
+    /// by `limit` and stop once `fetchedRows < limit` — page by fetched-row
+    /// count, never by snapshot count. Rows inserted or deleted between pages
+    /// can still shift the window, so callers must dedupe the combined
+    /// result by `id`.
     static func load(
         from context: ModelContext,
         limit: Int = 1_000,
         offset: Int = 0,
         isPendingDeletion: (UUID) -> Bool
     ) throws -> [AskMeetingSnapshot] {
-        var descriptor = FetchDescriptor<Meeting>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        try loadPage(from: context, limit: limit, offset: offset, isPendingDeletion: isPendingDeletion).snapshots
+    }
+
+    /// Same fetch and filtering as ``load(from:limit:offset:isPendingDeletion:)``,
+    /// plus `fetchedRows`: how many rows the fetch returned before skipping.
+    /// `fetchedRows < limit` means this was the last page.
+    static func loadPage(
+        from context: ModelContext,
+        limit: Int = 1_000,
+        offset: Int = 0,
+        isPendingDeletion: (UUID) -> Bool
+    ) throws -> (snapshots: [AskMeetingSnapshot], fetchedRows: Int) {
+        var descriptor = FetchDescriptor<Meeting>(sortBy: [
+            SortDescriptor(\.date, order: .reverse),
+            SortDescriptor(\.createdAt, order: .reverse),
+            SortDescriptor(\.id),
+        ])
         descriptor.fetchLimit = max(0, limit)
         descriptor.fetchOffset = max(0, offset)
-        return try context.fetch(descriptor).compactMap { meeting in
+        let meetings = try context.fetch(descriptor)
+        let snapshots = meetings.compactMap { meeting -> AskMeetingSnapshot? in
             switch meeting.status {
             case .upcoming, .recording, .pausedRecording:
                 return nil
@@ -200,6 +228,7 @@ enum AskCorpus {
             guard nonBlank(meeting.summary) != nil || nonBlank(meeting.transcript) != nil else { return nil }
             return AskMeetingSnapshot(meeting: meeting)
         }
+        return (snapshots, meetings.count)
     }
 
     // MARK: - Filter options
