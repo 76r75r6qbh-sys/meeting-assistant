@@ -777,6 +777,17 @@ final class TeamsCallSwitchDetectorTests: XCTestCase {
         XCTAssertNil(detector.observe(windows: [popOut, renamed], at: at(40)))
     }
 
+    func testAKnownNewerPopOutDoesNotAdoptAPendingUnknownWindow() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        // A pop-out repeating the meeting's name overtakes Ryanne's window.
+        let popOut = TeamsCallWindowName(number: 300, name: "Healthtalk", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [popOut, ryanne, meeting], at: at(20)))
+        // The pop-out closes: Ryanne's window is still unknown.
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(30)))
+        XCTAssertEqual(detector.observe(windows: [ryanne, meeting], at: at(40)), ryanne)
+    }
+
     func testANewWindowWithAKnownNameIsNoSwitch() {
         var detector = started(with: [meeting])
         let popOut = TeamsCallWindowName(number: 150, name: "HEALTHTALK", isPreJoin: false)
@@ -861,8 +872,12 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     func isStopInFlight(meetingID: UUID) -> Bool { stoppingMeetingIDs.contains(meetingID) }
     func teamsCallCandidates() -> [TeamsCallEventCandidate] { candidates }
 
-    func teamsCallWindows() -> [TeamsCallWindowName] {
+    /// `isPeriodic` of every read, in order.
+    private(set) var windowReadKinds: [Bool] = []
+
+    func teamsCallWindows(isPeriodic: Bool) -> [TeamsCallWindowName] {
         windowReads += 1
+        windowReadKinds.append(isPeriodic)
         return callWindows
     }
 
@@ -1237,6 +1252,18 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
     private let meetingWindow = TeamsCallWindowName(number: 100, name: "Healthtalk", isPreJoin: false)
     private let ryanneWindow = TeamsCallWindowName(number: 200, name: "Ryanne Makor", isPreJoin: false)
 
+    /// Yields until `condition` holds; fails instead of hanging when it never does.
+    private func waitUntil(
+        _ condition: () -> Bool, _ message: String = "condition never held",
+        file: StaticString = #filePath, line: UInt = #line
+    ) async {
+        for _ in 0..<10_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail(message, file: file, line: line)
+    }
+
     /// Two ticks 10 s apart, each after the throttle interval has passed.
     private func tickTwiceTenSecondsApart() {
         clock.advance(10)
@@ -1342,6 +1369,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         coordinator.callTick()
         coordinator.callTick()
         XCTAssertEqual(host.windowReads, 2)
+        XCTAssertEqual(host.windowReadKinds, [false, true], "The start's read logs; periodic reads don't")
     }
 
     func testNoWindowReadsOnceTheCallEnded() async throws {
@@ -1394,7 +1422,9 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
 
     // The mic end lands after the switch is confirmed but before its Task
     // runs: the confirmation already ended the old call, and the Task must
-    // not start a new one.
+    // not start a new one. Relies on `callEnded`'s bookkeeping running
+    // synchronously (no suspension before it on the main actor), so it is
+    // done before the Task gets its first turn.
     func testMicEndBeforeTheSwitchTaskRunsLeavesNoLiveCall() async throws {
         setPreferences(autoRecord: true, autoStop: true)
         let meeting = try await startCall(windows: [meetingWindow])
@@ -1421,7 +1451,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         host.callWindows = [ryanneWindow, meetingWindow]
         tickTwiceTenSecondsApart()
         let task = try XCTUnwrap(coordinator.switchTask)
-        while host.stoppedMeetingIDs.isEmpty { await Task.yield() }
+        await waitUntil({ !self.host.stoppedMeetingIDs.isEmpty }, "the switch never stopped the old recording")
         await coordinator.callEnded()
         await gate.open()
         await task.value
@@ -1461,6 +1491,146 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         clock.advance(5)
         coordinator.callTick()
         XCTAssertEqual(host.windowReads, 1)
+    }
+
+    // Back to the held meeting after the 1:1 ends: another switch, so the
+    // rest of the meeting does not land in the 1:1's recording.
+    func testReturningToTheHeldMeetingAfterTheOneToOneIsAnotherSwitch() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        let oneToOne = try XCTUnwrap(host.nextStartedMeetingID)
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        await coordinator.switchTask?.value
+        XCTAssertEqual(coordinator.linkedMeetingID, oneToOne)
+        host.nextStartedMeetingID = UUID()
+        let resumed = try XCTUnwrap(host.nextStartedMeetingID)
+
+        host.callWindows = [meetingWindow]
+        tickTwiceTenSecondsApart()
+        let second = try XCTUnwrap(coordinator.switchTask)
+        await second.value
+
+        XCTAssertEqual(host.stoppedMeetingIDs, [meeting, oneToOne])
+        XCTAssertEqual(host.startRequests.map(\.manualTitle), ["Healthtalk", "Ryanne Makor", "Healthtalk"])
+        XCTAssertEqual(coordinator.linkedMeetingID, resumed)
+    }
+
+    // A mic end while the switch's own start is still awaiting: an ordinary
+    // ended call, so the new recording is stopped when it comes up.
+    func testMicEndDuringTheSwitchsStartStopsTheNewRecording() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        host.stopRecording(meeting, status: .processing)
+        let second = try XCTUnwrap(host.nextStartedMeetingID)
+        let gate = TestGate()
+        host.startDelay = { await gate.wait() }
+
+        host.callWindows = [ryanneWindow]
+        tickTwiceTenSecondsApart()
+        let task = try XCTUnwrap(coordinator.switchTask)
+        await waitUntil({ self.host.startRequests.count == 2 }, "the switch never started the new call")
+        await coordinator.callEnded()
+        await gate.open()
+        await task.value
+
+        XCTAssertEqual(host.stoppedMeetingIDs, [second])
+        XCTAssertNil(coordinator.linkedMeetingID)
+        XCTAssertFalse(coordinator.isCallLive)
+    }
+
+    // reset → new call → its own switch, while the first switch's stop is
+    // still hanging: the first Task finishing late leaves the second alone.
+    func testALateFirstSwitchLeavesASecondSwitchAlone() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        let firstStop = TestGate()
+        host.stopDelay = { await firstStop.wait() }
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        let firstTask = try XCTUnwrap(coordinator.switchTask)
+        await waitUntil({ self.host.stoppedMeetingIDs == [meeting] }, "the first switch never stopped")
+
+        coordinator.reset()
+        host.stoppingMeetingIDs = [meeting]
+        let partner = TeamsCallWindowName(number: 300, name: "Partner sync", isPreJoin: false)
+        let marco = TeamsCallWindowName(number: 400, name: "Marco Spoor", isPreJoin: false)
+        try await startCall(windows: [partner])
+        let secondStop = TestGate()
+        host.stopDelay = { await secondStop.wait() }
+        host.callWindows = [marco, partner]
+        tickTwiceTenSecondsApart()
+        let secondTask = try XCTUnwrap(coordinator.switchTask)
+        XCTAssertTrue(coordinator.isSwitchInFlight)
+
+        await firstStop.open()
+        await firstTask.value
+        XCTAssertTrue(coordinator.isSwitchInFlight, "The first Task must not clear the second switch")
+        XCTAssertEqual(host.startRequests.count, 2, "The first switch starts nothing after the reset")
+
+        await secondStop.open()
+        await secondTask.value
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+        XCTAssertTrue(coordinator.isCallLive)
+        XCTAssertEqual(host.startRequests.last?.manualTitle, "Marco Spoor")
+    }
+
+    /// The old call's start is slow, a recording the user started is linked
+    /// meanwhile, and a confirmed switch is stopping it (held at a gate).
+    /// Returns the slow start's Task, its meeting ID and the stop's gate.
+    private func slowStartThenSwitchStoppingTheLinkedRecording()
+        async throws -> (starting: Task<Void, Never>, slowMeeting: UUID, startGate: TestGate, stopGate: TestGate) {
+        setPreferences(autoRecord: true, autoStop: true)
+        let startGate = TestGate()
+        host.startDelay = { await startGate.wait() }
+        host.callWindows = [meetingWindow]
+        let slowMeeting = try XCTUnwrap(host.nextStartedMeetingID)
+        let coordinator = coordinator!
+        let starting = Task { await coordinator.callStarted() }
+        await waitUntil({ self.host.startRequests.count == 1 }, "the slow start never began")
+        host.startDelay = nil
+
+        let manual = UUID()
+        host.startRecording(manual)
+        let stopGate = TestGate()
+        host.stopDelay = { await stopGate.wait() }
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        XCTAssertNotNil(coordinator.switchTask)
+        await waitUntil({ self.host.stoppedMeetingIDs == [manual] }, "the switch never stopped the linked recording")
+        return (starting, slowMeeting, startGate, stopGate)
+    }
+
+    func testOldSlowStartFinishingDuringTheSwitchGapIsLinked() async throws {
+        let (starting, slowMeeting, startGate, stopGate) = try await slowStartThenSwitchStoppingTheLinkedRecording()
+
+        await startGate.open()
+        await starting.value
+        XCTAssertEqual(coordinator.linkedMeetingID, slowMeeting, "Kept for the call the switch is starting")
+        XCTAssertEqual(host.stoppedMeetingIDs.count, 1, "The slow start's recording is not stopped")
+
+        await stopGate.open()
+        await coordinator.switchTask?.value
+    }
+
+    // S1: the mic end lands while the switch's stop is still awaiting. The
+    // switch is over; the old call's slow start finishing then is stopped.
+    func testOldSlowStartFinishingAfterAMicEndDuringTheSwitchsStopIsStopped() async throws {
+        let (starting, slowMeeting, startGate, stopGate) = try await slowStartThenSwitchStoppingTheLinkedRecording()
+
+        await coordinator.callEnded()
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+        host.stopDelay = nil
+        await startGate.open()
+        await starting.value
+        XCTAssertEqual(host.stoppedMeetingIDs.last, slowMeeting)
+        XCTAssertNil(coordinator.linkedMeetingID)
+
+        await stopGate.open()
+        await coordinator.switchTask?.value
+        XCTAssertEqual(host.startRequests.count, 1, "The ended call's switch starts nothing")
+        XCTAssertFalse(coordinator.isCallLive)
     }
 
     func testSkippedStartStillBeginsTheDetector() async {

@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import os
 
 /// One titled window of new Teams, as read from the window server.
 /// `number` is `kCGWindowNumber`, which grows as windows are created, so a
@@ -156,7 +157,14 @@ enum TeamsCallWindowTitle {
 @MainActor
 protocol TeamsWindowTitleReading {
     /// All titled com.microsoft.teams2 windows; empty without permission.
-    func teamsWindows() -> [TeamsWindow]
+    /// `isPeriodic` marks the reads repeated during a call, which log at
+    /// debug level instead of notice.
+    func teamsWindows(isPeriodic: Bool) -> [TeamsWindow]
+}
+
+extension TeamsWindowTitleReading {
+    /// A one-off read (a call start), logged at notice level.
+    func teamsWindows() -> [TeamsWindow] { teamsWindows(isPeriodic: false) }
 }
 
 /// Reads Teams window titles from the window server (`kCGWindowName`).
@@ -205,14 +213,15 @@ struct CGTeamsWindowTitleReader: TeamsWindowTitleReading {
             as? [[String: Any]] ?? []
     }
 
-    func teamsWindows() -> [TeamsWindow] {
+    func teamsWindows(isPeriodic: Bool) -> [TeamsWindow] {
+        let level: OSLogType = isPeriodic ? .debug : .default  // .default is notice
         guard preflight() else {
-            Log.recording.notice("Teams window titles: no Screen Recording permission; not reading")
+            Log.recording.log(level: level, "Teams window titles: no Screen Recording permission; not reading")
             return []
         }
         let pids = teamsPIDs()
         guard !pids.isEmpty else {
-            Log.recording.notice("Teams window titles: Teams is not running")
+            Log.recording.log(level: level, "Teams window titles: Teams is not running")
             return []
         }
 
@@ -234,7 +243,8 @@ struct CGTeamsWindowTitleReader: TeamsWindowTitleReading {
         // Counts and layers only. Raw titles hold the account email and chat
         // members' names, so they never reach the log.
         let layers = owned.map { ($0[kCGWindowLayer as String] as? Int).map(String.init) ?? "?" }
-        Log.recording.notice(
+        Log.recording.log(
+            level: level,
             "Teams window titles: \(owned.count, privacy: .public) windows, \(windows.count, privacy: .public) titled, layers [\(layers.joined(separator: ","), privacy: .public)]"
         )
         return windows

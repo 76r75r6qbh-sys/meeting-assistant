@@ -520,3 +520,14 @@ These override the Revision 3 text above where they differ.
 
    Both go to Youri's in-app check. If the ring toast is titled, it must be
    rejected in the parser before merge.
+7. **A switch's baseline is the new call only (after the code review).**
+   - A switch-initiated start passes `detector.begin` only the switch's
+     window plus windows sharing its normalized name, not every window it
+     read. A mic-edge start keeps all windows it read, as before.
+   - Otherwise the held meeting's window becomes known at the 1:1's start,
+     and going back to it after the 1:1 is no switch: the rest of the
+     meeting would land in the 1:1's recording. Going back is a switch, as
+     the Revision 3 text says.
+   - When a known window is newest, the detector adopts only that window
+     and windows with known names. A pending unknown window that a newer
+     known pop-out overtook stays a candidate.

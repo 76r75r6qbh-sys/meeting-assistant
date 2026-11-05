@@ -409,8 +409,12 @@ struct TeamsCallSwitchDetector {
             return nil
         }
         if isKnown(newest) {
+            // Only the newest window (a retitle or a pop-out) and windows
+            // repeating a known name: an unknown window that was pending
+            // and got overtaken stays a candidate.
             pending = nil
-            adopt(inCall)
+            adopt([newest])
+            adopt(inCall.filter { knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle($0.name)) })
             return nil
         }
         if let pending, pending.number == newest.number {
@@ -456,7 +460,8 @@ protocol TeamsAutoRecordHost: AnyObject {
     /// window), newest window first; empty when no title is readable. Reads
     /// the window server, so the coordinator calls it only when a start can
     /// follow, and during a call at most every 10 s with auto-record on.
-    func teamsCallWindows() -> [TeamsCallWindowName]
+    /// `isPeriodic` marks those mid-call reads, which log at debug level.
+    func teamsCallWindows(isPeriodic: Bool) -> [TeamsCallWindowName]
     /// Starts recording the event's meeting, or a new manual meeting when
     /// `eventIdentifier` is nil. Returns the meeting ID once capture runs,
     /// `nil` when it did not start.
@@ -486,12 +491,14 @@ final class TeamsAutoRecordCoordinator {
     private(set) var isCallLive = false
     /// Notices a new call while the mic monitor still reports the old one.
     private var switchDetector: TeamsCallSwitchDetector
-    /// Set from a confirmed call switch until its Task hands over to
-    /// `callStarted` (or gives up). The old call is over by then but the new
+    /// The call generation a confirmed switch left behind, until its Task
+    /// hands over to `callStarted`. The old call is over by then but the new
     /// one is not live yet; a slow start finishing in that gap is kept.
-    private(set) var isSwitchInFlight = false
-    /// Numbers the switches, so a switch Task clears only its own flag.
-    private var switchCount = 0
+    private var switchGeneration: Int?
+    /// A switch is between ending the old call and starting the new one. A
+    /// mic end or `reset()` moves the generation, which ends the switch even
+    /// while its stop is still awaiting (or never returns).
+    var isSwitchInFlight: Bool { switchGeneration == callGeneration }
     /// The latest call switch's stop-then-start, so tests can await it.
     private(set) var switchTask: Task<Void, Never>?
 
@@ -508,6 +515,13 @@ final class TeamsAutoRecordCoordinator {
     }
 
     func callStarted() async {
+        await startCall(switchedTo: nil)
+    }
+
+    /// `switchedTo` is the confirmed window of a call switch, nil for a mic
+    /// start. A switch's baseline holds only that call's windows, so going
+    /// back to a call that was on hold counts as another switch.
+    private func startCall(switchedTo: TeamsCallWindowName?) async {
         guard let host else { return }
         // A new call supersedes whatever the last one left behind.
         linkedMeetingID = nil
@@ -520,7 +534,7 @@ final class TeamsAutoRecordCoordinator {
         // stopped left this call unrecorded: its end found the meeting
         // `.processing` and stopped nothing.
         if let active = host.activeRecordingMeetingID, !host.isStopInFlight(meetingID: active) {
-            switchDetector.begin(windows: [], at: now())
+            switchDetector.begin(windows: Self.baseline(read: [], switchedTo: switchedTo), at: now())
             link(active, why: "was already recording when the call started")
             return
         }
@@ -534,7 +548,7 @@ final class TeamsAutoRecordCoordinator {
         let canStart = TeamsAutoRecordPolicy.skipReason(
             isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
         ) == nil
-        let callWindows = canStart ? host.teamsCallWindows() : []
+        let callWindows = canStart ? host.teamsCallWindows(isPeriodic: false) : []
         let callNames = TeamsCallWindowTitle.callNames(from: callWindows)
 
         let plan = TeamsAutoRecordPolicy.startDecision(
@@ -550,7 +564,7 @@ final class TeamsAutoRecordCoordinator {
         }
         // Before any await, so ticks during a slow start compare against
         // this call's windows; a skipped start gets an empty baseline.
-        switchDetector.begin(windows: callWindows, at: now())
+        switchDetector.begin(windows: Self.baseline(read: callWindows, switchedTo: switchedTo), at: now())
         let started: UUID?
         switch plan.decision {
         case .skip(let reason):
@@ -569,6 +583,19 @@ final class TeamsAutoRecordCoordinator {
             return
         }
         await handleStartThatOutlivedItsCall(started)
+    }
+
+    /// The windows a call start makes known: all it read for a mic start; for
+    /// a switch, the switch's window and those repeating its name.
+    private static func baseline(
+        read windows: [TeamsCallWindowName], switchedTo: TeamsCallWindowName?
+    ) -> [TeamsCallWindowName] {
+        guard let switchedTo else { return windows }
+        let name = TeamsAutoRecordPolicy.normalizedTitle(switchedTo.name)
+        let sameCall = windows.filter {
+            $0.number != switchedTo.number && TeamsAutoRecordPolicy.normalizedTitle($0.name) == name
+        }
+        return [switchedTo] + sameCall
     }
 
     /// The start finished after the call it was made for ended. Linking it now
@@ -625,29 +652,27 @@ final class TeamsAutoRecordCoordinator {
         guard isCallLive, !isSwitchInFlight, AppPreferences.teamsAutoRecordEnabled(in: defaults) else { return }
         let time = now()
         guard switchDetector.shouldCheck(at: time),
-              let newWindow = switchDetector.observe(windows: host.teamsCallWindows(), at: time) else { return }
+              let newWindow = switchDetector.observe(
+                  windows: host.teamsCallWindows(isPeriodic: true), at: time
+              ) else { return }
 
         Log.recording.notice(
             "Teams call switched: a new call window (\(newWindow.number, privacy: .public), name private) replaced the running call; ending the old call and starting a new one"
         )
         let endedMeetingID = endCallBookkeeping()
         let generation = callGeneration
-        switchCount += 1
-        let switchNumber = switchCount
-        isSwitchInFlight = true
+        switchGeneration = generation
         switchTask = Task { [weak self] in
             guard let self else { return }
             await self.stopRecordingOfEndedCall(endedMeetingID, event: "Teams call switched")
-            // Cleared before `callStarted` takes over: from there on the new
-            // call is live, and a mic end during its start is an ordinary end.
-            // Only this switch's own flag: after a `reset()` a newer call may
-            // have confirmed a switch of its own meanwhile.
-            if switchNumber == self.switchCount { self.isSwitchInFlight = false }
             guard generation == self.callGeneration else {
                 Log.recording.notice("Teams call switch: the call ended or was reset meanwhile; not starting a new one")
                 return
             }
-            await self.callStarted()
+            // Cleared before the start takes over: from there on the new call
+            // is live, and a mic end during its start is an ordinary end.
+            self.switchGeneration = nil
+            await self.startCall(switchedTo: newWindow)
         }
     }
 
@@ -691,7 +716,7 @@ final class TeamsAutoRecordCoordinator {
         linkedMeetingID = nil
         callGeneration += 1
         isCallLive = false
-        isSwitchInFlight = false
+        switchGeneration = nil
         switchDetector.reset()
     }
 
