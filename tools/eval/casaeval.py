@@ -7,9 +7,18 @@ gold file). This tool compares the two with fuzzy text matching, because the
 model paraphrases: "Youri stuurt de planning naar Kim" and "Planning naar Kim
 sturen" are the same action item.
 
+Similarity is the F1 of the content words two texts share (stopwords,
+diacritics, case, timestamps and punctuation ignored). F1 is easy to
+interpret and does not care about word order; a character-level ratio is not
+part of the score because it rewards shared prefixes ("Release notes
+schrijven" vs "Release inplannen"). Pairs with F1 >= 0.5 match.
+Known limitation: pairs sharing one content word out of two, such as
+"Offerte opvragen" vs "Offerte accepteren" (0.5), still match — there is no
+stemming or verb awareness.
+
 Usage:
     python3 -I tools/eval/casaeval.py score --gold <file|dir> --export <file|dir>
-                                             [--threshold 0.55] [--json] [--strict]
+                                             [--threshold 0.5] [--json] [--strict]
     python3 -I tools/eval/casaeval.py make-gold <export.json> [-o <path>] [--force]
 
 `score` pairs gold and export files by meeting id (gold `meetingId` <-> export
@@ -78,21 +87,19 @@ import re
 import unicodedata
 from collections import Counter
 
-# Pairs scoring at least this similarity count as the same item.
-DEFAULT_THRESHOLD = 0.55
+# Pairs whose content-token F1 is at least this count as the same item.
+DEFAULT_THRESHOLD = 0.5
 
 # Function words that carry no meaning for matching (small Dutch + English set).
 STOPWORDS = frozenset(
     "de het een en van naar op te in is dat die we ik je "
-    "the a an to of and for on in is".split()
+    "the a an to of and for on".split()
 )
 
 # `[mm:ss]` or `[h:mm:ss]` anywhere in the text (summary bullets end with one).
 TIMESTAMP = re.compile(r"\[\d{1,2}:\d{2}(?::\d{2})?\]")
 # Runs of anything that is not a letter, digit or underscore.
 NON_WORD = re.compile(r"\W+")
-# Owner values that mean "nobody" once normalised away.
-NO_OWNER = ("", "?")
 
 
 def normalize(text):
@@ -123,14 +130,23 @@ def token_f1(a, b):
 
 
 def similarity(a, b):
-    """How alike two item texts are, 0.0–1.0: the better of a character-level
-    ratio (catches small wording edits) and token F1 (catches reordering)."""
+    """How alike two item texts are, 0.0–1.0: the content-token F1.
+
+    Both texts empty after normalising -> 1.0; one empty -> 0.0. No shared
+    content word -> 0.0.
+    """
     na, nb = normalize(a), normalize(b)
     if not na and not nb:
         return 1.0
     if not na or not nb:
         return 0.0
-    return max(difflib.SequenceMatcher(None, na, nb).ratio(), token_f1(a, b))
+    return token_f1(a, b)
+
+
+def char_ratio(a, b):
+    """Character-level likeness of the normalised texts (difflib ratio).
+    Only breaks ties in `match`; never part of the score."""
+    return difflib.SequenceMatcher(None, normalize(a), normalize(b)).ratio()
 
 
 def match(gold, predicted, threshold=DEFAULT_THRESHOLD):
@@ -138,19 +154,21 @@ def match(gold, predicted, threshold=DEFAULT_THRESHOLD):
     of texts.
 
     Deterministic greedy: score every pair, keep those at or above
-    `threshold`, take them best-first (ties by lowest gold, then predicted
-    index) while neither side is already used.
+    `threshold`, take them best-first while neither side is already used.
+    Equal scores are ordered by higher `char_ratio`, then lowest gold, then
+    lowest predicted index.
     """
     candidates = []
     for gi, g in enumerate(gold):
         for pi, p in enumerate(predicted):
             score = similarity(g, p)
             if score >= threshold:
-                candidates.append((gi, pi, score))
-    candidates.sort(key=lambda pair: (-pair[2], pair[0], pair[1]))
+                candidates.append((-score, -char_ratio(g, p), gi, pi))
+    candidates.sort()
 
     used_gold, used_pred, pairs = set(), set(), []
-    for gi, pi, score in candidates:
+    for neg_score, _, gi, pi in candidates:
+        score = -neg_score
         if gi in used_gold or pi in used_pred:
             continue
         used_gold.add(gi)
@@ -168,7 +186,7 @@ def canonical_owner(owner, aliases):
     if owner is None:
         return None
     key = normalize(owner)
-    if key in NO_OWNER:
+    if not key:  # "", "?", "—": nothing left once normalised
         return None
     lookup = {normalize(k): normalize(v) for k, v in (aliases or {}).items()}
     return lookup.get(key, key) or None

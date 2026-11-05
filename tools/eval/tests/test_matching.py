@@ -36,13 +36,48 @@ class SimilarityTests(unittest.TestCase):
     def test_similarity_paraphrase_passes_default(self):
         self.assertGreaterEqual(
             casaeval.similarity("Youri stuurt de planning naar Kim", "Planning naar Kim sturen"),
-            0.55,
+            casaeval.DEFAULT_THRESHOLD,
         )
-        self.assertEqual(casaeval.DEFAULT_THRESHOLD, 0.55)
+        self.assertEqual(casaeval.DEFAULT_THRESHOLD, 0.5)
+
+    def test_similarity_reordered_paraphrase_matches(self):
+        self.assertGreaterEqual(
+            casaeval.similarity("Offerte opvragen bij leverancier", "Leverancier offerte laten sturen"),
+            casaeval.DEFAULT_THRESHOLD,
+        )
+
+    def test_similarity_same_task_other_name_matches(self):
+        # Owner accuracy is scored separately; the task itself is the same.
+        self.assertGreaterEqual(
+            casaeval.similarity("Planning sturen naar Kim", "Planning sturen naar Sam"),
+            casaeval.DEFAULT_THRESHOLD,
+        )
+
+    def test_similarity_shared_prefix_is_not_enough(self):
+        self.assertLess(
+            casaeval.similarity("Release notes schrijven", "Release inplannen"),
+            casaeval.DEFAULT_THRESHOLD,
+        )
+
+    def test_similarity_no_shared_content_word_is_zero(self):
+        self.assertEqual(casaeval.similarity("Release notes schrijven", "Retro inplannen"), 0.0)
+
+    def test_similarity_known_limitation_one_shared_word_matches(self):
+        # Documented limitation: one shared content word out of two is F1 0.5,
+        # so these different tasks still match at the default threshold.
+        score = casaeval.similarity("Offerte opvragen", "Offerte accepteren")
+        self.assertEqual(score, 0.5)
+        self.assertGreaterEqual(score, casaeval.DEFAULT_THRESHOLD)
 
     def test_similarity_unrelated_is_low(self):
-        self.assertLess(casaeval.similarity("Budget goedkeuren", "Planning naar Kim sturen"), 0.4)
-        self.assertLess(casaeval.similarity("Release notes schrijven", "Retro inplannen"), 0.4)
+        self.assertLess(
+            casaeval.similarity("Budget goedkeuren", "Planning naar Kim sturen"),
+            casaeval.DEFAULT_THRESHOLD,
+        )
+        self.assertLess(
+            casaeval.similarity("Release notes schrijven", "Retro inplannen"),
+            casaeval.DEFAULT_THRESHOLD,
+        )
 
     def test_similarity_empty_inputs(self):
         self.assertEqual(casaeval.similarity("", "  "), 1.0)
@@ -76,6 +111,14 @@ class MatchTests(unittest.TestCase):
     def test_match_tie_prefers_lowest_pred_index(self):
         pairs = casaeval.match(["offerte opvragen"], ["planning", "offerte opvragen", "offerte opvragen"])
         self.assertEqual(pairs, [(0, 1, 1.0)])
+
+    def test_match_ties_broken_by_char_ratio(self):
+        # Both predictions score F1 0.5; the closer wording (pred 1) wins over
+        # the lower index (pred 0).
+        gold, predicted = ["offerte opvragen"], ["offerte accepteren", "offerte opvrage"]
+        self.assertEqual(casaeval.similarity(gold[0], predicted[0]), 0.5)
+        self.assertEqual(casaeval.similarity(gold[0], predicted[1]), 0.5)
+        self.assertEqual(casaeval.match(gold, predicted), [(0, 1, 0.5)])
 
     def test_match_respects_threshold(self):
         self.assertEqual(casaeval.match(["budget goedkeuren"], ["retro inplannen"]), [])
