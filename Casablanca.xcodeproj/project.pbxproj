@@ -107,6 +107,9 @@
 		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
+		SPKB0001 /* SummaryPromptContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0101 /* SummaryPromptContext.swift */; };
+		SPKB0002 /* SummaryPromptContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0102 /* SummaryPromptContextTests.swift */; };
+		SPKB0003 /* StaticAttendeeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0103 /* StaticAttendeeProvider.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -420,6 +423,9 @@
 		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
+		SPKB0101 /* SummaryPromptContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContext.swift; sourceTree = "<group>"; };
+		SPKB0102 /* SummaryPromptContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContextTests.swift; sourceTree = "<group>"; };
+		SPKB0103 /* StaticAttendeeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaticAttendeeProvider.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -626,6 +632,7 @@
 			isa = PBXGroup;
 			children = (
 				22AEEB414DDE0F2F58F46BFF /* TestVaultGuard.swift */,
+				SPKB0103 /* StaticAttendeeProvider.swift */,
 			);
 			name = Support;
 			path = Support;
@@ -771,6 +778,7 @@
 				E10610 /* Recording */,
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
+				SPKB0101 /* SummaryPromptContext.swift */,
 				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
 				SPKT0103 /* TranscriptLineFormat.swift */,
@@ -940,6 +948,7 @@
 				B10043 /* PermissionsBehaviorTests.swift */,
 				B10044 /* ExportServiceTests.swift */,
 				B10045 /* SummarizationServiceTests.swift */,
+				SPKB0102 /* SummaryPromptContextTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
@@ -1271,6 +1280,7 @@
 				A10021 /* MarkdownTextEditor.swift in Sources */,
 				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
+				SPKB0001 /* SummaryPromptContext.swift in Sources */,
 				ACPS0002 /* AudioClipPlayer.swift in Sources */,
 				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
 				ACPS0004 /* PrivacySettingsSection.swift in Sources */,
@@ -1415,6 +1425,7 @@
 				A10043 /* PermissionsBehaviorTests.swift in Sources */,
 				A10044 /* ExportServiceTests.swift in Sources */,
 				A10045 /* SummarizationServiceTests.swift in Sources */,
+				SPKB0002 /* SummaryPromptContextTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
@@ -1484,6 +1495,7 @@
 				15A6EF311A09F353CAC4BB81 /* RecordingSessionRecoveryTests.swift in Sources */,
 				770FFD61C8BBB9811AE30D2D /* RecordingResumeAndStopContractTests.swift in Sources */,
 				1C47F456B90C8AB6355330F3 /* TestVaultGuard.swift in Sources */,
+				SPKB0003 /* StaticAttendeeProvider.swift in Sources */,
 				7B193F9CA7554D02B5773297 /* NoRealVaultWritesTests.swift in Sources */,
 				AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */,
 				20B2077035789E9F04F1CA25 /* WhisperModelRetentionPolicyTests.swift in Sources */,

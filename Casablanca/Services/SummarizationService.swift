@@ -53,6 +53,7 @@ final class SummarizationService {
     - Decisions include their stated rationale.
     - Each action item is one bullet formatted `- **<owner>** — <action>`. Resolve the owner against the participants list; use the person's name, never "me" or "I". If no owner was stated, use `- **?** — <action>`.
     - The note-taker is {{user_name}}. When the note-taker commits to something ("I will…", "ik pak dat op"), the owner is {{user_name}}.
+    - Transcript lines may start with a speaker label (`[12:34] Kim: …`). A labelled speaker's first-person commitment makes that speaker the owner. Generic labels such as "Speaker 1", "Spreker 2", "Others" or "Anderen" are not names.
     - Omit optional sections that have nothing meaningful. Never add sections about the transcript itself.
 
     {{terminology_list}}
@@ -61,11 +62,10 @@ final class SummarizationService {
     Scheduled time: {{scheduled_time}}
     Participants: {{participants}}
 
+    {{user_focus}}
+
     Transcript:
     {{transcript}}
-
-    Freeform notes:
-    {{freeform_notes}}
     """
 
     /// Upper bound on generated summary length when thinking is OFF. Local models
@@ -180,14 +180,28 @@ final class SummarizationService {
     /// retry without sleeping through the real backoff.
     private let retryPolicy: LLMRetryPolicy
 
+    /// Calendar attendees (names, e-mails, which one is the user) for the
+    /// participants line. Injectable so tests never touch EventKit.
+    private let attendeeProvider: MeetingAttendeeProviding
+
+    /// Loads the meeting's prep (vault file or local prep notes) for the focus
+    /// block. Injectable so tests never read the user's vault.
+    private let prepLoader: @MainActor (Meeting, UserDefaults) async -> String?
+
     init(
         providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
         userDefaults: UserDefaults = .standard,
-        retryPolicy: LLMRetryPolicy = LLMRetryPolicy()
+        retryPolicy: LLMRetryPolicy = LLMRetryPolicy(),
+        attendeeProvider: MeetingAttendeeProviding = EventKitAttendeeProvider(),
+        prepLoader: @escaping @MainActor (Meeting, UserDefaults) async -> String? = {
+            await MeetingPrepService.loadResolvedPrepMarkdown(for: $0, userDefaults: $1)
+        }
     ) {
         self.providerFactory = providerFactory
         self.userDefaults = userDefaults
         self.retryPolicy = retryPolicy
+        self.attendeeProvider = attendeeProvider
+        self.prepLoader = prepLoader
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -275,6 +289,9 @@ final class SummarizationService {
             phase = .idle
         }
 
+        // Read once, before the context: the prep shapes every prompt's size.
+        let prep = await prepLoader(meeting, userDefaults)
+        let aliases = AppPreferences.userNameAliases(in: userDefaults)
         let context = PromptContext(
             meeting: meeting,
             template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
@@ -283,7 +300,13 @@ final class SummarizationService {
                 enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
                 raw: userDefaults.string(forKey: AppPreferenceKey.terminologyList) ?? ""
             ),
-            userName: AppPreferences.userNameAliases(in: userDefaults).first,
+            userName: aliases.first,
+            participantsLine: SummaryPromptContext.participantsLine(
+                participants: meeting.participants,
+                attendees: attendeeProvider.attendees(for: meeting),
+                userAliases: aliases
+            ),
+            prep: prep,
             // Reasoning models "think out loud" before answering, which on short
             // transcripts becomes pages of rambling that never reaches the summary.
             // When thinking is disabled (default), the Qwen soft-switch is appended
@@ -297,8 +320,15 @@ final class SummarizationService {
         var notesWereTruncated = false
         var summaryWasTruncated = false
         let transcript: String
-        if Self.fitsInOnePass(transcript: rawTranscript, context: context, budget: provider.promptTokenBudget) {
+        // Single pass at full focus, else with a trimmed focus; map-reduce only
+        // when the focus would have to shrink below `minFocusTokens`. The reduce
+        // then gets the full-size focus again.
+        var focusTokens = SummaryPromptContext.maxFocusTokens
+        if let onePassFocus = Self.onePassFocusTokens(
+            transcript: rawTranscript, context: context, budget: provider.promptTokenBudget
+        ) {
             transcript = rawTranscript
+            focusTokens = onePassFocus
         } else {
             let condensed = try await condense(rawTranscript, context: context, provider: provider)
             transcript = condensed.text
@@ -309,7 +339,7 @@ final class SummarizationService {
         }
 
         let prompt = LLMPromptSupport.applyThinkingSwitch(
-            to: context.summaryPrompt(transcript: transcript),
+            to: context.summaryPrompt(transcript: transcript, focusTokens: focusTokens),
             thinkingEnabled: context.thinkingEnabled
         )
         // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
@@ -358,16 +388,34 @@ final class SummarizationService {
         let freeformNotes: String
         let terminologyBlock: String
         let userName: String?
+        /// Participants with e-mails and the user marked `(me)`; also used by the
+        /// map/merge prompts' meeting line.
+        let participantsLine: String
+        /// The meeting's prep, loaded once per summarization.
+        let prep: String?
         let thinkingEnabled: Bool
 
-        func summaryPrompt(transcript: String) -> String {
-            SummarizationService.renderPrompt(
+        /// The user's template rendered with a focus block of at most
+        /// `focusTokens`. A template with `{{freeform_notes}}` keeps the notes
+        /// there, so the focus carries the prep only.
+        func summaryPrompt(
+            transcript: String,
+            focusTokens: Int = SummaryPromptContext.maxFocusTokens
+        ) -> String {
+            let notesInTemplate = template.contains("{{freeform_notes}}")
+            return SummarizationService.renderPrompt(
                 template: template,
                 meeting: meeting,
                 transcript: transcript,
                 freeformNotes: freeformNotes,
                 terminologyBlock: terminologyBlock,
-                userName: userName
+                userName: userName,
+                participantsLine: participantsLine,
+                focusBlock: SummaryPromptContext.focusBlock(
+                    prep: prep,
+                    notes: notesInTemplate ? nil : freeformNotes,
+                    maxTokens: focusTokens
+                )
             )
         }
 
@@ -379,11 +427,14 @@ final class SummarizationService {
     }
 
     /// Tokens the summary prompt costs before any transcript goes in: template,
-    /// notes, terminology, metadata and the thinking switch.
-    static func summaryOverhead(context: PromptContext) -> Int {
+    /// focus block (at `focusTokens`), terminology, metadata and the thinking switch.
+    static func summaryOverhead(
+        context: PromptContext,
+        focusTokens: Int = SummaryPromptContext.maxFocusTokens
+    ) -> Int {
         LLMPromptSupport.budgetTokens(
             LLMPromptSupport.applyThinkingSwitch(
-                to: context.summaryPrompt(transcript: ""),
+                to: context.summaryPrompt(transcript: "", focusTokens: focusTokens),
                 thinkingEnabled: context.thinkingEnabled
             )
         )
@@ -392,8 +443,35 @@ final class SummarizationService {
     /// Single pass when the whole transcript plus the rest of the prompt fits the
     /// provider's input budget — the common case, and always for Claude Code.
     static func fitsInOnePass(transcript: String, context: PromptContext, budget: Int) -> Bool {
-        transcript.isEmpty
-            || LLMPromptSupport.budgetTokens(transcript) + summaryOverhead(context: context) <= budget
+        onePassFocusTokens(transcript: transcript, context: context, budget: budget) != nil
+    }
+
+    /// The focus cap that lets the whole transcript go in one call, or nil when
+    /// it must be condensed first. Tries `maxFocusTokens`; otherwise shrinks the
+    /// focus to `budget − transcriptTokens − overheadWithoutFocus`, which must be
+    /// at least `minFocusTokens`. The transcript itself is never trimmed.
+    static func onePassFocusTokens(transcript: String, context: PromptContext, budget: Int) -> Int? {
+        let full = SummaryPromptContext.maxFocusTokens
+        if transcript.isEmpty { return full }
+        let transcriptTokens = LLMPromptSupport.budgetTokens(transcript)
+        if transcriptTokens + summaryOverhead(context: context, focusTokens: full) <= budget {
+            return full
+        }
+        let overheadWithoutFocus = summaryOverhead(context: context, focusTokens: 0)
+        var focus = budget - transcriptTokens - overheadWithoutFocus
+        // The block's own line breaks and rounding can add a token or two;
+        // measure the real prompt and give that back from the focus.
+        while focus >= SummaryPromptContext.minFocusTokens {
+            let tokens = LLMPromptSupport.budgetTokens(
+                LLMPromptSupport.applyThinkingSwitch(
+                    to: context.summaryPrompt(transcript: transcript, focusTokens: focus),
+                    thinkingEnabled: context.thinkingEnabled
+                )
+            )
+            if tokens <= budget { return focus }
+            focus -= tokens - budget
+        }
+        return nil
     }
 
     /// One part's (or one merged group's) condensed notes, with the timestamp
@@ -691,10 +769,7 @@ final class SummarizationService {
     /// "Meeting: … Participants: … The note-taker is …." — the note-taker sentence
     /// only when a name is known.
     private static func meetingLine(context: PromptContext) -> String {
-        let participants = context.meeting.participants.isEmpty
-            ? "Unknown"
-            : context.meeting.participants.joined(separator: ", ")
-        var line = "Meeting: \(context.meeting.title). Participants: \(participants)."
+        var line = "Meeting: \(context.meeting.title). Participants: \(context.participantsLine)."
         if let name = context.userName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             line += " The note-taker is \(name)."
         }
@@ -783,7 +858,9 @@ final class SummarizationService {
         transcript: String,
         freeformNotes: String,
         terminologyBlock: String,
-        userName: String? = nil
+        userName: String? = nil,
+        participantsLine: String? = nil,
+        focusBlock: String = ""
     ) -> String {
         let formattedDate = {
             let formatter = DateFormatter()
@@ -803,12 +880,53 @@ final class SummarizationService {
             template += "\n\nThe note-taker is \(name). When the note-taker commits to something (\"I will…\", \"ik pak dat op\"), the action item's owner is \(name)."
         }
 
+        template = placeFocus(in: template, hasFocus: !focusBlock.isEmpty)
+
+        let participants = participantsLine
+            ?? (meeting.participants.isEmpty ? "Unknown" : meeting.participants.joined(separator: ", "))
         return template
             .replacingOccurrences(of: "{{title}}", with: meeting.title)
             .replacingOccurrences(of: "{{scheduled_time}}", with: formattedDate)
-            .replacingOccurrences(of: "{{participants}}", with: meeting.participants.isEmpty ? "Unknown" : meeting.participants.joined(separator: ", "))
+            .replacingOccurrences(of: "{{participants}}", with: participants)
             .replacingOccurrences(of: "{{transcript}}", with: transcript.isEmpty ? "None" : transcript)
             .replacingOccurrences(of: "{{freeform_notes}}", with: freeformNotes.isEmpty ? "None" : freeformNotes)
             .replacingOccurrences(of: "{{terminology_list}}", with: terminologyBlock)
+            // Last, so nothing in the user's prep or notes is substituted again.
+            .replacingOccurrences(of: focusPlaceholder, with: focusBlock)
+    }
+
+    private static let focusPlaceholder = "{{user_focus}}"
+
+    /// Prepares `{{user_focus}}` in the template. Without a focus, a line that is
+    /// only the placeholder goes, with one following blank line. With a focus, a
+    /// template lacking the placeholder gets it on its own lines directly before
+    /// the `{{transcript}}` line (or before a `Transcript:` heading right above
+    /// it); with no `{{transcript}}` at all it is appended at the end.
+    private static func placeFocus(in template: String, hasFocus: Bool) -> String {
+        var lines = template.components(separatedBy: "\n")
+        guard hasFocus else {
+            guard template.contains(focusPlaceholder) else { return template }
+            var index = 0
+            while index < lines.count {
+                if lines[index].trimmingCharacters(in: .whitespaces) == focusPlaceholder {
+                    lines.remove(at: index)
+                    if index < lines.count, lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                        lines.remove(at: index)
+                    }
+                } else {
+                    index += 1
+                }
+            }
+            return lines.joined(separator: "\n").replacingOccurrences(of: focusPlaceholder, with: "")
+        }
+        guard !template.contains(focusPlaceholder) else { return template }
+        guard var index = lines.firstIndex(where: { $0.contains("{{transcript}}") }) else {
+            return template + "\n\n" + focusPlaceholder
+        }
+        if index > 0, lines[index - 1].trimmingCharacters(in: .whitespaces) == "Transcript:" {
+            index -= 1
+        }
+        lines.insert(contentsOf: [focusPlaceholder, ""], at: index)
+        return lines.joined(separator: "\n")
     }
 }

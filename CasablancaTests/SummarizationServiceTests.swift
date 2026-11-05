@@ -4,13 +4,14 @@ import XCTest
 
 @MainActor
 final class SummarizationServiceTests: XCTestCase {
-    func testDefaultPromptTemplateIncludesTranscriptAndFreeformNotes() {
+    func testDefaultPromptTemplateIncludesTranscriptAndUserFocus() {
         let template = SummarizationService.defaultPromptTemplate
 
         XCTAssertTrue(template.contains("Transcript:"))
         XCTAssertTrue(template.contains("{{transcript}}"))
-        XCTAssertTrue(template.contains("Freeform notes:"))
-        XCTAssertTrue(template.contains("{{freeform_notes}}"))
+        XCTAssertTrue(template.contains("{{user_focus}}"))
+        XCTAssertFalse(template.contains("{{freeform_notes}}"), "user notes travel in the focus block now")
+        XCTAssertFalse(template.contains("Freeform notes:"))
     }
 
     // MARK: - Pocket-style template placeholders
@@ -77,18 +78,60 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertFalse(rendered.contains("{{participants}}"), "renderPrompt must replace {{participants}} placeholder")
     }
 
-    func testRenderPromptSubstitutesTranscriptAndFreeformNotes() {
+    func testRenderPromptSubstitutesTranscriptAndFocusBlock() {
         let meeting = Meeting(title: "Design Review", date: Date(timeIntervalSince1970: 1_700_000_000))
+        let focus = SummaryPromptContext.focusBlock(prep: nil, notes: "Freeform notes body", maxTokens: 400)
         let rendered = SummarizationService.renderPrompt(
             template: SummarizationService.defaultPromptTemplate,
             meeting: meeting,
             transcript: "Transcript body",
             freeformNotes: "Freeform notes body",
-            terminologyBlock: ""
+            terminologyBlock: "",
+            focusBlock: focus
         )
 
         XCTAssertTrue(rendered.contains("Transcript:\nTranscript body"))
-        XCTAssertTrue(rendered.contains("Freeform notes:\nFreeform notes body"))
+        XCTAssertTrue(rendered.contains("\n\n" + focus + "\n\nTranscript:\n"))
+        XCTAssertTrue(rendered.contains("User notes:\nFreeform notes body"))
+        XCTAssertFalse(rendered.contains("{{user_focus}}"))
+    }
+
+    func testRenderPromptDropsThePlaceholderLineAndOneBlankLineWhenThereIsNoFocus() {
+        let meeting = Meeting(title: "Design Review", date: Date(timeIntervalSince1970: 1_700_000_000))
+        let rendered = SummarizationService.renderPrompt(
+            template: "Participants: {{participants}}\n\n{{user_focus}}\n\nTranscript:\n{{transcript}}",
+            meeting: meeting,
+            transcript: "Body",
+            freeformNotes: "",
+            terminologyBlock: ""
+        )
+        XCTAssertEqual(rendered, "Participants: Unknown\n\nTranscript:\nBody")
+    }
+
+    func testRenderPromptInsertsTheFocusAboveATranscriptHeadingInACustomTemplate() {
+        let meeting = Meeting(title: "Design Review", date: Date(timeIntervalSince1970: 1_700_000_000))
+        let rendered = SummarizationService.renderPrompt(
+            template: "INTRO\n  Transcript:  \n{{transcript}}",
+            meeting: meeting,
+            transcript: "Body",
+            freeformNotes: "",
+            terminologyBlock: "",
+            focusBlock: "FOCUS"
+        )
+        XCTAssertEqual(rendered, "INTRO\nFOCUS\n\n  Transcript:  \nBody")
+    }
+
+    func testRenderPromptUsesTheGivenParticipantsLine() {
+        let meeting = Meeting(title: "Sync", date: .now, participants: ["Kim"])
+        let rendered = SummarizationService.renderPrompt(
+            template: "Participants: {{participants}}",
+            meeting: meeting,
+            transcript: "",
+            freeformNotes: "",
+            terminologyBlock: "",
+            participantsLine: "Kim, Youri (me)"
+        )
+        XCTAssertEqual(rendered, "Participants: Kim, Youri (me)")
     }
 
     func testStripReasoningRemovesThinkTags() {
@@ -135,7 +178,7 @@ final class SummarizationServiceTests: XCTestCase {
     /// three billed generations instead of one slow success.
     func testSummarizeUsesTheProvidersPreferredTimeoutWhenItHasOne() async throws {
         let stub = StubLLMProvider(preferredTimeout: 300, outcomes: [.success("# Summary\nWe ship Friday.")])
-        let service = SummarizationService(providerFactory: { stub })
+        let service = makeService(stub)
 
         _ = try await service.summarize(meeting: makeMeeting())
 
@@ -146,7 +189,7 @@ final class SummarizationServiceTests: XCTestCase {
     /// A local provider keeps the call site's own number, so nothing changes for it.
     func testSummarizeKeepsItsOwnTimeoutForAProviderWithoutAPreference() async throws {
         let stub = StubLLMProvider(preferredTimeout: nil, outcomes: [.success("# Summary\nWe ship Friday.")])
-        let service = SummarizationService(providerFactory: { stub })
+        let service = makeService(stub)
 
         _ = try await service.summarize(meeting: makeMeeting())
 
@@ -665,6 +708,160 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(recorder.phases, expected)
         XCTAssertEqual(recorder.statuses.first, "Summarizing part 1 of \(partCount) with Ollama…")
         XCTAssertEqual(SummarizationService.mergingStatus(level: 2), "Combining notes (step 2)…")
+    }
+
+    // MARK: - Prompt context (focus block, marked participants)
+
+    /// A service that never reaches EventKit or the vault: fixed attendees and a
+    /// stubbed prep loader.
+    private func makeService(
+        _ stub: StubLLMProvider,
+        defaults: UserDefaults? = nil,
+        attendees: [MeetingAttendee] = [],
+        prep: String? = nil
+    ) -> SummarizationService {
+        SummarizationService(
+            providerFactory: { stub },
+            userDefaults: defaults ?? makeDefaults(),
+            attendeeProvider: StaticAttendeeProvider(attendees: attendees),
+            prepLoader: { _, _ in prep }
+        )
+    }
+
+    private func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
+    /// `[mm:ss] Kim: …` lines (or `[mm:ss] …` without the speaker) of at least `chars`.
+    private func makeTranscript(chars: Int, speakers: Bool) -> String {
+        var lines: [String] = []
+        var total = 0
+        var i = 0
+        while total < chars {
+            let speaker = speakers ? (i.isMultiple(of: 2) ? "Kim: " : "Youri: ") : ""
+            let line = String(format: "[%02d:%02d] %@punt %04d over het budget.", i / 60, i % 60, speaker, i)
+            lines.append(line)
+            total += line.count + 1
+            i += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func testPromptPutsFocusBeforeTranscript() async throws {
+        for speakers in [true, false] {
+            let meeting = makeMeeting(transcript: makeTranscript(chars: 300, speakers: speakers))
+            meeting.userNotes = "Kim twijfelt"
+            let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+            let service = makeService(stub, prep: "Vraag naar budget")
+
+            _ = try await service.summarize(meeting: meeting)
+
+            XCTAssertEqual(stub.calls.count, 1)
+            let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+            let focus = try XCTUnwrap(prompt.range(of: "What the user cares about"))
+            let transcript = try XCTUnwrap(prompt.range(of: "Transcript:"))
+            XCTAssertLessThan(focus.lowerBound, transcript.lowerBound)
+            XCTAssertEqual(occurrences(of: "Vraag naar budget", in: prompt), 1)
+            XCTAssertEqual(occurrences(of: "Kim twijfelt", in: prompt), 1)
+            XCTAssertFalse(prompt.contains("{{user_focus}}"))
+        }
+    }
+
+    func testFocusIsTrimmedBeforeTheTranscript() async throws {
+        for speakers in [true, false] {
+            let transcript = makeTranscript(chars: 3_600, speakers: speakers)
+            let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: [.success("# Summary\nDone.")])
+            let service = makeService(
+                stub,
+                defaults: makeMapReduceDefaults(),
+                prep: String(repeating: "Vraag naar budget. ", count: 211)
+            )
+
+            _ = try await service.summarize(meeting: makeMeeting(transcript: transcript))
+
+            XCTAssertEqual(stub.calls.count, 1, "a trimmed focus keeps the call single-pass")
+            let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+            XCTAssertTrue(prompt.contains(transcript), "the transcript is never trimmed for the focus")
+            XCTAssertTrue(prompt.contains("What the user cares about"))
+            XCTAssertTrue(prompt.contains("…"))
+            XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(prompt), smallBudget)
+        }
+    }
+
+    func testTooLittleRoomForTheFocusGoesMapReduceWithTheFullFocusInTheReduce() async throws {
+        let prep = "Vraag naar budget en planning."
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = makeService(stub, defaults: makeMapReduceDefaults(), prep: prep)
+
+        _ = try await service.summarize(meeting: makeMeeting(transcript: makeTranscript(chars: 4_200, speakers: true)))
+
+        XCTAssertFalse(stub.calls.filter(isMapCall).isEmpty)
+        let reduce = try XCTUnwrap(stub.calls.last?.prompt)
+        XCTAssertTrue(reduce.contains("Prep:\n" + prep))
+    }
+
+    func testCustomTemplateWithFreeformNotesKeepsNotesThere() async throws {
+        let defaults = makeDefaults()
+        defaults.set("T {{transcript}} N {{freeform_notes}}", forKey: AppPreferenceKey.summaryPromptTemplate)
+        let meeting = makeMeeting()
+        meeting.userNotes = "Kim twijfelt"
+        let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+        let service = makeService(stub, defaults: defaults, prep: "Vraag naar budget")
+
+        _ = try await service.summarize(meeting: meeting)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains(" N Kim twijfelt"))
+        XCTAssertEqual(occurrences(of: "Kim twijfelt", in: prompt), 1)
+        XCTAssertFalse(prompt.contains("User notes:"), "the notes stay in {{freeform_notes}}")
+        let focus = try XCTUnwrap(prompt.range(of: "What the user cares about"))
+        let transcriptLine = try XCTUnwrap(prompt.range(of: "T Alice: We ship Friday."))
+        XCTAssertLessThan(focus.lowerBound, transcriptLine.lowerBound)
+        XCTAssertTrue(prompt.contains("Prep:\nVraag naar budget\n\nT Alice"))
+    }
+
+    func testPromptListsUserAsMe() async throws {
+        for speakers in [true, false] {
+            let defaults = makeDefaults()
+            defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+            let meeting = Meeting(title: "Sync", date: .now, participants: ["Kim"], status: .completed)
+            meeting.transcript = makeTranscript(chars: 200, speakers: speakers)
+            let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+            let service = makeService(stub, defaults: defaults)
+
+            _ = try await service.summarize(meeting: meeting)
+
+            XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains("Participants: Kim, Youri (me)\n"))
+        }
+    }
+
+    func testPromptCarriesAttendeeEmails() async throws {
+        let defaults = makeDefaults()
+        defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+        let meeting = Meeting(title: "Sync", date: .now, participants: ["Kim"], status: .completed)
+        meeting.transcript = "[00:01] Kim: We ship Friday."
+        let stub = StubLLMProvider(outcomes: [.success("# Summary\nDone.")])
+        let service = makeService(
+            stub,
+            defaults: defaults,
+            attendees: [MeetingAttendee(name: "kim", email: "kim@partner.nl", isCurrentUser: false)]
+        )
+
+        _ = try await service.summarize(meeting: meeting)
+
+        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains("Participants: Kim <kim@partner.nl>, Youri (me)\n"))
+    }
+
+    func testMapPromptsUseTheMarkedParticipantsLine() async throws {
+        let meeting = Meeting(title: "EHDS", date: .now, participants: ["Kim"], status: .completed)
+        meeting.transcript = makeLongTranscript(chars: 20_000)
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = makeService(stub, defaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: meeting)
+
+        let map = try XCTUnwrap(stub.calls.first(where: isMapCall)?.prompt)
+        XCTAssertTrue(map.contains("Meeting: EHDS. Participants: Kim, Youri (me). The note-taker is Youri."))
     }
 }
 
