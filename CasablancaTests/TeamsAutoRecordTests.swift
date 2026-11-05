@@ -766,7 +766,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
 
     override func setUp() async throws {
         host = FakeTeamsAutoRecordHost()
-        defaults = TestVaultGuard.makeScratchDefaults()
+        defaults = makeScratchDefaults(label: "teams-auto-record")
         coordinator = TeamsAutoRecordCoordinator(host: host, defaults: defaults, now: { [now] in now })
     }
 
@@ -869,16 +869,23 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertTrue(host.startRequests.isEmpty)
     }
 
-    func testSelectedMeetingRecordingOrPausedNeverReadsTheCallName() async throws {
-        for status in [MeetingStatus.recording, .pausedRecording] {
-            try await setUp()
-            setPreferences(autoRecord: true, autoStop: true)
-            host.callNames = ["Marco Spoor"]
-            host.selectedMeetingStatus = status
-            await coordinator.callStarted()
-            XCTAssertEqual(host.callNameReads, 0, "\(status)")
-            XCTAssertTrue(host.startRequests.isEmpty, "\(status)")
-        }
+    func testSelectedMeetingRecordingNeverReadsTheCallName() async {
+        await assertSelectedMeetingNeverReadsTheCallName(status: .recording)
+    }
+
+    func testSelectedMeetingPausedNeverReadsTheCallName() async {
+        await assertSelectedMeetingNeverReadsTheCallName(status: .pausedRecording)
+    }
+
+    private func assertSelectedMeetingNeverReadsTheCallName(
+        status: MeetingStatus, line: UInt = #line
+    ) async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.callNames = ["Marco Spoor"]
+        host.selectedMeetingStatus = status
+        await coordinator.callStarted()
+        XCTAssertEqual(host.callNameReads, 0, "\(status)", line: line)
+        XCTAssertTrue(host.startRequests.isEmpty, "\(status)", line: line)
     }
 
     func testEmojiOnlyCallNameRecordsATimeNamedManualMeeting() async {

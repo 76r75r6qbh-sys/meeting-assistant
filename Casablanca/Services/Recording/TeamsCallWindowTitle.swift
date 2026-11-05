@@ -45,9 +45,11 @@ enum TeamsCallWindowTitle {
     /// so they count as no name. Stored normalized like event titles
     /// (`TeamsAutoRecordPolicy.normalizedTitle`), so case, spacing and
     /// punctuation ("Teams-vergadering") don't matter.
+    /// Covers the English and Dutch Teams UI only; other UI languages need
+    /// their own strings added once captured.
     static let placeholderCallNames: Set<String> = Set([
         "Microsoft Teams meeting", "Microsoft Teams-vergadering", "Microsoft Teams vergadering",
-        "Teams meeting", "Meeting", "Vergadering",
+        "Teams meeting", "Teams-vergadering", "Meeting", "Vergadering",
     ].map(TeamsAutoRecordPolicy.normalizedTitle))
 
     /// Whether `name` is one of Teams' generic placeholders rather than the
@@ -61,11 +63,15 @@ enum TeamsCallWindowTitle {
     /// is usually opened last, but a stray pop-out can be newer, so the
     /// policy tries every name against the calendar before falling back to
     /// the newest. Several names are logged — as a count, since the names
-    /// identify people.
+    /// identify people. Names are deduplicated on their normalized form
+    /// (`TeamsAutoRecordPolicy.normalizedTitle`), keeping the newest window's
+    /// spelling.
     static func callNames(fromWindows windows: [TeamsWindow]) -> [String] {
         var names: [String] = []
+        var seen: Set<String> = []
         for window in windows.sorted(by: { $0.number > $1.number }) {
-            if let name = callName(fromWindowTitle: window.title), !names.contains(name) {
+            if let name = callName(fromWindowTitle: window.title),
+               seen.insert(TeamsAutoRecordPolicy.normalizedTitle(name)).inserted {
                 names.append(name)
             }
         }
@@ -102,11 +108,15 @@ enum TeamsCallWindowTitle {
         // 5. A section or auxiliary window, not a call.
         guard !nonCallFirstComponents.contains(first.lowercased()) else { return nil }
 
-        // 6. A meeting subject can itself contain the separator.
-        let name = components.joined(separator: separator)
+        // 6. A placeholder instead of the subject says nothing about the call.
+        //    Any placeholder component counts, not only the whole name: an
+        //    unknown pre-join token (another UI language) can sit in front
+        //    of it. A real subject with a placeholder component is lost to
+        //    time-based matching, which is accepted.
+        guard !components.contains(where: isPlaceholderCallName) else { return nil }
 
-        // 7. A placeholder instead of the subject says nothing about the call.
-        return isPlaceholderCallName(name) ? nil : name
+        // 7. A meeting subject can itself contain the separator.
+        return components.joined(separator: separator)
     }
 }
 

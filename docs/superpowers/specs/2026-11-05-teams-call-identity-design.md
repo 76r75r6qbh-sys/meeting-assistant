@@ -234,6 +234,7 @@ today's behaviour.
 | A chat popped out next to the call | two names → the newest window wins (the call window, opened later) |
 | Two Teams accounts / tenants | both main windows are section titles and are rejected; the tenant and email components are dropped from the call window |
 | Notification text | "Recording started — Marco Spoor" shows the name on screen. Accepted: it is the user's own Mac, and the meeting list shows the name anyway |
+| Meeting whose real subject equals a placeholder (e.g. 'Meeting') | always time-based; accepted |
 
 ### 6. Tests (XCTest, alongside `TeamsAutoRecordTests`)
 
@@ -273,12 +274,17 @@ and the tests before release. That is a parser-only change.
 
 1. **Generic placeholder names count as no name.** Teams shows `Microsoft
    Teams meeting` during an external meeting's pre-join. The 5 s mic debounce
-   fires inside that stretch. The parser therefore rejects call names that
-   normalize to a known placeholder, and the call falls back to today's
-   time-based choice. Placeholders: `Microsoft Teams meeting`, `Microsoft
-   Teams-vergadering`, `Microsoft Teams vergadering`, `Teams meeting`,
-   `Meeting`, `Vergadering`. Without this, a scheduled external meeting would
-   become a manual "Microsoft Teams meeting", which is a regression.
+   fires inside that stretch. The parser therefore rejects a title when any
+   remaining component (after the email/tenant suffix and the pre-join token
+   are stripped) normalizes to a known placeholder, not only when the joined
+   name does: an unknown pre-join token (e.g. a Dutch-UI `Deelnemen aan
+   vergadering`) can sit in front of the placeholder. The call then falls
+   back to today's time-based choice. Placeholders (EN/NL UI only):
+   `Microsoft Teams meeting`, `Microsoft Teams-vergadering`, `Microsoft Teams
+   vergadering`, `Teams meeting`, `Teams-vergadering`, `Meeting`,
+   `Vergadering`. Without this, a scheduled external meeting would become a
+   manual "Microsoft Teams meeting", which is a regression. The policy's
+   `matchEvent` filters placeholders again as deliberate defence-in-depth.
 2. **All candidate names, matched before newest-wins.**
    - The parser returns every distinct call name, newest window first.
    - The host's `teamsCallName()` becomes `teamsCallNames() -> [String]`.

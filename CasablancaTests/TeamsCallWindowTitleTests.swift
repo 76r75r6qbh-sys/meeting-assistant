@@ -144,6 +144,26 @@ final class TeamsCallWindowTitleParserTests: XCTestCase {
         XCTAssertFalse(TeamsCallWindowTitle.isPlaceholderCallName("Vergadering Team Link"))
     }
 
+    func testAnyPlaceholderComponentMeansNoName() {
+        // An unknown pre-join token in front of a placeholder: the joined
+        // name is not a placeholder, but one of its components is.
+        XCTAssertNil(TeamsCallWindowTitle.callName(
+            fromWindowTitle: "Deelnemen aan vergadering | Microsoft Teams-vergadering | Medicore | youri.broekhuizen@medicore.nl"))
+        XCTAssertNil(TeamsCallWindowTitle.callName(
+            fromWindowTitle: "Some prefix | Microsoft Teams meeting | Medicore | x@y.nl"))
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(fromWindowTitle: "Vergadering Team Link | Sprint 3" + suffix),
+            "Vergadering Team Link | Sprint 3")
+    }
+
+    func testShortDutchTeamsMeetingPlaceholderIsNoName() {
+        for placeholder in ["Teams-vergadering", "Teams vergadering", "teams-VERGADERING"] {
+            XCTAssertTrue(TeamsCallWindowTitle.isPlaceholderCallName(placeholder), placeholder)
+            XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: placeholder + suffix), placeholder)
+        }
+        XCTAssertTrue(TeamsCallWindowTitle.placeholderCallNames.contains("teams vergadering"))
+    }
+
     func testEmptyAndWhitespaceTitles() {
         XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: ""))
         XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: "   "))
@@ -211,6 +231,16 @@ final class TeamsCallWindowListTests: XCTestCase {
             TeamsCallWindowTitle.callNames(fromWindows: windows.reversed()),
             ["Daily AI team", "Partner sync", "Marco Spoor"]
         )
+    }
+
+    func testNamesDifferingOnlyInNormalizationAreOneNameNewestSpellingKept() {
+        let windows = [
+            TeamsWindow(number: 20, title: "daily ai team" + suffix),
+            TeamsWindow(number: 77, title: "Daily AI-team" + suffix),
+            TeamsWindow(number: 51, title: "Partner sync" + suffix),
+            TeamsWindow(number: 30, title: "DAILY  AI TEAM" + suffix),
+        ]
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), ["Daily AI-team", "Partner sync"])
     }
 
     func testPlaceholderWindowIsLeftOutOfTheList() {

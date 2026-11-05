@@ -132,6 +132,8 @@ enum TeamsAutoRecordPolicy {
             }
         }
 
+        // The parser already drops placeholders; filtering here again is
+        // deliberate defence-in-depth for names from any other source.
         let usable = callNames.compactMap { callName -> (original: String, normalized: String)? in
             let name = normalizedTitle(callName)
             guard !name.isEmpty, !TeamsCallWindowTitle.isPlaceholderCallName(callName) else { return nil }
