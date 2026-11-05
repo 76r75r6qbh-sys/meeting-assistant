@@ -154,6 +154,70 @@ final class AskCitationsTests: XCTestCase {
         XCTAssertEqual(AskCitations.segments(in: "a [x] b [y] c", sources: []), [.text("a [x] b [y] c")])
     }
 
+    func testSameDateDifferentTitleIsUnresolved() {
+        let sources = [source(UUID(), title: "Refinement Team Link", date: "2026-11-03", time: "00:05")]
+        let segments = AskCitations.segments(in: "[Budget review, 2026-11-03, 00:05]", sources: sources)
+        XCTAssertNil(citations(segments).first?.target)
+        XCTAssertTrue(AskCitations.attributed(segments).targets.isEmpty)
+    }
+
+    func testSameDateStopwordOnlyTitleIsUnresolved() {
+        let sources = [source(UUID(), title: "Standup", date: "2026-11-03")]
+        let found = citations(AskCitations.segments(in: "[De, 2026-11-03]", sources: sources))
+        XCTAssertNil(found.first?.target)
+    }
+
+    func testTitleSimilarity() {
+        XCTAssertTrue(AskCitations.titlesAreSimilar("Refinement Link", "Refinement Team Link"))
+        XCTAssertTrue(AskCitations.titlesAreSimilar("Sync met Kim", "Partner sync Kim"))          // subset
+        XCTAssertTrue(AskCitations.titlesAreSimilar("Weekly partner sync", "Partner sync Kim"))   // 2/4
+        XCTAssertFalse(AskCitations.titlesAreSimilar("Weekly partner review", "Partner sync Kim")) // 1/5
+        XCTAssertFalse(AskCitations.titlesAreSimilar("Budget review", "Refinement Team Link"))
+    }
+
+    /// Documented choice: an out-of-range time still resolves the meeting,
+    /// but without a jump time.
+    func testOutOfRangeTimeResolvesMeetingWithoutSeconds() {
+        let id = UUID()
+        let sources = [source(id, title: "T", date: "2026-11-03")]
+        for time in ["99:99", "1:60:00", "12:60"] {
+            let found = citations(AskCitations.segments(in: "[T, 2026-11-03, \(time)]", sources: sources))
+            XCTAssertEqual(found.first?.timeLabel, time)
+            XCTAssertEqual(found.first?.target, AskCitationTarget(meetingID: id, seconds: nil), time)
+        }
+        XCTAssertEqual(AskCitations.seconds(fromTimeLabel: "59:59"), 3599)
+        XCTAssertEqual(AskCitations.seconds(fromTimeLabel: "1:59:59"), 7199)
+    }
+
+    func testUnterminatedAndNestedBracketsStayText() {
+        let sources = [source(UUID(), title: "T", date: "2026-11-03")]
+        for answer in [
+            "a [T, 2026-11-03 b",
+            "a T, 2026-11-03] b",
+            "a [[T, 2026-11-03]] b",
+            "a [zie [T, 2026-11-03] hier] b",
+            "a [open [T, 2026-11-03] b",
+        ] {
+            XCTAssertEqual(AskCitations.segments(in: answer, sources: sources), [.text(answer)], answer)
+        }
+        // An unterminated '[' only affects its own line.
+        let segments = AskCitations.segments(in: "a [open\nb [T, 2026-11-03]", sources: sources)
+        XCTAssertEqual(segments.first, .text("a [open\nb "))
+        XCTAssertNotNil(citations(segments).first?.target)
+    }
+
+    func testAllUnresolvedGroupRendersRawText() {
+        let sources = [source(UUID(), title: "T", date: "2026-11-03")]
+        let answer = "Ja [Ghost, 2020-01-01, 01:00; Other, 2021-02-02]."
+        let segments = AskCitations.segments(in: answer, sources: sources)
+        XCTAssertEqual(citations(segments).count, 2)
+        XCTAssertTrue(citations(segments).allSatisfy { $0.target == nil })
+        let rendered = AskCitations.attributed(segments)
+        XCTAssertEqual(String(rendered.text.characters), answer)
+        XCTAssertTrue(linkRuns(rendered.text).isEmpty)
+        XCTAssertTrue(rendered.targets.isEmpty)
+    }
+
     // MARK: - Links
 
     func testURLRoundTrip() {

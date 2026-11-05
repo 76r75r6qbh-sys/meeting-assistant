@@ -45,8 +45,6 @@ enum AskCitations {
     private static let urlHost = "citation"
     private static let citationSeparator = "; "
 
-    /// A bracket group without nested brackets or newlines.
-    private static let bracketPattern = try! NSRegularExpression(pattern: #"\[([^\[\]\n]+)\]"#)
     /// Greedy title so commas in titles stay in the title; anchored from the
     /// right on the date and optional time. ASCII digits only (`[0-9]`, not
     /// ICU `\d`) so the labels match what `AskCitationFormat` and
@@ -57,9 +55,11 @@ enum AskCitations {
 
     // MARK: - Parsing
 
-    /// Splits `answer` into text and citation groups. A bracket group becomes
-    /// `.citations` only when every `"; "`-separated part is a citation;
-    /// otherwise it stays text. Adjacent text segments are merged.
+    /// Splits `answer` into text and citation groups. Only a top-level,
+    /// non-nested bracket group on one line is a candidate (see
+    /// ``candidateGroups(in:)``); it becomes `.citations` only when every
+    /// `"; "`-separated part is a citation, otherwise it stays text. Adjacent
+    /// text segments are merged.
     static func segments(in answer: String, sources: [AskSource]) -> [AskAnswerSegment] {
         var result: [AskAnswerSegment] = []
         func appendText(_ text: Substring) {
@@ -73,13 +73,10 @@ enum AskCitations {
 
         let resolver = Resolver(sources: sources)
         var cursor = answer.startIndex
-        let matches = bracketPattern.matches(in: answer, range: NSRange(answer.startIndex..., in: answer))
-        for match in matches {
-            guard let whole = Range(match.range, in: answer),
-                  let inner = Range(match.range(at: 1), in: answer),
-                  whole.lowerBound >= cursor else { continue }
+        for whole in candidateGroups(in: answer) {
             appendText(answer[cursor..<whole.lowerBound])
-            if let list = parseGroup(String(answer[inner]), resolver: resolver) {
+            let inner = answer[answer.index(after: whole.lowerBound)..<answer.index(before: whole.upperBound)]
+            if let list = parseGroup(String(inner), resolver: resolver) {
                 result.append(.citations(raw: String(answer[whole]), list))
             } else {
                 appendText(answer[whole])
@@ -88,6 +85,35 @@ enum AskCitations {
         }
         appendText(answer[cursor...])
         return result
+    }
+
+    /// Ranges (brackets included) of bracket groups that are not inside
+    /// another bracket and contain no bracket themselves. A newline resets
+    /// the bracket nesting, so an unterminated `[` only affects its own line;
+    /// while it is open, no later group on that line is a candidate. A group
+    /// with a nested bracket (`[x [A, d] y]`, `[[A, d]]`) is not a candidate,
+    /// and neither is its inner group. A stray `]` is ignored.
+    static func candidateGroups(in answer: String) -> [Range<String.Index>] {
+        var groups: [Range<String.Index>] = []
+        var open: [(start: String.Index, nested: Bool)] = []
+        var index = answer.startIndex
+        while index < answer.endIndex {
+            let character = answer[index]
+            if character.isNewline {
+                open.removeAll()
+            } else if character == "[" {
+                if !open.isEmpty { open[open.count - 1].nested = true }
+                open.append((index, false))
+            } else if character == "]", let group = open.popLast() {
+                if open.isEmpty {
+                    if !group.nested { groups.append(group.start..<answer.index(after: index)) }
+                } else {
+                    open[open.count - 1].nested = true
+                }
+            }
+            index = answer.index(after: index)
+        }
+        return groups
     }
 
     private static func parseGroup(_ inner: String, resolver: Resolver) -> [AskCitation]? {
@@ -108,23 +134,34 @@ enum AskCitations {
         let date = String(part[dateRange])
         let time = Range(match.range(at: 3), in: part).map { String(part[$0]) }
         let target = resolver.meetingID(title: title, dateLabel: date).map { meetingID in
-            AskCitationTarget(meetingID: meetingID, seconds: time.flatMap(TranscriptLineFormat.seconds(fromLabel:)))
+            AskCitationTarget(meetingID: meetingID, seconds: time.flatMap(seconds(fromTimeLabel:)))
         }
         return AskCitation(title: title, dateLabel: date, timeLabel: time, target: target)
     }
 
+    /// `TranscriptLineFormat.seconds(fromLabel:)`, but `nil` when a minutes
+    /// (in `h:mm:ss`) or seconds field is 60 or more (`99:99`). Such a
+    /// citation still resolves its meeting; only the jump time is dropped.
+    static func seconds(fromTimeLabel label: String) -> Double? {
+        let fields = label.split(separator: ":").dropFirst()
+        guard fields.allSatisfy({ (Int($0) ?? 60) < 60 }) else { return nil }
+        return TranscriptLineFormat.seconds(fromLabel: label)
+    }
+
     /// Resolution against the prompt's sources only: exact match on folded
-    /// title + date label; else the single source meeting on that date; else
+    /// title + date label; else the single source meeting on that date, but
+    /// only when the titles are similar (``titlesAreSimilar(_:_:)``); else
     /// `nil`. More than one distinct meeting at either step is ambiguous and
     /// stays unresolved, so a citation never links to a wrong meeting.
     private struct Resolver {
         private var byTitleAndDate: [String: Set<UUID>] = [:]
-        private var byDate: [String: Set<UUID>] = [:]
+        /// Date label → meeting → its citation title.
+        private var byDate: [String: [UUID: String]] = [:]
 
         init(sources: [AskSource]) {
             for source in sources {
                 byTitleAndDate[Self.key(source.meetingTitle, source.dateLabel), default: []].insert(source.meetingID)
-                byDate[source.dateLabel, default: []].insert(source.meetingID)
+                byDate[source.dateLabel, default: [:]][source.meetingID] = source.meetingTitle
             }
         }
 
@@ -132,8 +169,9 @@ enum AskCitations {
             if let exact = byTitleAndDate[Self.key(title, dateLabel)] {
                 return exact.count == 1 ? exact.first : nil
             }
-            if let sameDay = byDate[dateLabel], sameDay.count == 1 {
-                return sameDay.first
+            if let sameDay = byDate[dateLabel], sameDay.count == 1, let only = sameDay.first,
+               AskCitations.titlesAreSimilar(title, only.value) {
+                return only.key
             }
             return nil
         }
@@ -141,6 +179,17 @@ enum AskCitations {
         private static func key(_ title: String, _ dateLabel: String) -> String {
             AskTokenizer.fold(title.trimmingCharacters(in: .whitespaces)) + "\n" + dateLabel
         }
+    }
+
+    /// Same-date fallback guard. On `AskTokenizer.tokens` (folded, stopwords
+    /// and 1-letter tokens dropped) as sets, both non-empty: one is a subset
+    /// of the other, or their Jaccard index is at least 0.5.
+    static func titlesAreSimilar(_ cited: String, _ source: String) -> Bool {
+        let a = Set(AskTokenizer.tokens(cited))
+        let b = Set(AskTokenizer.tokens(source))
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        if a.isSubset(of: b) || b.isSubset(of: a) { return true }
+        return Double(a.intersection(b).count) / Double(a.union(b).count) >= 0.5
     }
 
     // MARK: - Rendering
