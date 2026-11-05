@@ -106,6 +106,9 @@ struct AskView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { service.prepareIndex() }
+        // Leaving Ask stops an in-flight answer, so the local model is not
+        // kept busy next to a summary nobody is waiting on.
+        .onDisappear { service.cancel() }
         // Index invalidation on store saves is the service's own (debounced)
         // `ModelContext.didSave` observer — no per-view observer here.
         .onChange(of: service.filterOptions.participants) { _, participants in
@@ -325,7 +328,7 @@ struct AskView: View {
                         HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
                             Text(source.citation)
                                 .font(.caption)
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.accentPrimary)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(Self.kindLabel(source.kind))

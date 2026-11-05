@@ -113,6 +113,51 @@ final class AskViewLayoutTests: XCTestCase {
         XCTAssertEqual(loads.count, 1)
     }
 
+    /// Leaving the Ask view (routing elsewhere) cancels the in-flight answer:
+    /// the provider call is cancelled and the service ends with neither an
+    /// answer nor an error.
+    func testLeavingTheAskViewCancelsAnInFlightAnswer() async throws {
+        let provider = HangingLLMProvider()
+        let calendar = Calendar.current
+        let meeting = Meeting(
+            title: "Refinement Team Link",
+            date: calendar.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 9))!,
+            participants: ["Kim"],
+            status: .completed
+        )
+        meeting.transcript = "[00:10] Kim: We besluiten de BgZ uitwisseling via Wegiz te bouwen."
+        let snapshot = AskMeetingSnapshot(meeting: meeting)
+        let service = AskService(
+            snapshotLoader: { [snapshot] },
+            providerFactory: { provider },
+            retryPolicy: LLMRetryPolicy(maxAttempts: 1, baseDelay: 0, sleep: { _ in }),
+            thinkingEnabled: { true }
+        )
+        let control = AskHarnessControl()
+        let window = makeWindow(service: service, control: control, size: CGSize(width: 900, height: 600))
+        XCTAssertNotNil(service.ask("Wat hebben we besloten over BgZ?", filter: .none))
+
+        var deadline = Date().addingTimeInterval(2)
+        while !provider.started && Date() < deadline {
+            pump(window)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(provider.started, "The ask should reach the provider")
+        XCTAssertTrue(service.isAnswering)
+
+        control.showsAsk = false
+        deadline = Date().addingTimeInterval(2)
+        while (service.isAnswering || !provider.cancelled) && Date() < deadline {
+            pump(window)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertFalse(service.isAnswering, "Leaving Ask should stop the answer")
+        XCTAssertTrue(provider.cancelled, "The provider call should be cancelled")
+        XCTAssertNil(service.answer)
+        XCTAssertNil(service.errorMessage)
+    }
+
     // MARK: - Fixtures
 
     @MainActor
@@ -195,8 +240,8 @@ final class AskViewLayoutTests: XCTestCase {
 private final class AskHarnessControl: ObservableObject {
     @Published var isSummaryInProgress = false
     @Published var sidebarForcedHidden = false
+    @Published var showsAsk = true
     var appeared = false
-    var openedTargets: [AskCitationTarget] = []
 }
 
 /// ContentView's split with `AskView` as the detail, exactly as routed there
@@ -218,12 +263,19 @@ private struct AskSplitHarness: View {
                     max: CasaLayout.sidebarMaxWidth
                 )
         } detail: {
-            AskView(
-                service: service,
-                isSummaryInProgress: control.isSummaryInProgress,
-                onOpenCitation: { control.openedTargets.append($0) }
-            )
-            .onAppear { control.appeared = true }
+            Group {
+                if control.showsAsk {
+                    AskView(
+                        service: service,
+                        isSummaryInProgress: control.isSummaryInProgress,
+                        onOpenCitation: { _ in }
+                    )
+                    .onAppear { control.appeared = true }
+                } else {
+                    // Stands in for routing to another destination.
+                    Text("Dashboard")
+                }
+            }
             .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
             .environment(\.layoutWidthClass, widthClass)
         }
@@ -245,4 +297,40 @@ private struct AskSplitHarness: View {
             columnVisibility = collapse ? .detailOnly : .automatic
         }
     }
+}
+
+/// A provider whose generation runs until cancelled, so a test can act while
+/// an answer is in flight.
+private final class HangingLLMProvider: LLMProvider, @unchecked Sendable {
+    let displayName = "Hanging"
+    let endpoint = "stub://hanging"
+    let preferredTimeout: TimeInterval? = nil
+    let supportsFullTranscriptEcho = true
+    let promptTokenBudget = LLMPromptSupport.localPromptTokenBudget
+
+    private let lock = NSLock()
+    private var didStart = false
+    private var didCancel = false
+
+    var started: Bool { lock.withLock { didStart } }
+    var cancelled: Bool { lock.withLock { didCancel } }
+
+    func generate(
+        prompt: String,
+        temperature: Double?,
+        maxTokens: Int?,
+        timeout: TimeInterval,
+        truncated: ((Bool) -> Void)?
+    ) async throws -> String {
+        lock.withLock { didStart = true }
+        do {
+            try await Task.sleep(for: .seconds(30))
+        } catch {
+            lock.withLock { didCancel = true }
+            throw error
+        }
+        return "late"
+    }
+
+    func fetchAvailableModels(endpoint: String) async throws -> [String] { [] }
 }
