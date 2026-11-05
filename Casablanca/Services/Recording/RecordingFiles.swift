@@ -31,4 +31,36 @@ enum RecordingFiles {
     static func trackByteCount(at url: URL) -> Int64 {
         Int64(byteCount(of: url) ?? 0)
     }
+
+    /// Where the renderer keeps a fully mixed temp track for the speaker-track
+    /// merge: `segment-007.mic.pcm` becomes `segment-007.mic.kept.pcm`. The
+    /// name deliberately does not end in `.mic.pcm` / `.system.pcm`, so launch
+    /// recovery never re-renders it or reports it as stranded, while
+    /// `hasRecoverableAudio` still counts it (extension `pcm`).
+    static func keptTrackURL(for pcmURL: URL) -> URL {
+        pcmURL
+            .deletingPathExtension()
+            .appendingPathExtension("kept")
+            .appendingPathExtension("pcm")
+    }
+
+    /// The per-source speaker track (always a WAV) beside a merged recording:
+    /// `<name>.wav` becomes `<name>.mic.wav` or `<name>.system.wav`, which
+    /// `RecordingCompressor.compress` later turns into `<name>.mic.m4a` /
+    /// `<name>.system.m4a`.
+    static func speakerTrackURL(forRecording recordingURL: URL, kind: RecordingTrackKind) -> URL {
+        recordingURL
+            .deletingPathExtension()
+            .appendingPathExtension(trackSuffix(for: kind))
+            .appendingPathExtension("wav")
+    }
+
+    /// The suffix `RecordingSession` gives each source's temp PCM
+    /// (`segment-007.mic.pcm`, `segment-007.system.pcm`).
+    static func trackSuffix(for kind: RecordingTrackKind) -> String {
+        switch kind {
+        case .microphone: return "mic"
+        case .systemAudio: return "system"
+        }
+    }
 }

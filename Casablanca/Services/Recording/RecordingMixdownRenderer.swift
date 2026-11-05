@@ -121,13 +121,40 @@ struct RecordingMixdownRenderer {
             )
         }
 
-        // Only what the loop above read to its end is now in the WAV. A track
-        // that was not read is removed only when it holds no whole sample.
-        if microphoneHandle != nil || microphoneBytes < Int64(MemoryLayout<Float>.size) {
+        // Only what the loop above read to its end is now in the WAV. Such a
+        // track moves to its kept name for the speaker-track merge at Stop. A
+        // track that was not read is removed only when it holds no whole
+        // sample, and is never kept.
+        if microphoneHandle != nil {
+            Self.keepTrack(at: microphoneURL)
+        } else if microphoneBytes < Int64(MemoryLayout<Float>.size) {
             bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneURL) }
         }
-        if systemAudioHandle != nil || systemAudioBytes < Int64(MemoryLayout<Float>.size) {
+        if systemAudioHandle != nil {
+            Self.keepTrack(at: systemAudioURL)
+        } else if systemAudioBytes < Int64(MemoryLayout<Float>.size) {
             bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioURL) }
+        }
+    }
+
+    /// Moves a fully mixed temp track to `RecordingFiles.keptTrackURL(for:)`,
+    /// replacing a kept file an earlier render of the segment left. If the
+    /// move fails the track is deleted as before: the mix already holds its
+    /// audio, and a temp track left under its capture name would be rendered
+    /// again by launch recovery.
+    private static func keepTrack(at url: URL) {
+        let fileManager = FileManager.default
+        let keptURL = RecordingFiles.keptTrackURL(for: url)
+        do {
+            if fileManager.fileExists(atPath: keptURL.path) {
+                try fileManager.removeItem(at: keptURL)
+            }
+            try fileManager.moveItem(at: url, to: keptURL)
+        } catch {
+            Log.recording.error(
+                "Could not keep \(url.lastPathComponent, privacy: .public) for the speaker tracks: \(error.localizedDescription, privacy: .public); deleting it, the mix holds its audio"
+            )
+            bestEffort("remove temp track after a failed keep", Log.recording) { try fileManager.removeItem(at: url) }
         }
     }
 

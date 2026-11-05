@@ -159,12 +159,17 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: system.path), "A failed render deletes nothing")
     }
 
-    func testSuccessfulRenderRemovesBothFullyReadTracks() throws {
+    /// Both fully read tracks leave their capture names (so recovery never
+    /// re-renders them) but survive under the kept names, byte for byte, for
+    /// the per-speaker track merge at Stop.
+    func testSuccessfulRenderKeepsBothTracksUnderKeptNames() throws {
         let mic = directory.appendingPathComponent("segment-001.mic.pcm")
         let system = directory.appendingPathComponent("segment-001.system.pcm")
         let output = directory.appendingPathComponent("segment-001.wav")
         try writeFloats([0.1, 0.2], to: mic)
         try writeFloats([0.1, 0.1], to: system)
+        let micBytes = try Data(contentsOf: mic)
+        let systemBytes = try Data(contentsOf: system)
 
         try RecordingMixdownRenderer(
             microphoneURL: mic,
@@ -177,7 +182,58 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        let keptMic = RecordingFiles.keptTrackURL(for: mic)
+        let keptSystem = RecordingFiles.keptTrackURL(for: system)
+        XCTAssertEqual(keptMic.lastPathComponent, "segment-001.mic.kept.pcm")
+        XCTAssertEqual(keptSystem.lastPathComponent, "segment-001.system.kept.pcm")
+        XCTAssertEqual(try Data(contentsOf: keptMic), micBytes)
+        XCTAssertEqual(try Data(contentsOf: keptSystem), systemBytes)
         XCTAssertEqual(try Data(contentsOf: output).count, 44 + 2 * MemoryLayout<Int16>.size)
+    }
+
+    /// A kept file left by an earlier render of the same segment number is
+    /// replaced, not a reason to fail or to delete the fresh track.
+    func testRenderReplacesAnExistingKeptTrack() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.3, 0.4, 0.5], to: mic)
+        try writeFloats([0.9], to: RecordingFiles.keptTrackURL(for: mic))
+        let micBytes = try Data(contentsOf: mic)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 3,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 3
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertEqual(try Data(contentsOf: RecordingFiles.keptTrackURL(for: mic)), micBytes)
+    }
+
+    /// A track holding less than one whole sample is deleted, never kept.
+    func testSubSampleTrackIsDeletedNotKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try Data([0x01, 0x02]).write(to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 2
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: system).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
     }
 
     /// A track whose frames were not counted is not read; if it nevertheless
@@ -200,5 +256,6 @@ final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
     }
 }

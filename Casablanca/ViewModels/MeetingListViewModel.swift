@@ -334,10 +334,10 @@ final class MeetingListViewModel {
     func deleteMeeting(_ meeting: Meeting) throws {
         guard let modelContext else { return }
 
-        if let recordingPath = meeting.recordingFileURL {
-            let recordingURL = URL(fileURLWithPath: recordingPath)
+        // The recording and its per-source speaker tracks.
+        for path in [meeting.recordingFileURL, meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
             do {
-                try removeItemAtURL(recordingURL)
+                try removeItemAtURL(URL(fileURLWithPath: path))
             } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
                 // Missing recording files should not block deleting the meeting record.
             }

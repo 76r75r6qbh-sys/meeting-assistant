@@ -35,6 +35,10 @@ final class AudioRecordingService {
     private let makeRecordingSession: RecordingSessionFactory
     private let makeFinalOutputURL: (Meeting) throws -> URL
     private let mergeSegments: ([URL], URL) async throws -> TimeInterval
+    /// Merges the kept per-source temp tracks into the speaker tracks beside
+    /// the recording. Never throws: a failure yields no tracks, not a failed
+    /// Stop.
+    private let mergeTracks: ([URL], URL) async -> SpeakerTrackFiles
 
     /// Held for as long as a segment is actually capturing. Without it the Mac
     /// idle-sleeps mid-recording once the display sleeps — macOS drops
@@ -68,6 +72,7 @@ final class AudioRecordingService {
         makeRecordingSession: @escaping RecordingSessionFactory = AudioRecordingService.defaultSessionFactory,
         makeFinalOutputURL: @escaping (Meeting) throws -> URL = AudioRecordingService.defaultFinalOutputURL,
         mergeSegments: @escaping ([URL], URL) async throws -> TimeInterval = RecordingSegmentMerger.mergeInBackground,
+        mergeTracks: @escaping ([URL], URL) async -> SpeakerTrackFiles = RecordingTrackMerger.mergeInBackground,
         sleepPreventer: SleepPreventing = ProcessInfoSleepPreventer(),
         startRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)],
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
@@ -76,6 +81,7 @@ final class AudioRecordingService {
         self.makeRecordingSession = makeRecordingSession
         self.makeFinalOutputURL = makeFinalOutputURL
         self.mergeSegments = mergeSegments
+        self.mergeTracks = mergeTracks
         self.sleepPreventer = sleepPreventer
         self.startRetryDelays = startRetryDelays
         self.sleep = sleep
@@ -364,6 +370,8 @@ final class AudioRecordingService {
         mergingMeetingIDs.insert(meeting.id)
         defer { mergingMeetingIDs.remove(meeting.id) }
         let duration = try await mergeSegments(segmentURLs, finalURL)
+        // Before the session is deleted: the kept per-source PCM lives in it.
+        let tracks = await mergeTracks(segmentURLs, finalURL)
         try sessionStore.deleteSession(for: meeting.id)
 
         outputURL = finalURL
@@ -375,7 +383,12 @@ final class AudioRecordingService {
             \(segmentURLs.count, privacy: .public) segment(s) into \(finalURL.path, privacy: .public) (\(duration, privacy: .public)s)
             """
         )
-        return RecordingResult(outputURL: finalURL, duration: duration)
+        return RecordingResult(
+            outputURL: finalURL,
+            duration: duration,
+            microphoneTrackURL: tracks.microphone,
+            systemTrackURL: tracks.system
+        )
     }
 
     func handleSystemInterrupt(reason: RecordingInterruptionReason) async -> InterruptOutcome {

@@ -215,6 +215,7 @@
 		A10612 /* AudioInputDeviceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10612 /* AudioInputDeviceProvider.swift */; };
 		A10613 /* RecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10613 /* RecordingSession.swift */; };
 		A10614 /* RecordingSegmentMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10614 /* RecordingSegmentMerger.swift */; };
+		SPKA0001 /* RecordingTrackMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0101 /* RecordingTrackMerger.swift */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
 		A10617 /* PCMTrackWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* PCMTrackWriter.swift */; };
@@ -223,6 +224,9 @@
 		A1061A /* RecordingMixdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1061A /* RecordingMixdownRenderer.swift */; };
 		A1061B /* RecordingCompressor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1061B /* RecordingCompressor.swift */; };
 		A10700 /* RecordingSegmentMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10700 /* RecordingSegmentMergerTests.swift */; };
+		SPKA0002 /* RecordingTrackMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0102 /* RecordingTrackMergerTests.swift */; };
+		SPKA0003 /* AudioRecordingServiceTrackMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */; };
+		SPKA0004 /* MeetingListViewModelTrackDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */; };
 		A10701 /* RecordingMixdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* RecordingMixdownTests.swift */; };
 		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10703 /* PCMTrackWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* PCMTrackWriterTests.swift */; };
@@ -527,6 +531,7 @@
 		B10612 /* AudioInputDeviceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProvider.swift; sourceTree = "<group>"; };
 		B10613 /* RecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSession.swift; sourceTree = "<group>"; };
 		B10614 /* RecordingSegmentMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMerger.swift; sourceTree = "<group>"; };
+		SPKA0101 /* RecordingTrackMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTrackMerger.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -535,6 +540,9 @@
 		B1061A /* RecordingMixdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownRenderer.swift; sourceTree = "<group>"; };
 		B1061B /* RecordingCompressor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingCompressor.swift; sourceTree = "<group>"; };
 		B10700 /* RecordingSegmentMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSegmentMergerTests.swift; sourceTree = "<group>"; };
+		SPKA0102 /* RecordingTrackMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingTrackMergerTests.swift; sourceTree = "<group>"; };
+		SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingServiceTrackMergeTests.swift; sourceTree = "<group>"; };
+		SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingListViewModelTrackDeletionTests.swift; sourceTree = "<group>"; };
 		B10701 /* RecordingMixdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownTests.swift; sourceTree = "<group>"; };
 		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10703 /* PCMTrackWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriterTests.swift; sourceTree = "<group>"; };
@@ -943,6 +951,9 @@
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
+				SPKA0102 /* RecordingTrackMergerTests.swift */,
+				SPKA0103 /* AudioRecordingServiceTrackMergeTests.swift */,
+				SPKA0104 /* MeetingListViewModelTrackDeletionTests.swift */,
 				B10701 /* RecordingMixdownTests.swift */,
 				B10702 /* AudioInputDeviceProviderTests.swift */,
 				B10703 /* PCMTrackWriterTests.swift */,
@@ -1054,6 +1065,7 @@
 				B10612 /* AudioInputDeviceProvider.swift */,
 				B10613 /* RecordingSession.swift */,
 				B10614 /* RecordingSegmentMerger.swift */,
+				SPKA0101 /* RecordingTrackMerger.swift */,
 				B10615 /* WAVCodec.swift */,
 				B10616 /* AudioLevelAggregator.swift */,
 				B10617 /* PCMTrackWriter.swift */,
@@ -1257,6 +1269,7 @@
 				A10612 /* AudioInputDeviceProvider.swift in Sources */,
 				A10613 /* RecordingSession.swift in Sources */,
 				A10614 /* RecordingSegmentMerger.swift in Sources */,
+				SPKA0001 /* RecordingTrackMerger.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
 				A10617 /* PCMTrackWriter.swift in Sources */,
@@ -1419,6 +1432,9 @@
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
 				A10700 /* RecordingSegmentMergerTests.swift in Sources */,
+				SPKA0002 /* RecordingTrackMergerTests.swift in Sources */,
+				SPKA0003 /* AudioRecordingServiceTrackMergeTests.swift in Sources */,
+				SPKA0004 /* MeetingListViewModelTrackDeletionTests.swift in Sources */,
 				A10701 /* RecordingMixdownTests.swift in Sources */,
 				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10703 /* PCMTrackWriterTests.swift in Sources */,
