@@ -26,19 +26,33 @@ struct AskSource: Identifiable, Equatable, Sendable {
 
 /// Formatting shared by the prompt's source headers and the citation parser.
 enum AskCitationFormat {
-    /// `[` → `(`, `]` → `)`, every newline → a space, then trimmed, so a title
-    /// can never close or open a citation bracket.
+    /// Title used when a meeting title is empty after sanitising (matches the
+    /// app's "Untitled Meeting" fallback for calendar events).
+    static let untitledTitle = "Untitled Meeting"
+
+    /// `[` → `(`, `]` → `)`, `;` → `,`, every newline → a space, then
+    /// trimmed, so a title can never open or close a citation bracket nor
+    /// split a multi-citation bracket (citations are joined with `"; "`).
+    /// An empty result becomes ``untitledTitle``.
     static func citationTitle(_ title: String) -> String {
         let mapped = title.map { character -> Character in
             if character == "[" { return "(" }
             if character == "]" { return ")" }
+            if character == ";" { return "," }
             if character.isNewline { return " " }
             return character
         }
-        return String(mapped).trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = String(mapped).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? untitledTitle : trimmed
     }
 
     /// `yyyy-MM-dd` of `date` in `calendar` (and its time zone).
+    ///
+    /// Source headers and citations use the calendar passed to
+    /// ``AskPrompt/selectSources(_:meetings:question:filter:tokenBudget:calendar:)``
+    /// (default `Calendar.current`). Resolve citations against the returned
+    /// ``AskSource/dateLabel`` values, or recompute labels with that same
+    /// calendar; a different time zone can shift the date by a day.
     static func dateLabel(_ date: Date, calendar: Calendar = .current) -> String {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
@@ -86,10 +100,11 @@ enum AskPrompt {
         meetings: [UUID: AskMeetingSnapshot],
         question: String,
         filter: AskFilter,
-        tokenBudget: Int
+        tokenBudget: Int,
+        calendar: Calendar = .current
     ) -> [AskSource] {
         let budget = tokenBudget - answerReserveTokens
-        let fixed = LLMPromptSupport.budgetTokens(render(question: question, filter: filter, sources: []))
+        let fixed = LLMPromptSupport.budgetTokens(render(question: question, filter: filter, sources: [], calendar: calendar))
         var used = fixed
         var perMeeting: [UUID: Int] = [:]
         var selected: [AskSource] = []
@@ -100,7 +115,7 @@ enum AskPrompt {
             guard let meeting = meetings[chunk.meetingID] else { continue }
             guard perMeeting[chunk.meetingID, default: 0] < maxSourcesPerMeeting else { continue }
 
-            let source = makeSource(id: selected.count + 1, chunk: chunk, meeting: meeting, text: chunk.text)
+            let source = makeSource(id: selected.count + 1, chunk: chunk, meeting: meeting, text: chunk.text, calendar: calendar)
             let cost = blockCost(source)
             guard used + cost <= budget else { continue }
             used += cost
@@ -111,11 +126,12 @@ enum AskPrompt {
         if selected.isEmpty,
            let first = scored.first(where: { meetings[$0.chunk.meetingID] != nil }),
            let meeting = meetings[first.chunk.meetingID] {
-            let header = makeSource(id: 1, chunk: first.chunk, meeting: meeting, text: "")
+            let header = makeSource(id: 1, chunk: first.chunk, meeting: meeting, text: "", calendar: calendar)
             let remainingChars = max(0, budget - fixed) * LLMPromptSupport.budgetCharsPerToken
             let overhead = block(header).count + blockSeparator.count + ellipsis.count
             let keep = max(minTruncatedChars, remainingChars - overhead)
-            selected = [makeSource(id: 1, chunk: first.chunk, meeting: meeting, text: truncated(first.chunk.text, keep: keep))]
+            selected = [makeSource(id: 1, chunk: first.chunk, meeting: meeting, text: truncated(first.chunk.text, keep: keep),
+                                   calendar: calendar)]
         }
         return selected
     }
@@ -123,11 +139,12 @@ enum AskPrompt {
     // MARK: - Render
 
     /// Framing, optional `## Filters`, `## Sources` and `## Question`,
-    /// separated by one blank line.
-    static func render(question: String, filter: AskFilter, sources: [AskSource]) -> String {
+    /// separated by one blank line. `calendar` only formats the filter's dates.
+    static func render(question: String, filter: AskFilter, sources: [AskSource],
+                       calendar: Calendar = .current) -> String {
         var sections = [systemFraming]
 
-        let filterLines = filterLines(filter)
+        let filterLines = filterLines(filter, calendar: calendar)
         if !filterLines.isEmpty {
             sections.append((["## Filters"] + filterLines).joined(separator: "\n"))
         }
@@ -140,12 +157,13 @@ enum AskPrompt {
 
     // MARK: - Private
 
-    private static func makeSource(id: Int, chunk: AskChunk, meeting: AskMeetingSnapshot, text: String) -> AskSource {
+    private static func makeSource(id: Int, chunk: AskChunk, meeting: AskMeetingSnapshot, text: String,
+                                   calendar: Calendar) -> AskSource {
         AskSource(
             id: id,
             meetingID: chunk.meetingID,
             meetingTitle: AskCitationFormat.citationTitle(meeting.title),
-            dateLabel: AskCitationFormat.dateLabel(meeting.date),
+            dateLabel: AskCitationFormat.dateLabel(meeting.date, calendar: calendar),
             timeLabel: chunk.timeLabel,
             kind: chunk.kind,
             text: text
@@ -173,16 +191,16 @@ enum AskPrompt {
         }
     }
 
-    private static func filterLines(_ filter: AskFilter) -> [String] {
+    private static func filterLines(_ filter: AskFilter, calendar: Calendar) -> [String] {
         guard !filter.isEmpty else { return [] }
         var lines: [String] = []
         switch (filter.from, filter.to) {
         case let (from?, to?):
-            lines.append("Date range: \(AskCitationFormat.dateLabel(from)) to \(AskCitationFormat.dateLabel(to))")
+            lines.append("Date range: \(AskCitationFormat.dateLabel(from, calendar: calendar)) to \(AskCitationFormat.dateLabel(to, calendar: calendar))")
         case let (from?, nil):
-            lines.append("Date range: from \(AskCitationFormat.dateLabel(from))")
+            lines.append("Date range: from \(AskCitationFormat.dateLabel(from, calendar: calendar))")
         case let (nil, to?):
-            lines.append("Date range: up to \(AskCitationFormat.dateLabel(to))")
+            lines.append("Date range: up to \(AskCitationFormat.dateLabel(to, calendar: calendar))")
         case (nil, nil):
             break
         }

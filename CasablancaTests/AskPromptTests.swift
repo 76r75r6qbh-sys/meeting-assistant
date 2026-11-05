@@ -61,16 +61,20 @@ final class AskPromptTests: XCTestCase {
     // MARK: - Framing and render
 
     func testFramingIsExact() {
+        let expected = """
+        You answer questions about the user's past meetings. Use ONLY the sources below: excerpts from meeting summaries, extracted action items and transcripts. If the sources do not contain the answer, say so plainly (for example "Ik kan dat niet vinden in je meetings." or "I can't find that in your meetings.") instead of guessing. Do not use outside knowledge.
+
+        Answer in the language of the question. Start with a short, direct answer; add supporting points only when they help.
+
+        Cite every factual claim with the citation shown in the header of the source it came from, copied exactly, for example [Refinement Team Link, 2026-11-03, 12:34]. Some sources have no time; cite those as shown, for example [Refinement Team Link, 2026-11-03]. Several citations for one claim go in one bracket separated by "; ". Never invent a citation, never cite a source number, and never cite a meeting that is not in the sources.
+
+        When sources disagree, say so and cite both; the most recent meeting usually reflects the current state. In transcript lines, a speaker label before a colon ("Youri: ...") is the person who said it. Action item sources state the owner only when someone was explicitly assigned; do not assign owners yourself.
+        """
+        XCTAssertEqual(AskPrompt.systemFraming, expected)
         XCTAssertTrue(AskPrompt.systemFraming.hasPrefix("You answer questions about the user's past meetings."))
         XCTAssertTrue(AskPrompt.systemFraming.contains("[Refinement Team Link, 2026-11-03, 12:34]"))
-        XCTAssertTrue(AskPrompt.systemFraming.contains("[Refinement Team Link, 2026-11-03]."))
         // Ruling R8: old transcripts contain "[00:10] Agenda: punt 1".
-        XCTAssertTrue(AskPrompt.systemFraming.contains(
-            "In transcript lines, a speaker label before a colon (\"Youri: ...\") is the person who said it."))
         XCTAssertFalse(AskPrompt.systemFraming.contains("a name before a colon"))
-        XCTAssertTrue(AskPrompt.systemFraming.hasSuffix("do not assign owners yourself."))
-        XCTAssertEqual(AskPrompt.systemFraming.components(separatedBy: "\n\n").count, 4)
-        XCTAssertFalse(AskPrompt.systemFraming.hasPrefix(" "))
     }
 
     func testRenderLayout() {
@@ -128,6 +132,34 @@ final class AskPromptTests: XCTestCase {
         XCTAssertEqual(AskCitationFormat.citationTitle("Bila [extern]\nx"), "Bila (extern) x")
         XCTAssertEqual(AskCitationFormat.citationTitle("  a\r\nb  "), "a b")
         XCTAssertEqual(AskCitationFormat.citationTitle("Bila Youri, Martijn"), "Bila Youri, Martijn")
+        XCTAssertEqual(AskCitationFormat.citationTitle("Sprint review; demo"), "Sprint review, demo")
+        XCTAssertFalse(AskCitationFormat.citationTitle("a;b;;c").contains(";"))
+    }
+
+    func testEmptyCitationTitleFallsBackToUntitled() {
+        XCTAssertEqual(AskCitationFormat.citationTitle(""), "Untitled Meeting")
+        XCTAssertEqual(AskCitationFormat.citationTitle("  \n\t "), "Untitled Meeting")
+        let m = snapshot(title: " \n ")
+        let sources = AskPrompt.selectSources([scored(m.id, 0, kind: .summary, text: "s", time: nil)],
+                                              meetings: [m.id: m], question: "q", filter: .none, tokenBudget: 6_000)
+        XCTAssertEqual(sources.first?.citation, "[Untitled Meeting, 2026-11-03]")
+    }
+
+    func testSelectionUsesInjectedCalendar() {
+        var ams = Calendar(identifier: .gregorian)
+        ams.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        // 23:30 UTC on 2026-11-03 = 00:30 on 2026-11-04 in Amsterdam.
+        let m = snapshot(date: noonUTC(2026, 11, 3).addingTimeInterval(11.5 * 3600))
+        let chunk = [scored(m.id, 0, text: "t", time: "00:10")]
+        XCTAssertEqual(AskPrompt.selectSources(chunk, meetings: [m.id: m], question: "q", filter: .none,
+                                               tokenBudget: 6_000, calendar: ams).first?.dateLabel, "2026-11-04")
+        XCTAssertEqual(AskPrompt.selectSources(chunk, meetings: [m.id: m], question: "q", filter: .none,
+                                               tokenBudget: 6_000, calendar: utc).first?.dateLabel, "2026-11-03")
+        let filter = AskFilter(from: m.date, to: nil, participant: nil, tag: nil)
+        XCTAssertTrue(AskPrompt.render(question: "q", filter: filter, sources: [], calendar: ams)
+            .contains("Date range: from 2026-11-04"))
     }
 
     func testDateLabelUsesCalendarTimeZone() {
