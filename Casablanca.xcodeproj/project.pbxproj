@@ -221,6 +221,8 @@
 		SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0110 /* SpeakerTranscriptBuilder.swift */; };
 		SPKA0011 /* SpeakerAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0111 /* SpeakerAnalysis.swift */; };
 		SPKA0012 /* WhisperTextCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0112 /* WhisperTextCleaner.swift */; };
+		SPKA0013 /* WhisperPromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0113 /* WhisperPromptBuilder.swift */; };
+		SPKA0014 /* WhisperModelDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0114 /* WhisperModelDefaults.swift */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
 		A10617 /* PCMTrackWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* PCMTrackWriter.swift */; };
@@ -235,6 +237,8 @@
 		SPKA0005 /* TrackEnergyEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0105 /* TrackEnergyEnvelopeTests.swift */; };
 		SPKA0006 /* SpeakerAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0106 /* SpeakerAttributionTests.swift */; };
 		SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0107 /* SpeakerTranscriptBuilderTests.swift */; };
+		SPKA0015 /* WhisperPromptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0115 /* WhisperPromptBuilderTests.swift */; };
+		SPKA0016 /* WhisperModelDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0116 /* WhisperModelDefaultsTests.swift */; };
 		A10701 /* RecordingMixdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* RecordingMixdownTests.swift */; };
 		A10702 /* AudioInputDeviceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* AudioInputDeviceProviderTests.swift */; };
 		A10703 /* PCMTrackWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* PCMTrackWriterTests.swift */; };
@@ -545,6 +549,8 @@
 		SPKA0110 /* SpeakerTranscriptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilder.swift; sourceTree = "<group>"; };
 		SPKA0111 /* SpeakerAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAnalysis.swift; sourceTree = "<group>"; };
 		SPKA0112 /* WhisperTextCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTextCleaner.swift; sourceTree = "<group>"; };
+		SPKA0113 /* WhisperPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperPromptBuilder.swift; sourceTree = "<group>"; };
+		SPKA0114 /* WhisperModelDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelDefaults.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -559,6 +565,8 @@
 		SPKA0105 /* TrackEnergyEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackEnergyEnvelopeTests.swift; sourceTree = "<group>"; };
 		SPKA0106 /* SpeakerAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAttributionTests.swift; sourceTree = "<group>"; };
 		SPKA0107 /* SpeakerTranscriptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilderTests.swift; sourceTree = "<group>"; };
+		SPKA0115 /* WhisperPromptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperPromptBuilderTests.swift; sourceTree = "<group>"; };
+		SPKA0116 /* WhisperModelDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelDefaultsTests.swift; sourceTree = "<group>"; };
 		B10701 /* RecordingMixdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingMixdownTests.swift; sourceTree = "<group>"; };
 		B10702 /* AudioInputDeviceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceProviderTests.swift; sourceTree = "<group>"; };
 		B10703 /* PCMTrackWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriterTests.swift; sourceTree = "<group>"; };
@@ -677,6 +685,8 @@
 				8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */,
 				3F3C096FEF404ECA189CEEDA /* SilentChunkFilter.swift */,
 				SPKA0112 /* WhisperTextCleaner.swift */,
+				SPKA0113 /* WhisperPromptBuilder.swift */,
+				SPKA0114 /* WhisperModelDefaults.swift */,
 			);
 			name = Transcription;
 			path = Transcription;
@@ -986,6 +996,8 @@
 				SPKA0105 /* TrackEnergyEnvelopeTests.swift */,
 				SPKA0106 /* SpeakerAttributionTests.swift */,
 				SPKA0107 /* SpeakerTranscriptBuilderTests.swift */,
+				SPKA0115 /* WhisperPromptBuilderTests.swift */,
+				SPKA0116 /* WhisperModelDefaultsTests.swift */,
 				B10701 /* RecordingMixdownTests.swift */,
 				B10702 /* AudioInputDeviceProviderTests.swift */,
 				B10703 /* PCMTrackWriterTests.swift */,
@@ -1307,6 +1319,8 @@
 				SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */,
 				SPKA0011 /* SpeakerAnalysis.swift in Sources */,
 				SPKA0012 /* WhisperTextCleaner.swift in Sources */,
+				SPKA0013 /* WhisperPromptBuilder.swift in Sources */,
+				SPKA0014 /* WhisperModelDefaults.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
 				A10617 /* PCMTrackWriter.swift in Sources */,
@@ -1475,6 +1489,8 @@
 				SPKA0005 /* TrackEnergyEnvelopeTests.swift in Sources */,
 				SPKA0006 /* SpeakerAttributionTests.swift in Sources */,
 				SPKA0007 /* SpeakerTranscriptBuilderTests.swift in Sources */,
+				SPKA0015 /* WhisperPromptBuilderTests.swift in Sources */,
+				SPKA0016 /* WhisperModelDefaultsTests.swift in Sources */,
 				A10701 /* RecordingMixdownTests.swift in Sources */,
 				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10703 /* PCMTrackWriterTests.swift in Sources */,

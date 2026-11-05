@@ -104,6 +104,10 @@ final class TranscriptionService {
     /// Where the last finished run's time went. Logged as one line when the run
     /// ends; kept so anything that later wants to show or compare runs can.
     private(set) var lastTimingReport: TranscriptionTimingReport?
+    /// The decoding options the last run actually used, prompt tokens
+    /// included — the benchmark records this instead of re-resolving, which
+    /// could not know the prompt-token count.
+    private(set) var lastResolvedSummaryLine: String?
 
     /// The meeting whose post-recording pipeline is running (nil when idle).
     /// Unlike `isTranscribing` this stays set for the whole pipeline — including
@@ -134,6 +138,9 @@ final class TranscriptionService {
         WhisperModelOption(id: "openai_whisper-small", name: "Small"),
         WhisperModelOption(id: "openai_whisper-medium", name: "Medium"),
         WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3"),
+        // Same encoder as large-v3 with a 4-layer distilled decoder; the
+        // 2024-09-30 build is the one WhisperKit `d447d308` lists as supported.
+        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo", name: "Large v3 Turbo"),
     ]
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
@@ -493,13 +500,37 @@ final class TranscriptionService {
 
         await updateStatus("Preparing local Whisper model...", progress: 0.05)
 
-        let resolved = TranscriptionOptionsBuilder.resolve(
+        let baseResolved = TranscriptionOptionsBuilder.resolve(
             language: Self.whisperLanguageCode(for: localeIdentifier)
         )
 
         let modelLoadStart = ContinuousClock.now
-        let whisperKit = try await loadWhisperKit(compute: resolved.compute)
+        let whisperKit = try await loadWhisperKit(compute: baseResolved.compute)
         let modelLoadWall = ContinuousClock.now - modelLoadStart
+
+        // Terminology as Whisper prompt tokens. Needs the loaded tokenizer, so
+        // it is attached after the load; the pipeline cache key does not
+        // depend on it. `promptTerms` stays empty unless a prompt was actually
+        // sent, so the echo filter below only ever runs on prompted output.
+        var resolved = baseResolved
+        var promptTerms: [String] = []
+        if baseResolved.promptTermsEnabled {
+            let terms = WhisperPromptBuilder.terms(
+                enabled: UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
+                raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+            )
+            if !terms.isEmpty {
+                let tokens = WhisperPromptBuilder.tokens(
+                    for: terms,
+                    encode: { whisperKit.tokenizer?.encode(text: $0) ?? [] },
+                    specialTokenBegin: whisperKit.tokenizer?.specialTokens.specialTokenBegin ?? Int.max
+                )
+                resolved = baseResolved.withPromptTokens(tokens)
+                if !tokens.isEmpty { promptTerms = terms }
+            }
+        }
+        let echoTerms = promptTerms
+        lastResolvedSummaryLine = resolved.summaryLine
 
         // With `chunking=none` WhisperKit seeks through the whole file, so
         // `SegmentSeeker` reports times that are already absolute.
@@ -519,6 +550,7 @@ final class TranscriptionService {
                 // live list restarts at [00:00] for every chunk.
                 let reportMinStart = segments.map { TimeInterval($0.start) }.min() ?? 0
                 let mappedSegments = segments
+                    .filter { !WhisperPromptBuilder.isPromptEcho($0.text, terms: echoTerms) }
                     .compactMap { segment -> TranscriptSegment? in
                         let times = TranscriptSegmentMerger.absoluteLiveTimes(
                             seek: chunkKey,
@@ -552,7 +584,10 @@ final class TranscriptionService {
 
         try Task.checkCancellation()
 
+        // Whisper's prompt hallucination: on a window with no speech it can
+        // emit the prompt itself. Those segments are not speech; drop them.
         let segments = run.segments
+            .filter { !WhisperPromptBuilder.isPromptEcho(Self.cleanWhisperText($0.text), terms: echoTerms) }
             .compactMap { segment in
                 // Word timings are already on the absolute clock: WhisperKit's
                 // `updateSeekOffsetsForResults` shifts `segment.words` by the
@@ -569,7 +604,7 @@ final class TranscriptionService {
 
         let fullText = run.texts
             .map(Self.cleanWhisperText)
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && !WhisperPromptBuilder.isPromptEcho($0, terms: echoTerms) }
             .joined(separator: "\n\n")
 
         let report = TranscriptionTimingReport(

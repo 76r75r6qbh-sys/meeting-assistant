@@ -293,6 +293,40 @@ final class TranscriptionOptionsBuilderTests: XCTestCase {
         XCTAssertTrue(TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).decoding.wordTimestamps)
     }
 
+    // MARK: - Prompt terms
+
+    func testPromptTermsKeyDefaultTrueAndOverridable() {
+        XCTAssertEqual(TranscriptionOptionsBuilder.Key.promptTerms, "whisperPromptTerms")
+
+        let byDefault = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertTrue(byDefault.promptTermsEnabled)
+        XCTAssertNil(byDefault.decoding.promptTokens)
+        XCTAssertTrue(byDefault.summaryLine.contains("promptTerms=true"), byDefault.summaryLine)
+        XCTAssertTrue(byDefault.summaryLine.contains("promptTokens=0"), byDefault.summaryLine)
+
+        defaults.set("NO", forKey: TranscriptionOptionsBuilder.Key.promptTerms)
+        let off = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        XCTAssertFalse(off.promptTermsEnabled)
+        XCTAssertTrue(off.summaryLine.contains("promptTerms=false"), off.summaryLine)
+
+        defaults.set(true, forKey: TranscriptionOptionsBuilder.Key.promptTerms)
+        XCTAssertTrue(TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults).promptTermsEnabled)
+    }
+
+    func testWithPromptTokensSetsDecodingAndSummary() {
+        let base = TranscriptionOptionsBuilder.resolve(language: "nl", defaults: defaults)
+        let prompted = base.withPromptTokens([10, 20, 30])
+        XCTAssertEqual(prompted.decoding.promptTokens, [10, 20, 30])
+        XCTAssertTrue(prompted.summaryLine.contains("promptTokens=3"), prompted.summaryLine)
+        XCTAssertFalse(prompted.summaryLine.contains("promptTokens=0"), prompted.summaryLine)
+        XCTAssertNotEqual(base, prompted)
+
+        // An empty list means no prompt at all, not an empty one.
+        let empty = base.withPromptTokens([])
+        XCTAssertNil(empty.decoding.promptTokens)
+        XCTAssertEqual(empty, base)
+    }
+
     // MARK: - Summary line
 
     func testSummaryLineContainsEveryTunable() {

@@ -56,6 +56,7 @@ struct CasablancaApp: App {
         }
 
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
+        WhisperModelDefaults.pinIfNeeded(storeExists: FileManager.default.fileExists(atPath: PersistenceController.storeURL.path))
         do {
             let result = try PersistenceController.makeAppContainer()
             sharedModelContainer = result.container
