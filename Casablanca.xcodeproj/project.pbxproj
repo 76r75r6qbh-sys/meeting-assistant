@@ -30,6 +30,7 @@
 		2AB97E322FBF8F7E28C727FA /* AskTokenizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B7B2221C04FD81B59C7973 /* AskTokenizerTests.swift */; };
 		2C3D4E5F60718293A4B5C6D9 /* ProgressTrickleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3D4E5F60718293A4B5C6DA /* ProgressTrickleTests.swift */; };
 		2D0DAAC2CE1FED596BF02B11 /* ActionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25A8FB5E153EBF6D42BDFA9 /* ActionQueueView.swift */; };
+		2E3A4734EE01F724B28C0AD0 /* BM25IndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECECD7A30A1D849ED3B4A63D /* BM25IndexTests.swift */; };
 		2EDD410A983CECB18F3A7BF7 /* PartnerApiReplyBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245F47282B6B5D7D48D45E7E /* PartnerApiReplyBody.swift */; };
 		3127409D4B3D935ACE809817 /* WhisperModelRetentionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0714BB51165E07B6318DEB4 /* WhisperModelRetentionPolicy.swift */; };
 		3133A6AE85D46269AC79DD01 /* LegacyDraftEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46E1332211EA769F8620C51 /* LegacyDraftEditor.swift */; };
@@ -290,6 +291,7 @@
 		F79FE2DA02FA962C69465CB7 /* ActionItemOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7117780ABC6D284B7D09E9FD /* ActionItemOwnership.swift */; };
 		F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B0D0FA4A2AC4AD71FB6344 /* TeamsAutoRecordCoordinator.swift */; };
 		FC8C73351180353C5404A142 /* JiraMarkupText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C28106F02FDEE32B3DEF38 /* JiraMarkupText.swift */; };
+		FECF07D7AA365B31354D6468 /* BM25Index.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10867AF7D3054FEB207B4B61 /* BM25Index.swift */; };
 		SPKT0001 /* SpeakerTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0101 /* SpeakerTranscript.swift */; };
 		SPKT0002 /* ExtractedActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0102 /* ExtractedActionItem.swift */; };
 		SPKT0003 /* TranscriptLineFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0103 /* TranscriptLineFormat.swift */; };
@@ -321,6 +323,7 @@
 		0BF127BCDC48F6704366EE77 /* SafeToQuitProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafeToQuitProbe.swift; sourceTree = "<group>"; };
 		0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/JiraLinkTests.swift; sourceTree = SOURCE_ROOT; };
 		0E2C0929459E2C9A521A42C2 /* TicketDraftCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/TicketDraftCard.swift; sourceTree = SOURCE_ROOT; };
+		10867AF7D3054FEB207B4B61 /* BM25Index.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/BM25Index.swift; sourceTree = SOURCE_ROOT; };
 		108FBBE803A2166EC0F75BB4 /* build-fixtures.sh */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.script.sh; path = "build-fixtures.sh"; sourceTree = "<group>"; };
 		13AFDDCB4971B8DBB1498E89 /* MicrophoneCaptureUnitTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/MicrophoneCaptureUnitTests.swift; sourceTree = SOURCE_ROOT; };
 		14B7B2221C04FD81B59C7973 /* AskTokenizerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AskTokenizerTests.swift; sourceTree = SOURCE_ROOT; };
@@ -589,6 +592,7 @@
 		E2070196BC4ABF8540E9793B /* ReleaseInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReleaseInfo.swift; sourceTree = "<group>"; };
 		E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Casablanca/Services/MeetingPrepService+Save.swift"; sourceTree = SOURCE_ROOT; };
 		E98B9080F7BB0E7584B66D54 /* ApplicationsLocationCheckTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApplicationsLocationCheckTests.swift; sourceTree = "<group>"; };
+		ECECD7A30A1D849ED3B4A63D /* BM25IndexTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/BM25IndexTests.swift; sourceTree = SOURCE_ROOT; };
 		ECFB9E0475AB6C7E5C1DDB8A /* AppLifecycleOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AppLifecycleOwnershipTests.swift; sourceTree = SOURCE_ROOT; };
 		F2CDA02D599E4AAF8158C692 /* JiraMarkupTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/JiraMarkupTests.swift; sourceTree = SOURCE_ROOT; };
 		F46E1332211EA769F8620C51 /* LegacyDraftEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Views/ActionCards/LegacyDraftEditor.swift; sourceTree = SOURCE_ROOT; };
@@ -841,6 +845,7 @@
 				56AB2FCC508033335CEBE22B /* EvaluationExport.swift */,
 				6B51A5FEE84D7AA0E45C3B65 /* AskTokenizer.swift */,
 				0043D9098C1CBAB1B1678EDB /* AskCorpus.swift */,
+				10867AF7D3054FEB207B4B61 /* BM25Index.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1038,6 +1043,7 @@
 				B940D0BE5A9D59725CB6D5E5 /* EvaluationExportTests.swift */,
 				14B7B2221C04FD81B59C7973 /* AskTokenizerTests.swift */,
 				536FA138501F184E5CF9B2AA /* AskCorpusTests.swift */,
+				ECECD7A30A1D849ED3B4A63D /* BM25IndexTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1413,6 +1419,7 @@
 				4FB83CD1484DC76FD2C04AF0 /* EvaluationExportCommands.swift in Sources */,
 				4D01944C56893B068F76C3F4 /* AskTokenizer.swift in Sources */,
 				1F967E05ED06028C68BB76AB /* AskCorpus.swift in Sources */,
+				FECF07D7AA365B31354D6468 /* BM25Index.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1528,6 +1535,7 @@
 				BF304055668949CD840ECD06 /* EvaluationExportTests.swift in Sources */,
 				2AB97E322FBF8F7E28C727FA /* AskTokenizerTests.swift in Sources */,
 				E089A42E8333E50171E0249F /* AskCorpusTests.swift in Sources */,
+				2E3A4734EE01F724B28C0AD0 /* BM25IndexTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
