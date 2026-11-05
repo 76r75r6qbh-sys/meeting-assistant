@@ -207,6 +207,7 @@ struct CasablancaApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }
+            EvaluationExportCommands(viewModel: appModel.meetingListViewModel, toastCenter: appModel.toastCenter)
         }
 
         MenuBarExtra {

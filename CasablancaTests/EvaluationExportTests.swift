@@ -276,4 +276,23 @@ final class EvaluationExportTests: XCTestCase {
         XCTAssertFalse(name.contains("/"), name)
         XCTAssertFalse(name.contains(":"), name)
     }
+
+    // MARK: - Menu enablement
+
+    func testCanExportRequiresTranscriptOrSummary() {
+        XCTAssertFalse(EvaluationExport.canExport(nil))
+        XCTAssertFalse(EvaluationExport.canExport(bareMeeting()))
+
+        let withTranscript = bareMeeting()
+        withTranscript.transcript = "[00:01] a"
+        XCTAssertTrue(EvaluationExport.canExport(withTranscript))
+
+        let summaryOnly = bareMeeting()
+        summaryOnly.summary = "## Summary\nShort."
+        XCTAssertTrue(EvaluationExport.canExport(summaryOnly))
+
+        let whitespaceTranscript = bareMeeting()
+        whitespaceTranscript.transcript = "  \n\t "
+        XCTAssertFalse(EvaluationExport.canExport(whitespaceTranscript))
+    }
 }
