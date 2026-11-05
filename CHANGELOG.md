@@ -2,6 +2,22 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] — 2026-11-05
+
+Long meetings are now summarized in full. Until now every transcript was cut to about 24,000 characters before summarizing, so a 2.5-hour meeting lost about 84 % of its content (only the start and end were used).
+
+### Fixed
+
+- **Long transcripts are no longer cut before summarizing.** With Claude Code, the whole transcript goes to the model in one call (up to about 300,000 characters). With a local model (Ollama, oMLX), a meeting that doesn't fit is summarized in parts: each part is condensed into short notes with timestamps (topics, decisions, action items, open questions), and your own summary template then runs over those notes. The summary format, to-dos and export are unchanged.
+- **Ollama no longer drops the start of long prompts.** Casablanca now tells Ollama how much context each request needs (16k–32k tokens) instead of relying on Ollama's small default.
+- **Terminology correction no longer risks saving a transcript with its start missing.** For transcripts over about 47,000 characters, the model-based correction step is skipped with a warning; the dictionary replacements still apply.
+- **Chat about a meeting** uses the whole transcript with Claude Code, instead of the same short limit as local models.
+
+### Changed
+
+- While a long meeting is summarized in parts, the status shows the progress ("Summarizing part 3 of 13 with Ollama…", "Combining notes…"). A part that fails is retried, and a retry reuses parts that already succeeded.
+- When part notes hit the model's output limit, the summary says so ("Notes for some parts hit the output limit; the summary may miss details from them.").
+
 ## [0.19.0] — 2026-10-22
 
 Records Teams calls by itself, opens a meeting's prep next to the notes, and stops filling your to-do list with other people's action items. Also a broad code review: fixes for lost audio, lost Obsidian content and a crash when narrowing the window.

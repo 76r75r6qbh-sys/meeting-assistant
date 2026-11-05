@@ -59,6 +59,12 @@ struct ClaudeCLIProvider: LLMProvider {
     /// rather than spend a generation on a result that cannot arrive in time.
     var supportsFullTranscriptEcho: Bool { false }
 
+    /// The CLI's models have a 200k+ token context, so a whole multi-hour
+    /// transcript fits in one prompt. Half that leaves room for the answer and
+    /// absorbs the ~30 % by which `budgetTokens` can undercount real tokens for
+    /// Dutch text with timestamps.
+    var promptTokenBudget: Int { 100_000 }
+
     /// The models we offer. The CLI has no model-list command, and these three
     /// aliases always resolve to the current generation, so hardcoding them beats
     /// pinning version strings that go stale. Ascending order, per the protocol.

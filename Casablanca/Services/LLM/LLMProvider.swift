@@ -88,6 +88,13 @@ protocol LLMProvider {
     /// as in terminology correction, not asked at all.
     var supportsFullTranscriptEcho: Bool { get }
 
+    /// How many tokens of *input* a single prompt to this provider may carry,
+    /// leaving room for the model's output. Callers size transcripts against it
+    /// (estimating with `LLMPromptSupport.budgetTokens`), so a large-context
+    /// provider gets the whole transcript while a local model's window is never
+    /// overrun.
+    var promptTokenBudget: Int { get }
+
     /// Generate a single response for the given prompt.
     /// - Parameters:
     ///   - prompt: The full prompt text.
@@ -114,6 +121,8 @@ extension LLMProvider {
     var preferredTimeout: TimeInterval? { nil }
 
     var supportsFullTranscriptEcho: Bool { true }
+
+    var promptTokenBudget: Int { LLMPromptSupport.localPromptTokenBudget }
 
     /// The timeout to hand `generate`: the provider's own preference when it has
     /// one, otherwise `fallback` — the number the call site chose for a local model.

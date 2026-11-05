@@ -47,7 +47,43 @@ final class OllamaProviderTests: XCTestCase {
         XCTAssertEqual(json["model"] as? String, "llama3.2")
         XCTAssertEqual(json["prompt"] as? String, "hello")
         XCTAssertEqual(json["stream"] as? Bool, false)
-        XCTAssertNil(json["options"])
+        // Options are always sent now (for `num_ctx`), but an unset temperature
+        // and output cap are still left to the model's defaults.
+        let options = try XCTUnwrap(json["options"] as? [String: Any])
+        XCTAssertNil(options["temperature"])
+        XCTAssertNil(options["num_predict"])
+        XCTAssertEqual(options["num_ctx"] as? Int, LLMPromptSupport.ollamaMinContextTokens)
+    }
+
+    /// Without `num_ctx` Ollama runs at its server default (2k–4k) and silently
+    /// drops the head of any longer prompt — so it goes on every request.
+    func testGenerateBodyAlwaysSendsNumCtxSizedToThePrompt() async throws {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.encode(["response": "ok"])) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        // A terminology-echo-sized prompt: uncapped output, so the context grows.
+        let prompt = String(repeating: "a", count: 30_000)
+        _ = try await provider.generate(prompt: prompt, temperature: 0, maxTokens: nil, timeout: 10, truncated: nil)
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let options = try XCTUnwrap(json["options"] as? [String: Any])
+        XCTAssertEqual(
+            options["num_ctx"] as? Int,
+            LLMPromptSupport.ollamaContextTokens(promptChars: 30_000, maxTokens: nil)
+        )
+        XCTAssertEqual(options["num_ctx"] as? Int, 24_576)
+        XCTAssertNil(options["num_predict"])
+    }
+
+    func testGenerateBodySendsNumPredictAlongsideNumCtxWhenCapped() async throws {
+        MockURLProtocol.requestHandler = { _ in (Self.okResponse(), Self.encode(["response": "ok"])) }
+        let provider = OllamaProvider(endpoint: "http://x", model: "m", urlSession: MockURLProtocol.makeSession())
+        _ = try await provider.generate(prompt: "p", temperature: nil, maxTokens: 3500, timeout: 10, truncated: nil)
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let options = try XCTUnwrap(json["options"] as? [String: Any])
+        XCTAssertEqual(options["num_predict"] as? Int, 3500)
+        XCTAssertEqual(options["num_ctx"] as? Int, 16_384)
+        XCTAssertNil(options["temperature"])
     }
 
     func testGenerateBodyIncludesTemperatureWhenSet() async throws {

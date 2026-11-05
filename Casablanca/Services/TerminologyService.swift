@@ -30,6 +30,30 @@ final class TerminologyService {
         "Terminology correction applied deterministic replacements only. The \(providerName) pass is skipped: it would send the whole transcript and wait for the full text back, which does not finish in time."
     }
 
+    /// Shown when the transcript is too long for the provider pass: the echo
+    /// (prompt plus an equally long answer) would not fit the largest context we
+    /// run a local model at, and the model would silently lose the start of the
+    /// meeting. Same shape as `providerPassSkippedWarning` — it says what still ran.
+    nonisolated static func providerPassTooLongWarning(providerName: String) -> String {
+        "Terminology correction applied deterministic replacements only. The \(providerName) pass is skipped: this transcript is too long for the model to echo back in full without losing its beginning."
+    }
+
+    /// Whether the provider pass's full `prompt` plus an echo of the same size
+    /// (plus slack) fits `LLMPromptSupport.ollamaMaxContextTokens` — the same
+    /// arithmetic `ollamaContextTokens` uses for an uncapped call. Beyond that
+    /// Ollama runs at the capped context and drops the head of the prompt, and
+    /// `looksLikeMangledOutput` (> 50 % loss) would not catch an echo that is
+    /// only missing the first part of the meeting.
+    ///
+    /// Applied to every echo-capable provider, not only Ollama: oMLX has no
+    /// per-call context option (its window is set server-side and is no larger
+    /// for the local models this app targets), and an echo this long cannot
+    /// finish inside `maxTimeout` on a local model anyway.
+    nonisolated static func providerPassFitsContext(prompt: String) -> Bool {
+        LLMPromptSupport.budgetTokens(prompt) * 2 + LLMPromptSupport.contextSlackTokens
+            <= LLMPromptSupport.ollamaMaxContextTokens
+    }
+
     /// Corrects `rawTranscript` against `entries`. Never throws — on any failure,
     /// returns the dictionary-replaced text and surfaces a `warningMessage`.
     /// `entries` is captured by value: edits to the underlying preference made
@@ -57,11 +81,19 @@ final class TerminologyService {
             return dictionaryReplaced
         }
 
+        let prompt = Self.providerPassPrompt(transcript: dictionaryReplaced, entries: entries)
+        guard Self.providerPassFitsContext(prompt: prompt) else {
+            warningMessage = Self.providerPassTooLongWarning(providerName: provider.displayName)
+            return dictionaryReplaced
+        }
+
         do {
-            let corrected = try await runProviderPass(
-                provider: provider,
-                transcript: dictionaryReplaced,
-                entries: entries
+            let corrected = try await provider.generate(
+                prompt: prompt,
+                temperature: 0,
+                maxTokens: nil,
+                timeout: Self.estimatedTimeout(forTranscriptLength: dictionaryReplaced.count),
+                truncated: nil
             )
             if Self.looksLikeMangledOutput(input: dictionaryReplaced, output: corrected) {
                 warningMessage = "Terminology correction produced unexpected output and was discarded; transcript reflects only deterministic replacements."
@@ -109,16 +141,13 @@ final class TerminologyService {
         return min(max(estimated, minTimeout), maxTimeout)
     }
 
-    private func runProviderPass(
-        provider: LLMProvider,
-        transcript: String,
-        entries: [TerminologyEntry]
-    ) async throws -> String {
-        let prompt = """
+    /// The full prompt the provider pass sends: instructions, terms, transcript.
+    nonisolated static func providerPassPrompt(transcript: String, entries: [TerminologyEntry]) -> String {
+        """
         You are correcting domain-specific terminology in a meeting transcript.
 
         The following terms must appear with their exact spelling:
-        \(Self.formattedForPrompt(entries))
+        \(formattedForPrompt(entries))
 
         Rules:
         - Fix only misspellings or phonetic mistranscriptions of the terms above.
@@ -129,14 +158,6 @@ final class TerminologyService {
         Transcript:
         \(transcript)
         """
-
-        return try await provider.generate(
-            prompt: prompt,
-            temperature: 0,
-            maxTokens: nil,
-            timeout: Self.estimatedTimeout(forTranscriptLength: transcript.count),
-            truncated: nil
-        )
     }
 
     // `parse` is called on every transcription AND on every summarize() call

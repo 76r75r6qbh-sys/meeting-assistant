@@ -21,13 +21,17 @@ struct OllamaProvider: LLMProvider {
         let stream: Bool
         /// Ollama's native thinking switch (ignored by non-reasoning models).
         let think: Bool?
-        let options: Options?
+        let options: Options
         struct Options: Encodable {
             let temperature: Double?
             let numPredict: Int?
+            /// Context window for this call. Always sent: Ollama's server default
+            /// (2k–4k) silently drops the head of any longer prompt.
+            let numCtx: Int
             enum CodingKeys: String, CodingKey {
                 case temperature
                 case numPredict = "num_predict"
+                case numCtx = "num_ctx"
             }
         }
     }
@@ -70,9 +74,11 @@ struct OllamaProvider: LLMProvider {
                 prompt: prompt,
                 stream: false,
                 think: enableThinking ? nil : false,
-                options: (temperature == nil && maxTokens == nil)
-                    ? nil
-                    : GenerateRequest.Options(temperature: temperature, numPredict: maxTokens)
+                options: GenerateRequest.Options(
+                    temperature: temperature,
+                    numPredict: maxTokens,
+                    numCtx: LLMPromptSupport.ollamaContextTokens(promptChars: prompt.count, maxTokens: maxTokens)
+                )
             )
         )
 

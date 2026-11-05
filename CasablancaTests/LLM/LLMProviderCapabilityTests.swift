@@ -64,6 +64,22 @@ final class LLMProviderCapabilityTests: XCTestCase {
         XCTAssertFalse(makeClaude().supportsFullTranscriptEcho)
     }
 
+    // MARK: - promptTokenBudget
+
+    /// The local providers keep the 6,000-token input budget their ~8k context
+    /// windows were sized for.
+    func testLocalProvidersKeepTheLocalPromptBudget() {
+        XCTAssertEqual(makeOllama().promptTokenBudget, 6_000)
+        XCTAssertEqual(makeOMLX().promptTokenBudget, 6_000)
+        XCTAssertEqual(LLMPromptSupport.localPromptTokenBudget, 6_000)
+    }
+
+    /// Claude Code's context holds a multi-hour transcript whole; holding it to a
+    /// local model's budget is what dropped ~84 % of a 2.5-hour meeting.
+    func testClaudeCodeTakesALargePromptBudget() {
+        XCTAssertEqual(makeClaude().promptTokenBudget, 100_000)
+    }
+
     /// No provider may *shorten* what the call site asked for. The call sites' own
     /// numbers were sized for the fastest case — a model already resident on this Mac
     /// — so a preference below one of them could only ever cut off work that was

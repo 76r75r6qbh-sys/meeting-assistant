@@ -83,6 +83,13 @@ struct MeetingPipelinePresentation {
     /// can show "Retrying (2/3)…" without re-reading the service.
     let retryAttempt: (attempt: Int, maxAttempts: Int)?
 
+    /// The live summarization phase for this meeting (nil when another meeting
+    /// is being summarized), so a multi-part run can show its progress.
+    private let summarizationPhase: SummarizationService.SummarizationPhase?
+
+    /// The summarizing provider's name for the "with <provider>" progress line.
+    private let summarizationProviderName: String
+
     init(
         // Transcription
         isThisMeetingTranscribing: Bool,
@@ -93,6 +100,7 @@ struct MeetingPipelinePresentation {
         summarizationStartedAt: Date?,
         summarizationError: String?,
         summarizationWarning: String? = nil,
+        summarizationProviderName: String = "the model",
         // Export
         autoExportFailure: AutoExportFailure?,
         // Meeting state
@@ -106,6 +114,8 @@ struct MeetingPipelinePresentation {
         self.autoSummarize = autoSummarize
         self.autoExport = autoExport
         self.isSummarizingThisMeeting = isSummarizingThisMeeting
+        self.summarizationPhase = isSummarizingThisMeeting ? summarizationPhase : nil
+        self.summarizationProviderName = summarizationProviderName
 
         if case .retrying(let attempt, let maxAttempts) = summarizationPhase, isSummarizingThisMeeting {
             self.retryAttempt = (attempt, maxAttempts)
@@ -270,7 +280,17 @@ struct MeetingPipelinePresentation {
             if let retry = retryAttempt {
                 return "Retrying (\(retry.attempt)/\(retry.maxAttempts))…"
             }
-            return "Generating summary…"
+            // Multi-part runs take minutes; the same lines as the summary tab.
+            switch summarizationPhase {
+            case .condensing(let part, let total):
+                return SummarizationService.condensingStatus(
+                    part: part, of: total, provider: summarizationProviderName
+                )
+            case .merging(let level):
+                return SummarizationService.mergingStatus(level: level)
+            default:
+                return "Generating summary…"
+            }
         case .exporting:
             return "Exporting…"
         case .failed(let failedStage, let message):
