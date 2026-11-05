@@ -15,7 +15,7 @@ enum SummaryResponseParser {
 
     /// Canonical field → set of accepted header titles (case-insensitive, whitespace-trimmed,
     /// trailing `:` stripped, typographic apostrophe U+2019 treated equal to ASCII `'`).
-    private static let sectionAliases: [String: [String]] = [
+    static let sectionAliases: [String: [String]] = [
         "decisions": ["Decisions", "Besluiten"],
         "todoTexts": ["Action Items", "Actiepunten", "Actielijst"],
         "risks":     ["Risks and Blockers", "Risks", "Risico\u{2019}s en blockers", "Risico\u{2019}s"],
@@ -25,7 +25,7 @@ enum SummaryResponseParser {
     /// Normalizes a section title for alias comparison:
     /// lowercased, whitespace-trimmed, trailing `:` stripped,
     /// typographic apostrophe (U+2019) replaced with ASCII `'`.
-    private static func normalizeTitle(_ title: String) -> String {
+    static func normalizeTitle(_ title: String) -> String {
         var s = title.trimmingCharacters(in: .whitespaces)
         if s.hasSuffix(":") { s = String(s.dropLast()) }
         s = s.replacingOccurrences(of: "\u{2019}", with: "'")

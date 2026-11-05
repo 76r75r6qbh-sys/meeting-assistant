@@ -406,14 +406,16 @@ final class SummarizationService {
             // The stored summary never shows the JSON block.
             let split = SummaryFactsParser.splitSinglePass(stripped)
             parsed = SummaryResponseParser.parse(split.markdown)
-            (facts, factsSource) = try await singlePassFacts(
+            let resolved = try await singlePassFacts(
                 jsonText: split.jsonText,
                 markdown: split.markdown,
                 parsed: parsed,
                 context: context,
                 provider: provider
             )
-            if factsSource == .markdownFallback {
+            facts = resolved.facts
+            factsSource = resolved.source
+            if resolved.warns {
                 warnings.append(Self.factsFallbackWarning)
             }
         } else {
@@ -430,11 +432,21 @@ final class SummarizationService {
 
     // MARK: - Facts (JSON block, repair, markdown fallback)
 
-    /// Facts of a single pass: the block as-is when it decodes; otherwise one
-    /// repair call (invalid block, sent its raw text) or one rebuild call (no
-    /// block, sent the closing sections). A repair that fails to decode, or
-    /// whose call fails, falls back to the markdown — as does one that has
-    /// fewer action items than the markdown, so to-dos never silently drop.
+    /// Facts of a single pass, where to-dos never silently drop below what the
+    /// markdown's Action Items section has:
+    /// - A block that decodes is used, unless it has fewer action items than
+    ///   the markdown; then the markdown's items replace its items.
+    /// - An invalid block gets one repair call with its raw text; no block gets
+    ///   one rebuild call from the closing sections — skipped when those hold
+    ///   no decisions and no action items (nothing to rebuild).
+    /// - A repair that fails to decode, or whose call fails, falls back to the
+    ///   markdown; a repair with fewer action items than the markdown takes the
+    ///   markdown's items, as above.
+    ///
+    /// `warns` is true for a fallback when facts were actually lost: the
+    /// markdown had items, or the model sent a block that could not be read.
+    /// "One repair call" is one `generateStep`: on transient failures the
+    /// retry policy can spend up to `maxAttempts` generations on it.
     /// Cancellation propagates.
     private func singlePassFacts(
         jsonText: String?,
@@ -442,11 +454,24 @@ final class SummarizationService {
         parsed: SummaryResponseParser.ParsedResponse,
         context: PromptContext,
         provider: LLMProvider
-    ) async throws -> (SummaryFacts, FactsSource) {
+    ) async throws -> (facts: SummaryFacts, source: FactsSource, warns: Bool) {
         let meetingDate = context.meeting.date
+        let markdownFacts = SummaryFacts.fromMarkdown(parsed)
+        let markdownHasItems = !markdownFacts.actionItems.isEmpty || !markdownFacts.decisions.isEmpty
+
+        /// `facts` as `source`, unless they have fewer action items than the
+        /// markdown: then the markdown's items, as a warned fallback.
+        func guarded(_ facts: SummaryFacts, _ source: FactsSource) -> (SummaryFacts, FactsSource, Bool) {
+            guard facts.actionItems.count < markdownFacts.actionItems.count else { return (facts, source, false) }
+            var kept = facts
+            kept.actionItems = markdownFacts.actionItems
+            return (kept, .markdownFallback, true)
+        }
+        let fallback = (markdownFacts, FactsSource.markdownFallback, markdownHasItems || jsonText != nil)
+
         if let jsonText,
            case .success(let facts) = SummaryFactsParser.decodeFacts(jsonText, meetingDate: meetingDate, calendar: context.calendar) {
-            return (facts, .singlePassJSON)
+            return guarded(facts, .singlePassJSON)
         }
 
         let repairPrompt: String
@@ -455,6 +480,8 @@ final class SummarizationService {
             // be cut at an inner `}` and lose its last items.
             repairPrompt = SummaryFactsPrompt.repairPrompt(broken: jsonText)
         } else {
+            // Nothing to rebuild from: no call, and nothing was lost.
+            guard markdownHasItems else { return (markdownFacts, .markdownFallback, false) }
             repairPrompt = SummaryFactsPrompt.rebuildPrompt(
                 fromMarkdown: Self.closingSections(of: markdown),
                 meetingDate: meetingDate,
@@ -462,7 +489,6 @@ final class SummarizationService {
             )
         }
 
-        let markdownFacts = SummaryFacts.fromMarkdown(parsed)
         var repairWasTruncated = false
         let reply: String
         do {
@@ -476,29 +502,26 @@ final class SummarizationService {
         } catch {
             if error is CancellationError || Task.isCancelled { throw error }
             Log.summarization.warning("Repairing the facts JSON failed: \(error.localizedDescription)")
-            return (markdownFacts, .markdownFallback)
+            return fallback
         }
 
         guard let object = SummaryFactsParser.extractJSONObject(LLMPromptSupport.stripReasoningTags(reply)),
-              case .success(var repaired) = SummaryFactsParser.decodeFacts(object, meetingDate: meetingDate, calendar: context.calendar)
+              case .success(let repaired) = SummaryFactsParser.decodeFacts(object, meetingDate: meetingDate, calendar: context.calendar)
         else {
-            return (markdownFacts, .markdownFallback)
+            return fallback
         }
-        if repaired.actionItems.count < markdownFacts.actionItems.count {
-            repaired.actionItems = markdownFacts.actionItems
-            return (repaired, .markdownFallback)
-        }
-        return (repaired, .repairedJSON)
+        return guarded(repaired, .repairedJSON)
     }
 
-    /// Titles (normalized) of the closing sections a rebuild call gets.
-    private static let rebuildSectionTitles: Set<String> = [
-        "decisions", "besluiten", "action items", "actiepunten", "actielijst"
-    ]
-
-    /// The `## Decisions` and `## Action Items` sections (any accepted Dutch or
-    /// English heading) of `markdown`, headings included, in document order.
+    /// The `## Decisions` and `## Action Items` sections of `markdown`, under
+    /// any heading `SummaryResponseParser` accepts for them, headings included,
+    /// in document order.
     static func closingSections(of markdown: String) -> String {
+        let titles = Set(
+            ((SummaryResponseParser.sectionAliases["decisions"] ?? [])
+                + (SummaryResponseParser.sectionAliases["todoTexts"] ?? []))
+                .map(SummaryResponseParser.normalizeTitle)
+        )
         var sections: [String] = []
         var current: [String]?
         func flush() {
@@ -511,9 +534,7 @@ final class SummarizationService {
             if line.hasPrefix("## ") || line.hasPrefix("# ") {
                 flush()
                 guard line.hasPrefix("## ") else { continue }
-                var title = line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
-                if title.hasSuffix(":") { title.removeLast() }
-                if rebuildSectionTitles.contains(title) { current = [line] }
+                if titles.contains(SummaryResponseParser.normalizeTitle(String(line.dropFirst(3)))) { current = [line] }
             } else {
                 current?.append(line)
             }

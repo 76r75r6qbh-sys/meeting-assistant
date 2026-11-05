@@ -1167,6 +1167,82 @@ final class SummarizationServiceTests: XCTestCase {
         }
     }
 
+    /// Review ruling 1: "never fewer to-dos silently" holds for a valid block too.
+    func testAValidBlockWithFewerActionItemsThanTheMarkdownUsesTheMarkdownItems() async throws {
+        let markdown = notes(actionItems: ["**Kim** — Mail de offerte", "**Youri** — Plan de demo", "**?** — Boek een zaal"])
+        for speakers in [true, false] {
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: SummaryFixtures.kimActionJSON))])
+            let service = makeFactsService(stub)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 1, "a valid block needs no repair call")
+            XCTAssertEqual(outcome.factsSource, .markdownFallback)
+            XCTAssertEqual(outcome.facts.actionItems.map(\.task), ["Mail de offerte", "Plan de demo", "Boek een zaal"])
+            XCTAssertEqual(outcome.facts.topics, ["Offerte"], "the rest of the block's facts is kept")
+            XCTAssertEqual(service.warningMessage, SummarizationService.factsFallbackWarning)
+        }
+    }
+
+    /// Review 2/3: no block and nothing in the closing sections → no rebuild
+    /// call and no warning.
+    func testNoBlockAndEmptyClosingSectionsSkipsTheRebuildCall() async throws {
+        for speakers in [true, false] {
+            let stub = StubLLMProvider(outcomes: [.success(notes(actionItems: []))])
+            let service = makeFactsService(stub)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(outcome.factsSource, .markdownFallback)
+            XCTAssertEqual(outcome.facts, .empty)
+            XCTAssertNil(service.warningMessage)
+        }
+    }
+
+    /// Review 3: an unreadable block means facts were lost, so the warning
+    /// shows even when the markdown has no items.
+    func testAnUnreadableBlockWarnsEvenWhenTheMarkdownHasNoItems() async throws {
+        let stub = StubLLMProvider(outcomes: [
+            .success(SummaryFixtures.withFacts(notes(actionItems: []), json: "{oops")),
+            .success("still {bad")
+        ])
+        let service = makeFactsService(stub)
+
+        let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: true))
+
+        XCTAssertEqual(stub.calls.count, 2)
+        XCTAssertEqual(outcome.factsSource, .markdownFallback)
+        XCTAssertEqual(service.warningMessage, SummarizationService.factsFallbackWarning)
+    }
+
+    /// Review 5: a thinking model's reply keeps neither its reasoning nor the JSON.
+    func testAThinkingReplyStoresNeitherTheThinkBlockNorTheJSON() async throws {
+        for speakers in [true, false] {
+            let reply = "<think>Eerst de offerte, dan {\"x\": 1} checken.</think>\n"
+                + SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)
+            let stub = StubLLMProvider(outcomes: [.success(reply)])
+            let service = makeFactsService(stub, thinking: true)
+
+            let outcome = try await service.summarizeWithFacts(meeting: makeFactsMeeting(speakers: speakers))
+
+            XCTAssertEqual(stub.calls.count, 1)
+            XCTAssertEqual(outcome.parsed.rawMarkdown, kimNotes)
+            XCTAssertFalse(outcome.parsed.rawMarkdown.contains("<think>"))
+            XCTAssertFalse(outcome.parsed.rawMarkdown.contains("```"))
+            XCTAssertEqual(outcome.factsSource, .singlePassJSON)
+            XCTAssertEqual(outcome.facts.actionItems.map(\.owner), ["Kim"])
+        }
+    }
+
+    func testClosingSectionsUseTheParsersHeadingAliases() {
+        let markdown = "# Summary\nx\n\n## Decisions:\n- A\n\n## Risks\n- R\n\n## Actielijst\n- **Kim** — B\n\n## Follow-ups\n- F"
+        XCTAssertEqual(
+            SummarizationService.closingSections(of: markdown),
+            "## Decisions:\n- A\n\n## Actielijst\n- **Kim** — B"
+        )
+    }
+
     func testRepairingAndVerifyingStatusMessages() {
         XCTAssertEqual(SummarizationService.repairingStatus, "Repairing the structured notes…")
         XCTAssertEqual(SummarizationService.verifyingStatus, "Checking action items against the transcript…")
