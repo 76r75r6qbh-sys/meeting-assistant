@@ -7,8 +7,11 @@ import Foundation
 /// they are digits → drop nl/en stopwords. No stemming. Order and duplicates
 /// are preserved because BM25 needs term frequency.
 ///
-/// Folding is meant to match `normalize()` in `tools/eval/casaeval.py`
-/// (NFKD + drop combining marks + casefold) for Dutch/English text.
+/// Folding first applies NFKD (compatibility decomposition), so the Dutch
+/// ligature `ĳ`/`Ĳ` (U+0133/U+0132) becomes `ij` and ligatures such as `ﬁ`
+/// become plain letters, then folds diacritics, case and width. This mirrors
+/// `normalize()` in `tools/eval/casaeval.py` (NFKD + drop combining marks +
+/// casefold) for Dutch/English text.
 enum AskTokenizer {
 
     static func tokens(_ text: String) -> [String] {
@@ -30,7 +33,8 @@ enum AskTokenizer {
     }
 
     static func fold(_ text: String) -> String {
-        text.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: nil)
+        text.decomposedStringWithCompatibilityMapping
+            .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: nil)
     }
 
     static let stopwords: Set<String> = [

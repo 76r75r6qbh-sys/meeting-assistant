@@ -39,6 +39,10 @@ final class AskTokenizerTests: XCTestCase {
         XCTAssertEqual(AskTokenizer.tokens(""), [])
     }
 
+    func testFoldsIJLigature() {
+        XCTAssertEqual(AskTokenizer.tokens("Ĳsselmeer ĳs"), ["ijsselmeer", "ijs"])
+    }
+
     func testKeepsSingleDigitsDropsSingleLetters() {
         XCTAssertEqual(AskTokenizer.tokens("sprint 3 x"), ["sprint", "3"])
     }
@@ -47,5 +51,7 @@ final class AskTokenizerTests: XCTestCase {
         for word in AskTokenizer.stopwords {
             XCTAssertEqual(AskTokenizer.fold(word), word)
         }
+        // A diacritic variant of a listed stopword is dropped after folding.
+        XCTAssertEqual(AskTokenizer.tokens("dat is wél offerte"), ["offerte"])
     }
 }
