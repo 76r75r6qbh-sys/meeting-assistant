@@ -116,6 +116,7 @@
 		SPKB0007 /* SummaryFactsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0107 /* SummaryFactsParserTests.swift */; };
 		SPKB0008 /* RelativeDateResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0108 /* RelativeDateResolverTests.swift */; };
 		SPKB0009 /* FuzzyTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0109 /* FuzzyTextTests.swift */; };
+		SPKB0010 /* SummaryFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0110 /* SummaryFixtures.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -438,6 +439,7 @@
 		SPKB0107 /* SummaryFactsParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFactsParserTests.swift; sourceTree = "<group>"; };
 		SPKB0108 /* RelativeDateResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeDateResolverTests.swift; sourceTree = "<group>"; };
 		SPKB0109 /* FuzzyTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyTextTests.swift; sourceTree = "<group>"; };
+		SPKB0110 /* SummaryFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFixtures.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -645,6 +647,7 @@
 			children = (
 				22AEEB414DDE0F2F58F46BFF /* TestVaultGuard.swift */,
 				SPKB0103 /* StaticAttendeeProvider.swift */,
+				SPKB0110 /* SummaryFixtures.swift */,
 			);
 			name = Support;
 			path = Support;
@@ -1520,6 +1523,7 @@
 				770FFD61C8BBB9811AE30D2D /* RecordingResumeAndStopContractTests.swift in Sources */,
 				1C47F456B90C8AB6355330F3 /* TestVaultGuard.swift in Sources */,
 				SPKB0003 /* StaticAttendeeProvider.swift in Sources */,
+				SPKB0010 /* SummaryFixtures.swift in Sources */,
 				7B193F9CA7554D02B5773297 /* NoRealVaultWritesTests.swift in Sources */,
 				AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */,
 				20B2077035789E9F04F1CA25 /* WhisperModelRetentionPolicyTests.swift in Sources */,
