@@ -135,14 +135,6 @@ final class TranscriptionService {
         WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3"),
     ]
 
-    private static let whisperControlTokenRegex = try! NSRegularExpression(pattern: #"<\|[^|>]+?\|>"#)
-    /// Hoisted alongside the control-token pattern: `cleanWhisperText` runs once
-    /// per segment (thousands of times for a long meeting) and
-    /// `replacingOccurrences(options: .regularExpression)` recompiles the pattern
-    /// on every call.
-    private static let repeatedWhitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
-    private static let whitespaceBeforePunctuationRegex = try! NSRegularExpression(pattern: #"\s+([,.;:!?])"#)
-
     private var transcriptionTask: Task<TranscriptionResult, Error>?
     /// The service-owned task running `transcribeInBackground`. Deliberately not
     /// tied to any view's lifecycle: navigating away used to cancel the view's
@@ -803,29 +795,9 @@ final class TranscriptionService {
         return localeIdentifier.split(separator: "-").first.map(String.init) ?? "en"
     }
 
+    /// See `WhisperTextCleaner.clean`; shared with SpeakerAttribution.
     private static func cleanWhisperText(_ text: String) -> String {
-        let nsRange = NSRange(text.startIndex..., in: text)
-        let withoutControlTokens = whisperControlTokenRegex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: nsRange,
-            withTemplate: " "
-        )
-
-        let collapsedWhitespace = repeatedWhitespaceRegex.stringByReplacingMatches(
-            in: withoutControlTokens,
-            options: [],
-            range: NSRange(withoutControlTokens.startIndex..., in: withoutControlTokens),
-            withTemplate: " "
-        )
-        let withoutExtraWhitespace = whitespaceBeforePunctuationRegex.stringByReplacingMatches(
-            in: collapsedWhitespace,
-            options: [],
-            range: NSRange(collapsedWhitespace.startIndex..., in: collapsedWhitespace),
-            withTemplate: "$1"
-        )
-
-        return withoutExtraWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        WhisperTextCleaner.clean(text)
     }
 
     private static func makeTranscriptSegment(startTime: TimeInterval, endTime: TimeInterval, rawText: String) -> TranscriptSegment? {

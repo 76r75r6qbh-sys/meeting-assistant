@@ -150,6 +150,29 @@ final class SpeakerAttributionTests: XCTestCase {
         XCTAssertEqual(output.flatMap { $0.words ?? [] }, words, "All words survive, in order")
     }
 
+    /// Split text is built from words, so it must get the same cleaning as
+    /// Whisper's segment text: control tokens out, whitespace collapsed, no
+    /// space before punctuation, trimmed.
+    func testSplitSegmentTextIsCleanedLikeWhisperSegments() {
+        let mic = SyntheticSignal.gated(SyntheticSignal.noise(seed: 30, count: 48_000, amplitude: 0.3), keep: [(0, 1.5)])
+        let system = SyntheticSignal.gated(SyntheticSignal.noise(seed: 31, count: 48_000, amplitude: 0.3), keep: [(1.5, 3)])
+        let attribution = SpeakerAttribution(mic: envelope(mic), system: envelope(system))
+        let words = [
+            TranscriptWord(start: 0.0, end: 0.1, text: "<|en|>"),
+            TranscriptWord(start: 0.1, end: 0.7, text: " Hello  "),
+            TranscriptWord(start: 0.7, end: 1.5, text: " there ."),
+            TranscriptWord(start: 1.5, end: 2.2, text: "<|0.00|> How"),
+            TranscriptWord(start: 2.2, end: 2.9, text: "  are\tyou ?<|endoftext|>"),
+        ]
+
+        let output = attribution.attribute([segment(0, 3, "Hello there. How are you?", words: words)])
+
+        XCTAssertEqual(output.map(\.speakerID), ["me", "others"])
+        XCTAssertEqual(output.map(\.text), ["Hello there.", "How are you?"])
+        XCTAssertEqual(output.flatMap { $0.words ?? [] }, words, "Words themselves stay raw")
+        XCTAssertEqual(WhisperTextCleaner.clean("<|en|> Hello  there ,  world !"), "Hello there, world!")
+    }
+
     func testSegmentWithoutWordsUsesSegmentLevelAttribution() {
         let mic = SyntheticSignal.gated(SyntheticSignal.noise(seed: 13, count: 64_000, amplitude: 0.3), keep: [(0, 2)])
         let system = SyntheticSignal.gated(SyntheticSignal.noise(seed: 14, count: 64_000, amplitude: 0.3), keep: [(2, 4)])

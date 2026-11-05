@@ -220,6 +220,7 @@
 		SPKA0009 /* SpeakerAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0109 /* SpeakerAttribution.swift */; };
 		SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0110 /* SpeakerTranscriptBuilder.swift */; };
 		SPKA0011 /* SpeakerAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0111 /* SpeakerAnalysis.swift */; };
+		SPKA0012 /* WhisperTextCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0112 /* WhisperTextCleaner.swift */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
 		A10617 /* PCMTrackWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* PCMTrackWriter.swift */; };
@@ -543,6 +544,7 @@
 		SPKA0109 /* SpeakerAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAttribution.swift; sourceTree = "<group>"; };
 		SPKA0110 /* SpeakerTranscriptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerTranscriptBuilder.swift; sourceTree = "<group>"; };
 		SPKA0111 /* SpeakerAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerAnalysis.swift; sourceTree = "<group>"; };
+		SPKA0112 /* WhisperTextCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTextCleaner.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -674,6 +676,7 @@
 				B0714BB51165E07B6318DEB4 /* WhisperModelRetentionPolicy.swift */,
 				8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */,
 				3F3C096FEF404ECA189CEEDA /* SilentChunkFilter.swift */,
+				SPKA0112 /* WhisperTextCleaner.swift */,
 			);
 			name = Transcription;
 			path = Transcription;
@@ -1303,6 +1306,7 @@
 				SPKA0009 /* SpeakerAttribution.swift in Sources */,
 				SPKA0010 /* SpeakerTranscriptBuilder.swift in Sources */,
 				SPKA0011 /* SpeakerAnalysis.swift in Sources */,
+				SPKA0012 /* WhisperTextCleaner.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
 				A10617 /* PCMTrackWriter.swift in Sources */,

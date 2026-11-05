@@ -158,7 +158,9 @@ struct SpeakerAttribution: Sendable {
                 start: runWords[0].start,
                 end: runWords[runWords.count - 1].end,
                 speakerID: Self.speakerID(for: run.source),
-                text: runWords.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines),
+                // Same clean-up as Whisper's segment text (control tokens,
+                // whitespace, space before punctuation); the words stay raw.
+                text: WhisperTextCleaner.clean(runWords.map(\.text).joined()),
                 words: runWords
             )
         }

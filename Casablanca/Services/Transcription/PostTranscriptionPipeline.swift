@@ -1,6 +1,16 @@
 import Foundation
 import SwiftData
 
+/// What the terminology step needs to know beyond the text and the terms.
+struct TerminologyCorrectionContext: Equatable {
+    /// Speaker names whose line prefixes the correction must keep; empty for
+    /// an unlabelled transcript.
+    var knownSpeakers: Set<String> = []
+    /// The deterministic dictionary pass already ran (per segment, before the
+    /// render) and must not run again: it is not idempotent.
+    var dictionaryAlreadyApplied = false
+}
+
 /// Everything that has to happen after Whisper hands back a transcript, in the
 /// order it has to happen in:
 ///
@@ -31,9 +41,9 @@ struct PostTranscriptionPipeline {
     /// Speaker attribution for a finished transcription. Never throws: `nil`
     /// means "no labels", and the legacy transcript is stored.
     typealias SpeakerAnalyzer = @MainActor (Meeting, TranscriptionResult) async -> SpeakerAnalysisResult?
-    /// The transcript, its terms, and the speaker names whose line prefixes
-    /// the correction must keep (empty for an unlabelled transcript).
-    typealias TerminologyCorrector = @MainActor (String, [TerminologyEntry], Set<String>) async -> String
+    /// The transcript, its terms, and how to correct it (see
+    /// `TerminologyCorrectionContext`).
+    typealias TerminologyCorrector = @MainActor (String, [TerminologyEntry], TerminologyCorrectionContext) async -> String
     typealias TranscriptSaver = @MainActor (Meeting, TranscriptionResult) throws -> URL
     typealias Exporter = @MainActor (Meeting) async -> Void
     typealias Compressor = @MainActor (URL) async throws -> URL
@@ -76,9 +86,7 @@ struct PostTranscriptionPipeline {
     ) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
             analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults),
-            correctTerminology: { transcript, entries, knownSpeakers in
-                await terminologyService.correct(transcript, entries: entries, knownSpeakers: knownSpeakers)
-            },
+            correctTerminology: terminologyCorrector(using: terminologyService),
             saveTranscript: { meeting, result in
                 try TranscriptionService.saveTranscriptLocally(meeting: meeting, result: result)
             },
@@ -97,6 +105,19 @@ struct PostTranscriptionPipeline {
             },
             defaults: defaults
         )
+    }
+
+    /// The corrector `live` uses: `terminologyService` with the speaker
+    /// prefixes kept and the deterministic pass skipped when it already ran.
+    static func terminologyCorrector(using terminologyService: TerminologyService) -> TerminologyCorrector {
+        { transcript, entries, correction in
+            await terminologyService.correct(
+                transcript,
+                entries: entries,
+                knownSpeakers: correction.knownSpeakers,
+                applyDictionary: !correction.dictionaryAlreadyApplied
+            )
+        }
     }
 
     /// Runs the steps above for `meeting`. Never throws: every step either
@@ -148,7 +169,7 @@ struct PostTranscriptionPipeline {
         logDuration("recording compression", since: compressionStart)
 
         let trackStart = ContinuousClock.now
-        await finishSpeakerTracks(meeting: meeting, modelContext: modelContext)
+        await finishSpeakerTracks(meeting: meeting, analysed: analysis != nil, modelContext: modelContext)
         logDuration("speaker track compression", since: trackStart)
     }
 
@@ -195,7 +216,7 @@ struct PostTranscriptionPipeline {
 
         var segments = rawSegments
         var transcript = rawTranscript
-        var knownSpeakers: Set<String> = []
+        var correction = TerminologyCorrectionContext()
         if let analysis {
             segments = rawSegments.map { segment in
                 var replaced = segment
@@ -203,15 +224,18 @@ struct PostTranscriptionPipeline {
                 return replaced
             }
             transcript = TranscriptLineFormat.render(segments, speakers: analysis.speakers)
-            knownSpeakers = Set(
-                analysis.speakers
-                    .map { TranscriptLineFormat.sanitizedSpeakerName($0.displayName) }
-                    .filter { !$0.isEmpty }
+            correction = TerminologyCorrectionContext(
+                knownSpeakers: Set(
+                    analysis.speakers
+                        .map { TranscriptLineFormat.sanitizedSpeakerName($0.displayName) }
+                        .filter { !$0.isEmpty }
+                ),
+                dictionaryAlreadyApplied: true
             )
         }
 
         let terminologyStart = ContinuousClock.now
-        let corrected = await correctTerminology(transcript, entries, knownSpeakers)
+        let corrected = await correctTerminology(transcript, entries, correction)
         logDuration("terminology correction", since: terminologyStart)
 
         guard isAlive(meeting) else { return nil }
@@ -250,14 +274,16 @@ struct PostTranscriptionPipeline {
     }
 
     /// The per-source speaker tracks, once nothing needs them as WAV any more.
-    /// Not kept (`keepSpeakerTracks` off): deleted and un-referenced. Kept:
-    /// compressed like the mix and repointed, unless the user keeps WAVs. A
-    /// failed compression keeps that track's WAV. Never touches the mix.
-    private func finishSpeakerTracks(meeting: Meeting, modelContext: ModelContext) async {
+    /// Not kept (`keepSpeakerTracks` off) and analysed: deleted and
+    /// un-referenced. Kept — or not analysed (recognition off, or a track was
+    /// unreadable), so a retry can still label the meeting — compressed like
+    /// the mix and repointed, unless the user keeps WAVs. A failed compression
+    /// keeps that track's WAV. Never touches the mix.
+    private func finishSpeakerTracks(meeting: Meeting, analysed: Bool, modelContext: ModelContext) async {
         guard isAlive(meeting) else { return }
         let keepTracks = defaults.bool(forKey: AppPreferenceKey.keepSpeakerTracks)
 
-        guard keepTracks else {
+        if !keepTracks, analysed {
             for path in [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
                 bestEffort("delete speaker track", Log.recording) {
                     if FileManager.default.fileExists(atPath: path) {

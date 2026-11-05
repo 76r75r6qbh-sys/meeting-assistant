@@ -28,9 +28,9 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let recorder = StepRecorder()
         let pipeline = PostTranscriptionPipeline(
-            correctTerminology: { transcript, entries, knownSpeakers in
+            correctTerminology: { transcript, entries, correction in
                 recorder.record("terminology", meeting: meeting)
-                XCTAssertEqual(knownSpeakers, [], "A meeting without speakers has no prefixes to protect")
+                XCTAssertEqual(correction, TerminologyCorrectionContext(), "An unlabelled transcript gets the full correction")
                 XCTAssertFalse(entries.isEmpty, "The corrector only runs when there are entries to apply")
                 XCTAssertEqual(transcript, "[00:00] casa blanca is great")
                 return "[00:00] Casablanca is great"
@@ -195,12 +195,12 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         defaults.set("Casablanca: casa blanca\nAnderen: Others", forKey: AppPreferenceKey.terminologyList)
         let analysis = Self.twoSpeakerAnalysis(firstText: "casa blanca rocks", secondText: "Others agree")
 
-        var corrector: (String, Set<String>)?
+        var corrector: (String, TerminologyCorrectionContext)?
         let pipeline = makePipeline(
             defaults: defaults,
             analyzeSpeakers: { _, _ in analysis },
-            correctTerminology: { transcript, _, knownSpeakers in
-                corrector = (transcript, knownSpeakers)
+            correctTerminology: { transcript, _, correction in
+                corrector = (transcript, correction)
                 return transcript
             }
         )
@@ -210,8 +210,77 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(meeting.rawTranscript, "[00:00] Youri: casa blanca rocks\n[00:05] Others: Others agree",
                        "The raw transcript is the render BEFORE replacement")
         XCTAssertEqual(corrector?.0, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
-        XCTAssertEqual(corrector?.1, ["Youri", "Others"])
+        XCTAssertEqual(corrector?.1, TerminologyCorrectionContext(knownSpeakers: ["Youri", "Others"], dictionaryAlreadyApplied: true))
         XCTAssertEqual(meeting.transcript, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
+    }
+
+    /// The deterministic pass is not idempotent when a canonical contains its
+    /// own alias ("Team Link: Link"), so the labelled path must run it exactly
+    /// once — checked through the REAL TerminologyService.
+    func testLabelledPathAppliesDictionaryOnceThroughRealTerminologyService() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Team Link: Link", forKey: AppPreferenceKey.terminologyList)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "link is our team", secondText: "ok")
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { _, _ in analysis },
+            correctTerminology: PostTranscriptionPipeline.terminologyCorrector(using: service)
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "x"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Team Link is our team\n[00:05] Others: ok")
+        XCTAssertEqual(meeting.speakerSegments.first?.text, "Team Link is our team")
+    }
+
+    /// The unlabelled path still gets the deterministic pass from the service.
+    func testUnlabelledPathStillAppliesDictionaryThroughRealTerminologyService() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Team Link: Link", forKey: AppPreferenceKey.terminologyList)
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+
+        let pipeline = makePipeline(
+            defaults: defaults,
+            correctTerminology: PostTranscriptionPipeline.terminologyCorrector(using: service)
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "link is our team"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, "[00:00] Team Link is our team")
+    }
+
+    /// An analysis that failed (nil, e.g. an unreadable track) must not cost
+    /// the tracks: a retry can still label the meeting.
+    func testKeepSpeakerTracksOffKeepsTracksWhenAnalysisFailed() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: { _, _ in nil })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertEqual(meeting.systemTrackFileURL, files.system.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.system.path))
     }
 
     func testTracksCompressedAfterMixAndMeetingRepointed() async throws {

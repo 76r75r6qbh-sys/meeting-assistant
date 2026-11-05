@@ -73,7 +73,17 @@ final class TerminologyService {
     /// (deterministic text plus a warning) unless
     /// ``speakerPrefixesPreserved(input:output:knownSpeakers:)``. With no known
     /// speakers this is exactly `correct(_:entries:)`.
-    func correct(_ rawTranscript: String, entries: [TerminologyEntry], knownSpeakers: Set<String>) async -> String {
+    ///
+    /// `applyDictionary: false` skips the deterministic pass, for a caller that
+    /// already ran it (the labelled pipeline replaces per segment before the
+    /// render). The pass is not idempotent — `Team Link: Link` turns "link"
+    /// into "Team Link" and then "Team Team Link" — so it must run once.
+    func correct(
+        _ rawTranscript: String,
+        entries: [TerminologyEntry],
+        knownSpeakers: Set<String>,
+        applyDictionary: Bool = true
+    ) async -> String {
         guard !entries.isEmpty else { return rawTranscript }
 
         isCorrecting = true
@@ -81,7 +91,7 @@ final class TerminologyService {
 
         // Off the main actor: with a long alias list this is a real amount of
         // regex work, and it must not block the UI while it runs.
-        let dictionaryReplaced = await Task.detached(priority: .userInitiated) {
+        let dictionaryReplaced = !applyDictionary ? rawTranscript : await Task.detached(priority: .userInitiated) {
             knownSpeakers.isEmpty
                 ? Self.dictionaryReplace(rawTranscript, entries: entries)
                 : Self.dictionaryReplacePreservingSpeakers(rawTranscript, entries: entries, knownSpeakers: knownSpeakers)

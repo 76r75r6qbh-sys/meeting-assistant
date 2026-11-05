@@ -263,6 +263,34 @@ final class TerminologyServiceTests: XCTestCase {
         XCTAssertEqual(result, "[00:00] Youri: Joeri said hi")
     }
 
+    /// A caller that already ran the deterministic pass (the labelled pipeline
+    /// path) must be able to skip it: "Team Link: Link" is not idempotent.
+    @MainActor
+    func testSkippingTheDictionaryPassDoesNotReplaceTwice() async {
+        let entries = [TerminologyEntry(canonical: "Team Link", aliases: ["Link"])]
+        let once = TerminologyService.dictionaryReplace("link rocks", entries: entries)
+        XCTAssertEqual(once, "Team Link rocks")
+        XCTAssertEqual(TerminologyService.dictionaryReplace(once, entries: entries), "Team Team Link rocks",
+                       "The hazard this guards against")
+
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success("[00:00] Youri: Team Link rocks!")])
+        let service = TerminologyService(providerFactory: { stub })
+        let result = await service.correct(
+            "[00:00] Youri: Team Link rocks", entries: entries, knownSpeakers: ["Youri"], applyDictionary: false
+        )
+
+        XCTAssertEqual(result, "[00:00] Youri: Team Link rocks!")
+        XCTAssertTrue(stub.calls.first?.prompt.contains("[00:00] Youri: Team Link rocks\n") == true
+                      || stub.calls.first?.prompt.hasSuffix("[00:00] Youri: Team Link rocks") == true,
+                      "The provider gets the text as handed in, not replaced again")
+
+        let skipped = TerminologyService(providerFactory: { StubLLMProvider(supportsFullTranscriptEcho: false) })
+        let fallback = await skipped.correct(
+            "[00:00] Youri: Team Link rocks", entries: entries, knownSpeakers: ["Youri"], applyDictionary: false
+        )
+        XCTAssertEqual(fallback, "[00:00] Youri: Team Link rocks", "The fallback text is not replaced again either")
+    }
+
     func testPrefixCheckIgnoresTextChanges() {
         let output = """
         [00:00] Youri: Completely different words here.
