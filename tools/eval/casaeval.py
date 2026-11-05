@@ -398,6 +398,43 @@ def aggregate(results):
 
 
 # ---------------------------------------------------------------------------
+# Drafting gold files
+
+GOLD_DIR = Path(__file__).resolve().parent / "gold"
+
+
+def draft_gold(export):
+    """An unreviewed `casablanca.eval-gold` v1 draft from an export document.
+
+    Every action item and decision is copied, unsupported and unverified ones
+    included: the reviewer deletes the wrong ones and adds the missing ones.
+    """
+    meeting = export["meeting"]
+    date = meeting.get("date")
+    return {
+        "schema": GOLD_SCHEMA,
+        "schemaVersion": SCHEMA_VERSION,
+        "meetingId": meeting["id"],
+        "title": meeting["title"],
+        "date": date[:10] if isinstance(date, str) else None,
+        "reviewed": False,
+        "notes": f"Draft from Casablanca export ({export.get('actionItemsSource')}) "
+                 "— correct every item, then set reviewed to true.",
+        "ownerAliases": {},
+        "decisions": [{"text": d["text"]} for d in export["decisions"]],
+        "actionItems": [
+            {"task": item["task"], "owner": item["owner"], "due": item.get("due")}
+            for item in export["actionItems"]
+        ],
+    }
+
+
+def default_gold_path(meeting_id):
+    """`tools/eval/gold/<meetingId>.json`, next to this script."""
+    return GOLD_DIR / f"{meeting_id}.json"
+
+
+# ---------------------------------------------------------------------------
 # Command line
 
 
@@ -498,7 +535,44 @@ def _parser():
     score.add_argument("--json", action="store_true", help="print JSON instead of text")
     score.add_argument("--strict", action="store_true",
                        help="exit 3 when any gold file is unreviewed")
+
+    make_gold = commands.add_parser("make-gold", help="draft an unreviewed gold file from an export")
+    make_gold.add_argument("export", help="export file")
+    make_gold.add_argument("-o", "--output",
+                           help="gold file to write (default tools/eval/gold/<meetingId>.json)")
+    make_gold.add_argument("--force", action="store_true", help="overwrite an existing file")
     return parser
+
+
+def _run_make_gold(args):
+    try:
+        export = load_export(args.export)
+    except FormatError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    meeting_id = export["meeting"]["id"]
+    if args.output:
+        output = Path(args.output)
+    else:
+        # The id becomes a file name: refuse anything that could leave gold/.
+        if Path(meeting_id).name != meeting_id or meeting_id in (".", ".."):
+            print(f"ERROR: {args.export}: meeting.id {meeting_id!r} is not usable as a "
+                  "file name; pass -o.", file=sys.stderr)
+            return 2
+        output = default_gold_path(meeting_id)
+    if output.exists() and not args.force:
+        print(f"ERROR: {output} already exists; pass --force to overwrite it.", file=sys.stderr)
+        return 2
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(draft_gold(export), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as error:
+        print(f"ERROR: {output}: cannot write ({error.strerror or error})", file=sys.stderr)
+        return 2
+    print(f'Wrote {output} ("reviewed": false) — correct every item, then set reviewed to true.')
+    return 0
 
 
 def _run_score(args):
@@ -541,6 +615,8 @@ def main(argv=None):
         return exit_.code if isinstance(exit_.code, int) else 2
     if args.command == "score":
         return _run_score(args)
+    if args.command == "make-gold":
+        return _run_make_gold(args)
     parser.error(f"unknown command {args.command!r}")  # pragma: no cover
 
 
