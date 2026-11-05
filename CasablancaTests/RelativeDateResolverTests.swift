@@ -88,6 +88,44 @@ final class RelativeDateResolverTests: XCTestCase {
         XCTAssertEqual(resolve("December 3rd").0, "2026-12-03")
     }
 
+    func testDagdeelCompoundsKeepTheWeekday() {
+        let cases = ["maandagmorgen": "2026-11-09", "vrijdagmiddag": "2026-11-06", "maandag morgen": "2026-11-09",
+                     "maandag-ochtend": "2026-11-09", "donderdagavond": "2026-11-05", "voor dinsdag ochtend": "2026-11-10"]
+        for (raw, expected) in cases {
+            XCTAssertEqual(resolve(raw).0, expected, raw)
+            XCTAssertEqual(resolve(raw).1, true, raw)
+        }
+        XCTAssertEqual(resolve("morgenochtend").0, "2026-11-05")
+        XCTAssertEqual(resolve("morgen").0, "2026-11-05")
+    }
+
+    func testEndOfNextWeekIsThatWeeksFriday() {
+        XCTAssertEqual(resolve("eind volgende week").0, "2026-11-13")
+        XCTAssertEqual(resolve("eind volgende week").1, false)
+        XCTAssertEqual(resolve("end of next week").0, "2026-11-13")
+        XCTAssertEqual(resolve("eind van volgende week", on: "2026-11-07").0, "2026-11-13")
+    }
+
+    func testWeekdayAcrossDSTChange() {
+        // Summer time ends 2026-10-25 in Europe/Amsterdam.
+        XCTAssertEqual(resolve("maandag", on: "2026-10-23").0, "2026-10-26")
+        let lateEvening = calendar.date(from: DateComponents(year: 2026, month: 10, day: 23, hour: 23, minute: 30))!
+        XCTAssertEqual(RelativeDateResolver.resolve("maandag", llmSaysExplicit: false, meetingDate: lateEvening, calendar: calendar).iso,
+                       "2026-10-26")
+    }
+
+    func testUsesInjectedTimeZoneNotUTC() {
+        // 00:30 on Wed 2026-11-04 in Amsterdam is still Tue 2026-11-03 in UTC.
+        let justAfterMidnight = calendar.date(from: DateComponents(year: 2026, month: 11, day: 4, hour: 0, minute: 30))!
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(utc.component(.day, from: justAfterMidnight), 3)
+        XCTAssertEqual(RelativeDateResolver.resolve("morgen", llmSaysExplicit: false, meetingDate: justAfterMidnight, calendar: calendar).iso,
+                       "2026-11-05")
+        XCTAssertEqual(RelativeDateResolver.resolve("woensdag", llmSaysExplicit: false, meetingDate: justAfterMidnight, calendar: calendar).iso,
+                       "2026-11-11")
+    }
+
     func testDayMonthRollsToNextYear() {
         XCTAssertEqual(resolve("5 januari", on: "2026-12-20").0, "2027-01-05")
         XCTAssertEqual(resolve("5 januari", on: "2026-12-20").1, true)

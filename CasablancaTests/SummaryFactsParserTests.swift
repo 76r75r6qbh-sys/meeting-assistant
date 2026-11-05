@@ -112,10 +112,23 @@ final class SummaryFactsParserTests: XCTestCase {
 
     func testConfidenceDefaultsAndClamps() {
         let json = """
-        {"action_items": [{"task": "a"}, {"task": "b", "confidence": 7}, {"task": "c", "confidence": "low"},
-                          {"task": "d", "confidence": "medium"}, {"task": "e", "confidence": -1}, {"task": "f", "confidence": "vaag"}]}
+        {"action_items": [{"task": "a"}, {"task": "b", "confidence": 150}, {"task": "c", "confidence": "low"},
+                          {"task": "d", "confidence": "medium"}, {"task": "e", "confidence": -1}, {"task": "f", "confidence": "vaag"},
+                          {"task": "g", "confidence": 1}]}
         """
-        XCTAssertEqual(decode(json)?.actionItems.map(\.confidence), [0.5, 1.0, 0.3, 0.6, 0.0, 0.5])
+        XCTAssertEqual(decode(json)?.actionItems.map(\.confidence), [0.5, 1.0, 0.3, 0.6, 0.0, 0.5, 1.0])
+    }
+
+    func testConfidenceAbove1UpTo100IsAPercentage() {
+        let json = """
+        {"action_items": [{"task": "a", "confidence": 80}, {"task": "b", "confidence": "85"}, {"task": "c", "confidence": 100},
+                          {"task": "d", "confidence": "7"}, {"task": "e", "confidence": 100.5}]}
+        """
+        let values = decode(json)?.actionItems.map(\.confidence) ?? []
+        XCTAssertEqual(values.count, 5)
+        for (value, expected) in zip(values, [0.8, 0.85, 1.0, 0.07, 1.0]) {
+            XCTAssertEqual(value, expected, accuracy: 0.0001)
+        }
     }
 
     func testMissingKeysAreEmpty() {
@@ -132,7 +145,8 @@ final class SummaryFactsParserTests: XCTestCase {
     }
 
     func testGenericSpeakerLabelIsNeverAnOwner() {
-        let owners = ["Spreker 2", "Speaker 1", "Anderen", "?", "speaker1", "Others", "me", "Ik", "I", "Unknown speaker", "**Sprecher 3**", "null"]
+        let owners = ["Spreker 2", "Speaker 1", "Spreker 1", "Anderen", "?", "speaker1", "Others", "Me", "Ik", "I", "Unknown speaker",
+                      "**Sprecher 3**", "null", "Speaker A", "Spreker B", "spreker c", "S1", "s12", "Speaker_2"]
         let items = owners.map { "{\"task\": \"t\", \"owner\": \"\($0)\"}" }.joined(separator: ",")
         let json = "{\"action_items\": [\(items), {\"task\": \"t\", \"owner\": \" **Youri** \"}]}"
         guard let facts = decode(json) else { return XCTFail("decode failed") }
@@ -170,6 +184,16 @@ final class SummaryFactsParserTests: XCTestCase {
         XCTAssertEqual(merged.actionItems[1].task, "Bel leverancier")
         XCTAssertEqual(merged.decisions, [ExtractedDecision(text: "We gaan voor B", quote: "voor B", timestamp: "03:00")])
         XCTAssertEqual(merged.openQuestions.count, 1)
+    }
+
+    func testMergedKeepsShortOrNumberedNearMissesApart() {
+        let a = SummaryFacts(topics: [], decisions: [ExtractedDecision(text: "Plan Q3")],
+                             actionItems: [item("Plan Q3"), item("Bel Kim")], openQuestions: [], facts: [])
+        let b = SummaryFacts(topics: [], decisions: [ExtractedDecision(text: "Plan Q4")],
+                             actionItems: [item("Plan Q4"), item("Bel Tim"), item("bel kim.")], openQuestions: [], facts: [])
+        let merged = SummaryFacts.merged([a, b])
+        XCTAssertEqual(merged.actionItems.map(\.task), ["Plan Q3", "Bel Kim", "Plan Q4", "Bel Tim"])
+        XCTAssertEqual(merged.decisions.map(\.text), ["Plan Q3", "Plan Q4"])
     }
 
     func testMergedPrefersHigherConfidenceFromLaterPart() {
@@ -225,5 +249,65 @@ final class SummaryFactsParserTests: XCTestCase {
         XCTAssertTrue(rebuild.hasPrefix("These are the closing sections of meeting notes."))
         XCTAssertTrue(rebuild.contains(SummaryFactsPrompt.rules(meetingDate: meetingDate, calendar: calendar)))
         XCTAssertTrue(rebuild.hasSuffix("\n\nNotes:\n## Decisions\n- B"))
+    }
+
+    // MARK: - Prompt copy (golden)
+
+    private let goldenShape = #"""
+    {
+      "topics": ["<short topic>"],
+      "decisions": [{"text": "<decision with its rationale>", "quote": "<verbatim words from the transcript>", "timestamp": "<mm:ss or h:mm:ss>"}],
+      "action_items": [{"task": "<the action>", "owner": "<name or null>", "due": "<YYYY-MM-DD, or the words used such as \"vrijdag\", or null>", "due_is_explicit": true, "confidence": 0.8, "quote": "<verbatim words from the transcript>", "timestamp": "<mm:ss or h:mm:ss>"}],
+      "open_questions": [{"text": "<question or risk>", "timestamp": "<mm:ss or h:mm:ss>"}],
+      "facts": [{"text": "<notable statement or figure>", "timestamp": "<mm:ss or h:mm:ss>"}]
+    }
+    """#
+
+    private let goldenRules = #"""
+    Rules for the JSON:
+    - Text values are in the language of the transcript; keys stay in English. Use [] for an empty list and never leave out a key.
+    - "quote" is copied word for word from the transcript (at most 25 words), without the [timestamp] and without the speaker label. Use null when the item comes from the user's notes rather than the transcript.
+    - "timestamp" is the [timestamp] of the transcript line the quote comes from, without brackets; null if unknown.
+    - Set "owner" only on explicit evidence: a named assignment ("Kim, wil jij…"), a first-person commitment by a labelled speaker ("Youri: ik pak dat op" makes Youri the owner), a commitment by the note-taker, or the user's own notes. Otherwise "owner" is null. Never use "me", "I" or a generic label such as "Speaker 1", "Spreker 2", "Others" or "Anderen" as an owner.
+    - The meeting took place on 2026-11-04 (Wednesday). Write "due" as YYYY-MM-DD when you can resolve it from that date, otherwise the words that were used. "due_is_explicit" is true only when a specific day or date was said.
+    - "confidence" (0.0-1.0) is how sure you are that this was really agreed as an action.
+    """#
+
+    func testGoldenObjectShape() {
+        XCTAssertEqual(SummaryFactsPrompt.objectShape, goldenShape)
+    }
+
+    func testGoldenRules() {
+        XCTAssertEqual(SummaryFactsPrompt.rules(meetingDate: meetingDate, calendar: calendar), goldenRules)
+    }
+
+    func testGoldenRulesUseInjectedTimeZoneDate() {
+        // 00:30 Wednesday in Amsterdam is Tuesday 23:30 in UTC.
+        let early = calendar.date(from: DateComponents(year: 2026, month: 11, day: 4, hour: 0, minute: 30))!
+        XCTAssertEqual(SummaryFactsPrompt.rules(meetingDate: early, calendar: calendar), goldenRules)
+    }
+
+    func testGoldenSinglePassInstruction() {
+        let expected = "After the notes, add one fenced code block that starts with ```json and contains one valid JSON object with exactly this shape. Write nothing after the closing ```.\n"
+            + goldenShape + "\n" + goldenRules
+            + "\n- Every action item and decision in the notes appears in the JSON, and nothing else does."
+        XCTAssertEqual(SummaryFactsPrompt.singlePassInstruction(meetingDate: meetingDate, calendar: calendar), expected)
+    }
+
+    func testGoldenRepairPrompt() {
+        let expected = "The text below was meant to be one JSON object with this shape, but it is not valid JSON:\n"
+            + goldenShape + "\n"
+            + "Return only the corrected JSON object — no prose and no code fence. Keep every item and every value; do not add items.\n"
+            + "\nText:\n{\"topics\": [oops"
+        XCTAssertEqual(SummaryFactsPrompt.repairPrompt(broken: "{\"topics\": [oops"), expected)
+    }
+
+    func testGoldenRebuildPrompt() {
+        let sections = "## Decisions\n- We gaan voor B\n\n## Action Items\n- **Kim** — Bel leverancier"
+        let expected = "These are the closing sections of meeting notes. Turn them into one JSON object with exactly this shape:\n"
+            + goldenShape + "\n" + goldenRules + "\n"
+            + "Use null for \"quote\" and \"timestamp\" unless the notes show them. Return only the JSON object — no prose and no code fence.\n"
+            + "\nNotes:\n" + sections
+        XCTAssertEqual(SummaryFactsPrompt.rebuildPrompt(fromMarkdown: sections, meetingDate: meetingDate, calendar: calendar), expected)
     }
 }

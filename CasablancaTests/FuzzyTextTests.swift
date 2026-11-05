@@ -24,6 +24,26 @@ final class FuzzyTextTests: XCTestCase {
         XCTAssertEqual(FuzzyText.normalized("  Bél  Kim — nú!  "), "bel kim nu")
     }
 
+    // MARK: - Fuzzy equality (merge check)
+
+    func testDifferentDigitTokensNeverMatch() {
+        XCTAssertGreaterThanOrEqual(FuzzyText.similarity("Plan Q3", "Plan Q4"), FuzzyText.matchThreshold)
+        XCTAssertFalse(FuzzyText.isFuzzyEqual("Plan Q3", "Plan Q4"))
+        XCTAssertFalse(FuzzyText.isFuzzyEqual("Stuur de offerte voor sprint 12 naar Kim", "Stuur de offerte voor sprint 13 naar Kim"))
+    }
+
+    func testShortTextsNeedExactNormalisedEquality() {
+        XCTAssertGreaterThanOrEqual(FuzzyText.similarity("Bel Kim", "Bel Tim"), FuzzyText.matchThreshold)
+        XCTAssertFalse(FuzzyText.isFuzzyEqual("Bel Kim", "Bel Tim"))
+        XCTAssertTrue(FuzzyText.isFuzzyEqual("Bel Kim.", "bel kim"))
+        XCTAssertTrue(FuzzyText.isFuzzyEqual("Plan Q3!", "plan q3"))
+    }
+
+    func testLongNearDuplicateStillMatches() {
+        XCTAssertTrue(FuzzyText.isFuzzyEqual("Stuur offerte naar Kim", "Stuur de offerte naar Kim."))
+        XCTAssertTrue(FuzzyText.isFuzzyEqual("Stuur de offerte voor sprint 12 naar Kim", "Stuur de oferte voor sprint 12 naar Kim"))
+    }
+
     func testBothEmptyIsOne() {
         XCTAssertEqual(FuzzyText.similarity("", "  ..."), 1.0)
     }

@@ -28,7 +28,13 @@ enum RelativeDateResolver {
             return (iso(date, cal), llmSaysExplicit)
         }
 
+        let weekdays = weekdayIndex.keys.joined(separator: "|")
+        // Dagdelen: "maandagmorgen", "vrijdag middag", "dinsdag-ochtend" → the
+        // weekday (so "morgen" is not read as tomorrow); "morgenochtend" → "morgen".
         let text = FuzzyText.normalized(trimmed)
+            .replacingOccurrences(of: #"\b("# + weekdays + #") ?(?:morgen|ochtend|middag|avond|nacht)\b"#,
+                                  with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"\bmorgen(?:ochtend|middag|avond|nacht)\b"#, with: "morgen", options: .regularExpression)
         guard !text.isEmpty else { return (nil, false) }
         let isoWeekday = (cal.component(.weekday, from: today) + 5) % 7   // Monday = 0 … Sunday = 6
         let monday = add(-isoWeekday, to: today, cal)
@@ -42,7 +48,6 @@ enum RelativeDateResolver {
         if matches(#"\b(morgen|tomorrow)\b"#, text) { return (iso(add(1, to: today, cal), cal), true) }
 
         // 4. "volgende week dinsdag" / "next week friday" / "friday next week".
-        let weekdays = weekdayIndex.keys.joined(separator: "|")
         if let m = firstMatch(#"\b(?:volgende|next|komende) week (?:op )?("# + weekdays + #")\b"#, in: text)
             ?? firstMatch(#"\b("# + weekdays + #") (?:van )?(?:volgende|next|komende) week\b"#, in: text),
            let target = weekdayIndex[m[1]] {
@@ -63,7 +68,11 @@ enum RelativeDateResolver {
             return (iso(add(7 * n, to: today, cal), cal), false)
         }
 
-        // 7. End of the week / month.
+        // 7. End of next week / this week / the month.
+        if matches(#"\beinde? (?:van )?(?:de )?(?:volgende|komende) week\b"#, text)
+            || matches(#"\bend of (?:the )?next week\b"#, text) {
+            return (iso(add(11, to: monday, cal), cal), false)
+        }
         if matches(#"\beinde? (?:van )?(?:de |deze )?week\b"#, text) || matches(#"\bend of (?:the |this )?week\b"#, text) {
             return (iso(add(isoWeekday <= 3 ? 4 : 11, to: monday, cal), cal), false)
         }

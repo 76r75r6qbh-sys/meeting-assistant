@@ -35,6 +35,28 @@ enum FuzzyText {
         return 1 - Double(levenshtein(x, y)) / Double(longest)
     }
 
+    /// Normalized texts shorter than this only match when they are equal.
+    static let minimumFuzzyLength = 12
+
+    /// The merge check. Exact normalized equality always counts. Otherwise two
+    /// texts are equal only when their digit-bearing tokens agree ("Plan Q3" is
+    /// never "Plan Q4"), both normalized texts are at least
+    /// ``minimumFuzzyLength`` characters ("Bel Kim" is never "Bel Tim"), and
+    /// ``similarity(_:_:)`` reaches ``matchThreshold``.
+    static func isFuzzyEqual(_ a: String, _ b: String) -> Bool {
+        let x = normalized(a), y = normalized(b)
+        if x == y { return true }
+        guard digitTokens(x) == digitTokens(y),
+              x.count >= minimumFuzzyLength, y.count >= minimumFuzzyLength
+        else { return false }
+        return similarity(x, y) >= matchThreshold
+    }
+
+    /// Tokens of an already normalized text that contain a digit, in order.
+    private static func digitTokens(_ normalizedText: String) -> [Substring] {
+        normalizedText.split(separator: " ").filter { $0.contains(where: \.isNumber) }
+    }
+
     private static func levenshtein(_ x: [Character], _ y: [Character]) -> Int {
         if x.isEmpty { return y.count }
         if y.isEmpty { return x.count }

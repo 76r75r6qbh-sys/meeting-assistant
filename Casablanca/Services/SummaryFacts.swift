@@ -52,7 +52,7 @@ struct SummaryFacts: Equatable {
     // MARK: Merging
 
     /// Concatenates `parts` in order. Action items whose tasks are fuzzy
-    /// duplicates (``FuzzyText/matchThreshold``) collapse into the one with the
+    /// duplicates (``FuzzyText/isFuzzyEqual(_:_:)``) collapse into the one with the
     /// higher confidence (the earlier one on a tie), which takes the other's
     /// owner/due/quote/timestamp where its own is nil. Decisions collapse the
     /// same way on `text` (earlier wins). Topics are de-duplicated on their
@@ -68,7 +68,7 @@ struct SummaryFacts: Equatable {
             }
             for item in part.actionItems {
                 if let i = result.actionItems.firstIndex(where: {
-                    FuzzyText.similarity($0.task, item.task) >= FuzzyText.matchThreshold
+                    FuzzyText.isFuzzyEqual($0.task, item.task)
                 }) {
                     result.actionItems[i] = combine(result.actionItems[i], item)
                 } else {
@@ -77,7 +77,7 @@ struct SummaryFacts: Equatable {
             }
             for decision in part.decisions {
                 if let i = result.decisions.firstIndex(where: {
-                    FuzzyText.similarity($0.text, decision.text) >= FuzzyText.matchThreshold
+                    FuzzyText.isFuzzyEqual($0.text, decision.text)
                 }) {
                     var kept = result.decisions[i]
                     kept.quote = kept.quote ?? decision.quote
@@ -141,7 +141,9 @@ struct SummaryFacts: Equatable {
         guard !cleaned.isEmpty else { return nil }
         let folded = ActionItemOwnership.fold(cleaned)
         if ActionItemOwnership.unassignedOwners.contains(folded) || nonOwnerWords.contains(folded) { return nil }
-        if folded.range(of: #"^(speaker|spreker|sprecher)\s*\d+$"#, options: .regularExpression) != nil { return nil }
+        // Diarization labels: "Speaker 1", "Spreker B", "speaker_2", "S1".
+        if folded.range(of: #"^(speaker|spreker|sprecher)[\s_-]*(\d+|[a-z])$"#, options: .regularExpression) != nil { return nil }
+        if folded.range(of: #"^s[\s_-]*\d+$"#, options: .regularExpression) != nil { return nil }
         return cleaned
     }
 
@@ -302,7 +304,8 @@ enum SummaryFactsParser {
     }
 
     /// A number, a numeric string ("0.7", "0,7") or high/medium/low; default
-    /// 0.5; clamped to 0…1.
+    /// 0.5. Values above 1 up to 100 are percentages (80 → 0.8); anything
+    /// else is clamped to 0…1.
     private static func confidence(_ value: Any?) -> Double {
         var result = 0.5
         if let number = value as? NSNumber, !isBoolean(number) {
@@ -316,6 +319,7 @@ enum SummaryFactsParser {
             }
         }
         guard result.isFinite else { return 0.5 }
+        if result > 1, result <= 100 { result /= 100 }
         return min(max(result, 0), 1)
     }
 
