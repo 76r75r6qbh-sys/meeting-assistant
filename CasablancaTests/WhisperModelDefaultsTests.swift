@@ -75,6 +75,29 @@ final class WhisperModelDefaultsTests: XCTestCase {
         XCTAssertEqual(storedModel, WhisperModelDefaults.newInstallDefault)
     }
 
+    func testNoKeyPinIfNeededReadsHasARegisteredDefault() {
+        let readKeys = Set(WhisperModelDefaults.keysRead)
+        XCTAssertEqual(readKeys, [
+            AppPreferenceKey.whisperModel,
+            AppPreferenceKey.hasCompletedOnboarding,
+            AppPreferenceKey.llmProvider,
+            AppPreferenceKey.obsidianVaultPath,
+            AppPreferenceKey.terminologyList,
+        ])
+        let registered = Set(AppPreferences.registeredDefaults.keys)
+        XCTAssertTrue(
+            readKeys.isDisjoint(with: registered),
+            "registered default on an install-signal key: \(readKeys.intersection(registered))"
+        )
+    }
+
+    @MainActor
+    func testModelNamesShowDownloadSize() {
+        for model in TranscriptionService.availableWhisperModels {
+            XCTAssertTrue(model.name.contains("(~"), "\(model.id) has no size: \(model.name)")
+        }
+    }
+
     @MainActor
     func testNewInstallDefaultIsOffered() {
         let ids = TranscriptionService.availableWhisperModels.map(\.id)

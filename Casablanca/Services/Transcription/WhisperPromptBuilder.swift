@@ -49,13 +49,32 @@ enum WhisperPromptBuilder {
         specialTokenBegin: Int,
         limit: Int = maxPromptTokens
     ) -> [Int] {
-        guard limit > 0 else { return [] }
-        var best: [Int] = []
+        prompt(for: terms, encode: encode, specialTokenBegin: specialTokenBegin, limit: limit).tokens
+    }
+
+    /// The prompt actually sent: the whole terms that fit and their tokens.
+    /// `terms` is what the echo filter must compare against — a term that did
+    /// not fit was never in the prompt, so Whisper cannot echo it.
+    struct Prompt: Equatable {
+        let terms: [String]
+        let tokens: [Int]
+    }
+
+    /// See `tokens(for:encode:specialTokenBegin:limit:)`; also returns the
+    /// terms the tokens encode. Both are empty when nothing fits.
+    static func prompt(
+        for terms: [String],
+        encode: (String) -> [Int],
+        specialTokenBegin: Int,
+        limit: Int = maxPromptTokens
+    ) -> Prompt {
+        guard limit > 0 else { return Prompt(terms: [], tokens: []) }
+        var best = Prompt(terms: [], tokens: [])
         for k in terms.indices.map({ $0 + 1 }) {
-            let candidate = encode(promptText(for: Array(terms.prefix(k))))
-                .filter { $0 < specialTokenBegin }
+            let prefix = Array(terms.prefix(k))
+            let candidate = encode(promptText(for: prefix)).filter { $0 < specialTokenBegin }
             guard candidate.count <= limit else { break }
-            best = candidate
+            best = Prompt(terms: prefix, tokens: candidate)
         }
         return best
     }
@@ -64,19 +83,63 @@ enum WhisperPromptBuilder {
     /// Shorter prefixes ("Wegiz, BgZ") are things people actually say.
     static let minimumEchoPrefixLength = 20
 
-    /// True when `segmentText` is the prompt played back: its normalised form
-    /// (lowercase, letters and digits only) equals the normalised joined
-    /// prompt, or is a prefix of it at least `minimumEchoPrefixLength` long.
+    /// A segment that is mostly a list of prompt terms, in any order, is an
+    /// echo too: at least `minimumEchoTermCount` term matches covering at
+    /// least `minimumEchoTermCoverage` of the segment's words. A real sentence
+    /// mentions one or two terms among ordinary words and stays well below.
+    static let minimumEchoTermCount = 3
+    static let minimumEchoTermCoverage = 0.8
+
+    /// True when `segmentText` is the prompt played back:
+    /// - its normalised form (lowercase, letters and digits only) equals the
+    ///   normalised joined prompt, or is a prefix of it at least
+    ///   `minimumEchoPrefixLength` long; or
+    /// - it is a run of prompt terms in any order (a shuffled list, a suffix
+    ///   of the prompt): see `minimumEchoTermCount`/`minimumEchoTermCoverage`.
+    ///
+    /// `terms` must be the terms actually sent (`Prompt.terms`).
     static func isPromptEcho(_ segmentText: String, terms: [String]) -> Bool {
         guard !terms.isEmpty else { return false }
         let segment = normalised(segmentText)
         guard !segment.isEmpty else { return false }
         let prompt = normalised(terms.joined(separator: ", "))
         if segment == prompt { return true }
-        return segment.count >= minimumEchoPrefixLength && prompt.hasPrefix(segment)
+        if segment.count >= minimumEchoPrefixLength && prompt.hasPrefix(segment) { return true }
+        return isTermRun(segmentText, terms: terms)
+    }
+
+    private static func isTermRun(_ segmentText: String, terms: [String]) -> Bool {
+        let words = self.words(segmentText)
+        guard !words.isEmpty else { return false }
+        // Longest terms first, so "Medicore EPD" wins over "Medicore".
+        let termWords = Set(terms.map(self.words).filter { !$0.isEmpty })
+            .sorted { $0.count > $1.count }
+        var index = 0
+        var matches = 0
+        var covered = 0
+        while index < words.count {
+            if let match = termWords.first(where: { term in
+                index + term.count <= words.count && Array(words[index ..< index + term.count]) == term
+            }) {
+                matches += 1
+                covered += match.count
+                index += match.count
+            } else {
+                index += 1
+            }
+        }
+        return matches >= minimumEchoTermCount
+            && Double(covered) / Double(words.count) >= minimumEchoTermCoverage
     }
 
     private static func normalised(_ text: String) -> String {
         String(text.lowercased().filter { $0.isLetter || $0.isNumber })
+    }
+
+    /// Lowercased runs of letters and digits; punctuation and spaces split.
+    private static func words(_ text: String) -> [String] {
+        text.lowercased()
+            .split { !($0.isLetter || $0.isNumber) }
+            .map(String.init)
     }
 }

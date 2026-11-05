@@ -201,10 +201,12 @@ sent to Whisper as previous-text prompt tokens (`DecodingOptions.promptTokens`):
 `whisperPromptTerms` (default on) A/Bs it; the summary line reports `promptTerms=` and
 `promptTokens=<n>`, and the benchmark JSON now records the options the run actually used.
 
-Whisper can echo a prompt on a window with no speech. A segment whose normalised text
-(lowercase, letters and digits only) equals the joined prompt, or is a ≥ 20-character prefix
-of it, is dropped from the live list, the final segments and the full text. The filter only
-runs when a prompt was sent.
+Whisper can echo a prompt on a window with no speech. A segment is dropped from the live
+list, the final segments and the full text (always checked on the cleaned text) when its
+normalised text (lowercase, letters and digits only) equals the joined prompt or is a
+≥ 20-character prefix of it, or when it is a run of prompt terms in any order: ≥ 3 term
+matches covering ≥ 80 % of its words. Only the terms that fitted in the prompt count, and the
+filter only runs when a prompt was sent. A real sentence mentioning one or two terms is kept.
 
 Known cost: WhisperKit `d447d308` skips its prefill KV cache whenever `promptTokens` is set
 (`TextDecoder.prepareDecoderInputs`), so a prompted run decodes a few more tokens per
@@ -215,7 +217,10 @@ window. Measure it with the runs below before treating it as free.
 The model ID was checked against `argmaxinc/whisperkit-coreml` on Hugging Face (2026-11-05):
 both `openai_whisper-large-v3-v20240930_turbo` and `openai_whisper-large-v3_turbo` exist,
 and WhisperKit `d447d308` lists `openai_whisper-large-v3-v20240930_turbo` among its supported
-models (`Models.swift`). It is added to the Settings picker as "Large v3 Turbo".
+models (`Models.swift`). It is added to the Settings picker as "Large v3 Turbo (~1.6 GB)";
+every picker entry now shows its approximate download size (from the Hugging Face folder
+sizes: tiny 77 MB, base 147 MB, small 486 MB, medium 1.53 GB, large-v3 3.09 GB, turbo
+1.64 GB).
 
 **Decision: `WhisperModelDefaults.newInstallDefault = openai_whisper-large-v3`.** The turbo
 runs below need the benchmark audio, which was not available to the agent that made this

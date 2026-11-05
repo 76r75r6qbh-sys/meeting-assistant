@@ -114,6 +114,22 @@ final class WhisperPromptBuilderTests: XCTestCase {
         )
     }
 
+    func testPromptReturnsOnlyTheTermsThatFit() {
+        let prompt = WhisperPromptBuilder.prompt(
+            for: ["Wegiz", "BgZ", "Medicore"],
+            encode: Self.encodeByCharacter,
+            specialTokenBegin: Self.specialTokenBegin,
+            limit: " Wegiz, BgZ".unicodeScalars.count
+        )
+        XCTAssertEqual(prompt.terms, ["Wegiz", "BgZ"])
+        XCTAssertEqual(Self.decodeByCharacter(prompt.tokens), " Wegiz, BgZ")
+
+        let none = WhisperPromptBuilder.prompt(
+            for: ["Medicore"], encode: Self.encodeByCharacter, specialTokenBegin: Self.specialTokenBegin, limit: 3
+        )
+        XCTAssertEqual(none, WhisperPromptBuilder.Prompt(terms: [], tokens: []))
+    }
+
     // MARK: - Prompt echo
 
     func testPromptEchoDetected() {
@@ -125,9 +141,38 @@ final class WhisperPromptBuilderTests: XCTestCase {
         XCTAssertTrue(WhisperPromptBuilder.isPromptEcho("Wegiz, BgZ, Medicore, Orchestra", terms: terms))
     }
 
+    func testTermRunInAnyOrderIsEcho() {
+        let terms = ["Wegiz", "BgZ", "Medicore", "Orchestra", "Topdesk", "Medicore EPD"]
+        // Shuffled.
+        XCTAssertTrue(WhisperPromptBuilder.isPromptEcho("Topdesk, Wegiz, BgZ.", terms: terms))
+        // A suffix of the prompt (no prefix match).
+        XCTAssertTrue(WhisperPromptBuilder.isPromptEcho(" Orchestra, Topdesk, Medicore EPD", terms: terms))
+        // Repeated terms with one filler word: 4 of 5 words are terms (80 %).
+        XCTAssertTrue(WhisperPromptBuilder.isPromptEcho("BgZ BgZ Wegiz Topdesk en", terms: terms))
+    }
+
+    func testTermRunNeedsThreeTermsAndMostOfTheSegment() {
+        let terms = ["Wegiz", "BgZ", "Medicore", "Orchestra", "Topdesk"]
+        // Two terms only.
+        XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("Topdesk, Wegiz.", terms: terms))
+        // Three terms inside a real sentence.
+        XCTAssertFalse(WhisperPromptBuilder.isPromptEcho(
+            "Ik heb het Topdesk ticket over Wegiz en BgZ doorgezet naar het team.", terms: terms
+        ))
+    }
+
+    func testEchoOnlyMatchesTermsActuallySent() {
+        // Only the first two terms fitted in the prompt; a list of the others
+        // is something the speaker said, not something Whisper was shown.
+        let sent = ["Wegiz", "BgZ"]
+        XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("Medicore, Orchestra, Topdesk", terms: sent))
+    }
+
     func testNormalSegmentNotEcho() {
         let terms = ["Wegiz", "BgZ", "Medicore", "Orchestra", "Topdesk"]
         XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("We moeten de Wegiz BgZ koppeling testen.", terms: terms))
+        XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("Medicore heeft de release uitgesteld.", terms: terms))
+        XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("Wegiz.", terms: terms))
         // A short prefix is a legitimate utterance ("Wegiz, BgZ."), not an echo.
         XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("Wegiz, BgZ.", terms: terms))
         XCTAssertFalse(WhisperPromptBuilder.isPromptEcho("", terms: terms))

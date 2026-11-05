@@ -133,14 +133,17 @@ final class TranscriptionService {
     ]
 
     static let availableWhisperModels: [WhisperModelOption] = [
-        WhisperModelOption(id: "openai_whisper-tiny", name: "Tiny"),
-        WhisperModelOption(id: "openai_whisper-base", name: "Base"),
-        WhisperModelOption(id: "openai_whisper-small", name: "Small"),
-        WhisperModelOption(id: "openai_whisper-medium", name: "Medium"),
-        WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3"),
+        // Approximate one-time download sizes of the CoreML models, so the
+        // picker says what a choice costs before the first transcription
+        // starts fetching it.
+        WhisperModelOption(id: "openai_whisper-tiny", name: "Tiny (~75 MB)"),
+        WhisperModelOption(id: "openai_whisper-base", name: "Base (~150 MB)"),
+        WhisperModelOption(id: "openai_whisper-small", name: "Small (~500 MB)"),
+        WhisperModelOption(id: "openai_whisper-medium", name: "Medium (~1.5 GB)"),
+        WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3 (~3 GB)"),
         // Same encoder as large-v3 with a 4-layer distilled decoder; the
         // 2024-09-30 build is the one WhisperKit `d447d308` lists as supported.
-        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo", name: "Large v3 Turbo"),
+        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo", name: "Large v3 Turbo (~1.6 GB)"),
     ]
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
@@ -510,8 +513,9 @@ final class TranscriptionService {
 
         // Terminology as Whisper prompt tokens. Needs the loaded tokenizer, so
         // it is attached after the load; the pipeline cache key does not
-        // depend on it. `promptTerms` stays empty unless a prompt was actually
-        // sent, so the echo filter below only ever runs on prompted output.
+        // depend on it. `promptTerms` holds only the terms that fit in the
+        // prompt actually sent (empty when none was), so the echo filter only
+        // runs on prompted output and only matches what Whisper was shown.
         var resolved = baseResolved
         var promptTerms: [String] = []
         if baseResolved.promptTermsEnabled {
@@ -520,13 +524,13 @@ final class TranscriptionService {
                 raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
             )
             if !terms.isEmpty {
-                let tokens = WhisperPromptBuilder.tokens(
+                let prompt = WhisperPromptBuilder.prompt(
                     for: terms,
                     encode: { whisperKit.tokenizer?.encode(text: $0) ?? [] },
                     specialTokenBegin: whisperKit.tokenizer?.specialTokens.specialTokenBegin ?? Int.max
                 )
-                resolved = baseResolved.withPromptTokens(tokens)
-                if !tokens.isEmpty { promptTerms = terms }
+                resolved = baseResolved.withPromptTokens(prompt.tokens)
+                promptTerms = prompt.terms
             }
         }
         let echoTerms = promptTerms
@@ -550,7 +554,6 @@ final class TranscriptionService {
                 // live list restarts at [00:00] for every chunk.
                 let reportMinStart = segments.map { TimeInterval($0.start) }.min() ?? 0
                 let mappedSegments = segments
-                    .filter { !WhisperPromptBuilder.isPromptEcho($0.text, terms: echoTerms) }
                     .compactMap { segment -> TranscriptSegment? in
                         let times = TranscriptSegmentMerger.absoluteLiveTimes(
                             seek: chunkKey,
@@ -562,7 +565,8 @@ final class TranscriptionService {
                         return Self.makeTranscriptSegment(
                             startTime: times.startTime,
                             endTime: times.endTime,
-                            rawText: segment.text
+                            rawText: segment.text,
+                            echoTerms: echoTerms
                         )
                     }
                 self.liveSegmentMerger.merge(chunkSegments: mappedSegments, chunkKey: chunkKey)
@@ -584,10 +588,9 @@ final class TranscriptionService {
 
         try Task.checkCancellation()
 
-        // Whisper's prompt hallucination: on a window with no speech it can
-        // emit the prompt itself. Those segments are not speech; drop them.
+        // Prompt echoes are dropped inside `makeTranscriptSegment`, on the
+        // same cleaned text as the live list and `fullText` below.
         let segments = run.segments
-            .filter { !WhisperPromptBuilder.isPromptEcho(Self.cleanWhisperText($0.text), terms: echoTerms) }
             .compactMap { segment in
                 // Word timings are already on the absolute clock: WhisperKit's
                 // `updateSeekOffsetsForResults` shifts `segment.words` by the
@@ -596,7 +599,8 @@ final class TranscriptionService {
                     startTime: TimeInterval(segment.start),
                     endTime: TimeInterval(segment.end),
                     rawText: segment.text,
-                    words: Self.makeTranscriptWords(segment.words)
+                    words: Self.makeTranscriptWords(segment.words),
+                    echoTerms: echoTerms
                 )
             }
         currentSegments = segments
@@ -841,14 +845,22 @@ final class TranscriptionService {
     }
 
     /// Live segments pass no words: the live list never attributes speakers.
+    ///
+    /// `echoTerms` are the terms of the Whisper prompt actually sent (empty
+    /// without one). Whisper's prompt hallucination — emitting the prompt on a
+    /// window with no speech — is not speech, so such a segment is dropped.
+    /// The check runs on the cleaned text, the same text `fullText` checks.
     private static func makeTranscriptSegment(
         startTime: TimeInterval,
         endTime: TimeInterval,
         rawText: String,
-        words: [TranscriptWord]? = nil
+        words: [TranscriptWord]? = nil,
+        echoTerms: [String] = []
     ) -> TranscriptSegment? {
         let cleanedText = cleanWhisperText(rawText)
-        guard !cleanedText.isEmpty else {
+        guard !cleanedText.isEmpty,
+              !WhisperPromptBuilder.isPromptEcho(cleanedText, terms: echoTerms)
+        else {
             return nil
         }
 

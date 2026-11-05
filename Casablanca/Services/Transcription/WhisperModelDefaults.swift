@@ -34,13 +34,23 @@ enum WhisperModelDefaults {
         defaults.set(model, forKey: AppPreferenceKey.whisperModel)
     }
 
+    /// Keys whose mere presence marks an existing install.
+    static let existingInstallKeys = [
+        AppPreferenceKey.llmProvider,
+        AppPreferenceKey.obsidianVaultPath,
+        AppPreferenceKey.terminologyList,
+    ]
+
+    /// Every key `pinIfNeeded` reads. None of them may ever get a registered
+    /// default: a registered value is "present" to `object(forKey:)`, which
+    /// would make every new install look existing (or skip the pin outright
+    /// for `whisperModel`). Guarded by a test.
+    static let keysRead = [AppPreferenceKey.whisperModel, AppPreferenceKey.hasCompletedOnboarding]
+        + existingInstallKeys
+
     private static func isExistingInstall(defaults: UserDefaults, storeExists: Bool) -> Bool {
         if storeExists { return true }
         if defaults.bool(forKey: AppPreferenceKey.hasCompletedOnboarding) { return true }
-        return [
-            AppPreferenceKey.llmProvider,
-            AppPreferenceKey.obsidianVaultPath,
-            AppPreferenceKey.terminologyList,
-        ].contains { defaults.object(forKey: $0) != nil }
+        return existingInstallKeys.contains { defaults.object(forKey: $0) != nil }
     }
 }
