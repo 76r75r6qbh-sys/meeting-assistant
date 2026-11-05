@@ -25,9 +25,11 @@ enum TeamsCallWindowTitle {
     /// Separator Teams puts between title components.
     static let separator = " | "
 
-    /// First components Teams shows on the pre-join screen, before the call
-    /// name. Compared case-insensitively. Add the Dutch-UI token once captured.
-    static let preJoinTokens: Set<String> = ["meeting join"]
+    /// First components Teams puts in front of the call name: the pre-join
+    /// screen ("Meeting join") and the shared-content pop-out ("Shared
+    /// content"). Stored lowercased; compared case-insensitively. Add the
+    /// Dutch-UI tokens once captured.
+    static let preJoinTokens: Set<String> = ["meeting join", "shared content"]
 
     /// First components of windows that are not a call: the main window's
     /// sections and Teams' own auxiliary windows (the screen-sharing bar),

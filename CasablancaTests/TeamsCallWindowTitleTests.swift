@@ -31,6 +31,15 @@ final class TeamsCallWindowTitleParserTests: XCTestCase {
             "Meeting with Youri Broekhuizen")
     }
 
+    /// Captured 2026-11-05 while sharing in an external meeting: the shared-
+    /// content pop-out wraps the meeting's name.
+    func testSharedContentWindowNamesTheMeeting() {
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(
+                fromWindowTitle: "Shared content | Medicore/Prakikon/Levvel | Medicore | youri.broekhuizen@medicore.nl"),
+            "Medicore/Prakikon/Levvel")
+    }
+
     func testScheduledMeetingPreJoinAndInCall() {
         XCTAssertEqual(
             TeamsCallWindowTitle.callName(

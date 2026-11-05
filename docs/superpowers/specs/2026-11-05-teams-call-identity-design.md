@@ -32,6 +32,7 @@ nor Screen Recording, so `kCGWindowName` came back `nil` there). Log:
 | External-tenant meeting "Medicore/Prakikon/Levvel" (10:01), pre-join | `Meeting join \| Microsoft Teams meeting \| Medicore \| …` for ~8 s: a **generic placeholder**, not the subject |
 | Same, in call (from 10:01:54) | `Medicore/Prakikon/Levvel \| Medicore \| …` (equal to the calendar subject, own tenant shown) |
 | Popped-out 1:1 chat | `Chat \| Marco Spoor \| Medicore \| …` (AXDialog): pop-outs keep the `Chat` prefix, so they are rejected as section windows |
+| Shared-content pop-out while sharing in "Medicore/Prakikon/Levvel" | `Shared content \| Medicore/Prakikon/Levvel \| Medicore \| …`: `Shared content` is stripped like `Meeting join` |
 | 1:1 call with another person | **not captured yet.** Expected `<Name> \| Medicore \| …`, by analogy with the chat title; the design does not depend on it (see §3) |
 
 Findings:
