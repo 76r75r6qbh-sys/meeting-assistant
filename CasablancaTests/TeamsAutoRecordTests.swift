@@ -699,7 +699,133 @@ final class TeamsAutoRecordTitleMatchTests: XCTestCase {
     }
 }
 
+// MARK: - Call switch detector (Revision 3)
+
+final class TeamsCallSwitchDetectorTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private let meeting = TeamsCallWindowName(number: 100, name: "Healthtalk", isPreJoin: false)
+    private let ryanne = TeamsCallWindowName(number: 200, name: "Ryanne Makor", isPreJoin: false)
+
+    private func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
+
+    private func started(with windows: [TeamsCallWindowName]) -> TeamsCallSwitchDetector {
+        var detector = TeamsCallSwitchDetector()
+        detector.begin(windows: windows, at: t0)
+        return detector
+    }
+
+    func testANewWindowWithAnUnknownNameSwitchesAfterTwoReadsTenSecondsApart() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(19)), "Not yet 10 s after the first sighting")
+        XCTAssertEqual(detector.observe(windows: [ryanne, meeting], at: at(20)), ryanne)
+    }
+
+    func testBackToBackWithTheOldWindowGoneSwitches() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [ryanne], at: at(20)))
+        XCTAssertEqual(detector.observe(windows: [ryanne], at: at(30)), ryanne)
+    }
+
+    func testWithoutABaselineTheFirstReadIsAdopted() {
+        var detector = started(with: [])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(20)))
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(40)))
+    }
+
+    func testEmptyReadsKeepThePendingCandidate() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [], at: at(15)))
+        XCTAssertEqual(detector.observe(windows: [ryanne], at: at(20)), ryanne)
+    }
+
+    func testAKnownNewestWindowClearsThePendingCandidate() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        // Ryanne's window closes: the meeting is newest again.
+        XCTAssertNil(detector.observe(windows: [meeting], at: at(15)))
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(20)), "The countdown starts over")
+        XCTAssertEqual(detector.observe(windows: [ryanne, meeting], at: at(30)), ryanne)
+    }
+
+    func testADifferentCandidateRestartsTheCountdown() {
+        var detector = started(with: [meeting])
+        let marco = TeamsCallWindowName(number: 300, name: "Marco Spoor", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [marco, ryanne, meeting], at: at(20)))
+        XCTAssertEqual(detector.observe(windows: [marco, ryanne, meeting], at: at(30)), marco)
+    }
+
+    func testAOneReadFlickerDoesNotSwitch() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [meeting], at: at(20)))
+        XCTAssertNil(detector.observe(windows: [meeting], at: at(30)))
+    }
+
+    func testARetitledKnownWindowIsAdoptedWithoutASwitch() {
+        var detector = started(with: [meeting])
+        let renamed = TeamsCallWindowName(number: 100, name: "Healthtalk — part 2", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [renamed], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [renamed], at: at(20)))
+        // Its new name is known now: a pop-out repeating it is no new call.
+        let popOut = TeamsCallWindowName(number: 150, name: "Healthtalk — part 2", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [popOut, renamed], at: at(30)))
+        XCTAssertNil(detector.observe(windows: [popOut, renamed], at: at(40)))
+    }
+
+    func testANewWindowWithAKnownNameIsNoSwitch() {
+        var detector = started(with: [meeting])
+        let popOut = TeamsCallWindowName(number: 150, name: "HEALTHTALK", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [popOut, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [popOut, meeting], at: at(20)), "Names compare normalized")
+    }
+
+    func testPreJoinWindowsAreIgnored() {
+        var detector = started(with: [meeting])
+        let preJoin = TeamsCallWindowName(number: 200, name: "Partner sync", isPreJoin: true)
+        XCTAssertNil(detector.observe(windows: [preJoin, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [preJoin, meeting], at: at(20)))
+        XCTAssertNil(detector.observe(windows: [preJoin, meeting], at: at(40)))
+    }
+
+    func testAPreJoinOnlyStartLeavesNoBaselineAndTheInCallWindowIsAdopted() {
+        var detector = started(with: [TeamsCallWindowName(number: 90, name: "Daily AI team", isPreJoin: true)])
+        let inCall = TeamsCallWindowName(number: 95, name: "Daily AI team", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [inCall], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [inCall], at: at(20)))
+    }
+
+    func testShouldCheckIsThrottledByTheLastCheck() {
+        var detector = started(with: [meeting])
+        XCTAssertFalse(detector.shouldCheck(at: at(9)))
+        XCTAssertTrue(detector.shouldCheck(at: at(10)))
+        _ = detector.observe(windows: [], at: at(12))
+        XCTAssertFalse(detector.shouldCheck(at: at(21)))
+        XCTAssertTrue(detector.shouldCheck(at: at(22)))
+    }
+
+    func testResetForgetsEverything() {
+        var detector = started(with: [meeting])
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(10)))
+        detector.reset()
+        XCTAssertTrue(detector.shouldCheck(at: at(11)))
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(20)), "No baseline: adopted")
+        XCTAssertNil(detector.observe(windows: [ryanne, meeting], at: at(30)))
+    }
+}
+
 // MARK: - Coordinator
+
+/// A clock tests move by hand.
+private final class TestClock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+    func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+}
 
 @MainActor
 private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
@@ -713,9 +839,20 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     var stoppingMeetingIDs: Set<UUID> = []
     /// Awaited inside `startAutoRecording` before capture "runs": a slow start.
     var startDelay: (() async -> Void)?
-    /// The Teams call windows' names, newest first; empty when none is readable.
-    var callNames: [String] = []
-    private(set) var callNameReads = 0
+    /// Awaited inside `stopRecordingForEndedCall` before the stop lands.
+    var stopDelay: (() async -> Void)?
+    /// The Teams call windows, newest first; empty when none is readable.
+    var callWindows: [TeamsCallWindowName] = []
+    /// Shorthand for in-call windows with these names, newest first.
+    var callNames: [String] {
+        get { callWindows.map(\.name) }
+        set {
+            callWindows = newValue.enumerated().map {
+                TeamsCallWindowName(number: 1000 - $0.offset, name: $0.element, isPreJoin: false)
+            }
+        }
+    }
+    private(set) var windowReads = 0
 
     private(set) var startRequests: [(eventIdentifier: String?, manualTitle: String)] = []
     private(set) var stoppedMeetingIDs: [UUID] = []
@@ -724,9 +861,9 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
     func isStopInFlight(meetingID: UUID) -> Bool { stoppingMeetingIDs.contains(meetingID) }
     func teamsCallCandidates() -> [TeamsCallEventCandidate] { candidates }
 
-    func teamsCallNames() -> [String] {
-        callNameReads += 1
-        return callNames
+    func teamsCallWindows() -> [TeamsCallWindowName] {
+        windowReads += 1
+        return callWindows
     }
 
     func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {
@@ -740,6 +877,7 @@ private final class FakeTeamsAutoRecordHost: TeamsAutoRecordHost {
 
     func stopRecordingForEndedCall(meetingID: UUID) async {
         stoppedMeetingIDs.append(meetingID)
+        if let stopDelay { await stopDelay() }
         stopRecording(meetingID, status: .processing)
     }
 
@@ -763,11 +901,13 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
     private var defaults: UserDefaults!
     private var coordinator: TeamsAutoRecordCoordinator!
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private var clock: TestClock!
 
     override func setUp() async throws {
         host = FakeTeamsAutoRecordHost()
         defaults = makeScratchDefaults(label: "teams-auto-record")
-        coordinator = TeamsAutoRecordCoordinator(host: host, defaults: defaults, now: { [now] in now })
+        clock = TestClock(now)
+        coordinator = TeamsAutoRecordCoordinator(host: host, defaults: defaults, now: { [clock] in clock!.now })
     }
 
     private func setPreferences(autoRecord: Bool, autoStop: Bool) {
@@ -819,7 +959,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         )]
 
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 1)
+        XCTAssertEqual(host.windowReads, 1)
         XCTAssertEqual(host.startRequests.count, 1)
         XCTAssertNil(host.startRequests.first?.eventIdentifier)
         XCTAssertEqual(host.startRequests.first?.manualTitle, "Marco Spoor")
@@ -849,14 +989,14 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         host.callNames = ["Marco Spoor"]
         host.startRecording(UUID())
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 0)
+        XCTAssertEqual(host.windowReads, 0)
     }
 
     func testDisabledAutoRecordNeverReadsTheCallName() async {
         setPreferences(autoRecord: false, autoStop: true)
         host.callNames = ["Marco Spoor"]
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 0)
+        XCTAssertEqual(host.windowReads, 0)
         XCTAssertTrue(host.startRequests.isEmpty)
     }
 
@@ -865,7 +1005,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         host.callNames = ["Marco Spoor"]
         host.isRecordingBusy = true
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 0)
+        XCTAssertEqual(host.windowReads, 0)
         XCTAssertTrue(host.startRequests.isEmpty)
     }
 
@@ -884,7 +1024,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         host.callNames = ["Marco Spoor"]
         host.selectedMeetingStatus = status
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 0, "\(status)", line: line)
+        XCTAssertEqual(host.windowReads, 0, "\(status)", line: line)
         XCTAssertTrue(host.startRequests.isEmpty, "\(status)", line: line)
     }
 
@@ -892,7 +1032,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         setPreferences(autoRecord: true, autoStop: true)
         host.callNames = [" 🎉 "]
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 1)
+        XCTAssertEqual(host.windowReads, 1)
         XCTAssertEqual(host.startRequests.count, 1)
         XCTAssertNil(host.startRequests.first?.eventIdentifier)
         XCTAssertEqual(host.startRequests.first?.manualTitle, TeamsAutoRecordPolicy.manualMeetingTitle(at: now))
@@ -919,7 +1059,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
             startDate: now.addingTimeInterval(-60), endDate: now.addingTimeInterval(1800)
         )]
         await coordinator.callStarted()
-        XCTAssertEqual(host.callNameReads, 1)
+        XCTAssertEqual(host.windowReads, 1)
         XCTAssertEqual(host.startRequests.map(\.eventIdentifier), ["daily"])
     }
 
@@ -1090,6 +1230,251 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
         XCTAssertTrue(host.isRecording)
         XCTAssertNil(coordinator.linkedMeetingID)
+    }
+
+    // MARK: A new call during a running call (Revision 3)
+
+    private let meetingWindow = TeamsCallWindowName(number: 100, name: "Healthtalk", isPreJoin: false)
+    private let ryanneWindow = TeamsCallWindowName(number: 200, name: "Ryanne Makor", isPreJoin: false)
+
+    /// Two ticks 10 s apart, each after the throttle interval has passed.
+    private func tickTwiceTenSecondsApart() {
+        clock.advance(10)
+        coordinator.callTick()
+        clock.advance(10)
+        coordinator.callTick()
+    }
+
+    /// A call whose start read `windows` and recorded a manual meeting.
+    @discardableResult
+    private func startCall(windows: [TeamsCallWindowName]) async throws -> UUID {
+        host.callWindows = windows
+        let first = try XCTUnwrap(host.nextStartedMeetingID)
+        await coordinator.callStarted()
+        XCTAssertEqual(coordinator.linkedMeetingID, first)
+        host.nextStartedMeetingID = UUID()
+        return first
+    }
+
+    // The 2026-11-05 evidence: the meeting was stopped by hand, its window
+    // closed, and Ryanne's 1:1 opened while the mic stayed open.
+    func testBackToBackCallSwitchStartsAManualMeetingNamedAfterTheNewCall() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        host.stopRecording(meeting, status: .processing)
+        let second = try XCTUnwrap(host.nextStartedMeetingID)
+
+        clock.advance(10)
+        host.callWindows = []
+        coordinator.callTick()
+        host.callWindows = [ryanneWindow]
+        tickTwiceTenSecondsApart()
+        let task = try XCTUnwrap(coordinator.switchTask)
+        XCTAssertTrue(coordinator.isSwitchInFlight)
+        await task.value
+
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty, "Already stopped by hand")
+        XCTAssertEqual(host.startRequests.count, 2)
+        XCTAssertNil(host.startRequests.last?.eventIdentifier)
+        XCTAssertEqual(host.startRequests.last?.manualTitle, "Ryanne Makor")
+        XCTAssertEqual(coordinator.linkedMeetingID, second)
+        XCTAssertTrue(coordinator.isCallLive)
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+
+        // The real mic end stops the switched call's recording.
+        await coordinator.callEnded()
+        XCTAssertEqual(host.stoppedMeetingIDs, [second])
+    }
+
+    func testSwitchStopsTheActiveLinkedRecordingThenStartsTheNewCall() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        let second = try XCTUnwrap(host.nextStartedMeetingID)
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        await coordinator.switchTask?.value
+
+        XCTAssertEqual(host.stoppedMeetingIDs, [meeting])
+        XCTAssertEqual(host.startRequests.map(\.manualTitle), ["Healthtalk", "Ryanne Makor"])
+        XCTAssertEqual(coordinator.linkedMeetingID, second)
+    }
+
+    // Meeting on hold, auto-stop off: the switch's start finds the meeting
+    // still recording and links it to the new call. Nothing stops or starts.
+    func testSwitchWithAutoStopOffLinksTheStillRunningRecording() async throws {
+        setPreferences(autoRecord: true, autoStop: false)
+        let meeting = try await startCall(windows: [meetingWindow])
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        await coordinator.switchTask?.value
+
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertEqual(coordinator.linkedMeetingID, meeting)
+        XCTAssertTrue(coordinator.isCallLive)
+    }
+
+    func testNoWindowReadsDuringACallWithAutoRecordOff() async {
+        setPreferences(autoRecord: false, autoStop: true)
+        host.callWindows = [ryanneWindow]
+        await coordinator.callStarted()
+        for _ in 0..<6 {
+            clock.advance(10)
+            coordinator.callTick()
+        }
+        XCTAssertEqual(host.windowReads, 0)
+        XCTAssertNil(coordinator.switchTask)
+    }
+
+    func testTheThrottleLimitsWindowReads() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+        XCTAssertEqual(host.windowReads, 1, "The start's own read")
+
+        for _ in 0..<9 {
+            clock.advance(1)
+            coordinator.callTick()
+        }
+        XCTAssertEqual(host.windowReads, 1, "9 s after the start: no read yet")
+        clock.advance(1)
+        coordinator.callTick()
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 2)
+    }
+
+    func testNoWindowReadsOnceTheCallEnded() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+        await coordinator.callEnded()
+        clock.advance(30)
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 1)
+    }
+
+    func testAOneReadFlickerDoesNotSwitch() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        clock.advance(10)
+        coordinator.callTick()
+        host.callWindows = [meetingWindow]
+        tickTwiceTenSecondsApart()
+
+        XCTAssertNil(coordinator.switchTask)
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
+    }
+
+    func testARetitledKnownWindowDoesNotSwitch() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+
+        host.callWindows = [TeamsCallWindowName(number: 100, name: "Healthtalk — renamed", isPreJoin: false)]
+        tickTwiceTenSecondsApart()
+        tickTwiceTenSecondsApart()
+
+        XCTAssertNil(coordinator.switchTask)
+        XCTAssertEqual(host.startRequests.count, 1)
+    }
+
+    func testAPreJoinWindowDoesNotSwitch() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+
+        host.callWindows = [TeamsCallWindowName(number: 200, name: "Partner sync", isPreJoin: true), meetingWindow]
+        tickTwiceTenSecondsApart()
+        tickTwiceTenSecondsApart()
+
+        XCTAssertNil(coordinator.switchTask)
+        XCTAssertEqual(host.startRequests.count, 1)
+    }
+
+    // The mic end lands after the switch is confirmed but before its Task
+    // runs: the confirmation already ended the old call, and the Task must
+    // not start a new one.
+    func testMicEndBeforeTheSwitchTaskRunsLeavesNoLiveCall() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        host.stopRecording(meeting, status: .processing)
+
+        host.callWindows = [ryanneWindow]
+        tickTwiceTenSecondsApart()
+        let task = try XCTUnwrap(coordinator.switchTask)
+        await coordinator.callEnded()
+        await task.value
+
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertFalse(coordinator.isCallLive)
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+        XCTAssertNil(coordinator.linkedMeetingID)
+    }
+
+    func testMicEndDuringTheSwitchsStopLeavesNoLiveCall() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let meeting = try await startCall(windows: [meetingWindow])
+        let gate = TestGate()
+        host.stopDelay = { await gate.wait() }
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        let task = try XCTUnwrap(coordinator.switchTask)
+        while host.stoppedMeetingIDs.isEmpty { await Task.yield() }
+        await coordinator.callEnded()
+        await gate.open()
+        await task.value
+
+        XCTAssertEqual(host.stoppedMeetingIDs, [meeting])
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertFalse(coordinator.isCallLive)
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+    }
+
+    func testResetDuringASwitchStartsNothing() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        try await startCall(windows: [meetingWindow])
+
+        host.callWindows = [ryanneWindow, meetingWindow]
+        tickTwiceTenSecondsApart()
+        let task = try XCTUnwrap(coordinator.switchTask)
+        coordinator.reset()
+        XCTAssertFalse(coordinator.isSwitchInFlight)
+        await task.value
+
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertFalse(coordinator.isCallLive)
+    }
+
+    // The already-recording early return and a skipped start still set the
+    // detector's baseline time, so the first check waits the full interval.
+    func testAlreadyRecordingStartStillBeginsTheDetector() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.startRecording(UUID())
+        await coordinator.callStarted()
+        XCTAssertEqual(host.windowReads, 0)
+
+        clock.advance(5)
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 0, "begin set the last check at the start")
+        clock.advance(5)
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 1)
+    }
+
+    func testSkippedStartStillBeginsTheDetector() async {
+        setPreferences(autoRecord: true, autoStop: true)
+        host.isRecordingBusy = true
+        await coordinator.callStarted()
+        XCTAssertTrue(host.startRequests.isEmpty)
+
+        clock.advance(5)
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 0)
+        clock.advance(5)
+        coordinator.callTick()
+        XCTAssertEqual(host.windowReads, 1)
     }
 }
 

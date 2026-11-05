@@ -10,6 +10,16 @@ struct TeamsWindow: Equatable {
     let title: String
 }
 
+/// One Teams call window: its window number (higher is newer), the call name
+/// its title carries, and whether it is the pre-join screen ("Meeting join").
+/// The number identifies the call window across reads, so a renamed call is
+/// not mistaken for a new one.
+struct TeamsCallWindowName: Equatable {
+    let number: Int
+    let name: String
+    let isPreJoin: Bool
+}
+
 /// Reads the name of the running call from new Teams' window titles.
 ///
 /// New Teams gives a call its own window, present from the pre-join screen
@@ -30,6 +40,10 @@ enum TeamsCallWindowTitle {
     /// content"). Stored lowercased; compared case-insensitively. Add the
     /// Dutch-UI tokens once captured.
     static let preJoinTokens: Set<String> = ["meeting join", "shared content"]
+
+    /// The tokens among `preJoinTokens` that mark the pre-join screen itself,
+    /// before the call is joined. The shared-content pop-out is in the call.
+    static let preJoinScreenTokens: Set<String> = ["meeting join"]
 
     /// First components of windows that are not a call: the main window's
     /// sections and Teams' own auxiliary windows (the screen-sharing bar),
@@ -60,34 +74,47 @@ enum TeamsCallWindowTitle {
         placeholderCallNames.contains(TeamsAutoRecordPolicy.normalizedTitle(name))
     }
 
+    /// Every call window among the Teams windows, newest (highest number)
+    /// first, one entry per window: a call and its shared-content pop-out
+    /// are two entries with the same name. Empty when no window is a call
+    /// window.
+    static func callWindows(fromWindows windows: [TeamsWindow]) -> [TeamsCallWindowName] {
+        windows.sorted(by: { $0.number > $1.number }).compactMap { window in
+            parse(windowTitle: window.title).map {
+                TeamsCallWindowName(number: window.number, name: $0.name, isPreJoin: $0.isPreJoin)
+            }
+        }
+    }
+
     /// Every distinct call name in the Teams windows, newest window (highest
     /// number) first; empty when no window is a call window. The call window
     /// is usually opened last, but a stray pop-out can be newer, so the
     /// policy tries every name against the calendar before falling back to
-    /// the newest. Several names are logged — as a count, since the names
-    /// identify people. Names are deduplicated on their normalized form
+    /// the newest.
+    static func callNames(fromWindows windows: [TeamsWindow]) -> [String] {
+        callNames(from: callWindows(fromWindows: windows))
+    }
+
+    /// The distinct names of `callWindows`, in their (newest-first) order.
+    /// Names are deduplicated on their normalized form
     /// (`TeamsAutoRecordPolicy.normalizedTitle`), keeping the newest window's
     /// spelling.
-    static func callNames(fromWindows windows: [TeamsWindow]) -> [String] {
-        var names: [String] = []
+    static func callNames(from callWindows: [TeamsCallWindowName]) -> [String] {
         var seen: Set<String> = []
-        for window in windows.sorted(by: { $0.number > $1.number }) {
-            if let name = callName(fromWindowTitle: window.title),
-               seen.insert(TeamsAutoRecordPolicy.normalizedTitle(name)).inserted {
-                names.append(name)
-            }
+        return callWindows.map(\.name).filter {
+            seen.insert(TeamsAutoRecordPolicy.normalizedTitle($0)).inserted
         }
-        if names.count > 1 {
-            Log.recording.notice(
-                "Teams call title: \(names.count, privacy: .public) distinct call names; each is tried, newest window first"
-            )
-        }
-        return names
     }
 
     /// One title → call name, or nil for main/section windows, placeholders
     /// and titles not in the known format.
     static func callName(fromWindowTitle title: String) -> String? {
+        parse(windowTitle: title)?.name
+    }
+
+    /// `callName(fromWindowTitle:)`, plus whether the title is the pre-join
+    /// screen's.
+    private static func parse(windowTitle title: String) -> (name: String, isPreJoin: Bool)? {
         // 1. Split, trim, drop empty components.
         var components = title
             .components(separatedBy: separator)
@@ -100,7 +127,9 @@ enum TeamsCallWindowTitle {
         components.removeLast(min(2, components.count))
 
         // 3. The pre-join screen prefixes the call name with a token.
-        if let first = components.first, preJoinTokens.contains(first.lowercased()) {
+        var isPreJoin = false
+        if let first = components.first?.lowercased(), preJoinTokens.contains(first) {
+            isPreJoin = preJoinScreenTokens.contains(first)
             components.removeFirst()
         }
 
@@ -118,7 +147,7 @@ enum TeamsCallWindowTitle {
         guard !components.contains(where: isPlaceholderCallName) else { return nil }
 
         // 7. A meeting subject can itself contain the separator.
-        return components.joined(separator: separator)
+        return (components.joined(separator: separator), isPreJoin)
     }
 }
 
@@ -136,7 +165,7 @@ protocol TeamsWindowTitleReading {
 /// holds for system-audio capture. Accessibility is never requested from this
 /// path, and the permission is only preflighted, which never prompts. The
 /// system calls are injected closures so the filtering is testable; the app
-/// reads once per call start.
+/// reads at a call start and, with auto-record on, every 10 s during a call.
 @MainActor
 struct CGTeamsWindowTitleReader: TeamsWindowTitleReading {
     /// New Teams. Its helper, WebView and notification-centre processes have

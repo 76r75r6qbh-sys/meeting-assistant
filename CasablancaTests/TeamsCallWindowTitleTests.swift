@@ -275,6 +275,38 @@ final class TeamsCallWindowListTests: XCTestCase {
         ]
         XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), [])
     }
+
+    // MARK: Call windows (Revision 3)
+
+    func testCallWindowsAreNewestFirstAndNotDeduplicated() {
+        let windows = [
+            TeamsWindow(number: 10, title: "Chat | Marco Spoor" + suffix),
+            TeamsWindow(number: 42, title: "Daily AI team" + suffix),
+            TeamsWindow(number: 50, title: "Sharing control bar" + suffix),
+            TeamsWindow(number: 51, title: "Shared content | Daily AI team" + suffix),
+            TeamsWindow(number: 60, title: "Meeting join | Partner sync" + suffix),
+            TeamsWindow(number: 61, title: "Meeting join | Microsoft Teams meeting" + suffix),
+        ]
+        let expected = [
+            TeamsCallWindowName(number: 60, name: "Partner sync", isPreJoin: true),
+            TeamsCallWindowName(number: 51, name: "Daily AI team", isPreJoin: false),
+            TeamsCallWindowName(number: 42, name: "Daily AI team", isPreJoin: false),
+        ]
+        XCTAssertEqual(TeamsCallWindowTitle.callWindows(fromWindows: windows), expected)
+        XCTAssertEqual(TeamsCallWindowTitle.callWindows(fromWindows: windows.reversed()), expected,
+                       "The window number decides the order, not the list")
+    }
+
+    func testCallNamesAreTheDeduplicatedCallWindowNames() {
+        let windows = [
+            TeamsWindow(number: 42, title: "Daily AI team" + suffix),
+            TeamsWindow(number: 51, title: "Shared content | Daily AI team" + suffix),
+            TeamsWindow(number: 60, title: "Meeting join | Partner sync" + suffix),
+        ]
+        let callWindows = TeamsCallWindowTitle.callWindows(fromWindows: windows)
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(from: callWindows), ["Partner sync", "Daily AI team"])
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), ["Partner sync", "Daily AI team"])
+    }
 }
 
 // MARK: - Reader

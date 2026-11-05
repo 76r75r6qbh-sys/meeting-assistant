@@ -338,6 +338,106 @@ enum TeamsAutoRecordPolicy {
     }
 }
 
+/// Notices a new Teams call that starts while the mic monitor still reports
+/// the previous one. Teams can keep the microphone open from one call into
+/// the next, so a 1:1 right after a meeting fires no call start of its own.
+/// The coordinator feeds it the call windows during a call; it confirms a
+/// switch once a new call window has been the newest one on two reads at
+/// least `confirmAfter` apart. Free of app state; the clock is passed in.
+///
+/// Calls are identified by window number and normalized name
+/// (`TeamsAutoRecordPolicy.normalizedTitle`). A known window that is
+/// retitled, or a new window with a known name (a shared-content pop-out),
+/// is adopted as known without a switch. Pre-join windows are ignored: they
+/// are never known and never a candidate.
+struct TeamsCallSwitchDetector {
+    /// The window server is read at most this often during a call; monitor
+    /// ticks come from every CoreAudio callback plus a 5 s poll.
+    static let defaultCheckInterval: TimeInterval = 10
+    /// How long a new window has to stay the newest before it counts, so a
+    /// window Teams opens or retitles during a transition splits nothing.
+    static let defaultConfirmAfter: TimeInterval = 10
+
+    let checkInterval: TimeInterval
+    let confirmAfter: TimeInterval
+    /// Window numbers and normalized names seen during the current call.
+    private(set) var knownNumbers: Set<Int> = []
+    private(set) var knownNames: Set<String> = []
+    /// The window waiting for confirmation, and when it was first newest.
+    private var pending: (number: Int, since: Date)?
+    private var lastCheck: Date?
+
+    init(checkInterval: TimeInterval = defaultCheckInterval, confirmAfter: TimeInterval = defaultConfirmAfter) {
+        self.checkInterval = checkInterval
+        self.confirmAfter = confirmAfter
+    }
+
+    /// At every call start (real or switched): the windows read for it, or
+    /// `[]` when the start did not read. Without a baseline the first check
+    /// adopts what it reads.
+    mutating func begin(windows: [TeamsCallWindowName], at date: Date) {
+        reset()
+        adopt(windows)
+        lastCheck = date
+    }
+
+    /// The call ended or the monitor was switched off.
+    mutating func reset() {
+        knownNumbers = []
+        knownNames = []
+        pending = nil
+        lastCheck = nil
+    }
+
+    /// Whether the call windows are due to be read again.
+    func shouldCheck(at date: Date) -> Bool {
+        guard let lastCheck else { return true }
+        return date.timeIntervalSince(lastCheck) >= checkInterval
+    }
+
+    /// Feeds one read of the call windows, newest first. Returns the new
+    /// call's window once the switch is confirmed, else nil.
+    mutating func observe(windows: [TeamsCallWindowName], at date: Date) -> TeamsCallWindowName? {
+        lastCheck = date
+        let inCall = windows.filter { !$0.isPreJoin }.sorted { $0.number > $1.number }
+        // No title (no permission, Teams hidden, between calls) is never
+        // evidence of a new call; a pending candidate waits.
+        guard let newest = inCall.first else { return nil }
+        // No baseline: there is no telling whether this is a new call.
+        guard !knownNumbers.isEmpty || !knownNames.isEmpty else {
+            adopt(inCall)
+            return nil
+        }
+        if isKnown(newest) {
+            pending = nil
+            adopt(inCall)
+            return nil
+        }
+        if let pending, pending.number == newest.number {
+            guard date.timeIntervalSince(pending.since) >= confirmAfter else { return nil }
+            self.pending = nil
+            return newest
+        }
+        pending = (newest.number, date)
+        return nil
+    }
+
+    private func isKnown(_ window: TeamsCallWindowName) -> Bool {
+        knownNumbers.contains(window.number)
+            || knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(window.name))
+    }
+
+    /// Pre-join windows never become known: the in-call window that replaces
+    /// one is then adopted by its name, not mistaken for a new call.
+    private mutating func adopt(_ windows: [TeamsCallWindowName]) {
+        for window in windows where !window.isPreJoin {
+            knownNumbers.insert(window.number)
+            let name = TeamsAutoRecordPolicy.normalizedTitle(window.name)
+            if !name.isEmpty { knownNames.insert(name) }
+        }
+    }
+}
+
 /// What the coordinator needs from the app. `AppModel` implements it; tests
 /// pass a fake.
 @MainActor
@@ -352,11 +452,11 @@ protocol TeamsAutoRecordHost: AnyObject {
     /// its finalize/merge is running.
     func isStopInFlight(meetingID: UUID) -> Bool
     func teamsCallCandidates() -> [TeamsCallEventCandidate]
-    /// The running Teams call's names from its window titles (a person, or
-    /// the meeting subject), distinct, newest window first; empty when no
-    /// title is readable. Reads the window server, so the coordinator calls
-    /// it only when a start can follow.
-    func teamsCallNames() -> [String]
+    /// The Teams call windows (a person, or the meeting subject, per
+    /// window), newest window first; empty when no title is readable. Reads
+    /// the window server, so the coordinator calls it only when a start can
+    /// follow, and during a call at most every 10 s with auto-record on.
+    func teamsCallWindows() -> [TeamsCallWindowName]
     /// Starts recording the event's meeting, or a new manual meeting when
     /// `eventIdentifier` is nil. Returns the meeting ID once capture runs,
     /// `nil` when it did not start.
@@ -383,12 +483,28 @@ final class TeamsAutoRecordCoordinator {
     /// permission prompt); the start then compares generations to learn that
     /// the call it was started for is over.
     private var callGeneration = 0
-    private var isCallLive = false
+    private(set) var isCallLive = false
+    /// Notices a new call while the mic monitor still reports the old one.
+    private var switchDetector: TeamsCallSwitchDetector
+    /// Set from a confirmed call switch until its Task hands over to
+    /// `callStarted` (or gives up). The old call is over by then but the new
+    /// one is not live yet; a slow start finishing in that gap is kept.
+    private(set) var isSwitchInFlight = false
+    /// Numbers the switches, so a switch Task clears only its own flag.
+    private var switchCount = 0
+    /// The latest call switch's stop-then-start, so tests can await it.
+    private(set) var switchTask: Task<Void, Never>?
 
-    init(host: TeamsAutoRecordHost, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+    init(
+        host: TeamsAutoRecordHost,
+        defaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        switchDetector: TeamsCallSwitchDetector = TeamsCallSwitchDetector()
+    ) {
         self.host = host
         self.defaults = defaults
         self.now = now
+        self.switchDetector = switchDetector
     }
 
     func callStarted() async {
@@ -404,6 +520,7 @@ final class TeamsAutoRecordCoordinator {
         // stopped left this call unrecorded: its end found the meeting
         // `.processing` and stopped nothing.
         if let active = host.activeRecordingMeetingID, !host.isStopInFlight(meetingID: active) {
+            switchDetector.begin(windows: [], at: now())
             link(active, why: "was already recording when the call started")
             return
         }
@@ -417,7 +534,8 @@ final class TeamsAutoRecordCoordinator {
         let canStart = TeamsAutoRecordPolicy.skipReason(
             isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
         ) == nil
-        let callNames = canStart ? host.teamsCallNames() : []
+        let callWindows = canStart ? host.teamsCallWindows() : []
+        let callNames = TeamsCallWindowTitle.callNames(from: callWindows)
 
         let plan = TeamsAutoRecordPolicy.startDecision(
             isEnabled: isEnabled,
@@ -430,6 +548,9 @@ final class TeamsAutoRecordCoordinator {
         if let match = plan.match {
             logCallNames(callNames, match: match)
         }
+        // Before any await, so ticks during a slow start compare against
+        // this call's windows; a skipped start gets an empty baseline.
+        switchDetector.begin(windows: callWindows, at: now())
         let started: UUID?
         switch plan.decision {
         case .skip(let reason):
@@ -454,9 +575,10 @@ final class TeamsAutoRecordCoordinator {
     /// would tie it to no call (or the wrong one) and nothing would stop it.
     private func handleStartThatOutlivedItsCall(_ meetingID: UUID) async {
         guard let host else { return }
-        if isCallLive {
-            // A newer call is running: the recording overlaps it, so it is
-            // that call's (as `callTick` would decide on its next tick).
+        if isCallLive || isSwitchInFlight {
+            // A newer call is running (or a call switch is starting one):
+            // the recording overlaps it, so it is that call's (as `callTick`
+            // would decide on its next tick).
             if linkedMeetingID == nil {
                 link(meetingID, why: "auto-start finished during a later call")
             }
@@ -481,19 +603,74 @@ final class TeamsAutoRecordCoordinator {
     }
 
     /// Called on every monitor evaluation during a call: ties a recording that
-    /// started or resumed mid-call to it.
+    /// started or resumed mid-call to it, then checks whether a new call has
+    /// replaced it in Teams.
     func callTick() {
-        guard let host, let active = host.activeRecordingMeetingID, active != linkedMeetingID,
-              !host.isStopInFlight(meetingID: active) else { return }
-        link(active, why: "recording during the call")
+        guard let host else { return }
+        if let active = host.activeRecordingMeetingID, active != linkedMeetingID,
+           !host.isStopInFlight(meetingID: active) {
+            link(active, why: "recording during the call")
+        }
+        checkForCallSwitch(host)
+    }
+
+    /// Reads the call windows (throttled) and, on a confirmed switch, ends
+    /// the old call and starts the new one. With auto-record off it never
+    /// reads: a switch could only auto-stop, and the mic end does that.
+    ///
+    /// The old call's end is booked synchronously, before any Task exists,
+    /// so a mic end or `reset()` that lands at any later point moves the
+    /// generation and the Task starts nothing.
+    private func checkForCallSwitch(_ host: TeamsAutoRecordHost) {
+        guard isCallLive, !isSwitchInFlight, AppPreferences.teamsAutoRecordEnabled(in: defaults) else { return }
+        let time = now()
+        guard switchDetector.shouldCheck(at: time),
+              let newWindow = switchDetector.observe(windows: host.teamsCallWindows(), at: time) else { return }
+
+        Log.recording.notice(
+            "Teams call switched: a new call window (\(newWindow.number, privacy: .public), name private) replaced the running call; ending the old call and starting a new one"
+        )
+        let endedMeetingID = endCallBookkeeping()
+        let generation = callGeneration
+        switchCount += 1
+        let switchNumber = switchCount
+        isSwitchInFlight = true
+        switchTask = Task { [weak self] in
+            guard let self else { return }
+            await self.stopRecordingOfEndedCall(endedMeetingID, event: "Teams call switched")
+            // Cleared before `callStarted` takes over: from there on the new
+            // call is live, and a mic end during its start is an ordinary end.
+            // Only this switch's own flag: after a `reset()` a newer call may
+            // have confirmed a switch of its own meanwhile.
+            if switchNumber == self.switchCount { self.isSwitchInFlight = false }
+            guard generation == self.callGeneration else {
+                Log.recording.notice("Teams call switch: the call ended or was reset meanwhile; not starting a new one")
+                return
+            }
+            await self.callStarted()
+        }
     }
 
     func callEnded() async {
-        guard let host else { return }
+        let meetingID = endCallBookkeeping()
+        await stopRecordingOfEndedCall(meetingID, event: "Teams call ended")
+    }
+
+    /// The synchronous half of a call's end: forgets the call and returns the
+    /// meeting whose recording the end may stop.
+    private func endCallBookkeeping() -> UUID? {
         callGeneration += 1
         isCallLive = false
+        switchDetector.reset()
         let meetingID = linkedMeetingID
         linkedMeetingID = nil
+        return meetingID
+    }
+
+    /// The async half: stops `meetingID`'s recording when `shouldAutoStop`
+    /// says so.
+    private func stopRecordingOfEndedCall(_ meetingID: UUID?, event: String) async {
+        guard let host else { return }
         guard let meetingID, TeamsAutoRecordPolicy.shouldAutoStop(
             linkedMeetingID: meetingID,
             activeMeetingID: host.activeRecordingMeetingID,
@@ -501,19 +678,21 @@ final class TeamsAutoRecordCoordinator {
             linkedMeetingStatus: host.meetingStatus(id: meetingID),
             isStopEnabled: AppPreferences.teamsAutoRecordStopWhenCallEnds(in: defaults)
         ) else {
-            Log.recording.notice("Teams call ended; no linked recording to stop (or auto-stop is off)")
+            Log.recording.notice("\(event, privacy: .public); no linked recording to stop (or auto-stop is off)")
             return
         }
-        Log.recording.notice("Teams call ended; stopping linked recording \(meetingID.uuidString, privacy: .public)")
+        Log.recording.notice("\(event, privacy: .public); stopping linked recording \(meetingID.uuidString, privacy: .public)")
         await host.stopRecordingForEndedCall(meetingID: meetingID)
     }
 
     /// The monitor was switched off: forget the call so a later end cannot
-    /// stop anything.
+    /// stop anything, and a call switch in flight starts nothing.
     func reset() {
         linkedMeetingID = nil
         callGeneration += 1
         isCallLive = false
+        isSwitchInFlight = false
+        switchDetector.reset()
     }
 
     /// Whether the call windows had names and which rule picked the meeting.

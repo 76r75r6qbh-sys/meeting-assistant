@@ -7,6 +7,7 @@ All notable changes to Casablanca are documented here. This project follows [Sem
 ### Changed
 
 - **Teams auto-record names the recording after the call.** Casablanca reads the Teams call window's title (a person, e.g. "Marco Spoor", or a meeting subject) with the Screen Recording permission it already has. A call whose name matches a running calendar event is recorded into that event, even when another event overlaps. An ad-hoc call whose name matches no running event no longer lands in an overlapping calendar event: it becomes a meeting named after the call. Without a readable title, the old time-based choice applies.
+- **A new Teams call during a running one is recorded too.** Teams can keep the microphone open from one call into the next, so a 1:1 right after a meeting used to look like the same call and was never recorded. With auto-record on, Casablanca now checks the Teams call windows every 10 seconds during a call: once a new call window has been the newest for 10 seconds, it ends the old call (stopping its recording when auto-stop is on) and starts recording the new one. The first 10–25 seconds of the new call are not recorded.
 
 ## [0.19.1] — 2026-11-05
 
