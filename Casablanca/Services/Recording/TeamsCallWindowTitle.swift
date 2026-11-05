@@ -18,7 +18,9 @@ struct TeamsWindow: Equatable {
 /// `Calendar`, …) as its first component. For a scheduled meeting the call
 /// name equals the calendar subject; for an ad-hoc call it is the person or
 /// "Meeting with …". Anything outside that known shape yields nil, so an
-/// unexpected format falls back to time-based matching instead of a guess.
+/// unexpected format falls back to time-based matching instead of a guess. So
+/// does a generic placeholder such as "Microsoft Teams meeting", which Teams
+/// shows during an external meeting's pre-join.
 enum TeamsCallWindowTitle {
     /// Separator Teams puts between title components.
     static let separator = " | "
@@ -38,25 +40,45 @@ enum TeamsCallWindowTitle {
         "Vergaderingen",
     ].map { $0.lowercased() })
 
-    /// The call's name from Teams windows, or nil when no window is a call
-    /// window. Several distinct names (a stray pop-out next to the call): the
-    /// newest window (highest number) wins, because the call window is opened
-    /// last. That is a heuristic, so it is logged when it fires — without the
-    /// names, which identify people.
-    static func callName(fromWindows windows: [TeamsWindow]) -> String? {
-        let named = windows.compactMap { window in
-            callName(fromWindowTitle: window.title).map { (number: window.number, name: $0) }
-        }
-        guard let newest = named.max(by: { $0.number < $1.number }) else { return nil }
-        let distinct = Set(named.map(\.name)).count
-        if distinct > 1 {
-            Log.recording.notice("Teams call title: \(distinct, privacy: .public) distinct call names; newest window wins")
-        }
-        return newest.name
+    /// Names Teams shows instead of the meeting subject (an external
+    /// meeting's pre-join screen, English and Dutch UI). They name no meeting,
+    /// so they count as no name. Stored normalized like event titles
+    /// (`TeamsAutoRecordPolicy.normalizedTitle`), so case, spacing and
+    /// punctuation ("Teams-vergadering") don't matter.
+    static let placeholderCallNames: Set<String> = Set([
+        "Microsoft Teams meeting", "Microsoft Teams-vergadering", "Microsoft Teams vergadering",
+        "Teams meeting", "Meeting", "Vergadering",
+    ].map(TeamsAutoRecordPolicy.normalizedTitle))
+
+    /// Whether `name` is one of Teams' generic placeholders rather than the
+    /// call's own name.
+    static func isPlaceholderCallName(_ name: String) -> Bool {
+        placeholderCallNames.contains(TeamsAutoRecordPolicy.normalizedTitle(name))
     }
 
-    /// One title → call name, or nil for main/section windows and titles not
-    /// in the known format.
+    /// Every distinct call name in the Teams windows, newest window (highest
+    /// number) first; empty when no window is a call window. The call window
+    /// is usually opened last, but a stray pop-out can be newer, so the
+    /// policy tries every name against the calendar before falling back to
+    /// the newest. Several names are logged — as a count, since the names
+    /// identify people.
+    static func callNames(fromWindows windows: [TeamsWindow]) -> [String] {
+        var names: [String] = []
+        for window in windows.sorted(by: { $0.number > $1.number }) {
+            if let name = callName(fromWindowTitle: window.title), !names.contains(name) {
+                names.append(name)
+            }
+        }
+        if names.count > 1 {
+            Log.recording.notice(
+                "Teams call title: \(names.count, privacy: .public) distinct call names; each is tried, newest window first"
+            )
+        }
+        return names
+    }
+
+    /// One title → call name, or nil for main/section windows, placeholders
+    /// and titles not in the known format.
     static func callName(fromWindowTitle title: String) -> String? {
         // 1. Split, trim, drop empty components.
         var components = title
@@ -81,7 +103,10 @@ enum TeamsCallWindowTitle {
         guard !nonCallFirstComponents.contains(first.lowercased()) else { return nil }
 
         // 6. A meeting subject can itself contain the separator.
-        return components.joined(separator: separator)
+        let name = components.joined(separator: separator)
+
+        // 7. A placeholder instead of the subject says nothing about the call.
+        return isPlaceholderCallName(name) ? nil : name
     }
 }
 
@@ -107,14 +132,14 @@ struct CGTeamsWindowTitleReader: TeamsWindowTitleReading {
     /// scope.
     nonisolated static let teamsBundleID = "com.microsoft.teams2"
 
-    private let preflight: () -> Bool
-    private let teamsPIDs: () -> Set<pid_t>
-    private let windowList: () -> [[String: Any]]
+    private let preflight: @MainActor () -> Bool
+    private let teamsPIDs: @MainActor () -> Set<pid_t>
+    private let windowList: @MainActor () -> [[String: Any]]
 
     init(
-        preflight: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
-        teamsPIDs: @escaping () -> Set<pid_t> = { CGTeamsWindowTitleReader.runningTeamsPIDs() },
-        windowList: @escaping () -> [[String: Any]] = { CGTeamsWindowTitleReader.allWindows() }
+        preflight: @escaping @MainActor () -> Bool = { CGPreflightScreenCaptureAccess() },
+        teamsPIDs: @escaping @MainActor () -> Set<pid_t> = { CGTeamsWindowTitleReader.runningTeamsPIDs() },
+        windowList: @escaping @MainActor () -> [[String: Any]] = { CGTeamsWindowTitleReader.allWindows() }
     ) {
         self.preflight = preflight
         self.teamsPIDs = teamsPIDs

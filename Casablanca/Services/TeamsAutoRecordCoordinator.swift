@@ -51,18 +51,27 @@ enum TeamsAutoRecordPolicy {
         case recordManual(title: String)
     }
 
+    /// A start decision and the match it was made from, so the coordinator
+    /// logs the rule from the same computation. `match` is nil when the start
+    /// was skipped before any matching.
+    struct StartPlan: Equatable {
+        let decision: StartDecision
+        let match: EventMatch?
+    }
+
     /// How the call was tied to a calendar event (or not), so the coordinator
     /// can log which rule decided.
     enum EventMatch: Equatable {
         /// No usable call name: today's rule (Teams-mention preference,
         /// closest start). The event is nil when nothing is running.
         case timeBased(TeamsCallEventCandidate?)
-        /// The call name equals a running event's title once normalized.
+        /// A call name equals a running event's title once normalized.
         case exactTitle(TeamsCallEventCandidate)
-        /// One of the two is a whole-word prefix (≥ 2 words) of the other,
-        /// for exactly one running event.
+        /// A call name and an event title: one is a whole-word prefix
+        /// (≥ 2 words) of the other, for exactly one running event.
         case titlePrefix(TeamsCallEventCandidate)
-        /// The call has a name and no running event matches it.
+        /// The call has usable names and no running event matches any of
+        /// them; `callName` is the newest one.
         case noTitleMatch(callName: String)
 
         var event: TeamsCallEventCandidate? {
@@ -76,7 +85,7 @@ enum TeamsAutoRecordPolicy {
         /// For the log; never contains the call name or the event title.
         var ruleDescription: String {
             switch self {
-            case .timeBased: return "no title, time-based"
+            case .timeBased: return "no usable title, time-based"
             case .exactTitle: return "title matched event (exact)"
             case .titlePrefix: return "title matched event (prefix)"
             case .noTitleMatch: return "title matched no running event"
@@ -88,23 +97,31 @@ enum TeamsAutoRecordPolicy {
     /// from `start − 10 min` until its end.
     ///
     /// Without a call name: events that mention Teams win over those that do
-    /// not; among equals, the start closest to `now`. With one (the Teams call
-    /// window's title): only a running event whose title matches it, so an
-    /// ad-hoc call taken during another calendar item is not filed under it.
+    /// not; among equals, the start closest to `now`. With names (the Teams
+    /// call windows' titles, newest first): only a running event whose title
+    /// matches one of them, so an ad-hoc call taken during another calendar
+    /// item is not filed under it.
     static func resolveEvent(
         from candidates: [TeamsCallEventCandidate],
         now: Date,
-        callName: String? = nil
+        callNames: [String] = []
     ) -> TeamsCallEventCandidate? {
-        matchEvent(from: candidates, now: now, callName: callName).event
+        matchEvent(from: candidates, now: now, callNames: callNames).event
     }
 
     /// `resolveEvent`, plus which rule decided. See `normalizedTitle` for
     /// what "matches" ignores.
+    ///
+    /// Names that normalize to nothing (emoji only) or to a Teams placeholder
+    /// say nothing about the meeting and are dropped; none left means
+    /// time-based. Every remaining name is tried for an exact match before
+    /// any is tried for a prefix match, in the given (newest-first) order;
+    /// the first match wins. A stray pop-out newer than the call window then
+    /// cannot hide the call's own name.
     static func matchEvent(
         from candidates: [TeamsCallEventCandidate],
         now: Date,
-        callName: String?
+        callNames: [String]
     ) -> EventMatch {
         let live = candidates.filter {
             $0.startDate.addingTimeInterval(-earlyJoinWindow) <= now && now < $0.endDate
@@ -115,23 +132,33 @@ enum TeamsAutoRecordPolicy {
             }
         }
 
-        // A name that normalizes to nothing (emoji only) says nothing about
-        // the meeting: treat it as no name.
-        guard let callName else { return .timeBased(timeBasedEvent(live, closestStart)) }
-        let name = normalizedTitle(callName)
-        guard !name.isEmpty else { return .timeBased(timeBasedEvent(live, closestStart)) }
+        let usable = callNames.compactMap { callName -> (original: String, normalized: String)? in
+            let name = normalizedTitle(callName)
+            guard !name.isEmpty, !TeamsCallWindowTitle.isPlaceholderCallName(callName) else { return nil }
+            return (callName, name)
+        }
+        guard let newest = usable.first else { return .timeBased(timeBasedEvent(live, closestStart)) }
+        let liveTitles = live.map { (event: $0, title: normalizedTitle($0.title)) }
 
         // Rule 1: exact normalized equality. A title match beats the Teams
-        // mention: the window names the meeting outright.
-        let exact = live.filter { normalizedTitle($0.title) == name }
-        if let event = closestStart(exact) { return .exactTitle(event) }
+        // mention: the window names the meeting outright. Among several
+        // events with that title, the closest start.
+        for name in usable {
+            let exact = liveTitles.filter { $0.title == name.normalized }.map(\.event)
+            if let event = closestStart(exact) { return .exactTitle(event) }
+        }
 
-        // Rule 2: guarded whole-word prefix, only when unambiguous.
-        let nameWords = name.split(separator: " ")
-        let prefixed = live.filter { isGuardedPrefixMatch(nameWords, normalizedTitle($0.title).split(separator: " ")) }
-        if prefixed.count == 1, let event = prefixed.first { return .titlePrefix(event) }
+        // Rule 2: guarded whole-word prefix, only when exactly one event
+        // qualifies for that name.
+        for name in usable {
+            let nameWords = name.normalized.split(separator: " ")
+            let prefixed = liveTitles.filter {
+                isGuardedPrefixMatch(nameWords, $0.title.split(separator: " "))
+            }
+            if prefixed.count == 1, let match = prefixed.first { return .titlePrefix(match.event) }
+        }
 
-        return .noTitleMatch(callName: callName)
+        return .noTitleMatch(callName: newest.original)
     }
 
     private static func timeBasedEvent(
@@ -175,7 +202,6 @@ enum TeamsAutoRecordPolicy {
 
         let folded = String(rest)
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-            .lowercased()
         var kept = String.UnicodeScalarView()
         for scalar in folded.unicodeScalars {
             kept.append(isTitleWordScalar(scalar) ? scalar : " ")
@@ -192,10 +218,26 @@ enum TeamsAutoRecordPolicy {
              .decimalNumber, .letterNumber, .otherNumber:
             return true
         case .nonspacingMark, .spacingMark:
-            return !scalar.properties.isVariationSelector && !scalar.properties.isEmojiModifier
+            return !scalar.properties.isVariationSelector
         default:
             return false
         }
+    }
+
+    /// Why a call start is skipped before any event matching, or nil when a
+    /// start can follow. The coordinator checks this before reading the
+    /// Teams window titles, so a skipped start never reads them.
+    static func skipReason(
+        isEnabled: Bool,
+        isRecordingBusy: Bool,
+        selectedMeetingStatus: MeetingStatus?
+    ) -> String? {
+        guard isEnabled else { return "auto-record is off" }
+        guard !isRecordingBusy else { return "a recording is already active" }
+        if selectedMeetingStatus == .recording || selectedMeetingStatus == .pausedRecording {
+            return "the open meeting is already recording or paused"
+        }
+        return nil
     }
 
     static func startDecision(
@@ -204,21 +246,25 @@ enum TeamsAutoRecordPolicy {
         selectedMeetingStatus: MeetingStatus?,
         candidates: [TeamsCallEventCandidate],
         now: Date,
-        callName: String? = nil,
+        callNames: [String] = [],
         manualTitle: (Date) -> String = manualMeetingTitle
-    ) -> StartDecision {
-        guard isEnabled else { return .skip("auto-record is off") }
-        guard !isRecordingBusy else { return .skip("a recording is already active") }
-        if selectedMeetingStatus == .recording || selectedMeetingStatus == .pausedRecording {
-            return .skip("the open meeting is already recording or paused")
+    ) -> StartPlan {
+        if let reason = skipReason(
+            isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
+        ) {
+            return StartPlan(decision: .skip(reason), match: nil)
         }
-        switch matchEvent(from: candidates, now: now, callName: callName) {
+        let match = matchEvent(from: candidates, now: now, callNames: callNames)
+        let decision: StartDecision
+        switch match {
+        case .exactTitle(let event), .titlePrefix(let event), .timeBased(.some(let event)):
+            decision = .recordEvent(identifier: event.identifier)
+        case .timeBased(nil):
+            decision = .recordManual(title: manualTitle(now))
         case .noTitleMatch(let callName):
-            return .recordManual(title: callName)
-        case let match:
-            if let event = match.event { return .recordEvent(identifier: event.identifier) }
-            return .recordManual(title: manualTitle(now))
+            decision = .recordManual(title: callName)
         }
+        return StartPlan(decision: decision, match: match)
     }
 
     /// Whether the call's end should stop the recording linked to it. A
@@ -304,10 +350,11 @@ protocol TeamsAutoRecordHost: AnyObject {
     /// its finalize/merge is running.
     func isStopInFlight(meetingID: UUID) -> Bool
     func teamsCallCandidates() -> [TeamsCallEventCandidate]
-    /// The running Teams call's name from its window title (a person, or the
-    /// meeting subject), or nil when no title is readable. Reads the window
-    /// server, so the coordinator calls it only when a start can follow.
-    func teamsCallName() -> String?
+    /// The running Teams call's names from its window titles (a person, or
+    /// the meeting subject), distinct, newest window first; empty when no
+    /// title is readable. Reads the window server, so the coordinator calls
+    /// it only when a start can follow.
+    func teamsCallNames() -> [String]
     /// Starts recording the event's meeting, or a new manual meeting when
     /// `eventIdentifier` is nil. Returns the meeting ID once capture runs,
     /// `nil` when it did not start.
@@ -359,27 +406,30 @@ final class TeamsAutoRecordCoordinator {
             return
         }
 
-        // The call window's title is read only when a start can follow:
-        // `startDecision` checks these too, but too late to save the read.
+        // The call windows' titles are read only when a start can follow:
+        // `startDecision` checks the same conditions, but too late to save
+        // the read.
         let isEnabled = AppPreferences.teamsAutoRecordEnabled(in: defaults)
         let isRecordingBusy = host.isRecordingBusy
-        let callName = isEnabled && !isRecordingBusy ? host.teamsCallName() : nil
-        let candidates = host.teamsCallCandidates()
-        let callTime = now()
+        let selectedMeetingStatus = host.selectedMeetingStatus
+        let canStart = TeamsAutoRecordPolicy.skipReason(
+            isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
+        ) == nil
+        let callNames = canStart ? host.teamsCallNames() : []
 
-        let decision = TeamsAutoRecordPolicy.startDecision(
+        let plan = TeamsAutoRecordPolicy.startDecision(
             isEnabled: isEnabled,
             isRecordingBusy: isRecordingBusy,
-            selectedMeetingStatus: host.selectedMeetingStatus,
-            candidates: candidates,
-            now: callTime,
-            callName: callName
+            selectedMeetingStatus: selectedMeetingStatus,
+            candidates: host.teamsCallCandidates(),
+            now: now(),
+            callNames: callNames
         )
-        if case .skip = decision {} else {
-            logCallName(callName, match: TeamsAutoRecordPolicy.matchEvent(from: candidates, now: callTime, callName: callName))
+        if let match = plan.match {
+            logCallNames(callNames, match: match)
         }
         let started: UUID?
-        switch decision {
+        switch plan.decision {
         case .skip(let reason):
             Log.recording.notice("Teams call started; not auto-recording: \(reason, privacy: .public)")
             return
@@ -464,15 +514,15 @@ final class TeamsAutoRecordCoordinator {
         isCallLive = false
     }
 
-    /// Whether the call window had a name and which rule picked the meeting.
-    /// The name is a person's name or a meeting subject, so it stays private.
-    private func logCallName(_ callName: String?, match: TeamsAutoRecordPolicy.EventMatch) {
-        if let callName {
-            Log.recording.notice(
-                "Teams call name found (\(callName, privacy: .private)); \(match.ruleDescription, privacy: .public)"
-            )
-        } else {
+    /// Whether the call windows had names and which rule picked the meeting.
+    /// A name is a person's name or a meeting subject, so it stays private.
+    private func logCallNames(_ callNames: [String], match: TeamsAutoRecordPolicy.EventMatch) {
+        if callNames.isEmpty {
             Log.recording.notice("Teams call name not found; \(match.ruleDescription, privacy: .public)")
+        } else {
+            Log.recording.notice(
+                "Teams call names found (\(callNames.count, privacy: .public): \(callNames.joined(separator: "; "), privacy: .private)); \(match.ruleDescription, privacy: .public)"
+            )
         }
     }
 

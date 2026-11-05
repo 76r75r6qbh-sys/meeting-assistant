@@ -767,8 +767,8 @@ extension AppModel: TeamsAutoRecordHost {
         calendarService.events.compactMap(TeamsCallEventCandidate.init(event:))
     }
 
-    func teamsCallName() -> String? {
-        TeamsCallWindowTitle.callName(fromWindows: teamsWindowTitleReader.teamsWindows())
+    func teamsCallNames() -> [String] {
+        TeamsCallWindowTitle.callNames(fromWindows: teamsWindowTitleReader.teamsWindows())
     }
 
     func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID? {

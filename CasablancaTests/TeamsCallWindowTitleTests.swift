@@ -102,6 +102,48 @@ final class TeamsCallWindowTitleParserTests: XCTestCase {
         XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: "youri.broekhuizen@medicore.nl"))
     }
 
+    // MARK: Placeholders (Revision 2)
+
+    func testExternalMeetingPreJoinPlaceholderIsNoName() {
+        // Captured 2026-11-05 10:01 for ~8 s before the subject appeared.
+        XCTAssertNil(TeamsCallWindowTitle.callName(
+            fromWindowTitle: "Meeting join | Microsoft Teams meeting | Medicore | youri.broekhuizen@medicore.nl"))
+    }
+
+    func testExternalMeetingInCallTitleIsTheSubject() {
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(
+                fromWindowTitle: "Medicore/Prakikon/Levvel | Medicore | youri.broekhuizen@medicore.nl"),
+            "Medicore/Prakikon/Levvel")
+    }
+
+    func testPoppedOutChatIsNoName() {
+        XCTAssertNil(TeamsCallWindowTitle.callName(
+            fromWindowTitle: "Chat | Marco Spoor | Medicore | youri.broekhuizen@medicore.nl"))
+    }
+
+    func testEveryPlaceholderIsNoNameWhateverItsCasePunctuationOrSpacing() {
+        for placeholder in [
+            "Microsoft Teams meeting", "Microsoft Teams-vergadering", "Microsoft Teams vergadering",
+            "Teams meeting", "Meeting", "Vergadering",
+            "MICROSOFT TEAMS MEETING", "microsoft  teams-meeting", "Teams Meeting.", "vergadering",
+        ] {
+            XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: placeholder + suffix), placeholder)
+            XCTAssertNil(
+                TeamsCallWindowTitle.callName(fromWindowTitle: "Meeting join | " + placeholder + suffix), placeholder)
+            XCTAssertTrue(TeamsCallWindowTitle.isPlaceholderCallName(placeholder), placeholder)
+        }
+    }
+
+    func testNamesThatOnlyContainAPlaceholderAreStillNames() {
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(fromWindowTitle: "Meeting with Youri Broekhuizen" + suffix),
+            "Meeting with Youri Broekhuizen")
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(fromWindowTitle: "Teams meeting Link" + suffix), "Teams meeting Link")
+        XCTAssertFalse(TeamsCallWindowTitle.isPlaceholderCallName("Vergadering Team Link"))
+    }
+
     func testEmptyAndWhitespaceTitles() {
         XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: ""))
         XCTAssertNil(TeamsCallWindowTitle.callName(fromWindowTitle: "   "))
@@ -115,12 +157,12 @@ final class TeamsCallWindowListTests: XCTestCase {
     private let suffix = " | Medicore | youri.broekhuizen@medicore.nl"
 
     func testEmptyListHasNoCallName() {
-        XCTAssertNil(TeamsCallWindowTitle.callName(fromWindows: []))
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: []), [])
     }
 
     func testOnlyMainWindowHasNoCallName() {
         let windows = [TeamsWindow(number: 10, title: "Chat | Marco Spoor" + suffix)]
-        XCTAssertNil(TeamsCallWindowTitle.callName(fromWindows: windows))
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), [])
     }
 
     func testPreJoinWindowNextToMainWindow() {
@@ -128,7 +170,7 @@ final class TeamsCallWindowListTests: XCTestCase {
             TeamsWindow(number: 10, title: "Calendar" + suffix),
             TeamsWindow(number: 42, title: "Meeting join | Daily AI team" + suffix),
         ]
-        XCTAssertEqual(TeamsCallWindowTitle.callName(fromWindows: windows), "Daily AI team")
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), ["Daily AI team"])
     }
 
     func testScreenSharingDuplicatesAreOneName() {
@@ -140,7 +182,7 @@ final class TeamsCallWindowListTests: XCTestCase {
             TeamsWindow(number: 50, title: "Sharing control bar" + suffix),
             TeamsWindow(number: 51, title: "Daily AI team" + suffix),
         ]
-        XCTAssertEqual(TeamsCallWindowTitle.callName(fromWindows: windows), "Daily AI team")
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), ["Daily AI team"])
     }
 
     func testNewestWindowWinsAmongDistinctNames() {
@@ -148,9 +190,35 @@ final class TeamsCallWindowListTests: XCTestCase {
             TeamsWindow(number: 77, title: "Daily AI team" + suffix),
             TeamsWindow(number: 30, title: "Marco Spoor" + suffix),
         ]
-        XCTAssertEqual(TeamsCallWindowTitle.callName(fromWindows: windows), "Daily AI team")
-        XCTAssertEqual(TeamsCallWindowTitle.callName(fromWindows: windows.reversed()), "Daily AI team",
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows).first, "Daily AI team")
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows.reversed()).first, "Daily AI team",
                        "Order of the list does not matter; the window number decides")
+    }
+
+    func testEveryDistinctNameIsReturnedNewestWindowFirst() {
+        let windows = [
+            TeamsWindow(number: 30, title: "Marco Spoor" + suffix),
+            TeamsWindow(number: 10, title: "Chat | Marco Spoor" + suffix),
+            TeamsWindow(number: 77, title: "Daily AI team" + suffix),
+            TeamsWindow(number: 51, title: "Partner sync" + suffix),
+            TeamsWindow(number: 20, title: "Daily AI team" + suffix),
+        ]
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callNames(fromWindows: windows),
+            ["Daily AI team", "Partner sync", "Marco Spoor"]
+        )
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callNames(fromWindows: windows.reversed()),
+            ["Daily AI team", "Partner sync", "Marco Spoor"]
+        )
+    }
+
+    func testPlaceholderWindowIsLeftOutOfTheList() {
+        let windows = [
+            TeamsWindow(number: 10, title: "Calendar" + suffix),
+            TeamsWindow(number: 42, title: "Meeting join | Microsoft Teams meeting" + suffix),
+        ]
+        XCTAssertEqual(TeamsCallWindowTitle.callNames(fromWindows: windows), [])
     }
 }
 
@@ -215,6 +283,45 @@ final class CGTeamsWindowTitleReaderTests: XCTestCase {
             TeamsWindow(number: 42, title: "Daily AI team" + suffix),
             TeamsWindow(number: 50, title: "Sharing control bar" + suffix),
         ])
+    }
+
+    func testWhitespaceOnlyWindowNameIsIgnored() {
+        let reader = CGTeamsWindowTitleReader(
+            preflight: { true },
+            teamsPIDs: { [100] },
+            windowList: {
+                [
+                    self.window(pid: 100, number: 10, name: "   "),
+                    self.window(pid: 100, number: 11, name: " \n\t "),
+                    self.window(pid: 100, number: 42, name: "Daily AI team" + self.suffix),
+                ]
+            }
+        )
+        XCTAssertEqual(reader.teamsWindows(), [TeamsWindow(number: 42, title: "Daily AI team" + suffix)])
+    }
+
+    func testOwnerPIDAndWindowNumberAsInt32NSNumbersAreRead() {
+        // The window server hands out CFNumbers of 32-bit ints.
+        let reader = CGTeamsWindowTitleReader(
+            preflight: { true },
+            teamsPIDs: { [100] },
+            windowList: {
+                [
+                    [
+                        kCGWindowOwnerPID as String: NSNumber(value: Int32(100)),
+                        kCGWindowNumber as String: NSNumber(value: Int32(42)),
+                        kCGWindowLayer as String: NSNumber(value: Int32(0)),
+                        kCGWindowName as String: "Daily AI team" + self.suffix,
+                    ],
+                    [
+                        kCGWindowOwnerPID as String: NSNumber(value: Int32(200)),
+                        kCGWindowNumber as String: NSNumber(value: Int32(43)),
+                        kCGWindowName as String: "Other app" + self.suffix,
+                    ],
+                ]
+            }
+        )
+        XCTAssertEqual(reader.teamsWindows(), [TeamsWindow(number: 42, title: "Daily AI team" + suffix)])
     }
 
     func testWindowsWithoutANumberAreSkipped() {
