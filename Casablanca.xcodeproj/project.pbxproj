@@ -51,6 +51,7 @@
 		4DC0903AB12D1870713DAA6C /* TranscriptionTimingReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE45252DEB27EB25A550D4D /* TranscriptionTimingReportTests.swift */; };
 		516C69B9F96966F24094766A /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5609E4DAE701D3E99C18ED /* CommandRunner.swift */; };
 		53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */; };
+		5AAAD41267256F927FF20B41 /* TeamsCallWindowTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D451672339506D46F826DDB /* TeamsCallWindowTitleTests.swift */; };
 		54A689833AB34ABBFCCD2124 /* GitHubReleaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEBCC07A82694092AF7D696 /* GitHubReleaseClient.swift */; };
 		5C637014C8D2430DB4C6FC9F /* SemanticVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830EA0C2E42BDA3BE7689572 /* SemanticVersionTests.swift */; };
 		5CA1ED5CF22B49C4EE9D4BF5 /* StubLLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */; };
@@ -265,6 +266,7 @@
 		E218EA013255FBBBBB3823C0 /* RecordingSessionTeardownResilienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5673A395920E148C553DB906 /* RecordingSessionTeardownResilienceTests.swift */; };
 		E5E38754531B670996CC6A14 /* JiraMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49118EF395C4C75374DCBE7 /* JiraMarkup.swift */; };
 		E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */; };
+		AE4819F408D487C942BEAA2A /* TeamsCallWindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ADACDA74DBE127BC888DE4B /* TeamsCallWindowTitle.swift */; };
 		E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20B0018BBB87668187B7260 /* MeetingPrepService+Save.swift */; };
 		EA1846C6629C967972FDECC9 /* ClaudeCLIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818F2524AA9EF63EE6867862 /* ClaudeCLIProviderTests.swift */; };
 		ED91972EE2CA0A2533FC5093 /* TopdeskResponseBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C8A4BA2495EFC1E38EF117 /* TopdeskResponseBody.swift */; };
@@ -335,6 +337,7 @@
 		4672FEB4BDED2E6CA8AD7E83 /* GitHubReleaseClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitHubReleaseClientTests.swift; sourceTree = "<group>"; };
 		478DFBF32F408533A811CEA2 /* RecordingSessionRecoveryCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingSessionRecoveryCoordinator.swift; sourceTree = "<group>"; };
 		47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TeamsAutoRecordTests.swift; sourceTree = SOURCE_ROOT; };
+		8D451672339506D46F826DDB /* TeamsCallWindowTitleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/TeamsCallWindowTitleTests.swift; sourceTree = SOURCE_ROOT; };
 		48D20F343EEE59691A539A5C /* OMLXProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OMLXProviderTests.swift; sourceTree = "<group>"; };
 		48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
 		4C3EE3FF1E165A4EC1D25A3F /* RecordingSessionSystemAudioFallbackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/RecordingSessionSystemAudioFallbackTests.swift; sourceTree = SOURCE_ROOT; };
@@ -367,6 +370,7 @@
 		8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		8E28628B25302DC000E13FC8 /* RecordingResumeAndStopContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingResumeAndStopContractTests.swift; sourceTree = "<group>"; };
 		8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/TeamsCallMonitor.swift; sourceTree = SOURCE_ROOT; };
+		3ADACDA74DBE127BC888DE4B /* TeamsCallWindowTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/Recording/TeamsCallWindowTitle.swift; sourceTree = SOURCE_ROOT; };
 		94A49CA3494756C27CD173CA /* SemanticVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		95786DAF803B0D684FDD1A0D /* PerMeetingViewStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/PerMeetingViewStateTests.swift; sourceTree = SOURCE_ROOT; };
 		9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/SplitColumnMinimumSizeProbe.swift; sourceTree = SOURCE_ROOT; };
@@ -965,6 +969,7 @@
 				9742558AC32B4CB9D9F1CA24 /* SplitColumnMinimumSizeProbe.swift */,
 				3C9F3B5A9AFE489FB0A521DF /* ActionItemOwnershipTests.swift */,
 				47E4C0178146EAF48D2C5E19 /* TeamsAutoRecordTests.swift */,
+				8D451672339506D46F826DDB /* TeamsCallWindowTitleTests.swift */,
 				1A6E6FBDD15F9EE21F53C8EA /* PrepInspectorAutoOpenTests.swift */,
 				A3A158FF2F563C8CEDAA0235 /* MeetingPrepSaveTests.swift */,
 				13AFDDCB4971B8DBB1498E89 /* MicrophoneCaptureUnitTests.swift */,
@@ -1021,6 +1026,7 @@
 				28FB4A3A29746A668CC57166 /* MeetingRecordingController.swift */,
 				44536E4AAC3CBEBE0EABBAEB /* TeamsAudioActivitySource.swift */,
 				8E99FDE02F5B144CB12D5D1C /* TeamsCallMonitor.swift */,
+				3ADACDA74DBE127BC888DE4B /* TeamsCallWindowTitle.swift */,
 				69661D517D8526A2AF843463 /* RecordingFiles.swift */,
 			);
 			name = Recording;
@@ -1327,6 +1333,7 @@
 				B9813AAEF2C9D16567103D27 /* MeetingRecordingController.swift in Sources */,
 				417E9D3289ACEC06DC1A08D9 /* TeamsAudioActivitySource.swift in Sources */,
 				E61D0FC4EA858718D7B287D2 /* TeamsCallMonitor.swift in Sources */,
+				AE4819F408D487C942BEAA2A /* TeamsCallWindowTitle.swift in Sources */,
 				F862A137FDDE6E0FD159BB1E /* TeamsAutoRecordCoordinator.swift in Sources */,
 				E837FC04BB89E8D1B98BBA69 /* MeetingPrepService+Save.swift in Sources */,
 				68475463F02EB9FA882801C0 /* RecordingFiles.swift in Sources */,
@@ -1434,6 +1441,7 @@
 				DB399A78E4B63BCC266FF0D5 /* SplitColumnMinimumSizeProbe.swift in Sources */,
 				1D617BCDD48D84EC20F3F25F /* ActionItemOwnershipTests.swift in Sources */,
 				53EB6BD4823F8C82848A119E /* TeamsAutoRecordTests.swift in Sources */,
+				5AAAD41267256F927FF20B41 /* TeamsCallWindowTitleTests.swift in Sources */,
 				96B6EF4530ECB70A2C53EFC5 /* PrepInspectorAutoOpenTests.swift in Sources */,
 				3C8DA02E3052008449165D26 /* MeetingPrepSaveTests.swift in Sources */,
 				AF66FB3E85AFE2D65104582F /* MicrophoneCaptureUnitTests.swift in Sources */,
