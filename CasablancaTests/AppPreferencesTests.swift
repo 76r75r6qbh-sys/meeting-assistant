@@ -94,4 +94,36 @@ final class AppPreferencesTests: XCTestCase {
         AppPreferences.setLLMProvider(.claudeCode, in: defaults)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.llmProvider), "claudeCode")
     }
+
+    func testNewSpeechPipelineDefaults() {
+        let defaults = makeDefaults()
+        AppPreferences.registerDefaults(in: defaults)
+
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.recogniseSpeakersEnabled) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.keepSpeakerTracks) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.wordTimestampsEnabled) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.voiceProfilesEnabled) as? Bool, false)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.summaryTemplates), "")
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.autoAcceptVerifiedTodos) as? Bool, false)
+
+        XCTAssertEqual(AppPreferenceKey.recogniseSpeakersEnabled, "recogniseSpeakersEnabled")
+        XCTAssertEqual(AppPreferenceKey.keepSpeakerTracks, "keepSpeakerTracks")
+        XCTAssertEqual(AppPreferenceKey.wordTimestampsEnabled, "wordTimestampsEnabled")
+        XCTAssertEqual(AppPreferenceKey.voiceProfilesEnabled, "voiceProfilesEnabled")
+        XCTAssertEqual(AppPreferenceKey.summaryTemplates, "summaryTemplates")
+        XCTAssertEqual(AppPreferenceKey.autoAcceptVerifiedTodos, "autoAcceptVerifiedTodos")
+    }
+
+    /// Registered defaults live in the volatile registration domain: a value the
+    /// user stored always wins, and registering never writes to the store.
+    func testSpeechPipelineDefaultsNeverOverrideStoredValues() {
+        let suite = UUID().uuidString
+        let defaults = makeDefaults(suite: suite)
+        defaults.set(false, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+
+        AppPreferences.registerDefaults(in: defaults)
+
+        XCTAssertFalse(defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled))
+        XCTAssertNil(defaults.persistentDomain(forName: suite)?[AppPreferenceKey.keepSpeakerTracks])
+    }
 }

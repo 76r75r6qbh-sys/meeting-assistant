@@ -26,6 +26,10 @@ struct CasablancaApp: App {
     }
 
     init() {
+        // Registration domain only (volatile, never written to the user's store),
+        // so it is safe for benchmark runs and the test host as well.
+        AppPreferences.registerDefaults()
+
         // Benchmark mode is decided before anything else: a measurement run must
         // not open (and so never migrate or mutate) the real meeting database.
         // The scene still needs *a* container, so it gets an in-memory one that

@@ -379,6 +379,10 @@ struct SettingsView: View {
                     .foregroundStyle(Color.textTertiary)
             }
 
+            SummaryTemplatesSettingsSection()
+
+            ActionItemReviewSettingsSection()
+
             Section("Terminology") {
                 Toggle("Correct terminology after transcription", isOn: $terminologyCorrectionEnabled)
 
@@ -466,6 +470,10 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
             }
+
+            SpeakerSettingsSection()
+
+            PrivacySettingsSection()
 
             Section("Notifications") {
                 Toggle("Notify me to start recording at meeting time", isOn: $meetingStartNotificationsEnabled)

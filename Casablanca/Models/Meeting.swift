@@ -44,6 +44,21 @@ enum AppPreferenceKey {
     /// Open the notes inspector on its Prep tab when a meeting with prep is
     /// opened. Default on.
     static let autoOpenMeetingPrep = "autoOpenMeetingPrep"
+
+    // Speech pipeline (2026-11 upgrade). Defaults are registered in
+    // `AppPreferences.registerDefaults(in:)`.
+    /// Diarize and label speakers after transcription. Default on.
+    static let recogniseSpeakersEnabled = "recogniseSpeakersEnabled"
+    /// Keep the separate mic/system speaker tracks after analysis. Default on.
+    static let keepSpeakerTracks = "keepSpeakerTracks"
+    /// Ask WhisperKit for word-level timestamps. Default on.
+    static let wordTimestampsEnabled = "wordTimestampsEnabled"
+    /// Remember voices as voice profiles (biometric data). Default off.
+    static let voiceProfilesEnabled = "voiceProfilesEnabled"
+    /// JSON-encoded summary template overrides/customs. Empty = built-ins only.
+    static let summaryTemplates = "summaryTemplates"
+    /// Accept to-dos whose quote the transcript confirms without review. Default off.
+    static let autoAcceptVerifiedTodos = "autoAcceptVerifiedTodos"
 }
 
 enum AppPreferenceValue {

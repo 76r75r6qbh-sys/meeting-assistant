@@ -17,6 +17,24 @@ enum LLMProviderKind: String, CaseIterable {
 }
 
 enum AppPreferences {
+    /// Registration-domain defaults for preferences whose default is not the
+    /// type's zero value. Registered at launch; `@AppStorage` initial values in
+    /// the Settings sections must match.
+    static let registeredDefaults: [String: Any] = [
+        AppPreferenceKey.recogniseSpeakersEnabled: true,
+        AppPreferenceKey.keepSpeakerTracks: true,
+        AppPreferenceKey.wordTimestampsEnabled: true,
+        AppPreferenceKey.voiceProfilesEnabled: false,
+        AppPreferenceKey.summaryTemplates: "",
+        AppPreferenceKey.autoAcceptVerifiedTodos: false,
+    ]
+
+    /// Registers ``registeredDefaults``. The registration domain is volatile:
+    /// nothing is written to the user's store and stored values always win.
+    static func registerDefaults(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: registeredDefaults)
+    }
+
     static func exportDestination(in defaults: UserDefaults = .standard) -> ExportDestination {
         let raw = defaults.string(forKey: AppPreferenceKey.exportDestination) ?? ""
         return ExportDestination(rawValue: raw) ?? .obsidian

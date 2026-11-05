@@ -107,6 +107,11 @@
 		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
+		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
+		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
+		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
+		ACPS0005 /* SummaryTemplatesSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0105 /* SummaryTemplatesSettingsSection.swift */; };
+		ACPS0006 /* ActionItemReviewSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0106 /* ActionItemReviewSettingsSection.swift */; };
 		TCHK0001 /* TranscriptChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCHK0101 /* TranscriptChunker.swift */; };
 		SPKT0003 /* TranscriptLineFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0103 /* TranscriptLineFormat.swift */; };
 		SPKT0002 /* ExtractedActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKT0102 /* ExtractedActionItem.swift */; };
@@ -140,6 +145,7 @@
 		A10052 /* RecordingNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* RecordingNotificationCenter.swift */; };
 		A10053 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* AppPreferences.swift */; };
 		A10054 /* AppPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* AppPreferencesTests.swift */; };
+		ACPS0001 /* AudioClipPlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0101 /* AudioClipPlayerTests.swift */; };
 		A10055 /* AppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055 /* AppleNotesScripting.swift */; };
 		A10056 /* InMemoryAppleNotesScripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10056 /* InMemoryAppleNotesScripting.swift */; };
 		A10057 /* AppleNotesScriptingFakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10057 /* AppleNotesScriptingFakeTests.swift */; };
@@ -414,6 +420,11 @@
 		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
+		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
+		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
+		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
+		ACPS0105 /* SummaryTemplatesSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplatesSettingsSection.swift; sourceTree = "<group>"; };
+		ACPS0106 /* ActionItemReviewSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemReviewSettingsSection.swift; sourceTree = "<group>"; };
 		TCHK0101 /* TranscriptChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptChunker.swift; sourceTree = "<group>"; };
 		SPKT0103 /* TranscriptLineFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLineFormat.swift; sourceTree = "<group>"; };
 		SPKT0102 /* ExtractedActionItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedActionItem.swift; sourceTree = "<group>"; };
@@ -446,6 +457,7 @@
 		B10052 /* RecordingNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNotificationCenter.swift; sourceTree = "<group>"; };
 		B10053 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		B10054 /* AppPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesTests.swift; sourceTree = "<group>"; };
+		ACPS0101 /* AudioClipPlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayerTests.swift; sourceTree = "<group>"; };
 		B10055 /* AppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScripting.swift; sourceTree = "<group>"; };
 		B10056 /* InMemoryAppleNotesScripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryAppleNotesScripting.swift; sourceTree = "<group>"; };
 		B10057 /* AppleNotesScriptingFakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleNotesScriptingFakeTests.swift; sourceTree = "<group>"; };
@@ -759,6 +771,7 @@
 				E10610 /* Recording */,
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
+				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
 				SPKT0103 /* TranscriptLineFormat.swift */,
 				CHAT0102 /* MeetingChatService.swift */,
@@ -830,6 +843,7 @@
 				B10021 /* TranscriptionView.swift */,
 				B10025 /* MenuBarMeetingView.swift */,
 				B10014 /* SettingsView.swift */,
+				ACPS0200 /* Settings */,
 				B10031 /* TodosView.swift */,
 				E10011 /* Components */,
 				78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */,
@@ -937,6 +951,7 @@
 				B10073 /* MeetingStartNotifierTests.swift */,
 				B10310 /* RecordingSessionFrameAccountingTests.swift */,
 				B10054 /* AppPreferencesTests.swift */,
+				ACPS0101 /* AudioClipPlayerTests.swift */,
 				B10057 /* AppleNotesScriptingFakeTests.swift */,
 				B10059 /* AppleNotesBodyRendererTests.swift */,
 				B10061 /* AppleNotesExportErrorTests.swift */,
@@ -1005,6 +1020,17 @@
 				B10204 /* MeetingNotesHeader.swift */,
 			);
 			path = NotesEditor;
+			sourceTree = "<group>";
+		};
+		ACPS0200 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				ACPS0103 /* SpeakerSettingsSection.swift */,
+				ACPS0104 /* PrivacySettingsSection.swift */,
+				ACPS0105 /* SummaryTemplatesSettingsSection.swift */,
+				ACPS0106 /* ActionItemReviewSettingsSection.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		E10210 /* MeetingDetail */ = {
@@ -1245,6 +1271,11 @@
 				A10021 /* MarkdownTextEditor.swift in Sources */,
 				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
+				ACPS0002 /* AudioClipPlayer.swift in Sources */,
+				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
+				ACPS0004 /* PrivacySettingsSection.swift in Sources */,
+				ACPS0005 /* SummaryTemplatesSettingsSection.swift in Sources */,
+				ACPS0006 /* ActionItemReviewSettingsSection.swift in Sources */,
 				TCHK0001 /* TranscriptChunker.swift in Sources */,
 				SPKT0003 /* TranscriptLineFormat.swift in Sources */,
 				SPKT0002 /* ExtractedActionItem.swift in Sources */,
@@ -1396,6 +1427,7 @@
 				A10073 /* MeetingStartNotifierTests.swift in Sources */,
 				A10310 /* RecordingSessionFrameAccountingTests.swift in Sources */,
 				A10054 /* AppPreferencesTests.swift in Sources */,
+				ACPS0001 /* AudioClipPlayerTests.swift in Sources */,
 				A10056 /* InMemoryAppleNotesScripting.swift in Sources */,
 				A10057 /* AppleNotesScriptingFakeTests.swift in Sources */,
 				A10059 /* AppleNotesBodyRendererTests.swift in Sources */,
