@@ -27,46 +27,9 @@ enum SummarizationError: LocalizedError {
 @MainActor
 @Observable
 final class SummarizationService {
-    static let defaultPromptTemplate = """
-    You are a meeting assistant creating structured, high-signal meeting notes.
-
-    Write the notes in the dominant language of the transcript (Dutch transcript -> Dutch notes, English transcript -> English notes).
-
-    Use only the information provided below. If something is unclear or missing, leave it out instead of guessing.
-
-    The transcript comes from machine speech recognition and may misspell names of people, companies and products. Correct obvious mistranscriptions using the terminology list and the participants list. Never invent names, and never comment on transcript quality in the notes.
-
-    Structure the notes as follows:
-
-    1. Start with a single `# Summary` heading (Dutch: `# Samenvatting`) followed by a 2-4 sentence paragraph: what the meeting was about and its main outcome.
-    2. Then 2-5 thematic sections, each with a descriptive `## <theme>` heading, containing a short intro sentence and/or `- **subtopic:** detail` bullets. Capture the reasoning behind conclusions, not just the conclusions.
-    3. If the meeting discussed planning across dates, weeks or months, add a `## Planning` section with chronological bullets: `- **<period>** — <milestone or activity>`.
-    4. If hiring or staffing was discussed, add a `## Personele zaken` (English: `## Personnel`) section.
-    5. End with these four sections, always present, in this order. Use exactly these headings — Dutch notes / English notes:
-       `## Besluiten` / `## Decisions`
-       `## Actiepunten` / `## Action Items`
-       `## Risico's en blockers` / `## Risks and Blockers`
-       `## Opvolging` / `## Follow-ups`
-
-    Rules for the four closing sections:
-    - Every item is a `- ` bullet. If a section has no items, keep the heading with nothing below it.
-    - Decisions include their stated rationale.
-    - Each action item is one bullet formatted `- **<owner>** — <action>`. Resolve the owner against the participants list; use the person's name, never "me" or "I". If no owner was stated, use `- **?** — <action>`.
-    - The note-taker is {{user_name}}. When the note-taker commits to something ("I will…", "ik pak dat op"), the owner is {{user_name}}.
-    - Omit optional sections that have nothing meaningful. Never add sections about the transcript itself.
-
-    {{terminology_list}}
-
-    Meeting title: {{title}}
-    Scheduled time: {{scheduled_time}}
-    Participants: {{participants}}
-
-    Transcript:
-    {{transcript}}
-
-    Freeform notes:
-    {{freeform_notes}}
-    """
+    /// The General template as shipped: `SummaryTemplateCatalog`'s shared
+    /// prompt with the general body structure (items 2.–4.).
+    static let defaultPromptTemplate = SummaryTemplateCatalog.compose(structure: SummaryTemplateCatalog.generalStructure)
 
     /// Upper bound on generated summary length when thinking is OFF. Local models
     /// can otherwise ramble or loop for thousands of tokens on a short transcript.
@@ -91,6 +54,10 @@ final class SummarizationService {
         case merging(level: Int)
         case retrying(attempt: Int, maxAttempts: Int)
         case parsing
+        /// One repair (or rebuild) call because the JSON facts block was invalid or missing.
+        case repairing
+        /// Checking the extracted action items against the transcript.
+        case verifying
     }
 
     private(set) var isSummarizing = false
@@ -113,8 +80,18 @@ final class SummarizationService {
             return "\(providerDisplayName) request failed, retrying (\(attempt)/\(maxAttempts))..."
         case .parsing:
             return "Processing summary…"
+        case .repairing:
+            return Self.repairingStatus
+        case .verifying:
+            return Self.verifyingStatus
         }
     }
+
+    /// Status line for `.repairing`, shared with `MeetingPipelinePresentation`.
+    nonisolated static let repairingStatus = "Repairing the structured notes…"
+
+    /// Status line for `.verifying`.
+    nonisolated static let verifyingStatus = "Checking action items against the transcript…"
 
     /// Status line for `.condensing`, shared with `MeetingPipelinePresentation`
     /// so the summary tab, sidebar and processing card say the same thing.
@@ -155,15 +132,27 @@ final class SummarizationService {
         /// provider or server is what changes the output.
         let provider: String
         let terminologyBlock: String
+        /// The map prompt's focus block (prep + notes): a changed prep must
+        /// re-extract every part.
+        let focusSHA256: String
+        /// Relative due dates resolve against it.
+        let meetingDate: Date
         let thinkingEnabled: Bool
         let chunkTokens: Int
         let chunkIndex: Int
     }
 
+    /// What one map call produced: decoded facts, or (when the JSON and its one
+    /// repair were both unreadable) the raw text, used as markdown notes.
+    enum CondensedPart: Equatable {
+        case facts(SummaryFacts)
+        case markdown(String)
+    }
+
     /// Condensed parts of the most recent map-reduce run, so Retry after a failed
     /// part re-uses the parts that already succeeded (a local model spends a
     /// minute or more per part). In memory only, one meeting at a time.
-    private var condensedPartCache: [CondensedPartKey: String] = [:]
+    private var condensedPartCache: [CondensedPartKey: CondensedPart] = [:]
     private var condensedPartCacheMeetingID: UUID?
 
     /// How `summarize` obtains its provider. Injectable so the tests can assert what
@@ -180,23 +169,52 @@ final class SummarizationService {
     /// retry without sleeping through the real backoff.
     private let retryPolicy: LLMRetryPolicy
 
+    /// Calendar attendees (names, e-mails, which one is the user) for the
+    /// participants line. Injectable so tests never touch EventKit.
+    private let attendeeProvider: MeetingAttendeeProviding
+
+    /// Loads the meeting's prep (vault file or local prep notes) for the focus
+    /// block. Injectable so tests never read the user's vault.
+    private let prepLoader: @MainActor (Meeting, UserDefaults) async -> String?
+
+    /// Resolves the meeting date for the JSON instruction and relative due
+    /// dates. Injectable so tests pin ISO-8601 and a time zone.
+    private let calendar: Calendar
+
+    /// Where auto-accepted to-dos are logged. Injectable so tests never write
+    /// to Application Support.
+    private let todoDecisionLog: TodoDecisionLog
+
     init(
         providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
         userDefaults: UserDefaults = .standard,
-        retryPolicy: LLMRetryPolicy = LLMRetryPolicy()
+        retryPolicy: LLMRetryPolicy = LLMRetryPolicy(),
+        attendeeProvider: MeetingAttendeeProviding = EventKitAttendeeProvider(),
+        prepLoader: @escaping @MainActor (Meeting, UserDefaults) async -> String? = {
+            await MeetingPrepService.loadResolvedPrepMarkdown(for: $0, userDefaults: $1)
+        },
+        calendar: Calendar = .current,
+        todoDecisionLog: TodoDecisionLog = .shared
     ) {
         self.providerFactory = providerFactory
         self.userDefaults = userDefaults
         self.retryPolicy = retryPolicy
+        self.attendeeProvider = attendeeProvider
+        self.prepLoader = prepLoader
+        self.calendar = calendar
+        self.todoDecisionLog = todoDecisionLog
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
     /// lifecycle, so it keeps running if the user navigates away. On success it
-    /// stores the summary on the meeting and silently saves the user's own newly
-    /// extracted action items as meeting to-dos (deduped; see
-    /// `ActionItemOwnership`), then persists. Items owned by others stay in the
-    /// summary only.
-    func summarizeInBackground(meeting: Meeting, modelContext: ModelContext) {
+    /// stores the (rendered) summary, every extracted action item (all owners)
+    /// and the template on the meeting, replaces the meeting's pending
+    /// proposals with the user's own items as `.proposed` to-dos (SwiftData
+    /// only — nothing reaches the vault until accepted; see
+    /// `ProposedTodoPlanner` / `TodoReviewService`), accepts the verified ones
+    /// when `autoAcceptVerifiedTodos` is on (logged as `auto_accept`), then
+    /// persists.
+    func summarizeInBackground(meeting: Meeting, modelContext: ModelContext, templateID: String? = nil) {
         // If a summary is already in flight, do nothing — never cancel/restart a
         // running summary (e.g. when the view re-appears and re-triggers this).
         guard !isSummarizing else { return }
@@ -214,30 +232,38 @@ final class SummarizationService {
                 self.summarizationStartedAt = nil
             }
             do {
-                let parsed = try await self.summarize(meeting: meeting)
-                meeting.summary = parsed.rawMarkdown
+                let outcome = try await self.summarizeWithFacts(meeting: meeting, templateID: templateID)
+                meeting.summary = outcome.parsed.rawMarkdown
+                meeting.actionItems = outcome.facts.actionItems
+                // Only an explicit user choice is an override; an auto-picked
+                // template is re-derived next time (title or attendees may change).
+                if let explicit = templateID?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+                    meeting.summaryTemplateID = outcome.templateID
+                }
 
-                let todoTexts = ActionItemOwnership.todoTexts(
-                    from: parsed.todoTexts,
+                let proposals = ProposedTodoPlanner.itemsToPropose(
+                    outcome.facts.actionItems,
                     aliases: AppPreferences.userNameAliases(in: self.userDefaults),
-                    includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults),
-                    existing: Set(meeting.todos.map(\.text))
+                    includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults)
                 )
-                for text in todoTexts {
-                    do {
-                        try ObsidianTodoSyncService.createMeetingTodo(
-                            text: text,
-                            meeting: meeting,
-                            in: modelContext
+                do {
+                    try TodoReviewService.replaceProposedTodos(for: meeting, with: proposals, in: modelContext)
+                    if self.userDefaults.bool(forKey: AppPreferenceKey.autoAcceptVerifiedTodos) {
+                        try TodoReviewService.acceptAllVerified(
+                            in: meeting,
+                            in: modelContext,
+                            userDefaults: self.userDefaults,
+                            log: self.todoDecisionLog,
+                            auto: true
                         )
-                    } catch {
-                        // The summary itself succeeded; a failed to-do is a warning, not a failure.
-                        Log.summarization.warning("Creating meeting to-do failed: \(error.localizedDescription)")
-                        // Surfaced by MeetingPipelinePresentation (errorMessage ??
-                        // warningMessage) in the ProcessingStatusCard error row,
-                        // with a Dismiss affordance.
-                        self.warningMessage = "Summary generated, but creating its to-dos failed: \(error.localizedDescription)"
                     }
+                } catch {
+                    // The summary itself succeeded; failed proposals are a warning, not a failure.
+                    Log.summarization.warning("Proposing meeting to-dos failed: \(error.localizedDescription)")
+                    // Surfaced by MeetingPipelinePresentation (errorMessage ??
+                    // warningMessage) in the ProcessingStatusCard error row,
+                    // with a Dismiss affordance.
+                    self.warningMessage = "Summary generated, but proposing its to-dos failed: \(error.localizedDescription)"
                 }
                 do {
                     try modelContext.save()
@@ -253,7 +279,28 @@ final class SummarizationService {
         }
     }
 
+    /// The parsed summary only; see `summarizeWithFacts(meeting:templateID:)`.
     func summarize(meeting: Meeting) async throws -> SummaryResponseParser.ParsedResponse {
+        try await summarizeWithFacts(meeting: meeting).parsed
+    }
+
+    /// Summarizes `meeting` and returns the parsed markdown together with its
+    /// structured facts. A single pass asks for the facts as a JSON block in
+    /// the same call; an invalid block gets one repair call, a missing one a
+    /// rebuild call from the notes' closing sections, and when that fails too
+    /// the facts come from the markdown with `factsFallbackWarning`. Map-reduce
+    /// asks each part for JSON (one repair per part); when every part decoded
+    /// the facts are the parts' merged facts (`.mapJSON`), otherwise the
+    /// reduce's markdown plus the decoded parts' facts, with the warning.
+    /// Facts that are not a markdown fallback are then verified against the
+    /// original transcript (pre-check, one `.verifying` call plus at most one
+    /// `.verifying` repair) before the sections are rendered; a failed or
+    /// partial verification only adds `verificationFailedWarning` or
+    /// `verificationIncompleteWarning`.
+    /// The prompt is the template `templateID` names, else the meeting's
+    /// `summaryTemplateID`, else the one `SummaryTemplateSelector` picks; an
+    /// unknown id is General. `outcome.templateID` is the id actually used.
+    func summarizeWithFacts(meeting: Meeting, templateID: String? = nil) async throws -> SummaryOutcome {
         let rawTranscript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -275,20 +322,32 @@ final class SummarizationService {
             phase = .idle
         }
 
+        // Read once, before the context: the prep shapes every prompt's size.
+        let prep = await prepLoader(meeting, userDefaults)
+        let aliases = AppPreferences.userNameAliases(in: userDefaults)
+        let attendees = attendeeProvider.attendees(for: meeting)
+        let template = resolvedTemplate(for: meeting, explicitID: templateID, attendees: attendees, userAliases: aliases)
         let context = PromptContext(
             meeting: meeting,
-            template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
+            template: template.prompt,
             freeformNotes: freeformNotes,
             terminologyBlock: TerminologyService.renderTerminologyBlock(
                 enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
                 raw: userDefaults.string(forKey: AppPreferenceKey.terminologyList) ?? ""
             ),
-            userName: AppPreferences.userNameAliases(in: userDefaults).first,
+            userName: aliases.first,
+            participantsLine: SummaryPromptContext.participantsLine(
+                participants: meeting.participants,
+                attendees: attendees,
+                userAliases: aliases
+            ),
+            prep: prep,
             // Reasoning models "think out loud" before answering, which on short
             // transcripts becomes pages of rambling that never reaches the summary.
             // When thinking is disabled (default), the Qwen soft-switch is appended
             // and output gets a tight budget; when enabled, the reasoning gets room.
-            thinkingEnabled: LLMPromptSupport.thinkingEnabled(defaults: userDefaults)
+            thinkingEnabled: LLMPromptSupport.thinkingEnabled(defaults: userDefaults),
+            calendar: calendar
         )
 
         var warnings: [String] = []
@@ -296,20 +355,34 @@ final class SummarizationService {
         // the meeting, a cut-off final call loses the end of the summary itself.
         var notesWereTruncated = false
         var summaryWasTruncated = false
-        let transcript: String
-        if Self.fitsInOnePass(transcript: rawTranscript, context: context, budget: provider.promptTokenBudget) {
-            transcript = rawTranscript
+        let isSinglePass: Bool
+        let finalPrompt: String
+        // Single pass at full focus, else with a trimmed focus; map-reduce only
+        // when the focus would have to shrink below `minFocusTokens`. The reduce
+        // then gets the full-size focus again. Both are measured against
+        // `onePassTokenCap` at most, whatever the provider's budget.
+        var mapFacts: SummaryFacts?
+        var decodedPartFacts: [SummaryFacts] = []
+        if let onePassFocus = Self.onePassFocusTokens(
+            transcript: rawTranscript, context: context, budget: provider.promptTokenBudget
+        ) {
+            isSinglePass = true
+            finalPrompt = context.singlePassPrompt(transcript: rawTranscript, focusTokens: onePassFocus)
         } else {
             let condensed = try await condense(rawTranscript, context: context, provider: provider)
-            transcript = condensed.text
             notesWereTruncated = condensed.outputWasTruncated
             if condensed.wasElided {
                 warnings.append(Self.shortenedWarning)
             }
+            mapFacts = condensed.mapFacts
+            decodedPartFacts = condensed.decodedPartFacts
+            // The reduce gets no JSON instruction: its facts are the parts'.
+            isSinglePass = false
+            finalPrompt = context.summaryPrompt(transcript: condensed.text)
         }
 
         let prompt = LLMPromptSupport.applyThinkingSwitch(
-            to: context.summaryPrompt(transcript: transcript),
+            to: finalPrompt,
             thinkingEnabled: context.thinkingEnabled
         )
         // Thinking on → uncapped (user opted in); off → tight cap as the safety net.
@@ -327,16 +400,308 @@ final class SummarizationService {
         if summaryWasTruncated {
             warnings.append("Summary may be truncated: \(provider.displayName) reached its output length limit.")
         }
-        if !warnings.isEmpty {
-            warningMessage = warnings.joined(separator: " ")
-        }
         // Done with this meeting's parts: a later re-summarize (new template,
         // edited transcript) must condense afresh.
         condensedPartCache = condensedPartCache.filter { $0.key.meetingID != meeting.id }
 
         phase = .parsing
         // Strip any chain-of-thought the model still emitted (e.g. <think>…</think>).
-        return SummaryResponseParser.parse(Self.stripReasoning(summary))
+        let stripped = Self.stripReasoning(summary)
+        var facts: SummaryFacts
+        let factsSource: FactsSource
+        var parsed: SummaryResponseParser.ParsedResponse
+        if isSinglePass {
+            // The stored summary never shows the JSON block.
+            let split = SummaryFactsParser.splitSinglePass(stripped)
+            parsed = SummaryResponseParser.parse(split.markdown)
+            let resolved = try await singlePassFacts(
+                jsonText: split.jsonText,
+                markdown: split.markdown,
+                parsed: parsed,
+                context: context,
+                provider: provider
+            )
+            facts = resolved.facts
+            factsSource = resolved.source
+            if resolved.warns {
+                warnings.append(Self.factsFallbackWarning)
+            }
+        } else if let mapFacts {
+            parsed = SummaryResponseParser.parse(stripped)
+            // As in the single pass: never fewer to-dos than the reduce's
+            // markdown lists. Its extra items join the parts' (fuzzy duplicates
+            // collapse), as a warned fallback.
+            let markdownFacts = SummaryFacts.fromMarkdown(parsed)
+            if markdownFacts.actionItems.count > mapFacts.actionItems.count {
+                facts = SummaryFacts.merged([mapFacts, markdownFacts])
+                factsSource = .markdownFallback
+                warnings.append(Self.factsFallbackWarning)
+            } else {
+                facts = mapFacts
+                factsSource = .mapJSON
+            }
+        } else {
+            // At least one part had no readable JSON: the reduce's markdown,
+            // plus whatever the decoded parts extracted (fuzzy duplicates
+            // collapse), so no part's to-do is dropped.
+            parsed = SummaryResponseParser.parse(stripped)
+            facts = SummaryFacts.merged([SummaryFacts.fromMarkdown(parsed)] + decodedPartFacts)
+            factsSource = .markdownFallback
+            warnings.append(Self.factsFallbackWarning)
+        }
+
+        // Checked against the original transcript before rendering, so an
+        // unsupported decision is rendered with its warning prefix. A
+        // markdown-fallback summary is not verified: it is kept as written.
+        if factsSource != .markdownFallback, !rawTranscript.isEmpty {
+            let verification = try await verifiedFacts(facts, transcript: rawTranscript, context: context, provider: provider)
+            facts = verification.facts
+            if verification.failed {
+                warnings.append(Self.verificationFailedWarning)
+            } else if verification.incomplete {
+                warnings.append(Self.verificationIncompleteWarning)
+            }
+        }
+
+        // Structured facts render the Decisions and Action Items sections; a
+        // markdown-fallback summary is kept exactly as the model wrote it.
+        if factsSource != .markdownFallback {
+            parsed = SummaryResponseParser.parse(ActionItemRendering.render(facts, into: parsed.rawMarkdown))
+        }
+
+        if !warnings.isEmpty {
+            warningMessage = warnings.joined(separator: " ")
+        }
+        return SummaryOutcome(parsed: parsed, facts: facts, factsSource: factsSource, templateID: template.id)
+    }
+
+    /// Explicit id → the meeting's stored id → auto-selection from title,
+    /// participants and attendees. Empty ids count as absent.
+    private func resolvedTemplate(
+        for meeting: Meeting,
+        explicitID: String?,
+        attendees: [MeetingAttendee],
+        userAliases: [String]
+    ) -> SummaryTemplate {
+        let chosen = [explicitID, meeting.summaryTemplateID]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let id = chosen ?? autoTemplateID(for: meeting, attendees: attendees, userAliases: userAliases)
+        return SummaryTemplateStore.template(id: id, in: userDefaults)
+    }
+
+    // MARK: - Templates (for the "Regenerate with…" menu)
+
+    /// Every template, from the same defaults `summarize` reads.
+    func summaryTemplates() -> [SummaryTemplate] {
+        SummaryTemplateStore.all(in: userDefaults)
+    }
+
+    /// The template auto-selection picks for `meeting` now, ignoring its stored
+    /// override: the same title, participants, attendees and aliases a summary
+    /// without an override would use.
+    func autoTemplateID(for meeting: Meeting) -> String {
+        autoTemplateID(
+            for: meeting,
+            attendees: attendeeProvider.attendees(for: meeting),
+            userAliases: AppPreferences.userNameAliases(in: userDefaults)
+        )
+    }
+
+    private func autoTemplateID(for meeting: Meeting, attendees: [MeetingAttendee], userAliases: [String]) -> String {
+        SummaryTemplateSelector.templateID(
+            title: meeting.title,
+            participants: meeting.participants,
+            attendees: attendees,
+            userAliases: userAliases
+        )
+    }
+
+    // MARK: - Facts (JSON block, repair, markdown fallback)
+
+    /// Facts of a single pass, where to-dos never silently drop below what the
+    /// markdown's Action Items section has:
+    /// - A block that decodes is used, unless it has fewer action items than
+    ///   the markdown; then the markdown's items replace its items.
+    /// - An invalid block gets one repair call with its raw text; no block gets
+    ///   one rebuild call from the closing sections — skipped when those hold
+    ///   no decisions and no action items (nothing to rebuild).
+    /// - A repair that fails to decode, or whose call fails, falls back to the
+    ///   markdown; a repair with fewer action items than the markdown takes the
+    ///   markdown's items, as above.
+    ///
+    /// `warns` is true for a fallback when facts were actually lost: the
+    /// markdown had items, or the model sent a block that could not be read.
+    /// "One repair call" is one `generateStep`: on transient failures the
+    /// retry policy can spend up to `maxAttempts` generations on it.
+    /// Cancellation propagates.
+    private func singlePassFacts(
+        jsonText: String?,
+        markdown: String,
+        parsed: SummaryResponseParser.ParsedResponse,
+        context: PromptContext,
+        provider: LLMProvider
+    ) async throws -> (facts: SummaryFacts, source: FactsSource, warns: Bool) {
+        let meetingDate = context.meeting.date
+        let markdownFacts = SummaryFacts.fromMarkdown(parsed)
+        let markdownHasItems = !markdownFacts.actionItems.isEmpty || !markdownFacts.decisions.isEmpty
+
+        /// `facts` as `source`, unless they have fewer action items than the
+        /// markdown: then the markdown's items, as a warned fallback.
+        func guarded(_ facts: SummaryFacts, _ source: FactsSource) -> (SummaryFacts, FactsSource, Bool) {
+            guard facts.actionItems.count < markdownFacts.actionItems.count else { return (facts, source, false) }
+            var kept = facts
+            kept.actionItems = markdownFacts.actionItems
+            return (kept, .markdownFallback, true)
+        }
+        let fallback = (markdownFacts, FactsSource.markdownFallback, markdownHasItems || jsonText != nil)
+
+        if let jsonText,
+           case .success(let facts) = SummaryFactsParser.decodeFacts(jsonText, meetingDate: meetingDate, calendar: context.calendar) {
+            return guarded(facts, .singlePassJSON)
+        }
+
+        let repairPrompt: String
+        if let jsonText {
+            // The raw block, not `extractJSONObject`: a truncated fragment would
+            // be cut at an inner `}` and lose its last items.
+            repairPrompt = SummaryFactsPrompt.repairPrompt(broken: jsonText)
+        } else {
+            // Nothing to rebuild from: no call, and nothing was lost.
+            guard markdownHasItems else { return (markdownFacts, .markdownFallback, false) }
+            repairPrompt = SummaryFactsPrompt.rebuildPrompt(
+                fromMarkdown: Self.closingSections(of: markdown),
+                meetingDate: meetingDate,
+                calendar: context.calendar
+            )
+        }
+
+        var repairWasTruncated = false
+        let reply: String
+        do {
+            reply = try await generateStep(
+                .repairing,
+                prompt: LLMPromptSupport.applyThinkingSwitch(to: repairPrompt, thinkingEnabled: context.thinkingEnabled),
+                maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: context.thinkingEnabled),
+                provider: provider,
+                outputWasTruncated: &repairWasTruncated
+            )
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw error }
+            Log.summarization.warning("Repairing the facts JSON failed: \(error.localizedDescription)")
+            return fallback
+        }
+
+        guard let object = SummaryFactsParser.extractJSONObject(LLMPromptSupport.stripReasoningTags(reply)),
+              case .success(let repaired) = SummaryFactsParser.decodeFacts(object, meetingDate: meetingDate, calendar: context.calendar)
+        else {
+            return fallback
+        }
+        return guarded(repaired, .repairedJSON)
+    }
+
+    // MARK: - Verification
+
+    /// `facts` checked against `transcript`: the deterministic pre-check
+    /// (``ActionItemVerifier/precheck(_:index:)``), then — when it emitted
+    /// claims — one verification call, its reply read with
+    /// ``ActionItemVerifier/apply(response:claims:to:)``.
+    /// - The prompt and the repair prompt each fit
+    ///   `min(promptTokenBudget, onePassTokenCap)` with the thinking switch
+    ///   included. Claims that do not fit are left out (`incomplete`); they
+    ///   stay `.unverified` and a verdict for them is ignored. When none fits,
+    ///   no call is made.
+    /// - An unreadable reply gets one repair call, also shown as `.verifying`.
+    ///   When that is unreadable too, or a call fails, the pre-check's facts
+    ///   are kept (found items `.unverified`) and `failed` is true; the summary
+    ///   never fails because of verification. Cancellation propagates.
+    /// - An output-limit hit on these calls is deliberately not surfaced: a
+    ///   cut-off array is unreadable, and the repair (then `failed`) covers it.
+    private func verifiedFacts(
+        _ facts: SummaryFacts,
+        transcript: String,
+        context: PromptContext,
+        provider: LLMProvider
+    ) async throws -> (facts: SummaryFacts, failed: Bool, incomplete: Bool) {
+        let index = TranscriptIndex(
+            transcript: transcript,
+            knownSpeakers: Set(context.meeting.speakers.map(\.displayName))
+        )
+        let (checked, allClaims) = ActionItemVerifier.precheck(facts, index: index)
+        guard !allClaims.isEmpty else { return (checked, false, false) }
+
+        let switchTokens = context.thinkingEnabled
+            ? 0 : LLMPromptSupport.budgetTokens("\n\n" + LLMPromptSupport.noThinkSuffix)
+        let budget = Self.onePassBudget(provider.promptTokenBudget) - switchTokens
+        let (prompt, claims) = ActionItemVerifier.fittedPrompt(
+            claims: allClaims,
+            index: index,
+            meetingDate: context.meeting.date,
+            calendar: context.calendar,
+            budgetTokens: budget
+        )
+        let incomplete = claims.count < allClaims.count
+        guard !claims.isEmpty else { return (checked, false, true) }
+
+        func call(_ prompt: String) async throws -> String {
+            // Truncation is ignored on purpose (see above).
+            var truncated = false
+            let reply = try await generateStep(
+                .verifying,
+                prompt: LLMPromptSupport.applyThinkingSwitch(to: prompt, thinkingEnabled: context.thinkingEnabled),
+                maxTokens: LLMPromptSupport.tokenBudget(thinkingEnabled: context.thinkingEnabled),
+                provider: provider,
+                outputWasTruncated: &truncated
+            )
+            return LLMPromptSupport.stripReasoningTags(reply)
+        }
+
+        do {
+            let reply = try await call(prompt)
+            if let applied = ActionItemVerifier.apply(response: reply, claims: claims, to: checked) {
+                return (applied, false, incomplete)
+            }
+            // The raw reply, not an extracted span: a cut-off array has no `]`.
+            let repaired = try await call(ActionItemVerifier.repairPrompt(broken: reply, budgetTokens: budget))
+            if let applied = ActionItemVerifier.apply(response: repaired, claims: claims, to: checked) {
+                return (applied, false, incomplete)
+            }
+            Log.summarization.warning("The verification reply was not a readable JSON array, also after one repair.")
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw error }
+            Log.summarization.warning("Verifying the action items failed: \(error.localizedDescription)")
+        }
+        return (checked, true, incomplete)
+    }
+
+    /// The `## Decisions` and `## Action Items` sections of `markdown`, under
+    /// any heading `SummaryResponseParser` accepts for them, headings included,
+    /// in document order.
+    static func closingSections(of markdown: String) -> String {
+        let titles = Set(
+            ((SummaryResponseParser.sectionAliases["decisions"] ?? [])
+                + (SummaryResponseParser.sectionAliases["todoTexts"] ?? []))
+                .map(SummaryResponseParser.normalizeTitle)
+        )
+        var sections: [String] = []
+        var current: [String]?
+        func flush() {
+            if let current {
+                sections.append(current.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            current = nil
+        }
+        for line in markdown.components(separatedBy: "\n") {
+            if line.hasPrefix("## ") || line.hasPrefix("# ") {
+                flush()
+                guard line.hasPrefix("## ") else { continue }
+                if titles.contains(SummaryResponseParser.normalizeTitle(String(line.dropFirst(3)))) { current = [line] }
+            } else {
+                current?.append(line)
+            }
+        }
+        flush()
+        return sections.joined(separator: "\n\n")
     }
 
     // MARK: - Single pass vs map-reduce
@@ -358,17 +723,58 @@ final class SummarizationService {
         let freeformNotes: String
         let terminologyBlock: String
         let userName: String?
+        /// Participants with e-mails and the user marked `(me)`; also used by the
+        /// map/merge prompts' meeting line.
+        let participantsLine: String
+        /// The meeting's prep, loaded once per summarization.
+        let prep: String?
         let thinkingEnabled: Bool
+        /// Resolves the meeting date for the JSON instruction and due dates.
+        let calendar: Calendar
 
-        func summaryPrompt(transcript: String) -> String {
-            SummarizationService.renderPrompt(
+        /// The user's template rendered with a focus block of at most
+        /// `focusTokens`. A template with `{{freeform_notes}}` keeps the notes
+        /// there, so the focus carries the prep only.
+        func summaryPrompt(
+            transcript: String,
+            focusTokens: Int = SummaryPromptContext.maxFocusTokens
+        ) -> String {
+            let notesInTemplate = template.contains("{{freeform_notes}}")
+            return SummarizationService.renderPrompt(
                 template: template,
                 meeting: meeting,
                 transcript: transcript,
                 freeformNotes: freeformNotes,
                 terminologyBlock: terminologyBlock,
-                userName: userName
+                userName: userName,
+                participantsLine: participantsLine,
+                focusBlock: SummaryPromptContext.focusBlock(
+                    prep: prep,
+                    notes: notesInTemplate ? nil : freeformNotes,
+                    maxTokens: focusTokens
+                )
             )
+        }
+
+        /// The single-pass prompt: the summary prompt, a blank line, then the
+        /// instruction to append the facts as a ```` ```json ```` block. The
+        /// thinking switch goes after this.
+        func singlePassPrompt(
+            transcript: String,
+            focusTokens: Int = SummaryPromptContext.maxFocusTokens
+        ) -> String {
+            summaryPrompt(transcript: transcript, focusTokens: focusTokens)
+                + "\n\n"
+                + SummaryFactsPrompt.singlePassInstruction(meetingDate: meeting.date, calendar: calendar)
+        }
+
+        /// The map prompt's focus block (`mapFocusTokens`) and a line break, or
+        /// `""` when there is neither prep nor notes.
+        var mapFocus: String {
+            let block = SummaryPromptContext.focusBlock(
+                prep: prep, notes: freeformNotes, maxTokens: SummaryPromptContext.mapFocusTokens
+            )
+            return block.isEmpty ? "" : block + "\n"
         }
 
         /// Output cap for intermediate (map/merge) calls. Uncapped when thinking is
@@ -379,21 +785,65 @@ final class SummarizationService {
     }
 
     /// Tokens the summary prompt costs before any transcript goes in: template,
-    /// notes, terminology, metadata and the thinking switch.
-    static func summaryOverhead(context: PromptContext) -> Int {
-        LLMPromptSupport.budgetTokens(
-            LLMPromptSupport.applyThinkingSwitch(
-                to: context.summaryPrompt(transcript: ""),
-                thinkingEnabled: context.thinkingEnabled
-            )
+    /// focus block (at `focusTokens`), terminology, metadata, the JSON facts
+    /// instruction (single pass only) and the thinking switch.
+    static func summaryOverhead(
+        context: PromptContext,
+        focusTokens: Int = SummaryPromptContext.maxFocusTokens,
+        includesFactsInstruction: Bool = true
+    ) -> Int {
+        let prompt = includesFactsInstruction
+            ? context.singlePassPrompt(transcript: "", focusTokens: focusTokens)
+            : context.summaryPrompt(transcript: "", focusTokens: focusTokens)
+        return LLMPromptSupport.budgetTokens(
+            LLMPromptSupport.applyThinkingSwitch(to: prompt, thinkingEnabled: context.thinkingEnabled)
         )
     }
 
+    /// Upper bound on one call's prompt for the single pass and for each map
+    /// part, for every provider: past it, extraction quality drops even where
+    /// the context window is far larger. Merge and reduce keep the provider's
+    /// full budget.
+    static let onePassTokenCap = 25_000
+
+    /// `min(budget, onePassTokenCap)`.
+    static func onePassBudget(_ budget: Int) -> Int {
+        min(budget, onePassTokenCap)
+    }
+
     /// Single pass when the whole transcript plus the rest of the prompt fits the
-    /// provider's input budget — the common case, and always for Claude Code.
+    /// provider's input budget, capped at `onePassTokenCap`.
     static func fitsInOnePass(transcript: String, context: PromptContext, budget: Int) -> Bool {
-        transcript.isEmpty
-            || LLMPromptSupport.budgetTokens(transcript) + summaryOverhead(context: context) <= budget
+        onePassFocusTokens(transcript: transcript, context: context, budget: budget) != nil
+    }
+
+    /// The focus cap that lets the whole transcript go in one call, or nil when
+    /// it must be condensed first. Tries `maxFocusTokens`; otherwise shrinks the
+    /// focus to `budget − transcriptTokens − overheadWithoutFocus`, which must be
+    /// at least `minFocusTokens`. The transcript itself is never trimmed.
+    static func onePassFocusTokens(transcript: String, context: PromptContext, budget: Int) -> Int? {
+        let budget = onePassBudget(budget)
+        let full = SummaryPromptContext.maxFocusTokens
+        if transcript.isEmpty { return full }
+        let transcriptTokens = LLMPromptSupport.budgetTokens(transcript)
+        if transcriptTokens + summaryOverhead(context: context, focusTokens: full) <= budget {
+            return full
+        }
+        let overheadWithoutFocus = summaryOverhead(context: context, focusTokens: 0)
+        var focus = budget - transcriptTokens - overheadWithoutFocus
+        // The block's own line breaks and rounding can add a token or two;
+        // measure the real prompt and give that back from the focus.
+        while focus >= SummaryPromptContext.minFocusTokens {
+            let tokens = LLMPromptSupport.budgetTokens(
+                LLMPromptSupport.applyThinkingSwitch(
+                    to: context.singlePassPrompt(transcript: transcript, focusTokens: focus),
+                    thinkingEnabled: context.thinkingEnabled
+                )
+            )
+            if tokens <= budget { return focus }
+            focus -= tokens - budget
+        }
+        return nil
     }
 
     /// One part's (or one merged group's) condensed notes, with the timestamp
@@ -410,6 +860,10 @@ final class SummarizationService {
         let text: String
         let wasElided: Bool
         let outputWasTruncated: Bool
+        /// The parts' merged facts when every part decoded; nil otherwise.
+        let mapFacts: SummaryFacts?
+        /// The facts of the parts that did decode.
+        let decodedPartFacts: [SummaryFacts]
     }
 
     /// Condenses `transcript` part by part (map), merges the notes until they fit
@@ -423,14 +877,27 @@ final class SummarizationService {
         let budget = provider.promptTokenBudget
         var outputWasTruncated = false
 
-        var notes = try await mapParts(
+        let parts = try await mapParts(
             of: transcript,
             context: context,
             provider: provider,
             outputWasTruncated: &outputWasTruncated
         )
+        var notes = parts.map(\.note)
+        let decoded = parts.compactMap { part -> SummaryFacts? in
+            if case .facts(let facts) = part.part { return facts }
+            return nil
+        }
+        // Every part decoded: the reduce gets the merged action items to use
+        // verbatim. Otherwise it gets none, and its markdown is the fallback.
+        let mapFacts = decoded.count == parts.count ? SummaryFacts.merged(decoded) : nil
+        let actionItemsBlock = mapFacts.map(Self.reducedActionItemsBlock) ?? ""
 
-        let reduceCapacity = budget - Self.summaryOverhead(context: context)
+        // The reduce prompt carries no JSON instruction; the action-item list
+        // is never elided, so it comes off the notes' room.
+        let reduceCapacity = budget
+            - Self.summaryOverhead(context: context, includesFactsInstruction: false)
+            - LLMPromptSupport.budgetTokens(actionItemsBlock)
         let mergeCapacity = budget - LLMPromptSupport.budgetTokens(
             LLMPromptSupport.applyThinkingSwitch(
                 to: Self.mergePrompt(notes: "", context: context),
@@ -460,25 +927,49 @@ final class SummarizationService {
         }
 
         let joined = Self.reduceJoin(notes)
-        guard LLMPromptSupport.budgetTokens(joined) > reduceCapacity else {
-            return CondensedTranscript(text: joined, wasElided: false, outputWasTruncated: outputWasTruncated)
-        }
-        let elided = LLMPromptSupport.middleElide(
+        let fits = LLMPromptSupport.budgetTokens(joined) <= reduceCapacity
+        // Never elide the notes to nothing: a template that leaves (almost) no
+        // room still gets `minReduceNotesTokens` of them, over budget if need be.
+        let text = fits ? joined : LLMPromptSupport.middleElide(
             joined,
-            toCharBudget: max(0, reduceCapacity) * LLMPromptSupport.budgetCharsPerToken
+            toCharBudget: max(reduceCapacity, Self.minReduceNotesTokens) * LLMPromptSupport.budgetCharsPerToken
         )
-        return CondensedTranscript(text: elided, wasElided: true, outputWasTruncated: outputWasTruncated)
+        return CondensedTranscript(
+            text: text + actionItemsBlock,
+            wasElided: !fits,
+            outputWasTruncated: outputWasTruncated,
+            mapFacts: mapFacts,
+            decodedPartFacts: decoded
+        )
     }
 
-    /// Map step: one call per transcript part. Completed parts are cached so a
-    /// retry after a failed part resumes where it stopped.
+    /// The fewest tokens of condensed notes the reduce ever gets after eliding.
+    static let minReduceNotesTokens = 500
+
+    /// Heading above the de-duplicated action items appended to the reduce input.
+    static let reducedActionItemsHeading = "Action items already extracted from the transcript (de-duplicated; use exactly these in the action items section):"
+
+    /// `"\n\n" + heading + "\n"` and one `- ` + `ActionItemRendering.bullet` line per item.
+    static func reducedActionItemsBlock(_ facts: SummaryFacts) -> String {
+        let lines = facts.actionItems.map { "- " + ActionItemRendering.bullet(for: $0) }
+        return "\n\n" + reducedActionItemsHeading + "\n" + lines.joined(separator: "\n")
+    }
+
+    /// One map part: what it produced and its note for the merge/reduce input.
+    private struct MappedPart {
+        let part: CondensedPart
+        let note: CondensedNote
+    }
+
+    /// Map step: one call per transcript part, asking for JSON facts. Completed
+    /// parts (decoded or fallen back to markdown) are cached so a retry after a
+    /// failed part resumes where it stopped.
     private func mapParts(
         of transcript: String,
         context: PromptContext,
         provider: LLMProvider,
         outputWasTruncated: inout Bool
-    ) async throws -> [CondensedNote] {
-        let budget = provider.promptTokenBudget
+    ) async throws -> [MappedPart] {
         // Measured with wide placeholders (three-digit part numbers, h:mm:ss
         // labels) so a full part plus its real header never exceeds the budget.
         let widestHeader = TranscriptChunk(index: 998, text: "", startLabel: "00:00:00", endLabel: "00:00:00")
@@ -488,7 +979,7 @@ final class SummarizationService {
                 thinkingEnabled: context.thinkingEnabled
             )
         )
-        let chunkTokens = Self.chunkTokens(budget: budget, mapPromptOverhead: mapOverhead)
+        let chunkTokens = Self.chunkTokens(budget: provider.promptTokenBudget, mapPromptOverhead: mapOverhead)
         let chunks = TranscriptChunker.chunks(
             of: transcript,
             chunkTokens: chunkTokens,
@@ -501,38 +992,101 @@ final class SummarizationService {
             condensedPartCacheMeetingID = context.meeting.id
         }
         let transcriptHash = Self.sha256(transcript)
+        let focusHash = Self.sha256(context.mapFocus)
+        let outputCap = Self.mapJSONOutputTokens(chunkTokens: chunkTokens, thinkingEnabled: context.thinkingEnabled)
 
-        var notes: [CondensedNote] = []
+        var parts: [MappedPart] = []
         for chunk in chunks {
             let key = CondensedPartKey(
                 meetingID: context.meeting.id,
                 transcriptSHA256: transcriptHash,
                 provider: "\(provider.displayName)|\(provider.endpoint)",
                 terminologyBlock: context.terminologyBlock,
+                focusSHA256: focusHash,
+                meetingDate: context.meeting.date,
                 thinkingEnabled: context.thinkingEnabled,
                 chunkTokens: chunkTokens,
                 chunkIndex: chunk.index
             )
-            let text: String
+            let part: CondensedPart
             if let cached = condensedPartCache[key] {
-                text = cached
+                part = cached
             } else {
                 let prompt = LLMPromptSupport.applyThinkingSwitch(
                     to: Self.mapPrompt(chunk: chunk, total: chunks.count, context: context),
                     thinkingEnabled: context.thinkingEnabled
                 )
-                text = try await intermediateStep(
+                let raw = try await intermediateStep(
                     .condensing(part: chunk.index + 1, of: chunks.count),
                     prompt: prompt,
                     context: context,
                     provider: provider,
+                    maxTokens: .some(outputCap),
                     outputWasTruncated: &outputWasTruncated
                 )
-                condensedPartCache[key] = text
+                part = try await decodeMapPart(
+                    raw,
+                    context: context,
+                    provider: provider,
+                    maxTokens: outputCap,
+                    outputWasTruncated: &outputWasTruncated
+                )
+                // A markdown fallback is not cached: Retry tries its JSON again.
+                if case .facts = part { condensedPartCache[key] = part }
             }
-            notes.append(CondensedNote(text: text, startLabel: chunk.startLabel, endLabel: chunk.endLabel))
+            let text: String
+            switch part {
+            case .facts(let facts): text = facts.notesMarkdown()
+            case .markdown(let raw): text = raw
+            }
+            parts.append(MappedPart(
+                part: part,
+                note: CondensedNote(text: text, startLabel: chunk.startLabel, endLabel: chunk.endLabel)
+            ))
         }
-        return notes
+        return parts
+    }
+
+    /// A map reply's facts; an unreadable reply gets one repair call (the same
+    /// prompt as the single pass's), and when that is unreadable too, or the
+    /// call fails, the raw reply is kept as markdown notes. Cancellation
+    /// propagates.
+    private func decodeMapPart(
+        _ raw: String,
+        context: PromptContext,
+        provider: LLMProvider,
+        maxTokens: Int?,
+        outputWasTruncated: inout Bool
+    ) async throws -> CondensedPart {
+        func decoded(_ text: String) -> SummaryFacts? {
+            guard let object = SummaryFactsParser.extractJSONObject(text),
+                  case .success(let facts) = SummaryFactsParser.decodeFacts(
+                    object, meetingDate: context.meeting.date, calendar: context.calendar
+                  )
+            else { return nil }
+            return facts
+        }
+        if let facts = decoded(raw) { return .facts(facts) }
+
+        let reply: String
+        do {
+            reply = try await generateStep(
+                .repairing,
+                prompt: LLMPromptSupport.applyThinkingSwitch(
+                    to: SummaryFactsPrompt.repairPrompt(broken: raw),
+                    thinkingEnabled: context.thinkingEnabled
+                ),
+                maxTokens: maxTokens,
+                provider: provider,
+                outputWasTruncated: &outputWasTruncated
+            )
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw error }
+            Log.summarization.warning("Repairing a part's facts JSON failed: \(error.localizedDescription)")
+            return .markdown(raw)
+        }
+        if let facts = decoded(LLMPromptSupport.stripReasoningTags(reply)) { return .facts(facts) }
+        return .markdown(raw)
     }
 
     /// One merge level: every multi-note group becomes one note; a single-note
@@ -621,12 +1175,13 @@ final class SummarizationService {
         prompt: String,
         context: PromptContext,
         provider: LLMProvider,
+        maxTokens: Int?? = nil,
         outputWasTruncated: inout Bool
     ) async throws -> String {
         let raw = try await generateStep(
             stepPhase,
             prompt: prompt,
-            maxTokens: context.intermediateMaxTokens,
+            maxTokens: maxTokens ?? context.intermediateMaxTokens,
             provider: provider,
             outputWasTruncated: &outputWasTruncated
         )
@@ -639,25 +1194,37 @@ final class SummarizationService {
 
     // MARK: - Map-reduce prompt building
 
-    /// Part size for the map step. Local providers get ≤ 4,000-token parts; a
-    /// large-context provider that still overflows gets about two big parts
-    /// instead of dozens of serial calls. Never below 1,000 tokens.
+    /// Part size for the map step, against `min(budget, onePassTokenCap)`.
+    /// Local providers get ≤ 4,000-token parts; a large-context provider gets
+    /// parts of about half the cap instead of dozens of serial calls. Never
+    /// below 1,000 tokens.
     static func chunkTokens(budget: Int, mapPromptOverhead: Int) -> Int {
-        max(1_000, min(budget - mapPromptOverhead, max(4_000, budget / 2)))
+        let budget = onePassBudget(budget)
+        return max(1_000, min(budget - mapPromptOverhead, max(4_000, budget / 2)))
     }
 
-    /// The fixed map prompt (English instructions; notes in the transcript's language).
+    /// Output cap for a JSON map call and its repair: a fifth of the part's
+    /// size, at least 1,500 tokens, so quotes and items fit (merge calls keep
+    /// `LLMPromptSupport.mapOutputTokens`). Uncapped when thinking is on.
+    static func mapJSONOutputTokens(chunkTokens: Int, thinkingEnabled: Bool) -> Int? {
+        thinkingEnabled ? nil : max(1_500, chunkTokens / 5)
+    }
+
+    /// The fixed map prompt: one JSON facts object per part (English
+    /// instructions; values in the transcript's language).
     static func mapPrompt(chunk: TranscriptChunk, total: Int, context: PromptContext) -> String {
-        // No blank line where an empty terminology block would have gone.
+        // No blank line where an empty terminology block or focus would have gone.
         let terminology = context.terminologyBlock.isEmpty ? "" : context.terminologyBlock + "\n"
+        let focus = context.mapFocus
         return """
-        You are condensing part \(chunk.index + 1) of \(total) of a meeting transcript
+        You are extracting facts from part \(chunk.index + 1) of \(total) of a meeting transcript
         (\(chunk.startLabel ?? "?")–\(chunk.endLabel ?? "?")) so it can be summarized later.
         \(meetingLine(context: context))
-        \(terminology)Write compact notes in the language of the transcript, as markdown bullets
-        under these headings, each bullet prefixed with its [timestamp] where known:
-        \(noteHeadings)
-        Only use this part of the transcript. Omit empty headings. No preamble.
+        \(terminology)\(focus)Return only one JSON object, no prose and no code fence, with exactly this shape:
+        \(SummaryFactsPrompt.objectShape)
+        \(SummaryFactsPrompt.rules(meetingDate: context.meeting.date, calendar: context.calendar))
+        - Keep each "quote" to about 15 words at most.
+        Only use this part of the transcript.
 
         Transcript part:
         \(chunk.text)
@@ -691,10 +1258,7 @@ final class SummarizationService {
     /// "Meeting: … Participants: … The note-taker is …." — the note-taker sentence
     /// only when a name is known.
     private static func meetingLine(context: PromptContext) -> String {
-        let participants = context.meeting.participants.isEmpty
-            ? "Unknown"
-            : context.meeting.participants.joined(separator: ", ")
-        var line = "Meeting: \(context.meeting.title). Participants: \(participants)."
+        var line = "Meeting: \(context.meeting.title). Participants: \(context.participantsLine)."
         if let name = context.userName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             line += " The note-taker is \(name)."
         }
@@ -783,7 +1347,9 @@ final class SummarizationService {
         transcript: String,
         freeformNotes: String,
         terminologyBlock: String,
-        userName: String? = nil
+        userName: String? = nil,
+        participantsLine: String? = nil,
+        focusBlock: String = ""
     ) -> String {
         let formattedDate = {
             let formatter = DateFormatter()
@@ -803,12 +1369,88 @@ final class SummarizationService {
             template += "\n\nThe note-taker is \(name). When the note-taker commits to something (\"I will…\", \"ik pak dat op\"), the action item's owner is \(name)."
         }
 
+        template = placeFocus(in: template, hasFocus: !focusBlock.isEmpty)
+
+        let participants = participantsLine
+            ?? (meeting.participants.isEmpty ? "Unknown" : meeting.participants.joined(separator: ", "))
         return template
             .replacingOccurrences(of: "{{title}}", with: meeting.title)
             .replacingOccurrences(of: "{{scheduled_time}}", with: formattedDate)
-            .replacingOccurrences(of: "{{participants}}", with: meeting.participants.isEmpty ? "Unknown" : meeting.participants.joined(separator: ", "))
+            .replacingOccurrences(of: "{{participants}}", with: participants)
             .replacingOccurrences(of: "{{transcript}}", with: transcript.isEmpty ? "None" : transcript)
             .replacingOccurrences(of: "{{freeform_notes}}", with: freeformNotes.isEmpty ? "None" : freeformNotes)
             .replacingOccurrences(of: "{{terminology_list}}", with: terminologyBlock)
+            // Last, so nothing in the user's prep or notes is substituted again.
+            .replacingOccurrences(of: focusPlaceholder, with: focusBlock)
     }
+
+    private static let focusPlaceholder = "{{user_focus}}"
+
+    /// Prepares `{{user_focus}}` in the template. Without a focus, a line that is
+    /// only the placeholder goes, with one following blank line. With a focus, a
+    /// template lacking the placeholder gets it on its own lines directly before
+    /// the `{{transcript}}` line (or before a `Transcript:` heading right above
+    /// it); with no `{{transcript}}` at all it is appended at the end.
+    private static func placeFocus(in template: String, hasFocus: Bool) -> String {
+        var lines = template.components(separatedBy: "\n")
+        guard hasFocus else {
+            guard template.contains(focusPlaceholder) else { return template }
+            var index = 0
+            while index < lines.count {
+                if lines[index].trimmingCharacters(in: .whitespaces) == focusPlaceholder {
+                    lines.remove(at: index)
+                    if index < lines.count, lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                        lines.remove(at: index)
+                    }
+                } else {
+                    index += 1
+                }
+            }
+            return lines.joined(separator: "\n").replacingOccurrences(of: focusPlaceholder, with: "")
+        }
+        guard !template.contains(focusPlaceholder) else { return template }
+        guard var index = lines.firstIndex(where: { $0.contains("{{transcript}}") }) else {
+            return template + "\n\n" + focusPlaceholder
+        }
+        if index > 0, lines[index - 1].trimmingCharacters(in: .whitespaces) == "Transcript:" {
+            index -= 1
+        }
+        lines.insert(contentsOf: [focusPlaceholder, ""], at: index)
+        return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - Summary outcome
+
+extension SummarizationService {
+    /// Where an outcome's facts came from.
+    enum FactsSource: Equatable {
+        /// The single pass's JSON block decoded as-is.
+        case singlePassJSON
+        /// One repair (invalid block) or rebuild (no block) call produced them.
+        case repairedJSON
+        /// Merged from the map step's per-part JSON.
+        case mapJSON
+        /// Recovered from the summary's markdown sections.
+        case markdownFallback
+    }
+
+    /// A summary with its structured facts.
+    struct SummaryOutcome {
+        let parsed: SummaryResponseParser.ParsedResponse
+        let facts: SummaryFacts
+        let factsSource: FactsSource
+        let templateID: String
+    }
+
+    /// Joined into `warningMessage` when the verification call, or its one
+    /// repair, failed or stayed unreadable: the items keep the pre-check's
+    /// verdicts (found ones `.unverified`).
+    static let verificationFailedWarning = "Couldn't check the action items against the transcript; review them before accepting."
+    /// Joined into `warningMessage` when the claims did not all fit the
+    /// verification prompt: the left-out items stay `.unverified`.
+    static let verificationIncompleteWarning = "Some action items weren't checked against the transcript; review them before accepting."
+    /// Joined into `warningMessage` whenever the facts are `.markdownFallback`
+    /// after a failed or lossy repair.
+    static let factsFallbackWarning = "Couldn't read the structured action items; to-dos were taken from the summary text instead."
 }

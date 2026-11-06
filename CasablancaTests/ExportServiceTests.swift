@@ -165,6 +165,32 @@ final class ExportServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: notesURL), invalidUTF8)
     }
 
+    func testSummaryExportListsOnlyAcceptedTodosWithSuffix() async throws {
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.summary = "# Samenvatting\nKort."
+        let accepted = TodoItem(text: "Stuur offerte", createdAt: Date(timeIntervalSince1970: 1), meeting: meeting)
+        accepted.owner = "Youri"
+        accepted.dueDate = TodoReviewService.dueDate(fromISO: "2026-11-06")
+        accepted.sourceTimestamp = "12:34"
+        let legacy = TodoItem(text: "Legacy todo", isCompleted: true, createdAt: Date(timeIntervalSince1970: 2), meeting: meeting)
+        let proposal = TodoItem(text: "Voorgesteld", meeting: meeting)
+        proposal.status = .proposed
+        let rejected = TodoItem(text: "Afgewezen", meeting: meeting)
+        rejected.status = .rejected
+        meeting.todos = [accepted, legacy, proposal, rejected]
+
+        let result = try await ExportService.exportCompletedMeeting(meeting, defaults: makeGuardedDefaults())
+        guard case .obsidian(let export) = result else { return XCTFail("Expected obsidian destination") }
+        let summaryURL = try XCTUnwrap(export.summaryURL)
+        TestVaultGuard.assertTemporary(summaryURL, "exported summary file")
+        let summary = try String(contentsOf: summaryURL, encoding: .utf8)
+
+        XCTAssertTrue(summary.contains("- [ ] Stuur offerte — Youri 📅 2026-11-06 [12:34]\n"), summary)
+        XCTAssertTrue(summary.contains("- [x] Legacy todo\n"))
+        XCTAssertFalse(summary.contains("Voorgesteld"))
+        XCTAssertFalse(summary.contains("Afgewezen"))
+    }
+
     /// Seeds the meeting's Notes file in the scratch vault and returns its URL.
     private func existingNotesURL(for meeting: Meeting, defaults: UserDefaults, contents: String) throws -> URL {
         let directory = try XCTUnwrap(ObsidianMeetingFiles.meetingNotesDirectory(userDefaults: defaults))

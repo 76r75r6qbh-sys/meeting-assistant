@@ -107,6 +107,32 @@
 		A10020 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* TranscriptionView.swift */; };
 		A10021 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* MarkdownTextEditor.swift */; };
 		A10022 /* SummarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SummarizationService.swift */; };
+		SPKB0001 /* SummaryPromptContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0101 /* SummaryPromptContext.swift */; };
+		SPKB0002 /* SummaryPromptContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0102 /* SummaryPromptContextTests.swift */; };
+		SPKB0003 /* StaticAttendeeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0103 /* StaticAttendeeProvider.swift */; };
+		SPKB0004 /* SummaryFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0104 /* SummaryFacts.swift */; };
+		SPKB0005 /* RelativeDateResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0105 /* RelativeDateResolver.swift */; };
+		SPKB0006 /* FuzzyText.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0106 /* FuzzyText.swift */; };
+		SPKB0007 /* SummaryFactsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0107 /* SummaryFactsParserTests.swift */; };
+		SPKB0008 /* RelativeDateResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0108 /* RelativeDateResolverTests.swift */; };
+		SPKB0009 /* FuzzyTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0109 /* FuzzyTextTests.swift */; };
+		SPKB0010 /* SummaryFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0110 /* SummaryFixtures.swift */; };
+		SPKB0011 /* ActionItemRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0111 /* ActionItemRendering.swift */; };
+		SPKB0012 /* TodoReviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0112 /* TodoReviewService.swift */; };
+		SPKB0013 /* ActionItemRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0113 /* ActionItemRenderingTests.swift */; };
+		SPKB0014 /* TodoReviewServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0114 /* TodoReviewServiceTests.swift */; };
+		SPKB0015 /* ActionItemVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0115 /* ActionItemVerifier.swift */; };
+		SPKB0016 /* ActionItemVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0116 /* ActionItemVerifierTests.swift */; };
+		SPKB0017 /* SummaryTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0117 /* SummaryTemplates.swift */; };
+		SPKB0018 /* SummaryTemplatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0118 /* SummaryTemplatesTests.swift */; };
+		SPKB0019 /* SummaryTemplateMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0119 /* SummaryTemplateMenu.swift */; };
+		SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */; };
+		SPKB0021 /* TodoDecisionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0121 /* TodoDecisionLog.swift */; };
+		SPKB0022 /* TodoDecisionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0122 /* TodoDecisionLogTests.swift */; };
+		SPKB0026 /* TodoReviewLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0126 /* TodoReviewLayoutTests.swift */; };
+		SPKB0025 /* TodoReviewPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0125 /* TodoReviewPresentationTests.swift */; };
+		SPKB0024 /* TodoReviewStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0124 /* TodoReviewStrip.swift */; };
+		SPKB0023 /* TodoReviewRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0123 /* TodoReviewRow.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -463,6 +489,32 @@
 		B10021 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
 		B10022 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		B10023 /* SummarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizationService.swift; sourceTree = "<group>"; };
+		SPKB0101 /* SummaryPromptContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContext.swift; sourceTree = "<group>"; };
+		SPKB0102 /* SummaryPromptContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryPromptContextTests.swift; sourceTree = "<group>"; };
+		SPKB0103 /* StaticAttendeeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaticAttendeeProvider.swift; sourceTree = "<group>"; };
+		SPKB0104 /* SummaryFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFacts.swift; sourceTree = "<group>"; };
+		SPKB0105 /* RelativeDateResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeDateResolver.swift; sourceTree = "<group>"; };
+		SPKB0106 /* FuzzyText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyText.swift; sourceTree = "<group>"; };
+		SPKB0107 /* SummaryFactsParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFactsParserTests.swift; sourceTree = "<group>"; };
+		SPKB0108 /* RelativeDateResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeDateResolverTests.swift; sourceTree = "<group>"; };
+		SPKB0109 /* FuzzyTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyTextTests.swift; sourceTree = "<group>"; };
+		SPKB0110 /* SummaryFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryFixtures.swift; sourceTree = "<group>"; };
+		SPKB0111 /* ActionItemRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemRendering.swift; sourceTree = "<group>"; };
+		SPKB0112 /* TodoReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewService.swift; sourceTree = "<group>"; };
+		SPKB0113 /* ActionItemRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemRenderingTests.swift; sourceTree = "<group>"; };
+		SPKB0114 /* TodoReviewServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewServiceTests.swift; sourceTree = "<group>"; };
+		SPKB0115 /* ActionItemVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemVerifier.swift; sourceTree = "<group>"; };
+		SPKB0116 /* ActionItemVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemVerifierTests.swift; sourceTree = "<group>"; };
+		SPKB0117 /* SummaryTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplates.swift; sourceTree = "<group>"; };
+		SPKB0118 /* SummaryTemplatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplatesTests.swift; sourceTree = "<group>"; };
+		SPKB0119 /* SummaryTemplateMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateMenu.swift; sourceTree = "<group>"; };
+		SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateMenuLayoutTests.swift; sourceTree = "<group>"; };
+		SPKB0121 /* TodoDecisionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLog.swift; sourceTree = "<group>"; };
+		SPKB0122 /* TodoDecisionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLogTests.swift; sourceTree = "<group>"; };
+		SPKB0126 /* TodoReviewLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewLayoutTests.swift; sourceTree = "<group>"; };
+		SPKB0125 /* TodoReviewPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewPresentationTests.swift; sourceTree = "<group>"; };
+		SPKB0124 /* TodoReviewStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewStrip.swift; sourceTree = "<group>"; };
+		SPKB0123 /* TodoReviewRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewRow.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -712,6 +764,8 @@
 			isa = PBXGroup;
 			children = (
 				22AEEB414DDE0F2F58F46BFF /* TestVaultGuard.swift */,
+				SPKB0103 /* StaticAttendeeProvider.swift */,
+				SPKB0110 /* SummaryFixtures.swift */,
 			);
 			name = Support;
 			path = Support;
@@ -890,6 +944,15 @@
 				E10610 /* Recording */,
 				B10020 /* TranscriptionService.swift */,
 				B10023 /* SummarizationService.swift */,
+				SPKB0101 /* SummaryPromptContext.swift */,
+				SPKB0104 /* SummaryFacts.swift */,
+				SPKB0105 /* RelativeDateResolver.swift */,
+				SPKB0106 /* FuzzyText.swift */,
+				SPKB0111 /* ActionItemRendering.swift */,
+				SPKB0115 /* ActionItemVerifier.swift */,
+				SPKB0117 /* SummaryTemplates.swift */,
+				SPKB0112 /* TodoReviewService.swift */,
+				SPKB0121 /* TodoDecisionLog.swift */,
 				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
 				SPKT0103 /* TranscriptLineFormat.swift */,
@@ -1028,11 +1091,13 @@
 				B10800 /* NativeMarkdownEditor.swift */,
 				B10205 /* DeviceLanguageChip.swift */,
 				B10206 /* MeetingTodosPanel.swift */,
+				SPKB0123 /* TodoReviewRow.swift */,
 				B10207 /* BlockingProgressOverlay.swift */,
 				B10209 /* ExportAlertPresenter.swift */,
 				B10217 /* ProcessingStatusCard.swift */,
 				B10220 /* SkeletonModifier.swift */,
 				B10221 /* ToastCenter.swift */,
+				SPKB0119 /* SummaryTemplateMenu.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -1060,6 +1125,18 @@
 				B10043 /* PermissionsBehaviorTests.swift */,
 				B10044 /* ExportServiceTests.swift */,
 				B10045 /* SummarizationServiceTests.swift */,
+				SPKB0102 /* SummaryPromptContextTests.swift */,
+				SPKB0107 /* SummaryFactsParserTests.swift */,
+				SPKB0108 /* RelativeDateResolverTests.swift */,
+				SPKB0109 /* FuzzyTextTests.swift */,
+				SPKB0113 /* ActionItemRenderingTests.swift */,
+				SPKB0116 /* ActionItemVerifierTests.swift */,
+				SPKB0118 /* SummaryTemplatesTests.swift */,
+				SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */,
+				SPKB0114 /* TodoReviewServiceTests.swift */,
+				SPKB0122 /* TodoDecisionLogTests.swift */,
+				SPKB0126 /* TodoReviewLayoutTests.swift */,
+				SPKB0125 /* TodoReviewPresentationTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
@@ -1179,6 +1256,7 @@
 				B10208 /* MeetingDetailPresentation.swift */,
 				B10211 /* MeetingDetailInspector.swift */,
 				B10212 /* MeetingSummaryTab.swift */,
+				SPKB0124 /* TodoReviewStrip.swift */,
 				B10213 /* MeetingTranscriptTab.swift */,
 				B10214 /* MeetingNotesTab.swift */,
 				CHAT0103 /* MeetingChatTab.swift */,
@@ -1386,15 +1464,18 @@
 				A10204 /* MeetingNotesHeader.swift in Sources */,
 				A10205 /* DeviceLanguageChip.swift in Sources */,
 				A10206 /* MeetingTodosPanel.swift in Sources */,
+				SPKB0023 /* TodoReviewRow.swift in Sources */,
 				A10207 /* BlockingProgressOverlay.swift in Sources */,
 				A10208 /* MeetingDetailPresentation.swift in Sources */,
 				A10209 /* ExportAlertPresenter.swift in Sources */,
 				A10211 /* MeetingDetailInspector.swift in Sources */,
 				A10212 /* MeetingSummaryTab.swift in Sources */,
+				SPKB0024 /* TodoReviewStrip.swift in Sources */,
 				A10213 /* MeetingTranscriptTab.swift in Sources */,
 				A10214 /* MeetingNotesTab.swift in Sources */,
 				A10220 /* SkeletonModifier.swift in Sources */,
 				A10221 /* ToastCenter.swift in Sources */,
+				SPKB0019 /* SummaryTemplateMenu.swift in Sources */,
 				A10222 /* StringHighlighting.swift in Sources */,
 				A10223 /* TranscriptPresentation.swift in Sources */,
 				A10014 /* SettingsView.swift in Sources */,
@@ -1439,6 +1520,15 @@
 				A10021 /* MarkdownTextEditor.swift in Sources */,
 				A10800 /* NativeMarkdownEditor.swift in Sources */,
 				A10022 /* SummarizationService.swift in Sources */,
+				SPKB0001 /* SummaryPromptContext.swift in Sources */,
+				SPKB0004 /* SummaryFacts.swift in Sources */,
+				SPKB0005 /* RelativeDateResolver.swift in Sources */,
+				SPKB0006 /* FuzzyText.swift in Sources */,
+				SPKB0011 /* ActionItemRendering.swift in Sources */,
+				SPKB0015 /* ActionItemVerifier.swift in Sources */,
+				SPKB0017 /* SummaryTemplates.swift in Sources */,
+				SPKB0012 /* TodoReviewService.swift in Sources */,
+				SPKB0021 /* TodoDecisionLog.swift in Sources */,
 				ACPS0002 /* AudioClipPlayer.swift in Sources */,
 				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
 				ACPS0004 /* PrivacySettingsSection.swift in Sources */,
@@ -1583,6 +1673,18 @@
 				A10043 /* PermissionsBehaviorTests.swift in Sources */,
 				A10044 /* ExportServiceTests.swift in Sources */,
 				A10045 /* SummarizationServiceTests.swift in Sources */,
+				SPKB0002 /* SummaryPromptContextTests.swift in Sources */,
+				SPKB0007 /* SummaryFactsParserTests.swift in Sources */,
+				SPKB0008 /* RelativeDateResolverTests.swift in Sources */,
+				SPKB0009 /* FuzzyTextTests.swift in Sources */,
+				SPKB0013 /* ActionItemRenderingTests.swift in Sources */,
+				SPKB0016 /* ActionItemVerifierTests.swift in Sources */,
+				SPKB0018 /* SummaryTemplatesTests.swift in Sources */,
+				SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */,
+				SPKB0014 /* TodoReviewServiceTests.swift in Sources */,
+				SPKB0022 /* TodoDecisionLogTests.swift in Sources */,
+				SPKB0026 /* TodoReviewLayoutTests.swift in Sources */,
+				SPKB0025 /* TodoReviewPresentationTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,
@@ -1672,6 +1774,8 @@
 				15A6EF311A09F353CAC4BB81 /* RecordingSessionRecoveryTests.swift in Sources */,
 				770FFD61C8BBB9811AE30D2D /* RecordingResumeAndStopContractTests.swift in Sources */,
 				1C47F456B90C8AB6355330F3 /* TestVaultGuard.swift in Sources */,
+				SPKB0003 /* StaticAttendeeProvider.swift in Sources */,
+				SPKB0010 /* SummaryFixtures.swift in Sources */,
 				7B193F9CA7554D02B5773297 /* NoRealVaultWritesTests.swift in Sources */,
 				AE55FC7D3919B3952B6F2FB3 /* TranscriptSegmentMergeTests.swift in Sources */,
 				20B2077035789E9F04F1CA25 /* WhisperModelRetentionPolicyTests.swift in Sources */,

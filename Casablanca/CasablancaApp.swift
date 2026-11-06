@@ -698,6 +698,9 @@ final class AppModel {
             // outlive the process as an orphaned task.
             MainActor.assumeIsolated {
                 summarizationService.cancelBackgroundWork()
+                // An accept just before Cmd-Q still exports: start the
+                // coalesced exports now and let them finish (bounded).
+                MeetingExportCoalescer.shared.flushAndWait(timeout: 5)
             }
         }
     }

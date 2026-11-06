@@ -190,4 +190,14 @@ final class SummaryResponseParserTests: XCTestCase {
         let r = SummaryResponseParser.parse(md)
         XCTAssertEqual(r.todoTexts, ["**Wesley** \u{2014} Juno-node onderzoeken"])
     }
+
+    func testHeadingAliasesMatchParser() {
+        let actionAliases = SummaryResponseParser.headingAliases(for: .actionItems)
+        XCTAssertTrue(actionAliases.contains("Actiepunten"))
+        XCTAssertEqual(actionAliases, SummaryResponseParser.sectionAliases["todoTexts"])
+        XCTAssertEqual(SummaryResponseParser.headingAliases(for: .decisions), SummaryResponseParser.sectionAliases["decisions"])
+        for alias in actionAliases {
+            XCTAssertEqual(SummaryResponseParser.parse("## \(alias)\n- Bel Kim").todoTexts, ["Bel Kim"], alias)
+        }
+    }
 }
