@@ -311,6 +311,26 @@ final class SpeakerNameProposerTests: XCTestCase {
         XCTAssertEqual(meeting.speakers, speakers)
     }
 
+    /// Transcript suggestions replace earlier transcript suggestions only:
+    /// voice-profile matches (A7) stay in the sidecar.
+    func testTranscriptSuggestionsKeepVoiceProfileSuggestions() async throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let meeting = makeMeeting()
+        let voice = SpeakerNameSuggestion(speakerID: "S2", name: "Kim", evidence: "Voice profile match", source: .voiceProfile, score: 0.9)
+        let stale = SpeakerNameSuggestion(speakerID: "S2", name: "Old", evidence: "earlier", source: .transcript, score: nil)
+        try store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: .succeeded(clusterCount: 2), suggestions: [voice, stale]))
+        let stub = StubLLMProvider(outcomes: [.success(janAnswer)])
+
+        let suggestions = await SpeakerAnalysis.suggestNamesNow(
+            for: meeting,
+            store: store,
+            proposer: SpeakerNameProposer(providerFactory: { stub })
+        )
+
+        XCTAssertEqual(store.load(meeting.id)?.suggestions, [voice] + suggestions)
+    }
+
     func testStoreSaveAnnouncesTheChangedRecord() throws {
         let (store, directory) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -72,8 +72,10 @@ enum SpeakerAnalysisOutcome: Equatable {
 /// downloadable (offline), a model error, the timeout — keeps the attribution
 /// as it was (`Others`), with `diarization: .failed(reason)`, a status line and
 /// `SpeakerModelStatus.failed` as the non-blocking notice. The outcome goes
-/// into the meeting's `SpeakerAnalysisRecord` sidecar. Name suggestions
-/// (Task A6) are not part of this step: they run afterwards, see
+/// into the meeting's `SpeakerAnalysisRecord` sidecar, with voice-profile
+/// matches (Task A7) as name suggestions when the user opted in to voice
+/// profiles and has saved some. Transcript-based name suggestions (Task A6)
+/// are not part of this step: they run afterwards, see
 /// ``liveNameSuggester(defaults:store:proposer:)``.
 enum SpeakerAnalysis {
 
@@ -89,7 +91,8 @@ enum SpeakerAnalysis {
         store: SpeakerAnalysisStore = SpeakerAnalysisStore(),
         modelStatus: SpeakerModelStatus = .shared,
         status: @escaping @MainActor (String) -> Void = { _ in },
-        diarizationTimeout: Duration = defaultDiarizationTimeout
+        diarizationTimeout: Duration = defaultDiarizationTimeout,
+        voiceProfiles: VoiceProfileStore = VoiceProfileStore()
     ) -> PostTranscriptionPipeline.SpeakerAnalyzer {
         { meeting, result in
             guard defaults.bool(forKey: AppPreferenceKey.recogniseSpeakersEnabled) else { return .disabled }
@@ -120,15 +123,48 @@ enum SpeakerAnalysis {
                 status: status,
                 timeout: diarizationTimeout
             )
+            let suggestions = voiceProfileSuggestions(
+                clusterEmbeddings: diarized.clusterEmbeddings,
+                defaults: defaults,
+                voiceProfiles: voiceProfiles
+            )
             do {
-                try store.save(SpeakerAnalysisRecord(meetingID: meetingID, diarization: diarized.diarization, suggestions: []))
+                try store.save(SpeakerAnalysisRecord(
+                    meetingID: meetingID,
+                    diarization: diarized.result.diarization,
+                    suggestions: suggestions
+                ))
             } catch {
                 Log.transcription.error(
                     "Could not save the speaker analysis record: \(error.localizedDescription, privacy: .public)"
                 )
             }
-            return .analysed(diarized)
+            return .analysed(diarized.result)
         }
+    }
+
+    // MARK: - Voice profiles (Task A7)
+
+    /// Voice-profile name suggestions for the meeting's clusters, or none:
+    /// only when the user turned voice profiles on and has saved some. The
+    /// embeddings are used here and dropped; they are never stored. A profile
+    /// file that cannot be opened is a log line, not a failure.
+    @MainActor
+    static func voiceProfileSuggestions(
+        clusterEmbeddings: [String: [Float]],
+        defaults: UserDefaults,
+        voiceProfiles: VoiceProfileStore
+    ) -> [SpeakerNameSuggestion] {
+        guard defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled), !clusterEmbeddings.isEmpty else { return [] }
+        let profiles: [VoiceProfile]
+        do {
+            profiles = try voiceProfiles.all()
+        } catch {
+            Log.transcription.error("Could not open the voice profiles: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+        guard !profiles.isEmpty else { return [] }
+        return VoiceProfileMatcher.suggestions(clusterEmbeddings: clusterEmbeddings, profiles: profiles)
     }
 
     // MARK: - Name suggestions (Task A6)
@@ -173,7 +209,8 @@ enum SpeakerAnalysis {
     }
 
     /// The speakers bar's "Suggest names": runs `proposer` now, whatever the
-    /// automatic setting, and stores the answers (replacing earlier ones),
+    /// automatic setting, and stores the answers (replacing earlier transcript
+    /// suggestions; voice-profile matches stay),
     /// creating the sidecar for a meeting that has none. Never applies a name.
     @MainActor
     static func suggestNamesNow(
@@ -202,7 +239,7 @@ enum SpeakerAnalysis {
         } else {
             return
         }
-        record.suggestions = suggestions
+        record.suggestions = record.suggestions.filter { $0.source == .voiceProfile } + suggestions
         do {
             try store.save(record)
         } catch {
@@ -214,6 +251,8 @@ enum SpeakerAnalysis {
 
     /// `attributed` with the diarizer's clusters applied, or unchanged with
     /// `diarization: .failed` when diarization fails. Never throws.
+    /// `clusterEmbeddings` maps each cluster speaker id (`S1…`) in the result
+    /// to the diarizer's embedding for it; empty unless clusters were applied.
     @MainActor
     static func diarize(
         _ attributed: SpeakerAnalysisResult,
@@ -225,18 +264,18 @@ enum SpeakerAnalysis {
         modelStatus: SpeakerModelStatus,
         status: @MainActor (String) -> Void,
         timeout: Duration
-    ) async -> SpeakerAnalysisResult {
+    ) async -> (result: SpeakerAnalysisResult, clusterEmbeddings: [String: [Float]]) {
         let hasSystemTrack = systemTrackPath != nil
         let target = hasSystemTrack ? SpeakerIDs.others : SpeakerIDs.me
         guard let trackPath = systemTrackPath ?? micTrackPath,
               attributed.segments.contains(where: { $0.speakerID == target })
-        else { return attributed }
+        else { return (attributed, [:]) }
         // Can never run here (macOS < 15): no per-meeting status lines,
         // Settings explains it.
         guard diarizer.isAvailable else {
             var unchanged = attributed
             unchanged.diarization = .unsupported(reason: SpeakerDiarizerError.unsupportedOS.localizedDescription)
-            return unchanged
+            return (unchanged, [:])
         }
 
         status("Recognising speakers\u{2026}")
@@ -254,25 +293,30 @@ enum SpeakerAnalysis {
                 try await diarizer.diarize(trackURL: trackURL)
             }
             status(finishingStatus)
-            return SpeakerTranscriptBuilder.diarizedResult(
+            let diarized = SpeakerTranscriptBuilder.diarized(
                 attributed,
                 turns: output.turns,
                 hasSystemTrack: hasSystemTrack,
                 language: language,
                 userAliases: userAliases
             )
+            var clusterEmbeddings: [String: [Float]] = [:]
+            for (index, key) in diarized.clusterOrder.enumerated() {
+                if let embedding = output.embeddings[key] { clusterEmbeddings[SpeakerIDs.cluster(index + 1)] = embedding }
+            }
+            return (diarized.result, clusterEmbeddings)
         } catch SpeakerDiarizerError.unsupportedOS {
             status(finishingStatus)
             var unchanged = attributed
             unchanged.diarization = .unsupported(reason: SpeakerDiarizerError.unsupportedOS.localizedDescription)
-            return unchanged
+            return (unchanged, [:])
         } catch {
             let reason = error.localizedDescription
             Log.transcription.error("Diarization failed; keeping unsplit speakers: \(reason, privacy: .public)")
             status("Speakers could not be told apart; continuing without them\u{2026}")
             var unchanged = attributed
             unchanged.diarization = .failed(reason: reason)
-            return unchanged
+            return (unchanged, [:])
         }
     }
 

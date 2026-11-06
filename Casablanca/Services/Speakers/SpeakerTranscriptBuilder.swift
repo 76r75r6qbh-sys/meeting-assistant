@@ -133,6 +133,20 @@ enum SpeakerTranscriptBuilder {
         language: String,
         userAliases: [String]
     ) -> SpeakerAnalysisResult {
+        diarized(base, turns: turns, hasSystemTrack: hasSystemTrack, language: language, userAliases: userAliases).result
+    }
+
+    /// ``diarizedResult(_:turns:hasSystemTrack:language:userAliases:)`` plus
+    /// the cluster key behind each `S(i+1)` in the result (`clusterOrder[i]`),
+    /// so the speaker step can look up each speaker's embedding (A7). Empty
+    /// when no cluster id was applied (in-room with fewer than two clusters).
+    static func diarized(
+        _ base: SpeakerAnalysisResult,
+        turns: [DiarizedTurn],
+        hasSystemTrack: Bool,
+        language: String,
+        userAliases: [String]
+    ) -> (result: SpeakerAnalysisResult, clusterOrder: [String]) {
         let target = hasSystemTrack ? SpeakerIDs.others : SpeakerIDs.me
         // In-room, every mic word belongs to some room speaker: no distance
         // limit to the nearest turn.
@@ -146,9 +160,9 @@ enum SpeakerTranscriptBuilder {
         if !hasSystemTrack, clusterCount < 2 {
             var unchanged = base
             unchanged.diarization = .succeeded(clusterCount: clusterCount)
-            return unchanged
+            return (unchanged, [])
         }
-        return SpeakerAnalysisResult(
+        let result = SpeakerAnalysisResult(
             segments: assigned.segments,
             speakers: speakers(
                 for: assigned.segments,
@@ -159,6 +173,7 @@ enum SpeakerTranscriptBuilder {
             ),
             diarization: .succeeded(clusterCount: clusterCount)
         )
+        return (result, assigned.clusterOrder)
     }
 
     /// The key of the turn overlapping `[from, to]` most; else the nearest turn

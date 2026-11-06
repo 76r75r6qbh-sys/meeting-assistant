@@ -73,6 +73,46 @@ final class SpeakerClipSelectorTests: XCTestCase {
         XCTAssertEqual(SpeakerClipSelector.clip(for: "S2", meeting: meeting)?.url, micURL, "Room speakers are on the mic track")
     }
 
+    // MARK: - Voice sample (A7)
+
+    /// "Remember voice…" embeds up to 30 s of the speaker's longest segments,
+    /// all on the speaker's own track.
+    func testVoiceSampleTakesLongestSegmentsUpToThirtySeconds() {
+        let meeting = makeMeeting(segments: [
+            segment(0, 5, "S1"),
+            segment(10, 30, "S1"), // 20 s
+            segment(40, 52, "S1"), // 12 s: only 10 s fit
+            segment(60, 62, "S1"),
+            segment(70, 99, "me"),
+        ])
+
+        let sample = SpeakerClipSelector.voiceSample(for: "S1", meeting: meeting)
+
+        XCTAssertEqual(sample?.url, systemURL)
+        XCTAssertEqual(sample?.ranges, [10...30, 40...50])
+    }
+
+    func testVoiceSampleSkipsSegmentsMergedFromAnotherTrack() {
+        let merged = segment(0, 20, "S1")
+        let meeting = makeMeeting(segments: [merged, segment(30, 33, "S1")])
+
+        let sample = SpeakerClipSelector.voiceSample(
+            for: "S1",
+            meeting: meeting,
+            sourceOverrides: [SpeakerClipSelector.segmentKey(merged): .microphone]
+        )
+
+        XCTAssertEqual(sample?.url, systemURL)
+        XCTAssertEqual(sample?.ranges, [30...33])
+    }
+
+    func testVoiceSampleNeedsTheTrackFile() throws {
+        let meeting = makeMeeting(segments: [segment(0, 2, "S1")])
+        try FileManager.default.removeItem(at: systemURL)
+        XCTAssertNil(SpeakerClipSelector.voiceSample(for: "S1", meeting: meeting))
+        XCTAssertNil(SpeakerClipSelector.voiceSample(for: "S2", meeting: meeting), "No segments, no sample")
+    }
+
     func testMissingTrackFileGivesNil() throws {
         let meeting = makeMeeting(segments: [segment(0, 2, "S1"), segment(3, 4, "me")])
         try FileManager.default.removeItem(at: systemURL)

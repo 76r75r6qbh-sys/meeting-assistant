@@ -8,6 +8,10 @@ import SwiftUI
 /// suggestions that arrive later (the pipeline's opt-in step) show up through
 /// the store's change notification. Nothing is applied without a tap.
 ///
+/// With voice profiles on (Settings → Privacy), a named speaker whose track is
+/// still on disk gets "Remember voice…" in its context menu (A7); voice
+/// matches arrive as suggestions like the LLM's.
+///
 /// Renames rewrite only the transcript's line prefixes (`SpeakerRenamer`).
 /// `onSpeakersChanged` runs after every rename, merge or "this is me" change,
 /// so the owner can save and (Phase 2) offer to regenerate the summary.
@@ -16,7 +20,10 @@ struct SpeakersBar: View {
     let store: SpeakerAnalysisStore
     var onSpeakersChanged: ((Meeting) -> Void)? = nil
     private let proposer: SpeakerNameProposer
+    private let voiceProfiles: VoiceProfileStore
+    private let diarizer: SpeakerDiarizing
 
+    @AppStorage(AppPreferenceKey.voiceProfilesEnabled) private var voiceProfilesEnabled = false
     @ObservedObject private var player = AudioClipPlayer.shared
     @State private var record: SpeakerAnalysisRecord?
     /// The speaker whose clip was started last, so only its chip shows ■
@@ -28,16 +35,22 @@ struct SpeakersBar: View {
     @State private var isSuggesting = false
     /// Shown after "Suggest names" found nothing.
     @State private var suggestionNote: String?
+    /// The speaker whose "Remember voice…" sheet is open.
+    @State private var rememberingSpeaker: SpeakerInfo?
 
     init(
         meeting: Meeting,
         store: SpeakerAnalysisStore,
         proposer: SpeakerNameProposer = SpeakerNameProposer(),
+        voiceProfiles: VoiceProfileStore = VoiceProfileStore(),
+        diarizer: SpeakerDiarizing = FluidAudioDiarizer.shared,
         onSpeakersChanged: ((Meeting) -> Void)? = nil
     ) {
         self.meeting = meeting
         self.store = store
         self.proposer = proposer
+        self.voiceProfiles = voiceProfiles
+        self.diarizer = diarizer
         self.onSpeakersChanged = onSpeakersChanged
     }
 
@@ -76,6 +89,11 @@ struct SpeakersBar: View {
         .onReceive(NotificationCenter.default.publisher(for: SpeakerAnalysisStore.recordDidChange)) { note in
             guard note.userInfo?[SpeakerAnalysisStore.meetingIDKey] as? UUID == meeting.id else { return }
             record = store.load(meeting.id)
+        }
+        .sheet(item: $rememberingSpeaker) { speaker in
+            SaveVoiceProfileSheet(speakerName: speaker.displayName) { consentGiven in
+                try await rememberVoice(of: speaker, consentGiven: consentGiven)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Speakers")
@@ -149,6 +167,11 @@ struct SpeakersBar: View {
         .padding(.horizontal, CasaSpace.sm)
         .padding(.vertical, CasaSpace.xxs + 1)
         .background(Color.backgroundTertiary, in: Capsule())
+        .contextMenu {
+            if canRememberVoice(of: speaker) {
+                Button("Remember voice\u{2026}") { rememberingSpeaker = speaker }
+            }
+        }
     }
 
     @ViewBuilder
@@ -248,6 +271,40 @@ struct SpeakersBar: View {
         isSuggesting = false
         record = store.load(meeting.id)
         suggestionNote = suggestions.isEmpty ? "No names found in the transcript." : nil
+    }
+
+    // MARK: - Voice profiles (A7)
+
+    /// Voice profiles are on, the speaker has a confirmed name, its track is
+    /// still on disk, and the diarizer can run here.
+    private func canRememberVoice(of speaker: SpeakerInfo) -> Bool {
+        voiceProfilesEnabled
+            && speaker.nameConfirmed
+            && diarizer.isAvailable
+            && SpeakerClipSelector.voiceSample(
+                for: speaker.id,
+                meeting: meeting,
+                sourceOverrides: record?.segmentSources ?? [:]
+            ) != nil
+    }
+
+    /// One embedding from up to 30 s of the speaker's longest segments on its
+    /// track, saved under its name. Consent is checked before any voice is
+    /// analysed.
+    private func rememberVoice(of speaker: SpeakerInfo, consentGiven: Bool) async throws {
+        guard consentGiven else { throw VoiceProfileStore.StoreError.consentRequired }
+        guard let sample = SpeakerClipSelector.voiceSample(
+            for: speaker.id,
+            meeting: meeting,
+            sourceOverrides: record?.segmentSources ?? [:]
+        ) else { throw RememberVoiceError.trackMissing }
+        let embedding = try await diarizer.embedding(trackURL: sample.url, ranges: sample.ranges)
+        try voiceProfiles.save(name: speaker.displayName, embedding: embedding, consentGiven: consentGiven)
+    }
+
+    private enum RememberVoiceError: LocalizedError {
+        case trackMissing
+        var errorDescription: String? { "This speaker\u{2019}s track is no longer on this Mac." }
     }
 
     private func setIsUser(_ isUser: Bool, speakerID: String) {

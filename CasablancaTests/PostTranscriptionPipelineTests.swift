@@ -575,6 +575,61 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(modelStatus.state, .ready)
     }
 
+    // MARK: - Voice profiles (A7)
+
+    /// A profile store whose one profile ("Kim") matches the fake's cluster.
+    private func makeVoiceProfileStore(in directory: URL) throws -> VoiceProfileStore {
+        let store = VoiceProfileStore(
+            fileURL: directory.appendingPathComponent("VoiceProfiles/profiles.sealed"),
+            keyStore: InMemoryKeyStore()
+        )
+        _ = try store.save(name: "Kim", embedding: [1, 0], consentGiven: true)
+        return store
+    }
+
+    private let voiceMatchDiarizer = FakeSpeakerDiarizer(output: DiarizationOutput(
+        turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "spk_7")],
+        embeddings: ["spk_7": [1, 0]]
+    ))
+
+    func testVoiceProfilesDisabledNeverMatches() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }.count, 0)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.")
+    }
+
+    /// Enabled: the match is only a suggestion; the speaker keeps its label.
+    func testVoiceProfilesEnabledSuggestsWithoutRenaming() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.map(\.speakerID), ["S1"])
+        XCTAssertEqual(suggestions.map(\.name), ["Kim"])
+        XCTAssertEqual(suggestions.map(\.source), [.voiceProfile])
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.", "A match never renames")
+        XCTAssertEqual(fixture.meeting.speakers.map(\.nameConfirmed), [false])
+    }
+
     func testRecognisingStatusIsReplacedWhenDiarizationEnds() async throws {
         for fake in [
             FakeSpeakerDiarizer(output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "a")], embeddings: [:])),
