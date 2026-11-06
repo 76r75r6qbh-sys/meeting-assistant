@@ -8,6 +8,11 @@ struct MeetingSummaryTab: View {
     let statusMessage: String
     let canSummarize: Bool
     let onSummarize: () -> Void
+    /// A speaker was renamed or merged since this summary was made: offer to
+    /// regenerate it with the names (never done automatically).
+    var showRegenerateOffer: Bool = false
+    var onRegenerateOffer: () -> Void = {}
+    var onDismissRegenerateOffer: () -> Void = {}
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
@@ -47,6 +52,10 @@ struct MeetingSummaryTab: View {
             let parsed = SummaryResponseParser.parse(summary)
 
             VStack(alignment: .leading, spacing: CasaSpace.xl) {
+                if showRegenerateOffer {
+                    regenerateOfferBanner
+                }
+
                 summaryHero(parsed)
 
                 // Proposed to-dos are reviewed here first (spec B6).
@@ -95,6 +104,34 @@ struct MeetingSummaryTab: View {
                 }
             }
         }
+    }
+
+    /// Small, non-modal: the summary stays readable and usable underneath.
+    private var regenerateOfferBanner: some View {
+        HStack(alignment: .center, spacing: CasaSpace.sm) {
+            Image(systemName: "person.2.wave.2")
+                .foregroundStyle(Color.accentSecondary)
+                .symbolRenderingMode(.hierarchical)
+                .accessibilityHidden(true)
+            Text("Speaker names changed. Regenerate the summary to use them; accepted and rejected to-dos are kept.")
+                .font(.caption)
+                .foregroundStyle(Color.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Regenerate summary", action: onRegenerateOffer)
+                .buttonStyle(GhostButtonStyle())
+                .font(.caption)
+                .disabled(!canSummarize)
+            Button(action: onDismissRegenerateOffer) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss regenerate summary offer")
+        }
+        .padding(CasaSpace.sm)
+        .background(Color.accentSecondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder

@@ -37,6 +37,8 @@ struct RecordedMeetingView: View {
     @State private var chatService = MeetingChatService()
     /// A timestamp-link jump handed to the transcript tab, until it is done.
     @State private var transcriptJump: TimestampJump?
+    /// "Regenerate summary" after a speaker rename or merge, per meeting.
+    @State private var summaryOffer = SummaryRegenerationOffer()
     private let navigator = MeetingDetailNavigator.shared
     private let playback = TranscriptPlayback.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -91,6 +93,14 @@ struct RecordedMeetingView: View {
             navigator.complete(jump)
         }
         .onDisappear { stopPlayback(unlessItBelongsTo: nil) }
+        // Any new summary run (banner, template menu, retry, toolbar) reads the
+        // renamed transcript, so it answers that meeting's offer. Keyed on the
+        // start time, not on "this meeting is summarizing", so navigating back
+        // to a meeting mid-run does not count as a new start.
+        .onChange(of: summarizationService.summarizationStartedAt) { _, started in
+            guard started != nil, let id = summarizationService.summarizingMeetingID else { return }
+            summaryOffer.summaryStarted(for: id)
+        }
         // Native trailing inspector (AppKit-driven resize, HIG-compliant),
         // presented only while the window is wide enough to hold it.
         .widthGatedInspector(isPresented: $showInspector, idealWidth: 320) {
@@ -183,7 +193,13 @@ struct RecordedMeetingView: View {
                     canSummarize: canSummarize,
                     onSummarize: {
                         summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
-                    }
+                    },
+                    showRegenerateOffer: summaryOffer.offerRegenerateSummary(
+                        for: meeting,
+                        isSummarizing: summarizationService.isSummarizing
+                    ),
+                    onRegenerateOffer: regenerateSummaryWithNames,
+                    onDismissRegenerateOffer: { summaryOffer.dismiss(meeting) }
                 )
             case .transcript:
                 MeetingTranscriptTab(
@@ -191,6 +207,12 @@ struct RecordedMeetingView: View {
                     terminologyService: terminologyService,
                     onTranscribe: onTranscribe,
                     onSave: save,
+                    onSpeakersChanged: { changed in
+                        summaryOffer.speakersChanged(
+                            on: changed,
+                            isSummarizingThisMeeting: isSummarizingThisMeeting
+                        )
+                    },
                     jump: transcriptJump,
                     scrollProxy: scrollProxy,
                     isTranscribing: isTranscribingThisMeeting,
@@ -547,6 +569,19 @@ struct RecordedMeetingView: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             save()
+        }
+    }
+
+    /// Never automatic: the user may have accepted or edited to-dos. The
+    /// regeneration keeps accepted and rejected to-dos and replaces only
+    /// pending proposals; the explicit template is kept (nil = auto).
+    private func regenerateSummaryWithNames() {
+        summaryOffer.regenerate(meeting) { templateID in
+            summarizationService.summarizeInBackground(
+                meeting: meeting,
+                modelContext: modelContext,
+                templateID: templateID
+            )
         }
     }
 

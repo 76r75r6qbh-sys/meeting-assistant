@@ -2317,6 +2317,118 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual(LLMPromptSupport.budgetTokens(repair), LLMPromptSupport.localPromptTokenBudget)
         XCTAssertEqual(outcome.facts.actionItems.map(\.verified), [.supported, .unsupported])
     }
+
+    // MARK: - Speaker names into summaries (Task 2.2, I2)
+
+    /// A meeting labelled by Track A: the user on the mic track, two room
+    /// speakers that still carry placeholder labels.
+    private func makeLabelledMeeting(transcript: String) -> Meeting {
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.transcript = transcript
+        meeting.speakers = [
+            SpeakerInfo(id: "me", displayName: "Youri", source: .microphone, isUser: true, nameConfirmed: true),
+            SpeakerInfo(id: "S1", displayName: "Spreker 1", source: .system, isUser: false, nameConfirmed: false),
+            SpeakerInfo(id: "S2", displayName: "Spreker 2", source: .system, isUser: false, nameConfirmed: false),
+        ]
+        return meeting
+    }
+
+    private func makeScratchSpeakerStore() -> SpeakerAnalysisStore {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SummarizationServiceTests-speakers-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return SpeakerAnalysisStore(directory: directory)
+    }
+
+    /// A confirmed rename rewrites the prefixes the prompt is built from, so
+    /// the single-pass prompt carries the real name and no placeholder, and it
+    /// still tells the model how a labelled speaker's words make an owner
+    /// (in the template rules and in the JSON rules).
+    func testPromptUsesRenamedSpeakerNamesAndTheSpeakerEvidenceInstruction() async throws {
+        let meeting = makeLabelledMeeting(transcript: """
+        [00:10] Spreker 1: Ik mail de offerte vrijdag.
+        [00:20] Youri: Prima, dank je.
+        [00:30] Spreker 2: Ik plan de demo.
+        """)
+        let store = makeScratchSpeakerStore()
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
+        let stub = templateStub()
+        let service = makeTemplateService(stub)
+
+        _ = try await service.summarizeWithFacts(meeting: meeting)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains("[00:10] Kim: Ik mail de offerte vrijdag."))
+        XCTAssertTrue(prompt.contains("[00:20] Youri: Prima, dank je."))
+        XCTAssertTrue(prompt.contains("[00:30] Spreker 2: Ik plan de demo."), "an unnamed speaker keeps its label")
+        XCTAssertFalse(prompt.contains("Spreker 1:"), "the renamed placeholder is gone from the transcript")
+        XCTAssertTrue(
+            prompt.contains("A labelled speaker's first-person commitment makes that speaker the owner."),
+            "template rule: speaker-evidence instruction"
+        )
+        XCTAssertTrue(
+            prompt.contains("a first-person commitment by a labelled speaker (\"Youri: ik pak dat op\" makes Youri the owner)"),
+            "JSON rule: speaker-evidence instruction"
+        )
+        XCTAssertTrue(prompt.contains("Never use \"me\", \"I\" or a generic label such as \"Speaker 1\", \"Spreker 2\""))
+    }
+
+    /// A merge (renaming onto a confirmed name) rewrites the merged speaker's
+    /// prefixes too; a user-customised legacy prompt keeps the JSON evidence
+    /// rule because the JSON instruction is appended outside the template.
+    func testPromptUsesMergedSpeakerNamesAndKeepsTheEvidenceRuleWithALegacyPrompt() async throws {
+        let meeting = makeLabelledMeeting(transcript: """
+        [00:10] Spreker 1: Ik mail de offerte vrijdag.
+        [00:30] Spreker 2: En ik bel de klant.
+        """)
+        let store = makeScratchSpeakerStore()
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
+        let merged = try SpeakerRenamer.rename(speakerID: "S2", to: "kim", in: meeting, store: store)
+        XCTAssertTrue(merged)
+        let stub = templateStub()
+        let service = makeTemplateService(stub, legacyPrompt: "MY OWN PROMPT\n{{transcript}}")
+
+        _ = try await service.summarizeWithFacts(meeting: meeting)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains("[00:10] Kim: Ik mail de offerte vrijdag.\n[00:30] Kim: En ik bel de klant."))
+        XCTAssertFalse(prompt.contains("Spreker 1:") || prompt.contains("Spreker 2:"), "no placeholder prefix is left")
+        XCTAssertTrue(prompt.contains("a first-person commitment by a labelled speaker"))
+    }
+
+    /// The map prompts of a long meeting carry the renamed names as well.
+    func testMapPromptsUseRenamedSpeakerNames() async throws {
+        let meeting = Meeting(title: "EHDS", date: .now, participants: ["Kim"], status: .completed)
+        meeting.transcript = makeLongTranscript(chars: 20_000)
+        meeting.speakers = (0..<4).map {
+            SpeakerInfo(id: "S\($0)", displayName: "Spreker \($0)", source: .room, isUser: false, nameConfirmed: false)
+        }
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: makeScratchSpeakerStore())
+        let stub = StubLLMProvider(promptTokenBudget: smallBudget, outcomes: numberedNotes())
+        let service = makeService(stub, defaults: makeMapReduceDefaults())
+
+        _ = try await service.summarize(meeting: meeting)
+
+        let maps = stub.calls.filter(isMapCall).map(\.prompt)
+        XCTAssertGreaterThan(maps.count, 1)
+        XCTAssertTrue(maps.allSatisfy { !$0.contains("Spreker 1:") })
+        XCTAssertTrue(maps.contains { $0.contains("Kim: punt") })
+        XCTAssertTrue(maps.allSatisfy { $0.contains("a first-person commitment by a labelled speaker") })
+    }
+
+    /// Renaming a speaker on a meeting that already has a summary sets the
+    /// offer to regenerate it; nothing regenerates by itself.
+    func testRenamingASpeakerOnASummarizedMeetingSetsOfferRegenerateSummary() throws {
+        let meeting = makeLabelledMeeting(transcript: "[00:10] Spreker 1: Ik mail de offerte vrijdag.")
+        meeting.summary = "# Samenvatting\nSpreker 1 mailt de offerte."
+        var offer = SummaryRegenerationOffer()
+
+        try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: makeScratchSpeakerStore())
+        offer.speakersChanged(on: meeting, isSummarizingThisMeeting: false)
+
+        XCTAssertTrue(offer.offerRegenerateSummary(for: meeting, isSummarizing: false))
+        XCTAssertEqual(meeting.summary, "# Samenvatting\nSpreker 1 mailt de offerte.")
+    }
 }
 
 @MainActor
