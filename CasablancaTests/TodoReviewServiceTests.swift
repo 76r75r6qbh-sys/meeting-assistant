@@ -191,4 +191,325 @@ final class TodoReviewServiceTests: XCTestCase {
         XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [rejected]))
         XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Iets anders", in: [olderAccepted]))
     }
+
+    // MARK: - Task 10: accept / edit / reject, decision log, regeneration
+
+    /// A decision log in a temporary directory; never Application Support.
+    private func makeLog() -> TodoDecisionLog {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TodoReviewServiceTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return TodoDecisionLog(fileURL: directory.appendingPathComponent("todo-decisions.jsonl"))
+    }
+
+    private func entries(in log: TodoDecisionLog) throws -> [TodoDecisionEntry] {
+        guard FileManager.default.fileExists(atPath: log.fileURL.path) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try String(contentsOf: log.fileURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map { try decoder.decode(TodoDecisionEntry.self, from: Data($0.utf8)) }
+    }
+
+    /// Obsidian storage pointed at a scratch vault.
+    private func makeVaultDefaults(_ vault: URL) -> UserDefaults {
+        let defaults = makeScratchDefaults(vaultRoot: vault, label: "todo-review-accept")
+        AppPreferences.setPrepTodoStorage(.obsidian, in: defaults)
+        assertScratchVault(defaults)
+        return defaults
+    }
+
+    /// Local storage, with a scratch vault configured anyway so the test can
+    /// prove nothing is written there.
+    private func makeLocalDefaults(_ vault: URL) -> UserDefaults {
+        let defaults = makeScratchDefaults(vaultRoot: vault, label: "todo-review-local")
+        AppPreferences.setPrepTodoStorage(.local, in: defaults)
+        assertScratchVault(defaults)
+        return defaults
+    }
+
+    private func vaultContents(_ vault: URL) -> [String] {
+        (FileManager.default.enumerator(atPath: vault.path)?.allObjects as? [String]) ?? []
+    }
+
+    private func proposed(
+        _ items: [ExtractedActionItem], in meeting: Meeting, context: ModelContext
+    ) throws -> [TodoItem] {
+        try TodoReviewService.replaceProposedTodos(for: meeting, with: items, in: context)
+        try context.save()
+        return try todos(of: meeting, in: context).filter { $0.status == .proposed }
+    }
+
+    private let offerItem = ExtractedActionItem(
+        task: "Stuur offerte", owner: "Youri", due: "2026-11-06", dueIsExplicit: true, confidence: 0.9,
+        quote: "ik stuur de offerte", timestamp: "12:34", verified: .supported, verificationReason: "Youri zegt het."
+    )
+
+    func testAcceptWritesOneLineToTheMeetingFile() throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-accept")
+        let defaults = makeVaultDefaults(vault)
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        meeting.actionItems = [offerItem]
+        let todo = try XCTUnwrap(try proposed([offerItem], in: meeting, context: context).first)
+
+        try TodoReviewService.accept(todo, in: context, userDefaults: defaults, log: log)
+        try TodoReviewService.accept(todo, in: context, userDefaults: defaults, log: log)
+
+        let files = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults))
+        TestVaultGuard.assertTemporary(files.canonicalTodoWriteURL, "meeting todo file")
+        let markdown = try String(contentsOf: files.canonicalTodoWriteURL, encoding: .utf8)
+        let id = todo.id.uuidString
+        XCTAssertTrue(markdown.contains("- [ ] Stuur offerte — Youri 📅 2026-11-06 [12:34] <!-- casablanca-todo: \(id) -->"), markdown)
+        XCTAssertEqual(markdown.components(separatedBy: id).count - 1, 1, "accepting twice writes one line")
+        XCTAssertEqual(todo.sourceFilePath, files.canonicalTodoWriteURL.path)
+        XCTAssertEqual(todo.status, .accepted)
+
+        let logged = try entries(in: log)
+        XCTAssertEqual(logged.map(\.action), [.accept])
+        XCTAssertEqual(logged.first?.todoID, todo.id)
+        XCTAssertEqual(logged.first?.meetingID, meeting.id)
+        XCTAssertEqual(logged.first?.item, .init(task: "Stuur offerte", owner: "Youri", due: "2026-11-06",
+                                                 timestamp: "12:34", quote: "ik stuur de offerte"))
+        XCTAssertEqual(logged.first?.verification, "supported")
+        XCTAssertEqual(logged.first?.verificationReason, "Youri zegt het.", "the reason comes from the meeting's action items")
+        XCTAssertNil(logged.first?.edit)
+    }
+
+    func testAcceptInLocalModeTouchesNoFiles() throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-accept-local")
+        let defaults = makeLocalDefaults(vault)
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let todo = try XCTUnwrap(try proposed([offerItem], in: meeting, context: context).first)
+
+        try TodoReviewService.accept(todo, in: context, userDefaults: defaults, log: log)
+
+        XCTAssertEqual(todo.status, .accepted)
+        XCTAssertNil(todo.sourceFilePath)
+        XCTAssertEqual(vaultContents(vault), [], "local storage writes nothing to the vault")
+        XCTAssertEqual(try entries(in: log).map(\.action), [.accept])
+    }
+
+    func testRejectStaysInSwiftDataOnly() throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-reject")
+        let defaults = makeVaultDefaults(vault)
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let todo = try XCTUnwrap(try proposed([offerItem], in: meeting, context: context).first)
+
+        try TodoReviewService.reject(todo, in: context, log: log)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.status, .rejected)
+        XCTAssertNil(todo.sourceFilePath)
+        XCTAssertEqual(try todos(of: meeting, in: context).count, 1, "the rejected row is kept")
+        let files = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults))
+        let markdown = (try? String(contentsOf: files.canonicalTodoWriteURL, encoding: .utf8)) ?? ""
+        XCTAssertFalse(markdown.contains(todo.id.uuidString))
+        XCTAssertFalse(markdown.contains("Stuur offerte"))
+        let logged = try entries(in: log)
+        XCTAssertEqual(logged.map(\.action), [.reject])
+        XCTAssertEqual(logged.first?.item.task, "Stuur offerte")
+    }
+
+    func testEditLogsOnlyChangedFields() throws {
+        let context = try makeContext()
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let todo = try XCTUnwrap(try proposed([offerItem], in: meeting, context: context).first)
+        let newDue = try XCTUnwrap(TodoReviewService.dueDate(fromISO: "2026-11-07"))
+
+        try TodoReviewService.edit(todo, task: " Stuur de offerte ", owner: "Youri", dueDate: newDue, in: context, log: log)
+
+        XCTAssertEqual(todo.text, "Stuur de offerte")
+        XCTAssertEqual(todo.owner, "Youri")
+        XCTAssertEqual(todo.dueDate, newDue)
+        XCTAssertEqual(todo.status, .proposed, "editing does not accept")
+        let logged = try entries(in: log)
+        XCTAssertEqual(logged.map(\.action), [.edit])
+        XCTAssertEqual(logged.first?.edit, [
+            "task": .init(from: "Stuur offerte", to: "Stuur de offerte"),
+            "due": .init(from: "2026-11-06", to: "2026-11-07"),
+        ])
+        XCTAssertEqual(logged.first?.item.task, "Stuur de offerte")
+
+        // Clearing the owner is a change; an unchanged edit logs nothing.
+        try TodoReviewService.edit(todo, task: "Stuur de offerte", owner: nil, dueDate: newDue, in: context, log: log)
+        try TodoReviewService.edit(todo, task: "Stuur de offerte", owner: nil, dueDate: newDue, in: context, log: log)
+        XCTAssertNil(todo.owner)
+        XCTAssertEqual(try entries(in: log).last?.edit, ["owner": .init(from: "Youri", to: nil)])
+        XCTAssertEqual(try entries(in: log).count, 2)
+
+        // Only proposed to-dos are edited.
+        let accepted = TodoItem(text: "Bel Kim", meeting: meeting)
+        context.insert(accepted)
+        try TodoReviewService.edit(accepted, task: "Bel Tim", owner: nil, dueDate: nil, in: context, log: log)
+        XCTAssertEqual(accepted.text, "Bel Kim")
+        XCTAssertEqual(try entries(in: log).count, 2)
+    }
+
+    func testAcceptAllVerifiedSkipsUnsupportedAndUnverified() throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-accept-all")
+        let defaults = makeLocalDefaults(vault)
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        _ = try proposed([
+            item("Stuur offerte naar Kim", verified: .supported),
+            item("Plan de productdemo", verified: .unsupported),
+            item("Bel de leverancier", verified: .unverified),
+        ], in: meeting, context: context)
+
+        let count = try TodoReviewService.acceptAllVerified(in: meeting, in: context, userDefaults: defaults,
+                                                             fileManager: .default, log: log)
+
+        XCTAssertEqual(count, 1)
+        let rows = try todos(of: meeting, in: context)
+        XCTAssertEqual(rows.map(\.text), ["Bel de leverancier", "Plan de productdemo", "Stuur offerte naar Kim"])
+        XCTAssertEqual(rows.map(\.status), [.proposed, .proposed, .accepted])
+        XCTAssertEqual(try entries(in: log).map(\.action), [.accept])
+    }
+
+    /// Ruling (Task 10): the brief's "Plan de demo" vs "Plan demo" pair cannot
+    /// merge under `FuzzyText.isFuzzyEqual` (9 < 12 characters, similarity
+    /// 0.75), so the fuzzy pair is "Plan de demo met Kim" / "Plan demo met Kim"
+    /// (similarity 0.85) and "Plan demo" is an exact repeat.
+    func testRegenerationKeepsAcceptedAndRejectedAndDropsFuzzyMatches() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let accepted = TodoItem(text: "Stuur offerte naar Kim", meeting: meeting)
+        let rejectedFuzzy = TodoItem(text: "Plan de demo met Kim", meeting: meeting)
+        rejectedFuzzy.status = .rejected
+        let rejectedExact = TodoItem(text: "Plan demo", meeting: meeting)
+        rejectedExact.status = .rejected
+        let pending = TodoItem(text: "Oud voorstel", meeting: meeting)
+        pending.status = .proposed
+        [accepted, rejectedFuzzy, rejectedExact, pending].forEach(context.insert)
+        try context.save()
+
+        try TodoReviewService.replaceProposedTodos(
+            for: meeting,
+            with: [item("Stuur de offerte naar Kim."), item("Plan demo met Kim"), item("Plan demo"), item("Bel leverancier")],
+            in: context
+        )
+        try context.save()
+
+        let rows = try todos(of: meeting, in: context)
+        XCTAssertEqual(rows.filter { $0.status == .proposed }.map(\.text), ["Bel leverancier"])
+        XCTAssertEqual(rows.count, 4, "the pending proposal is gone; kept rows are untouched")
+        XCTAssertEqual(accepted.text, "Stuur offerte naar Kim")
+        XCTAssertEqual(accepted.status, .accepted)
+        XCTAssertEqual(rejectedFuzzy.text, "Plan de demo met Kim")
+        XCTAssertEqual(rejectedFuzzy.status, .rejected)
+        XCTAssertEqual(rejectedExact.status, .rejected)
+    }
+
+    /// The short-text guard: "Plan demo" (9 characters) only matches exactly,
+    /// so "Plan de demo" is proposed again rather than silently dropped.
+    func testRegenerationShortTextStaysProposed() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let rejected = TodoItem(text: "Plan demo", meeting: meeting)
+        rejected.status = .rejected
+        context.insert(rejected)
+        try context.save()
+
+        try TodoReviewService.replaceProposedTodos(for: meeting, with: [item("Plan de demo")], in: context)
+        try context.save()
+
+        let rows = try todos(of: meeting, in: context)
+        XCTAssertEqual(rows.filter { $0.status == .proposed }.map(\.text), ["Plan de demo"])
+        XCTAssertEqual(rejected.status, .rejected)
+    }
+
+    /// Carry-in from Task 7: every proposed to-do keeps its item's verdict.
+    func testProposedTodosCarryTheVerificationVerdict() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+
+        let rows = try proposed([
+            item("Stuur offerte naar Kim", verified: .supported),
+            item("Plan de productdemo", verified: .unsupported),
+            item("Bel de leverancier", verified: .unverified),
+        ], in: meeting, context: context)
+
+        XCTAssertEqual(rows.map(\.text), ["Bel de leverancier", "Plan de productdemo", "Stuur offerte naar Kim"])
+        XCTAssertEqual(rows.map(\.verification), [.unverified, .unsupported, .supported])
+        XCTAssertEqual(rows.map(\.verificationRaw), ["unverified", "unsupported", "supported"])
+    }
+
+    func testAutoAcceptVerifiedWhenSettingOn() async throws {
+        let markdown = """
+        # Samenvatting
+        Korte meeting.
+
+        ## Besluiten
+
+        ## Actiepunten
+        - **Youri** — Stuur offerte naar Kim
+        - **Youri** — Plan de demo
+
+        ## Risico's en blockers
+
+        ## Opvolging
+        """
+        let json = #"""
+        {"topics":["Offerte"],"decisions":[],"action_items":[{"task":"Stuur offerte naar Kim","owner":"Youri","due":null,"confidence":0.9,"quote":"ik stuur de offerte naar Kim","timestamp":"00:10"},{"task":"Plan de demo","owner":"Youri","due":null,"confidence":0.9,"quote":"prima","timestamp":"00:20"}],"open_questions":[],"facts":[]}
+        """#
+        let verdict = #"[{"id": "a1", "supported": true, "reason": "Youri zegt het."}]"#
+
+        for autoAccept in [true, false] {
+            let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(markdown, json: json)), .success(verdict)])
+            let defaults = makeScratchDefaults(label: "todo-review-auto")
+            defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+            defaults.set(false, forKey: AppPreferenceKey.includeUnassignedActionItems)
+            defaults.set(false, forKey: AppPreferenceKey.summaryThinkingEnabled)
+            defaults.set(autoAccept, forKey: AppPreferenceKey.autoAcceptVerifiedTodos)
+            AppPreferences.setPrepTodoStorage(.local, in: defaults)
+            let log = makeLog()
+            let service = SummarizationService(
+                providerFactory: { stub },
+                userDefaults: defaults,
+                attendeeProvider: StaticAttendeeProvider(attendees: []),
+                prepLoader: { _, _ in nil },
+                calendar: SummaryFixtures.amsterdamCalendar,
+                todoDecisionLog: log
+            )
+            let context = try makeContext()
+            let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+            meeting.transcript = "[00:10] Youri: Ik stuur de offerte naar Kim vrijdag.\n[00:20] Kim: Prima, dank je."
+            context.insert(meeting)
+
+            service.summarizeInBackground(meeting: meeting, modelContext: context)
+            let deadline = Date().addingTimeInterval(5)
+            while service.isSummarizing, Date() < deadline {
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+            XCTAssertFalse(service.isSummarizing)
+            XCTAssertNil(service.errorMessage)
+
+            let rows = try todos(of: meeting, in: context)
+            XCTAssertEqual(rows.map(\.text), ["Plan de demo", "Stuur offerte naar Kim"])
+            XCTAssertEqual(rows.map(\.verification), [.unverified, .supported])
+            XCTAssertEqual(rows.map(\.status), autoAccept ? [.proposed, .accepted] : [.proposed, .proposed])
+            let logged = try entries(in: log)
+            XCTAssertEqual(logged.map(\.action), autoAccept ? [.autoAccept] : [])
+            if autoAccept {
+                XCTAssertEqual(logged.first?.verificationReason, "Youri zegt het.")
+                XCTAssertTrue(try String(contentsOf: log.fileURL, encoding: .utf8).contains(#""action":"auto_accept""#))
+            }
+        }
+    }
 }

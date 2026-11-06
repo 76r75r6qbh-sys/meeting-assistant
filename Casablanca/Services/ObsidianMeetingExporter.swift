@@ -97,7 +97,7 @@ enum ObsidianMeetingExporter {
         let todos = meeting.todos.filter { $0.status == .accepted }
         let actionItemsSection = todos.isEmpty
             ? ""
-            : "\n\n## Action Items\n\n" + todos.map { "- [\($0.isCompleted ? "x" : " ")] \($0.text)" }.joined(separator: "\n")
+            : "\n\n## Action Items\n\n" + todos.map { "- [\($0.isCompleted ? "x" : " ")] \($0.text)\(ObsidianTodoMarkdown.suffix(for: $0))" }.joined(separator: "\n")
 
         return """
         ---

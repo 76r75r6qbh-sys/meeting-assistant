@@ -127,6 +127,8 @@
 		SPKB0018 /* SummaryTemplatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0118 /* SummaryTemplatesTests.swift */; };
 		SPKB0019 /* SummaryTemplateMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0119 /* SummaryTemplateMenu.swift */; };
 		SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */; };
+		SPKB0021 /* TodoDecisionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0121 /* TodoDecisionLog.swift */; };
+		SPKB0022 /* TodoDecisionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0122 /* TodoDecisionLogTests.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -460,6 +462,8 @@
 		SPKB0118 /* SummaryTemplatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplatesTests.swift; sourceTree = "<group>"; };
 		SPKB0119 /* SummaryTemplateMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateMenu.swift; sourceTree = "<group>"; };
 		SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateMenuLayoutTests.swift; sourceTree = "<group>"; };
+		SPKB0121 /* TodoDecisionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLog.swift; sourceTree = "<group>"; };
+		SPKB0122 /* TodoDecisionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLogTests.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -821,6 +825,7 @@
 				SPKB0115 /* ActionItemVerifier.swift */,
 				SPKB0117 /* SummaryTemplates.swift */,
 				SPKB0112 /* TodoReviewService.swift */,
+				SPKB0121 /* TodoDecisionLog.swift */,
 				ACPS0102 /* AudioClipPlayer.swift */,
 				TCHK0101 /* TranscriptChunker.swift */,
 				SPKT0103 /* TranscriptLineFormat.swift */,
@@ -1000,6 +1005,7 @@
 				SPKB0118 /* SummaryTemplatesTests.swift */,
 				SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */,
 				SPKB0114 /* TodoReviewServiceTests.swift */,
+				SPKB0122 /* TodoDecisionLogTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
@@ -1340,6 +1346,7 @@
 				SPKB0015 /* ActionItemVerifier.swift in Sources */,
 				SPKB0017 /* SummaryTemplates.swift in Sources */,
 				SPKB0012 /* TodoReviewService.swift in Sources */,
+				SPKB0021 /* TodoDecisionLog.swift in Sources */,
 				ACPS0002 /* AudioClipPlayer.swift in Sources */,
 				ACPS0003 /* SpeakerSettingsSection.swift in Sources */,
 				ACPS0004 /* PrivacySettingsSection.swift in Sources */,
@@ -1493,6 +1500,7 @@
 				SPKB0018 /* SummaryTemplatesTests.swift in Sources */,
 				SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */,
 				SPKB0014 /* TodoReviewServiceTests.swift in Sources */,
+				SPKB0022 /* TodoDecisionLogTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,

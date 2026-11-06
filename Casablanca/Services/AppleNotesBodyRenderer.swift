@@ -87,7 +87,7 @@ enum AppleNotesBodyRenderer {
     private static func todoList(_ todos: [TodoItem]) -> String {
         let items = todos.map { todo in
             let glyph = todo.isCompleted ? "☑" : "☐"
-            return "<li>\(glyph) \(escape(stripWikilinks(todo.text)))</li>"
+            return "<li>\(glyph) \(escape(stripWikilinks(todo.text)))\(escape(ObsidianTodoMarkdown.suffix(for: todo)))</li>"
         }.joined()
         return "<ul>\(items)</ul>"
     }

@@ -144,6 +144,34 @@ enum ObsidianTodoSyncService {
         try modelContext.save()
     }
 
+    /// Writes an accepted meeting to-do to the vault: with Obsidian storage
+    /// and resolvable meeting files, its line (text plus the ` — owner 📅 due
+    /// [time]` suffix) is appended to `canonicalTodoWriteURL` — once; a line
+    /// already carrying its id is not repeated — and `sourceFilePath` is set.
+    /// Local storage, no vault or no meeting: nothing happens. Does not change
+    /// the status and does not save; `TodoReviewService.accept` does both.
+    static func writeAcceptedMeetingTodo(
+        _ todo: TodoItem,
+        in modelContext: ModelContext,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) throws {
+        guard AppPreferences.prepTodoStorage(in: userDefaults) == .obsidian,
+              let meeting = todo.meeting,
+              let files = ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: userDefaults, fileManager: fileManager)
+        else { return }
+
+        let url = files.canonicalTodoWriteURL
+        try ensureParentDirectory(for: url, fileManager: fileManager)
+        let markdown = try readMarkdownIfPresent(at: url, fileManager: fileManager)
+        let alreadyWritten = ObsidianTodoMarkdown.parseMeetingActionItems(markdown).contains { $0.id == todo.id }
+        if !alreadyWritten {
+            let updated = ObsidianTodoMarkdown.appendingTask(markdown, ObsidianTodoMarkdown.taskLine(for: todo))
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+        }
+        todo.sourceFilePath = url.path
+    }
+
     static func setCompleted(
         _ isCompleted: Bool,
         for todo: TodoItem,
@@ -163,7 +191,11 @@ enum ObsidianTodoSyncService {
             var document = try loadGenericDocument(from: sourceURL)
             document.openTasks = document.openTasks.filter { $0.id != todo.id }
             document.doneTasks = document.doneTasks.filter { $0.id != todo.id }
-            let updatedTask = ObsidianTodoMarkdown.TaskLine(id: todo.id, text: todo.text, isCompleted: isCompleted)
+            let current = ObsidianTodoMarkdown.taskLine(for: todo)
+            let updatedTask = ObsidianTodoMarkdown.TaskLine(
+                id: todo.id, text: todo.text, isCompleted: isCompleted,
+                owner: current.owner, due: current.due, timestamp: current.timestamp
+            )
             if isCompleted {
                 document.doneTasks.append(updatedTask)
             } else {
@@ -238,7 +270,7 @@ enum ObsidianTodoSyncService {
         var document = try loadGenericDocument(from: genericURL)
 
         for todo in legacyTodos {
-            let task = ObsidianTodoMarkdown.TaskLine(id: todo.id, text: todo.text, isCompleted: todo.isCompleted)
+            let task = ObsidianTodoMarkdown.taskLine(for: todo)
             if todo.isCompleted {
                 if !document.doneTasks.contains(where: { $0.id == todo.id }) {
                     document.doneTasks.append(task)
@@ -268,14 +300,7 @@ enum ObsidianTodoSyncService {
         let existingIDs = Set(ObsidianTodoMarkdown.parseMeetingActionItems(markdown).compactMap(\.id))
 
         for todo in legacyTodos where !existingIDs.contains(todo.id) {
-            markdown = ObsidianTodoMarkdown.appendingTask(
-                markdown,
-                ObsidianTodoMarkdown.TaskLine(
-                    id: todo.id,
-                    text: todo.text,
-                    isCompleted: todo.isCompleted
-                )
-            )
+            markdown = ObsidianTodoMarkdown.appendingTask(markdown, ObsidianTodoMarkdown.taskLine(for: todo))
         }
         // A legacy row whose id is already in the file is the same todo: it now
         // lives there too, so it is tracked against that file either way.
@@ -380,6 +405,11 @@ enum ObsidianTodoSyncService {
             existing.isCompleted = task.isCompleted
             existing.sourceFilePath = sourceFilePath
             existing.meeting = meeting
+            // A file never holds proposed rows: a row found in one is accepted.
+            existing.status = .accepted
+            // The suffix is the line's own record of these fields; a line
+            // without one keeps the row's values.
+            if task.hasSuffix { applySuffixFields(of: task, to: existing) }
             return
         }
 
@@ -401,8 +431,15 @@ enum ObsidianTodoSyncService {
             sourceFilePath: sourceFilePath,
             meeting: meeting
         )
+        applySuffixFields(of: task, to: todo)
         modelContext.insert(todo)
         return todo
+    }
+
+    private static func applySuffixFields(of task: ObsidianTodoMarkdown.TaskLine, to todo: TodoItem) {
+        todo.owner = task.owner
+        todo.dueDate = task.due.flatMap(TodoReviewService.dueDate(fromISO:))
+        todo.sourceTimestamp = task.timestamp
     }
 
     private static func removeMissingGenericRows(

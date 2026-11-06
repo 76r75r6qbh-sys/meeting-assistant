@@ -180,4 +180,25 @@ final class AppleNotesBodyRendererTests: XCTestCase {
         XCTAssertTrue(html.contains("5 &lt; 6"))
         XCTAssertFalse(html.contains("<script>"))
     }
+
+    func testSummaryListsOnlyAcceptedTodos() {
+        let meeting = makeMeeting()
+        let accepted = TodoItem(text: "Stuur offerte", isCompleted: false)
+        accepted.owner = "Youri"
+        accepted.dueDate = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 6))
+        accepted.sourceTimestamp = "12:34"
+        let proposal = TodoItem(text: "Voorgesteld")
+        proposal.status = .proposed
+        let rejected = TodoItem(text: "Afgewezen")
+        rejected.status = .rejected
+        meeting.todos = [accepted, proposal, rejected] + meeting.todos
+
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+
+        XCTAssertTrue(html.contains("<li>☐ Stuur offerte — Youri 📅 2026-11-06 [12:34]</li>"), html)
+        XCTAssertTrue(html.contains("<li>☐ Send recap</li>"), "legacy rows render unchanged")
+        XCTAssertTrue(html.contains("<li>☑ Book room</li>"))
+        XCTAssertFalse(html.contains("Voorgesteld"))
+        XCTAssertFalse(html.contains("Afgewezen"))
+    }
 }

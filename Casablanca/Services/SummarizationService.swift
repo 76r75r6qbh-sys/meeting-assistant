@@ -181,6 +181,10 @@ final class SummarizationService {
     /// dates. Injectable so tests pin ISO-8601 and a time zone.
     private let calendar: Calendar
 
+    /// Where auto-accepted to-dos are logged. Injectable so tests never write
+    /// to Application Support.
+    private let todoDecisionLog: TodoDecisionLog
+
     init(
         providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
         userDefaults: UserDefaults = .standard,
@@ -189,7 +193,8 @@ final class SummarizationService {
         prepLoader: @escaping @MainActor (Meeting, UserDefaults) async -> String? = {
             await MeetingPrepService.loadResolvedPrepMarkdown(for: $0, userDefaults: $1)
         },
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        todoDecisionLog: TodoDecisionLog = .shared
     ) {
         self.providerFactory = providerFactory
         self.userDefaults = userDefaults
@@ -197,6 +202,7 @@ final class SummarizationService {
         self.attendeeProvider = attendeeProvider
         self.prepLoader = prepLoader
         self.calendar = calendar
+        self.todoDecisionLog = todoDecisionLog
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -205,7 +211,9 @@ final class SummarizationService {
     /// and the template on the meeting, replaces the meeting's pending
     /// proposals with the user's own items as `.proposed` to-dos (SwiftData
     /// only — nothing reaches the vault until accepted; see
-    /// `ProposedTodoPlanner` / `TodoReviewService`), then persists.
+    /// `ProposedTodoPlanner` / `TodoReviewService`), accepts the verified ones
+    /// when `autoAcceptVerifiedTodos` is on (logged as `auto_accept`), then
+    /// persists.
     func summarizeInBackground(meeting: Meeting, modelContext: ModelContext, templateID: String? = nil) {
         // If a summary is already in flight, do nothing — never cancel/restart a
         // running summary (e.g. when the view re-appears and re-triggers this).
@@ -240,6 +248,15 @@ final class SummarizationService {
                 )
                 do {
                     try TodoReviewService.replaceProposedTodos(for: meeting, with: proposals, in: modelContext)
+                    if self.userDefaults.bool(forKey: AppPreferenceKey.autoAcceptVerifiedTodos) {
+                        try TodoReviewService.acceptAllVerified(
+                            in: meeting,
+                            in: modelContext,
+                            userDefaults: self.userDefaults,
+                            log: self.todoDecisionLog,
+                            auto: true
+                        )
+                    }
                 } catch {
                     // The summary itself succeeded; failed proposals are a warning, not a failure.
                     Log.summarization.warning("Proposing meeting to-dos failed: \(error.localizedDescription)")

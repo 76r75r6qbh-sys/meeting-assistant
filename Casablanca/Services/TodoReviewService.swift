@@ -25,8 +25,13 @@ enum ProposedTodoPlanner {
 @MainActor
 enum TodoReviewService {
     /// Replaces the meeting's pending proposals with one `.proposed` to-do per
-    /// item. Accepted and rejected to-dos are kept, and an item that is a
-    /// `FuzzyText.isFuzzyEqual` match of one of them is not proposed again.
+    /// item (regeneration rules, spec B6). Accepted and rejected to-dos are
+    /// kept, and an item that is a `FuzzyText.isFuzzyEqual` match of one of
+    /// them is not proposed again — the same guarded rule as every other
+    /// merge, so short texts (< 12 characters) and texts whose digit tokens
+    /// differ only match exactly. Each to-do carries its item's verification
+    /// verdict (`verification`); the verdict's reason stays on
+    /// `meeting.actionItems` and reaches only the decision log.
     /// A kept to-do is compared by its text and by its bare action
     /// (`**owner** —` prefix and ` (date) [mm:ss]` suffix removed), because a
     /// to-do checked off in the summary tab stores the whole bullet. Repeats
@@ -68,6 +73,122 @@ enum TodoReviewService {
         return bare == trimmed || bare.isEmpty ? [trimmed] : [trimmed, bare]
     }
 
+    // MARK: - Review decisions
+
+    /// Accepts a proposed (or rejected) to-do. With Obsidian storage and
+    /// resolvable meeting files its line — with the ` — owner 📅 due [time]`
+    /// suffix — is appended to the meeting's canonical to-do file and
+    /// `sourceFilePath` is set; otherwise (local storage, no vault, no
+    /// meeting) only SwiftData changes. Then `status = .accepted`, save, and
+    /// one `.accept` (or `.autoAccept` when `auto`) log line. An already
+    /// accepted to-do is left alone.
+    static func accept(
+        _ todo: TodoItem,
+        in context: ModelContext,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        log: TodoDecisionLog = .shared,
+        auto: Bool = false
+    ) throws {
+        guard todo.status != .accepted else { return }
+        try ObsidianTodoSyncService.writeAcceptedMeetingTodo(
+            todo, in: context, userDefaults: userDefaults, fileManager: fileManager
+        )
+        todo.status = .accepted
+        try context.save()
+        log.append(entry(for: todo, action: auto ? .autoAccept : .accept))
+    }
+
+    /// Rejects a proposed to-do: `status = .rejected`, save, log. Never
+    /// touches files. Accepted to-dos are deleted, not rejected, so they are
+    /// left alone (a vault line would otherwise bring them back).
+    static func reject(_ todo: TodoItem, in context: ModelContext, log: TodoDecisionLog = .shared) throws {
+        guard todo.status == .proposed else { return }
+        todo.status = .rejected
+        try context.save()
+        log.append(entry(for: todo, action: .reject))
+    }
+
+    /// Edits a proposed to-do's text, owner and due date and logs `.edit`
+    /// with only the fields that changed; does not accept. A blank `task`
+    /// keeps the current text; a blank `owner` clears it. Non-proposed
+    /// to-dos and edits that change nothing are ignored.
+    static func edit(
+        _ todo: TodoItem,
+        task: String,
+        owner: String?,
+        dueDate: Date?,
+        in context: ModelContext,
+        log: TodoDecisionLog = .shared
+    ) throws {
+        guard todo.status == .proposed else { return }
+        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newText = trimmedTask.isEmpty ? todo.text : trimmedTask
+        let newOwner = owner?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let newDue = dueDate.map { Calendar.current.startOfDay(for: $0) }
+
+        var changes: [String: TodoDecisionEntry.Change] = [:]
+        if newText != todo.text { changes["task"] = .init(from: todo.text, to: newText) }
+        if newOwner != todo.owner { changes["owner"] = .init(from: todo.owner, to: newOwner) }
+        let oldDueText = todo.dueDate.map(ObsidianTodoMarkdown.isoDay)
+        let newDueText = newDue.map(ObsidianTodoMarkdown.isoDay)
+        if oldDueText != newDueText { changes["due"] = .init(from: oldDueText, to: newDueText) }
+        guard !changes.isEmpty else { return }
+
+        todo.text = newText
+        todo.owner = newOwner
+        todo.dueDate = newDue
+        try context.save()
+        var logged = entry(for: todo, action: .edit)
+        logged.edit = changes
+        log.append(logged)
+    }
+
+    /// Accepts every `.proposed` to-do of `meeting` whose verification is
+    /// `.supported` (oldest first) and returns how many were accepted.
+    @discardableResult
+    static func acceptAllVerified(
+        in meeting: Meeting,
+        in context: ModelContext,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        log: TodoDecisionLog = .shared,
+        auto: Bool = false
+    ) throws -> Int {
+        let verified = meeting.todos
+            .filter { $0.status == .proposed && $0.verification == .supported }
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }
+        for todo in verified {
+            try accept(todo, in: context, userDefaults: userDefaults, fileManager: fileManager, log: log, auto: auto)
+        }
+        return verified.count
+    }
+
+    /// The decision-log entry for `todo` as it is now. The verification
+    /// reason comes from the meeting's extracted item with the same task
+    /// (or, after an edit, the same quote and timestamp).
+    private static func entry(for todo: TodoItem, action: TodoDecisionEntry.Action) -> TodoDecisionEntry {
+        let items = todo.meeting?.actionItems ?? []
+        let source = items.first { $0.task.trimmingCharacters(in: .whitespacesAndNewlines) == todo.text }
+            ?? items.first { todo.quote != nil && $0.quote == todo.quote && $0.timestamp == todo.sourceTimestamp }
+        return TodoDecisionEntry(
+            date: Date(),
+            meetingID: todo.meeting?.id,
+            todoID: todo.id,
+            action: action,
+            item: .init(
+                task: todo.text,
+                owner: todo.owner,
+                due: todo.dueDate.map(ObsidianTodoMarkdown.isoDay),
+                timestamp: todo.sourceTimestamp,
+                quote: todo.quote
+            ),
+            edit: nil,
+            verification: todo.verificationRaw,
+            verificationReason: source?.verificationReason
+        )
+    }
+
     /// `yyyy-MM-dd` as local midnight; `nil` when it does not parse.
     static func dueDate(fromISO iso: String) -> Date? {
         let formatter = DateFormatter()
@@ -79,6 +200,10 @@ enum TodoReviewService {
         guard let date = formatter.date(from: iso) else { return nil }
         return Calendar.current.startOfDay(for: date)
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 /// Which meeting to-do a summary action-item bullet stands for.

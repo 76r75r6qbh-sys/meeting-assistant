@@ -188,4 +188,100 @@ final class ObsidianTodoMarkdownTests: XCTestCase {
         let markdown = "## Action Items\n- [ ] Real\n# Appendix\n- [ ] Not an action item"
         XCTAssertEqual(ObsidianTodoMarkdown.parseMeetingActionItems(markdown).map(\.text), ["Real"])
     }
+
+    // MARK: - Task 10: owner / due / timestamp suffix
+
+    private let suffixID = UUID(uuidString: "880E8400-E29B-41D4-A716-446655440000")!
+
+    func testRendersOwnerDueAndTimestampSuffix() {
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "Youri", due: "2026-11-06", timestamp: "12:34"),
+                       " — Youri 📅 2026-11-06 [12:34]")
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: nil, due: nil, timestamp: nil), "")
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: nil, due: "2026-11-06", timestamp: nil), " 📅 2026-11-06")
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "Kim", due: nil, timestamp: "1:02:03"), " — Kim [1:02:03]")
+
+        let task = ObsidianTodoMarkdown.TaskLine(id: suffixID, text: "Stuur offerte", isCompleted: false,
+                                                 owner: "Youri", due: "2026-11-06", timestamp: "12:34")
+        let markdown = ObsidianTodoMarkdown.appendingTask("", task)
+
+        XCTAssertEqual(markdown, """
+        ## Action Items
+
+        - [ ] Stuur offerte — Youri 📅 2026-11-06 [12:34] <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->
+
+        """)
+    }
+
+    func testParsesSuffixIntoFields() {
+        let markdown = """
+        ## Action Items
+
+        - [ ] Stuur offerte — Youri 📅 2026-11-06 [12:34] <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->
+        - [x] Mail Kim 📅 2026-11-07
+        - [ ] Plan de demo — Kim [1:02:03]
+        """
+
+        let items = ObsidianTodoMarkdown.parseMeetingActionItems(markdown)
+
+        XCTAssertEqual(items, [
+            .init(id: suffixID, text: "Stuur offerte", isCompleted: false, owner: "Youri", due: "2026-11-06", timestamp: "12:34"),
+            .init(id: nil, text: "Mail Kim", isCompleted: true, owner: nil, due: "2026-11-07", timestamp: nil),
+            .init(id: nil, text: "Plan de demo", isCompleted: false, owner: "Kim", due: nil, timestamp: "1:02:03"),
+        ])
+    }
+
+    func testOwnerAloneIsNotWritten() {
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "Youri", due: nil, timestamp: nil), "")
+        let task = ObsidianTodoMarkdown.TaskLine(id: suffixID, text: "Bel Kim", isCompleted: false, owner: "Youri")
+        let markdown = ObsidianTodoMarkdown.appendingTask("", task)
+        XCTAssertTrue(markdown.contains("- [ ] Bel Kim <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"))
+        XCTAssertFalse(markdown.contains("Youri"))
+        // An owner that would not parse back is dropped, never mangled.
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "A — B", due: "2026-11-06", timestamp: nil), " 📅 2026-11-06")
+    }
+
+    func testUserTypedDashLineKeepsItsText() {
+        let items = ObsidianTodoMarkdown.parseMeetingActionItems("## Action Items\n\n- [ ] Bel Kim — dringend\n")
+        XCTAssertEqual(items.first?.text, "Bel Kim — dringend")
+        XCTAssertNil(items.first?.owner)
+        XCTAssertNil(items.first?.due)
+        XCTAssertNil(items.first?.timestamp)
+    }
+
+    func testBracketTextThatIsNotATimestampStaysText() {
+        let items = ObsidianTodoMarkdown.parseMeetingActionItems("""
+        ## Action Items
+
+        - [ ] Check [IO-12]
+        - [ ] Review — Kim [IO-12]
+        - [ ] Plan sprint 📅 volgende week
+        """)
+        XCTAssertEqual(items.map(\.text), ["Check [IO-12]", "Review — Kim [IO-12]", "Plan sprint 📅 volgende week"])
+        XCTAssertTrue(items.allSatisfy { $0.owner == nil && $0.due == nil && $0.timestamp == nil })
+    }
+
+    func testSettingCompletionKeepsSuffix() throws {
+        let line = "- [ ] Stuur offerte — Youri 📅 2026-11-06 [12:34] <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let markdown = "## Action Items\n\n\(line)\n"
+
+        let updated = try XCTUnwrap(ObsidianTodoMarkdown.settingTaskCompletion(markdown, id: suffixID, isCompleted: true))
+
+        XCTAssertTrue(updated.contains("- [x] Stuur offerte — Youri 📅 2026-11-06 [12:34] <!-- casablanca-todo:"))
+        let task = try XCTUnwrap(ObsidianTodoMarkdown.parseMeetingActionItems(updated).first)
+        XCTAssertEqual(task.owner, "Youri")
+        XCTAssertEqual(task.due, "2026-11-06")
+        XCTAssertEqual(task.timestamp, "12:34")
+        XCTAssertTrue(task.isCompleted)
+    }
+
+    /// Assigning a missing id keeps the line's suffix and its fields.
+    func testAssigningMissingIDKeepsSuffixFields() throws {
+        let markdown = "## Action Items\n\n- [ ] Mail Kim — Youri 📅 2026-11-07\n"
+        let (updated, tasks) = ObsidianTodoMarkdown.assigningMissingTaskIDs(markdown)
+        let task = try XCTUnwrap(tasks.first)
+        XCTAssertEqual(task.text, "Mail Kim")
+        XCTAssertEqual(task.owner, "Youri")
+        XCTAssertEqual(task.due, "2026-11-07")
+        XCTAssertTrue(updated.contains("- [ ] Mail Kim — Youri 📅 2026-11-07 <!-- casablanca-todo: \(task.id!.uuidString) -->"))
+    }
 }
