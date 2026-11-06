@@ -167,7 +167,7 @@ struct MeetingSummaryTab: View {
             Image(systemName: symbol)
                 .font(.caption)
                 .foregroundStyle(color)
-            Text(text)
+            linkedText(text)
                 .font(.body)
                 .foregroundStyle(Color.textPrimary)
                 .textSelection(.enabled)
@@ -226,7 +226,7 @@ struct MeetingSummaryTab: View {
                     .help("Proposed to-do, waiting for review")
                     .accessibilityLabel("In review: \(text)")
                 TodoVerificationBadge(badge: TodoReviewPresentation(todo: todo, actionItems: items).badge)
-                Text(text)
+                linkedText(text)
                     .font(.body)
                     .foregroundStyle(Color.textPrimary)
                     .textSelection(.enabled)
@@ -236,7 +236,7 @@ struct MeetingSummaryTab: View {
             HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
                 TodoVerificationBadge(badge: badge)
                 VStack(alignment: .leading, spacing: CasaSpace.xxs) {
-                    Text(action)
+                    linkedText(action)
                         .font(.body)
                         .foregroundStyle(Color.textPrimary)
                         .textSelection(.enabled)
@@ -261,7 +261,7 @@ struct MeetingSummaryTab: View {
                 .help(completed ? "Mark as not done" : "Mark as done")
                 .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
 
-                Text(text)
+                linkedText(text)
                     .font(.body)
                     .strikethrough(completed)
                     .foregroundStyle(completed ? Color.textTertiary : Color.textPrimary)
@@ -279,18 +279,24 @@ struct MeetingSummaryTab: View {
         )
 
         if !rendered.string.isEmpty {
-            let attributed = AttributedString(rendered)
+            let attributed = TimestampLinks.addingLinks(to: AttributedString(rendered), meetingID: meeting.id)
             Text(attributed)
                 .foregroundStyle(Color.textPrimary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(summary)
+            linkedText(summary)
                 .font(.body)
                 .foregroundStyle(Color.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(4)
         }
+    }
+
+    /// `text` with its `[mm:ss]` labels linked to this meeting's transcript
+    /// and recording (point 8).
+    private func linkedText(_ text: String) -> Text {
+        TimestampLinkText.text(text, meetingID: meeting.id)
     }
 
     // MARK: - Action item ↔ todo sync

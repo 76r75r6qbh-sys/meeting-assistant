@@ -263,10 +263,11 @@ struct TodoReviewRow: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The quote's transcript timestamp as plain text — the one place it is
-    /// drawn. Phase 2 handoff: Task 2.1 turns this into a timestamp link.
+    /// The quote's transcript timestamp — the one place it is drawn — as a
+    /// link that jumps to that moment of the to-do's meeting (plain text
+    /// when the to-do has no meeting).
     func timestampText(_ label: String) -> Text {
-        Text(label).monospacedDigit()
+        TimestampLinkText.text(label, meetingID: todo.meeting?.id).monospacedDigit()
     }
 }
 

@@ -35,6 +35,9 @@ struct RecordedMeetingView: View {
     // resets when the user navigates to a different meeting (keyed internally by
     // meeting id). No persistence in v1.
     @State private var chatService = MeetingChatService()
+    /// A timestamp-link jump handed to the transcript tab, until it is done.
+    @State private var transcriptJump: TimestampJump?
+    private let navigator = MeetingDetailNavigator.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Responsive width tier of the window, published by ContentView. Defaults
     /// to `.expanded` so previews and tests keep the inspector visible.
@@ -49,14 +52,32 @@ struct RecordedMeetingView: View {
         var id: String { rawValue }
     }
 
+    /// Changes when the meeting or the pending jump does.
+    private struct JumpKey: Equatable {
+        let meetingID: UUID
+        let token: UUID?
+    }
+
     var body: some View {
-        ScrollView {
-            readingColumn
-                .padding(CasaSpace.xl)
-                .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                readingColumn(scrollProxy: scrollProxy)
+                    .padding(CasaSpace.xl)
+                    .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A timestamp link for this meeting: show the transcript tab, which
+        // scrolls and plays. `initial` covers a jump that selected this
+        // meeting and created this view.
+        .onChange(of: JumpKey(meetingID: meeting.id, token: navigator.pendingJump?.token), initial: true) { _, _ in
+            guard let jump = navigator.pendingJump, jump.meetingID == meeting.id else { return }
+            selectedTab = .transcript
+            transcriptJump = jump
+            navigator.complete(jump)
+        }
+        .onDisappear { stopPlayback(unlessItBelongsTo: nil) }
         // Native trailing inspector (AppKit-driven resize, HIG-compliant),
         // presented only while the window is wide enough to hold it.
         .widthGatedInspector(isPresented: $showInspector, idealWidth: 320) {
@@ -99,6 +120,10 @@ struct RecordedMeetingView: View {
             isEditingNotes = false
             saveTask = nil
             terminologyService.clearWarning()
+            // Another meeting's recording must not keep playing without a
+            // visible transport (a jump into this meeting may already play).
+            stopPlayback(unlessItBelongsTo: meeting)
+            if transcriptJump?.meetingID != meeting.id { transcriptJump = nil }
             await triggerAutomaticSummaryIfNeeded()
         }
         .alert("Summary Error", isPresented: summaryErrorBinding) {
@@ -112,7 +137,7 @@ struct RecordedMeetingView: View {
 
     // MARK: - Reading column
 
-    private var readingColumn: some View {
+    private func readingColumn(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: CasaSpace.xl) {
             infoBar
 
@@ -152,7 +177,11 @@ struct RecordedMeetingView: View {
                     meeting: meeting,
                     terminologyService: terminologyService,
                     onTranscribe: onTranscribe,
-                    onSave: save
+                    onSave: save,
+                    jump: transcriptJump,
+                    scrollProxy: scrollProxy,
+                    isTranscribing: isTranscribingThisMeeting,
+                    onJumpHandled: { transcriptJump = nil }
                 )
             case .notes:
                 MeetingNotesTab(
@@ -331,6 +360,19 @@ struct RecordedMeetingView: View {
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
         return URL(fileURLWithPath: path)
+    }
+
+    /// Stops the shared player unless it holds one of `owner`'s audio files.
+    private func stopPlayback(unlessItBelongsTo owner: Meeting?) {
+        let player = AudioClipPlayer.shared
+        guard let url = player.playingURL else { return }
+        if let owner, TimestampJumpPlan.isAudio(
+            url,
+            ofPaths: [owner.recordingFileURL, owner.micTrackFileURL, owner.systemTrackFileURL]
+        ) {
+            return
+        }
+        player.stop()
     }
 
     /// True only when the shared summarization service is processing THIS
