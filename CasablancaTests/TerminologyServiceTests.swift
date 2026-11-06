@@ -199,4 +199,122 @@ final class TerminologyServiceTests: XCTestCase {
             TerminologyEntry(canonical: "Youri", aliases: ["Joeri", "Jouri"]),
         ])
     }
+
+    // MARK: - Speaker prefixes
+
+    private static let speakerTranscript = """
+    [00:00] Youri: We use Medi Core for everything.
+    [00:05] Others: Does Medi Core cover the agenda?
+    [00:09] Youri: Yes.
+    """
+
+    /// An LLM echo that loses (or invents) a speaker prefix would silently
+    /// re-attribute speech, so the deterministic text wins, with a warning.
+    @MainActor
+    func testLLMOutputDroppingSpeakerPrefixesFallsBackToDeterministic() async {
+        let dropped = """
+        [00:00] We use Medicore for everything.
+        [00:05] Others: Does Medicore cover the agenda?
+        [00:09] Youri: Yes.
+        """
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success(dropped)])
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(
+            Self.speakerTranscript,
+            entries: Self.entries,
+            knownSpeakers: ["Youri", "Others"]
+        )
+
+        XCTAssertEqual(result, """
+        [00:00] Youri: We use Medicore for everything.
+        [00:05] Others: Does Medicore cover the agenda?
+        [00:09] Youri: Yes.
+        """)
+        XCTAssertEqual(stub.calls.count, 1)
+        XCTAssertEqual(service.warningMessage, TerminologyService.speakerPrefixesChangedWarning)
+    }
+
+    @MainActor
+    func testLLMOutputKeepingSpeakerPrefixesIsUsed() async {
+        let corrected = """
+        [00:00] Youri: We use Medicore for everything!
+        [00:05] Others: Does Medicore cover the agenda?
+        [00:09] Youri: Yes.
+        """
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success(corrected)])
+        let service = TerminologyService(providerFactory: { stub })
+
+        let result = await service.correct(Self.speakerTranscript, entries: Self.entries, knownSpeakers: ["Youri", "Others"])
+
+        XCTAssertEqual(result, corrected)
+        XCTAssertNil(service.warningMessage)
+    }
+
+    /// The deterministic pass must not rewrite a speaker name that happens to be an alias.
+    @MainActor
+    func testDeterministicPassLeavesSpeakerPrefixesAlone() async {
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+        let entries = [TerminologyEntry(canonical: "Joeri", aliases: ["Youri"])]
+
+        let result = await service.correct("[00:00] Youri: Youri said hi", entries: entries, knownSpeakers: ["Youri"])
+
+        XCTAssertEqual(result, "[00:00] Youri: Joeri said hi")
+    }
+
+    /// A caller that already ran the deterministic pass (the labelled pipeline
+    /// path) must be able to skip it: "Team Link: Link" is not idempotent.
+    @MainActor
+    func testSkippingTheDictionaryPassDoesNotReplaceTwice() async {
+        let entries = [TerminologyEntry(canonical: "Team Link", aliases: ["Link"])]
+        let once = TerminologyService.dictionaryReplace("link rocks", entries: entries)
+        XCTAssertEqual(once, "Team Link rocks")
+        XCTAssertEqual(TerminologyService.dictionaryReplace(once, entries: entries), "Team Team Link rocks",
+                       "The hazard this guards against")
+
+        let stub = StubLLMProvider(displayName: "Ollama", outcomes: [.success("[00:00] Youri: Team Link rocks!")])
+        let service = TerminologyService(providerFactory: { stub })
+        let result = await service.correct(
+            "[00:00] Youri: Team Link rocks", entries: entries, knownSpeakers: ["Youri"], applyDictionary: false
+        )
+
+        XCTAssertEqual(result, "[00:00] Youri: Team Link rocks!")
+        XCTAssertTrue(stub.calls.first?.prompt.contains("[00:00] Youri: Team Link rocks\n") == true
+                      || stub.calls.first?.prompt.hasSuffix("[00:00] Youri: Team Link rocks") == true,
+                      "The provider gets the text as handed in, not replaced again")
+
+        let skipped = TerminologyService(providerFactory: { StubLLMProvider(supportsFullTranscriptEcho: false) })
+        let fallback = await skipped.correct(
+            "[00:00] Youri: Team Link rocks", entries: entries, knownSpeakers: ["Youri"], applyDictionary: false
+        )
+        XCTAssertEqual(fallback, "[00:00] Youri: Team Link rocks", "The fallback text is not replaced again either")
+    }
+
+    func testPrefixCheckIgnoresTextChanges() {
+        let output = """
+        [00:00] Youri: Completely different words here.
+        [00:05] Others: Also changed.
+        [00:09] Youri: Yes!
+        """
+        XCTAssertTrue(TerminologyService.speakerPrefixesPreserved(
+            input: Self.speakerTranscript, output: output, knownSpeakers: ["Youri", "Others"]
+        ))
+        XCTAssertTrue(TerminologyService.speakerPrefixesPreserved(
+            input: Self.speakerTranscript, output: output + "\n", knownSpeakers: ["Youri", "Others"]
+        ), "A trailing newline is not a line")
+
+        let swapped = output.replacingOccurrences(of: "[00:05] Others:", with: "[00:05] Youri:")
+        XCTAssertFalse(TerminologyService.speakerPrefixesPreserved(
+            input: Self.speakerTranscript, output: swapped, knownSpeakers: ["Youri", "Others"]
+        ))
+        let merged = "[00:00] Youri: We use Medicore.\n[00:05] Others: Does it? Yes."
+        XCTAssertFalse(TerminologyService.speakerPrefixesPreserved(
+            input: Self.speakerTranscript, output: merged, knownSpeakers: ["Youri", "Others"]
+        ), "Merging lines changes the per-line sequence")
+        let preamble = "Here is the transcript:\n" + output
+        XCTAssertFalse(TerminologyService.speakerPrefixesPreserved(
+            input: Self.speakerTranscript, output: preamble, knownSpeakers: ["Youri", "Others"]
+        ))
+    }
 }

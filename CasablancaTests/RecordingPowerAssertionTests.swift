@@ -186,7 +186,7 @@ final class RecordingPowerAssertionTests: XCTestCase {
 
         var activeDuringPipeline: [Int] = []
         service.pipelineOverrideForTesting = PostTranscriptionPipeline(
-            correctTerminology: { transcript, _ in transcript },
+            correctTerminology: { transcript, _, _ in transcript },
             saveTranscript: { _, _ in
                 activeDuringPipeline.append(sleepPreventer.activeCount)
                 return URL(fileURLWithPath: "/dev/null")

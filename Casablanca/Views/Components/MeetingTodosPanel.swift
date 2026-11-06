@@ -4,6 +4,8 @@ import SwiftUI
 
 /// Scrollable to-do list for a meeting plus an inline add field. Reads and
 /// mutates todos through ObsidianTodoSyncService against the model context.
+/// The list holds accepted to-dos only; proposed ones are reviewed in a
+/// compact section above it, and rejected ones are never shown.
 struct MeetingTodosPanel: View {
     @Bindable var meeting: Meeting
 
@@ -11,17 +13,34 @@ struct MeetingTodosPanel: View {
     @Environment(AppModel.self) private var appModel
     @State private var newTodoText = ""
 
+    private var acceptedTodos: [TodoItem] {
+        meeting.todos.filter { $0.status == .accepted }
+    }
+
     var body: some View {
+        let proposed = TodoReviewPresentation.proposedTodos(of: meeting)
+        let accepted = acceptedTodos
         VStack(spacing: 0) {
             ScrollView {
-                if meeting.todos.isEmpty {
+                if !proposed.isEmpty {
+                    let actions = TodoReviewActions(modelContext: modelContext, appModel: appModel)
+                    MeetingTodosReviewSection(
+                        todos: proposed,
+                        actionItems: meeting.actionItems,
+                        onAccept: actions.accept,
+                        onReject: actions.reject,
+                        onEdit: { todo, task, owner, due in actions.edit(todo, task: task, owner: owner, dueDate: due) }
+                    )
+                    .padding([.horizontal, .top], CasaSpace.lg)
+                }
+                if accepted.isEmpty && proposed.isEmpty {
                     Text("No to-dos yet. Add one below.")
                         .font(.body)
                         .foregroundStyle(Color.textSecondary)
                         .frame(maxWidth: .infinity, minHeight: 320, alignment: .center)
                 } else {
                     LazyVStack(alignment: .leading, spacing: CasaSpace.xs) {
-                        ForEach(meeting.todos) { todo in
+                        ForEach(accepted) { todo in
                             HStack(spacing: CasaSpace.sm) {
                                 Button {
                                     toggle(todo)
@@ -80,6 +99,7 @@ struct MeetingTodosPanel: View {
     }
 
     private func toggle(_ todo: TodoItem) {
+        guard todo.status == .accepted else { return }
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         do {
             try ObsidianTodoSyncService.setCompleted(
@@ -102,5 +122,39 @@ struct MeetingTodosPanel: View {
             in: modelContext
         )
         newTodoText = ""
+    }
+}
+
+/// "N to-dos to review": the meeting's proposed to-dos as compact review rows,
+/// above the accepted list in MeetingTodosPanel.
+struct MeetingTodosReviewSection: View {
+    let todos: [TodoItem]
+    /// The meeting's decoded extracted items, decoded once for all rows.
+    var actionItems: [ExtractedActionItem] = []
+    let onAccept: (TodoItem) -> Void
+    let onReject: (TodoItem) -> Void
+    let onEdit: (TodoItem, String, String?, Date?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.sm) {
+            Text(todos.count == 1 ? "1 to-do to review" : "\(todos.count) to-dos to review")
+                .font(.caption.weight(.bold))
+                .textCase(.uppercase)
+                .foregroundStyle(Color.textTertiary)
+
+            ForEach(todos) { todo in
+                TodoReviewRow(
+                    todo: todo,
+                    actionItems: actionItems,
+                    onAccept: { onAccept(todo) },
+                    onReject: { onReject(todo) },
+                    onEdit: { task, owner, due in onEdit(todo, task, owner, due) }
+                )
+                .padding(.vertical, CasaSpace.xs)
+            }
+
+            Divider()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

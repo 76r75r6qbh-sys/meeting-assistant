@@ -1,3 +1,4 @@
+import WhisperKit
 import XCTest
 @testable import Casablanca
 
@@ -208,5 +209,34 @@ final class TranscriptSegmentMergeTests: XCTestCase {
         )
 
         XCTAssertEqual(shifted.startTime, 30, accuracy: 0.001)
+    }
+
+    // MARK: - Word timings
+
+    func testMakeTranscriptWordsMapsTimingsAndDropsEmpty() {
+        let timings = [
+            WordTiming(word: " Hallo", tokens: [1], start: 1.25, end: 1.5, probability: 0.9),
+            WordTiming(word: "", tokens: [2], start: 1.5, end: 1.5, probability: 0.1),
+            WordTiming(word: " ", tokens: [3], start: 1.5, end: 1.6, probability: 0.1),
+            WordTiming(word: "<|nl|>", tokens: [4], start: 1.6, end: 1.6, probability: 0.1),
+            WordTiming(word: " wereld", tokens: [5], start: 1.75, end: 2.0, probability: 0.8),
+            WordTiming(word: ".", tokens: [6], start: 2.0, end: 2.1, probability: 0.8),
+        ]
+
+        let words = TranscriptionService.makeTranscriptWords(timings)
+
+        XCTAssertEqual(words, [
+            TranscriptWord(start: 1.25, end: 1.5, text: " Hallo"),
+            TranscriptWord(start: 1.75, end: 2.0, text: " wereld"),
+            TranscriptWord(start: 2.0, end: Double(Float(2.1)), text: "."),
+        ])
+    }
+
+    func testMakeTranscriptWordsNilForNil() {
+        XCTAssertNil(TranscriptionService.makeTranscriptWords(nil))
+        XCTAssertNil(TranscriptionService.makeTranscriptWords([]))
+        XCTAssertNil(TranscriptionService.makeTranscriptWords([
+            WordTiming(word: "", tokens: [], start: 0, end: 0, probability: 0),
+        ]))
     }
 }

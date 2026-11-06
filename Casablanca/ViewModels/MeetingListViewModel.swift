@@ -10,6 +10,9 @@ final class MeetingListViewModel {
     private let removeItemAtURL: (URL) throws -> Void
     private let meetingHasPrep: (Meeting) -> Bool
     private let removeResumableRecordingSession: (UUID) throws -> Void
+    private let speakerAnalysisStore: SpeakerAnalysisStore
+    private let exportCoalescer: MeetingExportCoalescer
+    private let todoDecisionLog: TodoDecisionLog
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -55,12 +58,18 @@ final class MeetingListViewModel {
         },
         removeResumableRecordingSession: @escaping (UUID) throws -> Void = { meetingID in
             try RecordingResumeSessionStore().deleteSession(for: meetingID)
-        }
+        },
+        speakerAnalysisStore: SpeakerAnalysisStore = SpeakerAnalysisStore(),
+        exportCoalescer: MeetingExportCoalescer = .shared,
+        todoDecisionLog: TodoDecisionLog = .shared
     ) {
         self.calendarService = calendarService
         self.meetingHasPrep = meetingHasPrep
         self.removeItemAtURL = removeItemAtURL
         self.removeResumableRecordingSession = removeResumableRecordingSession
+        self.speakerAnalysisStore = speakerAnalysisStore
+        self.exportCoalescer = exportCoalescer
+        self.todoDecisionLog = todoDecisionLog
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -343,17 +352,61 @@ final class MeetingListViewModel {
             }
         }
 
+        // The per-source speaker tracks are best-effort: once the recording is
+        // gone, a track that will not delete must not abort the meeting delete.
+        // Besides the referenced ones, the tracks named after the recording
+        // (WAV and m4a) go too: a failed Stop leaves them unreferenced.
+        for trackPath in trackPaths(of: meeting) {
+            do {
+                try removeItemAtURL(URL(fileURLWithPath: trackPath))
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                // Already gone.
+            } catch {
+                Log.recording.error(
+                    "Could not remove a speaker track while deleting a meeting: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+
+        // The speaker-analysis sidecar goes with the meeting (best-effort).
+        speakerAnalysisStore.delete(meeting.id)
+
         let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
         bestEffort("remove resumable recording session", Log.recording) {
             try removeResumableRecordingSession(meeting.id)
         }
+        // An edit just before the delete must not export afterwards: that
+        // would rewrite or recreate the deleted meeting's note or file.
+        // Cancelled only here, after the file removals that can throw, so a
+        // failed delete (meeting un-hidden) keeps its pending export.
+        exportCoalescer.cancel(meeting.id)
         modelContext.delete(meeting)
 
         if isSelectedMeeting {
             sidebarSelection = .dashboard
         }
 
+        let meetingID = meeting.id
         try modelContext.save()
+        // The meeting's to-do texts and quotes leave the decision log too
+        // (best effort; never throws).
+        todoDecisionLog.removeEntries(forMeetingID: meetingID)
+    }
+
+    /// The meeting's referenced track files, plus the existing ones named
+    /// after its recording (`<name>.mic|system.wav|m4a`).
+    private func trackPaths(of meeting: Meeting) -> [String] {
+        var paths = [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap { $0 }
+        guard let recordingPath = meeting.recordingFileURL else { return paths }
+        let recordingURL = URL(fileURLWithPath: recordingPath)
+        for kind in [RecordingTrackKind.microphone, .systemAudio] {
+            let wav = RecordingFiles.speakerTrackURL(forRecording: recordingURL, kind: kind)
+            for url in [wav, wav.deletingPathExtension().appendingPathExtension("m4a")]
+            where !paths.contains(url.path) && FileManager.default.fileExists(atPath: url.path) {
+                paths.append(url.path)
+            }
+        }
+        return paths
     }
 
     func isNextUpcoming(_ event: EKEvent) -> Bool {

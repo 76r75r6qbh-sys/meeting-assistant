@@ -124,13 +124,101 @@ enum CasablancaSchemaV1: VersionedSchema {
     }
 }
 
-// MARK: - V2 (current schema)
+// MARK: - V2 (v0.8.0 … v0.19.x schema)
 
-/// The current schema: the top-level ``Meeting`` / ``TodoItem`` models are the
-/// single source of truth. `Meeting` here has `tags` and `localPrepNotes` and no
-/// longer has `timestampedNotes`.
+/// The schema as shipped from v0.8.0 up to the speech-pipeline upgrade: `Meeting`
+/// has `tags` and `localPrepNotes` (no `timestampedNotes`), and neither model has
+/// the V3 speaker / action-item / to-do review fields. FROZEN copy of the
+/// top-level models at commit 92eb187 — never edit; add a new version instead.
 enum CasablancaSchemaV2: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+
+    static var models: [any PersistentModel.Type] {
+        [Meeting.self, TodoItem.self]
+    }
+
+    @Model
+    final class Meeting {
+        var id: UUID
+        var title: String
+        var date: Date
+        var endDate: Date?
+        var calendarEventID: String?
+        var participants: [String]
+        var status: MeetingStatus
+        var userNotes: String
+        var transcript: String?
+        var rawTranscript: String?
+        var summary: String?
+        var recordingFileURL: String?
+        var recordingDuration: Double?
+        var transcriptionLanguage: String = "en-US"
+        var tags: [String] = []
+        var appleNotesSummaryNoteID: String?
+        var appleNotesRawNotesNoteID: String?
+        var localPrepNotes: String = ""
+        var createdAt: Date
+        @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
+
+        init(
+            title: String,
+            date: Date,
+            endDate: Date? = nil,
+            calendarEventID: String? = nil,
+            participants: [String] = [],
+            status: MeetingStatus = .upcoming
+        ) {
+            self.id = UUID()
+            self.title = title
+            self.date = date
+            self.endDate = endDate
+            self.calendarEventID = calendarEventID
+            self.participants = participants
+            self.status = status
+            self.userNotes = ""
+            self.transcriptionLanguage = "en-US"
+            self.createdAt = Date()
+            self.todos = []
+        }
+    }
+
+    @Model
+    final class TodoItem {
+        var id: UUID
+        var text: String
+        var isCompleted: Bool
+        var createdAt: Date
+        var sourceFilePath: String?
+        var meeting: Meeting?
+
+        init(
+            id: UUID = UUID(),
+            text: String,
+            isCompleted: Bool = false,
+            createdAt: Date = Date(),
+            sourceFilePath: String? = nil,
+            meeting: Meeting? = nil
+        ) {
+            self.id = id
+            self.text = text
+            self.isCompleted = isCompleted
+            self.createdAt = createdAt
+            self.sourceFilePath = sourceFilePath
+            self.meeting = meeting
+        }
+    }
+}
+
+// MARK: - V3 (current schema)
+
+/// The current schema: the top-level ``Meeting`` / ``TodoItem`` models are the
+/// single source of truth. Adds (all optional or defaulted, so additive):
+/// `Meeting.speakerSegmentsData`, `speakersData`, `actionItemsData`,
+/// `summaryTemplateID`, `micTrackFileURL`, `systemTrackFileURL`; and
+/// `TodoItem.owner`, `dueDate`, `sourceTimestamp`, `quote`,
+/// `statusRaw = "accepted"`, `verificationRaw`.
+enum CasablancaSchemaV3: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [Meeting.self, TodoItem.self]
@@ -139,16 +227,20 @@ enum CasablancaSchemaV2: VersionedSchema {
 
 // MARK: - Migration plan
 
-/// Deterministic V1 → V2 migration. The delta is additive plus one dropped
-/// property, so a lightweight (inferred-mapping) stage suffices — but declaring
-/// it EXPLICITLY pins the path so it no longer depends on SwiftData's per-OS
-/// inference.
+/// Deterministic V1 → V2 → V3 migration. Each delta is additive (plus one
+/// dropped property in V1 → V2), so lightweight (inferred-mapping) stages
+/// suffice — but declaring them EXPLICITLY pins the path so it no longer
+/// depends on SwiftData's per-OS inference. Existing to-dos pick up the
+/// `statusRaw` default and read as `.accepted`.
 enum CasablancaMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [CasablancaSchemaV1.self, CasablancaSchemaV2.self]
+        [CasablancaSchemaV1.self, CasablancaSchemaV2.self, CasablancaSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: CasablancaSchemaV1.self, toVersion: CasablancaSchemaV2.self)]
+        [
+            .lightweight(fromVersion: CasablancaSchemaV1.self, toVersion: CasablancaSchemaV2.self),
+            .lightweight(fromVersion: CasablancaSchemaV2.self, toVersion: CasablancaSchemaV3.self)
+        ]
     }
 }

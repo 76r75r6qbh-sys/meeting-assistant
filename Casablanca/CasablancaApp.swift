@@ -26,6 +26,10 @@ struct CasablancaApp: App {
     }
 
     init() {
+        // Registration domain only (volatile, never written to the user's store),
+        // so it is safe for benchmark runs and the test host as well.
+        AppPreferences.registerDefaults()
+
         // Benchmark mode is decided before anything else: a measurement run must
         // not open (and so never migrate or mutate) the real meeting database.
         // The scene still needs *a* container, so it gets an in-memory one that
@@ -52,6 +56,7 @@ struct CasablancaApp: App {
         }
 
         AppPreferences.migrateLegacyAutoExportKeyIfNeeded()
+        WhisperModelDefaults.pinIfNeeded(storeExists: FileManager.default.fileExists(atPath: PersistenceController.storeURL.path))
         do {
             let result = try PersistenceController.makeAppContainer()
             sharedModelContainer = result.container
@@ -203,6 +208,7 @@ struct CasablancaApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }
+            EvaluationExportCommands(viewModel: appModel.meetingListViewModel, toastCenter: appModel.toastCenter)
         }
 
         MenuBarExtra {
@@ -266,6 +272,7 @@ final class AppModel {
 
     init() {
         meetingListViewModel = MeetingListViewModel(calendarService: calendarService)
+        summarizationService.exportReporter = exportStatusCenter
         meetingStartNotifier = MeetingStartNotifier(calendarService: calendarService)
         recordingController = MeetingRecordingController(recordingService: recordingService)
 
@@ -676,10 +683,7 @@ final class AppModel {
     /// What the editor's `save()` does: persist, then auto-export if enabled.
     private func persist(_ meeting: Meeting, in context: ModelContext) {
         try? context.save()
-        let reporter = exportStatusCenter
-        Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
     }
 
     private func registerSentinelCleanup() {
@@ -693,6 +697,9 @@ final class AppModel {
             // outlive the process as an orphaned task.
             MainActor.assumeIsolated {
                 summarizationService.cancelBackgroundWork()
+                // An accept just before Cmd-Q still exports: start the
+                // coalesced exports now and let them finish (bounded).
+                MeetingExportCoalescer.shared.flushAndWait(timeout: 5)
             }
         }
     }

@@ -24,9 +24,11 @@ enum AppleNotesBodyRenderer {
             sections.append(markdownToHTML(summary))
         }
 
-        if !meeting.todos.isEmpty {
+        // Proposed and rejected to-dos stay out of Apple Notes until accepted.
+        let todos = meeting.todos.filter { $0.status == .accepted }
+        if !todos.isEmpty {
             sections.append("<h2>Action Items</h2>")
-            sections.append(todoList(meeting.todos))
+            sections.append(todoList(todos))
         }
 
         sections.append(markerParagraph(meetingId: meeting.id, kind: .summary))
@@ -85,7 +87,7 @@ enum AppleNotesBodyRenderer {
     private static func todoList(_ todos: [TodoItem]) -> String {
         let items = todos.map { todo in
             let glyph = todo.isCompleted ? "☑" : "☐"
-            return "<li>\(glyph) \(escape(stripWikilinks(todo.text)))</li>"
+            return "<li>\(glyph) \(escape(stripWikilinks(todo.text)))\(escape(ObsidianTodoMarkdown.suffix(for: todo)))</li>"
         }.joined()
         return "<ul>\(items)</ul>"
     }

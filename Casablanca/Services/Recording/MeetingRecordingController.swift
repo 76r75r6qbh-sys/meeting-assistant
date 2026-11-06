@@ -146,6 +146,8 @@ final class MeetingRecordingController {
             let result = try await recordingService.stopRecording(for: meeting)
             meeting.recordingFileURL = result.outputURL.path
             meeting.recordingDuration = result.duration
+            meeting.micTrackFileURL = result.microphoneTrackURL?.path
+            meeting.systemTrackFileURL = result.systemTrackURL?.path
             meeting.status = .processing
             save()
             onMeetingStopped?(meeting.id)

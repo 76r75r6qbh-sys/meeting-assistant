@@ -537,9 +537,7 @@ struct NotesEditorView: View {
 
     private func save() {
         try? modelContext.save()
-        Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: appModel.exportStatusCenter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: appModel.exportStatusCenter)
     }
 
     private func exportNotes() {

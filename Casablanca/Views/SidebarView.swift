@@ -25,7 +25,8 @@ struct SidebarView: View {
     /// the old `@Query` that hydrated every meeting (transcripts included).
     var meetingsProvider: SidebarMeetingsProvider
     @Environment(AppModel.self) private var appModel
-    @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
+    /// Accepted, open to-dos only (`TodoCounting`): proposals are not open to-dos.
+    @Query(filter: TodoCounting.openTodoPredicate) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
     @State private var selection: SidebarDestination? = .dashboard
     @State private var deletionErrorMessage: String?
@@ -61,6 +62,11 @@ struct SidebarView: View {
                 Label("Approvals", systemImage: "tray.full")
                     .badge(pendingCount)
                     .tag(SidebarDestination.actionQueue)
+            }
+
+            Section {
+                Label("Ask", systemImage: "text.bubble")
+                    .tag(SidebarDestination.ask)
             }
 
             if !upcoming.isEmpty {
@@ -257,6 +263,11 @@ struct SidebarView: View {
                 pendingDeletionTasks[id]?.cancel()
                 pendingDeletionTasks[id] = nil
                 viewModel.undoSoftDelete(id)
+                // An edit made just before the delete was skipped while the
+                // meeting was pending deletion; export it again now.
+                MeetingExportCoalescer.shared.scheduleAutomaticExport(
+                    of: meeting, reporter: appModel.exportStatusCenter
+                )
             },
             duration: 6
         )
@@ -463,5 +474,6 @@ enum SidebarDestination: Hashable {
     case dashboard
     case todos
     case actionQueue
+    case ask
     case meeting(UUID)
 }
