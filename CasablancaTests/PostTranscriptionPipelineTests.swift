@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftData
 import XCTest
 @testable import Casablanca
@@ -631,6 +632,35 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(fixture.meeting.speakers.map(\.nameConfirmed), [false])
     }
 
+    /// The user turns voice profiles off while the speaker step reads the
+    /// profiles (here: on the key load). The turn-off purge may already have
+    /// run, so the step must not write voice matches back afterwards.
+    func testVoiceProfilesTurnedOffMidRunPersistNoVoiceSuggestions() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let keyStore = HookedKeyStore()
+        let profiles = VoiceProfileStore(
+            fileURL: fixture.directory.appendingPathComponent("VoiceProfiles/profiles.sealed"),
+            keyStore: keyStore,
+            isEnabled: { true }
+        )
+        _ = try profiles.save(name: "Kim", embedding: [1, 0], consentGiven: true)
+        // UserDefaults is thread-safe; the hook runs on the store's background read.
+        nonisolated(unsafe) let defaults = fixture.defaults
+        keyStore.setOnLoad { defaults.set(false, forKey: AppPreferenceKey.voiceProfilesEnabled) }
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertFalse(fixture.defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled), "The hook ran mid-run")
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }, [])
+    }
+
     func testRecognisingStatusIsReplacedWhenDiarizationEnds() async throws {
         for fake in [
             FakeSpeakerDiarizer(output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "a")], embeddings: [:])),
@@ -1228,4 +1258,25 @@ private final class GatedLLMProvider: LLMProvider, @unchecked Sendable {
     }
 
     func fetchAvailableModels(endpoint: String) async throws -> [String] { [] }
+}
+
+/// A key store that runs a hook on every key load, to act "while the
+/// profiles are being read".
+private final class HookedKeyStore: SymmetricKeyStoring, @unchecked Sendable {
+    private let base = InMemoryKeyStore()
+    private let lock = NSLock()
+    private var onLoad: (@Sendable () -> Void)?
+
+    func setOnLoad(_ hook: @escaping @Sendable () -> Void) {
+        lock.withLock { onLoad = hook }
+    }
+
+    func loadOrCreateKey() throws -> SymmetricKey {
+        lock.withLock { onLoad }?()
+        return try base.loadOrCreateKey()
+    }
+
+    func deleteKey() throws {
+        try base.deleteKey()
+    }
 }

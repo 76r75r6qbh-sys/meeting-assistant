@@ -123,11 +123,14 @@ enum SpeakerAnalysis {
                 status: status,
                 timeout: diarizationTimeout
             )
-            let suggestions = await voiceProfileSuggestions(
+            let matched = await voiceProfileSuggestions(
                 clusterEmbeddings: diarized.clusterEmbeddings,
                 defaults: defaults,
                 voiceProfiles: voiceProfiles
             )
+            // No await between this and the save: a turn-off or delete that
+            // happened while the profiles were read is honoured.
+            let suggestions = await stillCurrent(matched, defaults: defaults, voiceProfiles: voiceProfiles)
             do {
                 try store.save(SpeakerAnalysisRecord(
                     meetingID: meetingID,
@@ -144,6 +147,25 @@ enum SpeakerAnalysis {
     }
 
     // MARK: - Voice profiles (Task A7)
+
+    /// `suggestions` as they may be stored now: none when voice profiles were
+    /// turned off meanwhile (the turn-off purge may already have run), and
+    /// only names of profiles that still exist (one may have been deleted).
+    /// The flag is read after the last await, so the caller's synchronous
+    /// save cannot interleave with a turn-off on the main actor.
+    @MainActor
+    static func stillCurrent(
+        _ suggestions: [SpeakerNameSuggestion],
+        defaults: UserDefaults,
+        voiceProfiles: VoiceProfileStore
+    ) async -> [SpeakerNameSuggestion] {
+        guard !suggestions.isEmpty else { return [] }
+        let names = (try? await Task.detached(priority: .utility) { try voiceProfiles.all().map(\.name) }.value) ?? []
+        guard defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled) else { return [] }
+        return suggestions.filter { suggestion in
+            names.contains { $0.caseInsensitiveCompare(suggestion.name) == .orderedSame }
+        }
+    }
 
     /// Voice-profile name suggestions for the meeting's clusters, or none:
     /// only when the user turned voice profiles on and has saved some. The

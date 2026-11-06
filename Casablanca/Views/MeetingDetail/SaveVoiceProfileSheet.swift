@@ -31,24 +31,27 @@ final class SaveVoiceProfileModel: ObservableObject {
         errorMessage = nil
         let consent = consentGiven
         task = Task { [weak self, onSave] in
+            // Saving until the work has really ended, cancelled or not, so
+            // Save cannot start a second run beside a write still finishing.
+            defer {
+                self?.isSaving = false
+                self?.task = nil
+            }
             do {
                 try await onSave(consent)
                 guard !Task.isCancelled else { return }
-                self?.isSaving = false
                 onSuccess()
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError) else { return }
-                self?.isSaving = false
                 self?.errorMessage = "The voice could not be saved: \(error.localizedDescription)"
             }
         }
     }
 
-    /// Stops a running save (the analysis is cancelled, nothing is saved).
+    /// Cancels a running save (the analysis stops, nothing is saved).
+    /// `isSaving` stays true until the work has ended.
     func cancel() {
         task?.cancel()
-        task = nil
-        isSaving = false
     }
 }
 

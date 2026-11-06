@@ -47,6 +47,10 @@ final class VoiceProfileStore: Sendable {
         self.isEnabled = isEnabled
     }
 
+    /// Whether `save` would currently accept a profile (voice profiles on).
+    /// Callers check it before analysing a voice; `save` checks it again.
+    var acceptsProfiles: Bool { isEnabled() }
+
     static var defaultFileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Casablanca/VoiceProfiles/profiles.sealed")

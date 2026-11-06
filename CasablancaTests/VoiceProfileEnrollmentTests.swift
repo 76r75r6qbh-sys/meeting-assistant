@@ -102,6 +102,26 @@ final class VoiceProfileEnrollmentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    /// A request that can never be saved analyses no audio at all.
+    func testBlankNameOrDisabledAnalysesNothing() async throws {
+        let diarizer = RecordingEmbeddingDiarizer()
+        let cases: [(name: String, enabled: Bool, expected: VoiceProfileStore.StoreError)] = [
+            ("  ", true, .emptyName),
+            ("Kim", false, .disabled),
+        ]
+        for request in cases {
+            do {
+                try await VoiceProfileEnrollment(diarizer: diarizer, store: makeStore(enabled: LockedFlag(request.enabled)))
+                    .remember(name: request.name, trackURL: track, ranges: [0...5], consentGiven: true)
+                XCTFail("Expected \(request.expected)")
+            } catch {
+                XCTAssertEqual(error as? VoiceProfileStore.StoreError, request.expected)
+            }
+        }
+        XCTAssertTrue(diarizer.requests.isEmpty, "No voice was analysed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     /// The user turns voice profiles off while the voice is being analysed:
     /// the late save is refused and nothing is written.
     func testTurningOffDuringAnalysisWritesNothing() async throws {
@@ -184,9 +204,11 @@ final class VoiceProfileEnrollmentTests: XCTestCase {
         XCTAssertFalse(model.canSave)
 
         model.cancel()
-        try await waitUntil { cancelled.value }
+        XCTAssertTrue(model.isSaving, "Still saving until the work has really ended")
+        XCTAssertFalse(model.canSave)
+        try await waitUntil { !model.isSaving }
 
-        XCTAssertFalse(model.isSaving)
+        XCTAssertTrue(cancelled.value, "The work itself was cancelled")
         XCTAssertNil(model.errorMessage)
         XCTAssertTrue(model.canSave, "The user can try again")
     }

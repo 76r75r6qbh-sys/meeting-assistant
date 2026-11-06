@@ -162,7 +162,12 @@ final class FluidAudioDiarizer: SpeakerDiarizing {
         let audio = try VoiceSpanExtractor.samples(url: trackURL, ranges: ranges)
         guard !audio.isEmpty else { throw SpeakerDiarizerError.noSpeechInRanges }
         let manager = try await makeManager()
-        let result = try await manager.process(audio: audio)
+        let result: DiarizationResult
+        do {
+            result = try await manager.process(audio: audio)
+        } catch {
+            throw Self.embeddingError(error)
+        }
         let durations = result.segments.map {
             (speakerID: $0.speakerId, seconds: Double($0.endTimeSeconds - $0.startTimeSeconds))
         }
@@ -170,6 +175,13 @@ final class FluidAudioDiarizer: SpeakerDiarizing {
             throw SpeakerDiarizerError.noSpeechInRanges
         }
         return embedding
+    }
+
+    /// FluidAudio's "no speech" as ours (a friendly message in the sheet);
+    /// any other error unchanged.
+    static func embeddingError(_ error: Error) -> Error {
+        if case OfflineDiarizationError.noSpeechDetected = error { return SpeakerDiarizerError.noSpeechInRanges }
+        return error
     }
 
     /// The L2-normalised vector of the cluster with the most speech; ties go

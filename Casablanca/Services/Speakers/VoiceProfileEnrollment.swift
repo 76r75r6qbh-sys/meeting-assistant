@@ -1,6 +1,6 @@
 import Foundation
 
-/// "Remember voice…" end to end: consent first, then one embedding of the
+/// "Remember voice…" end to end: consent, name and the setting first, then one embedding of the
 /// chosen ranges (cancellable, with a timeout), then the save — off the main
 /// actor, since the keychain may prompt. Cancelling the calling task stops
 /// the analysis and skips the save.
@@ -22,8 +22,13 @@ struct VoiceProfileEnrollment: Sendable {
         ranges: [ClosedRange<Double>],
         consentGiven: Bool
     ) async throws -> VoiceProfile {
-        // No voice is analysed without consent.
+        // No voice is analysed for a request that can never be saved: no
+        // consent, no name, or voice profiles turned off.
         guard consentGiven else { throw VoiceProfileStore.StoreError.consentRequired }
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw VoiceProfileStore.StoreError.emptyName
+        }
+        guard store.acceptsProfiles else { throw VoiceProfileStore.StoreError.disabled }
         let diarizer = self.diarizer
         let timeout = self.timeout
         let embedding = try await withThrowingTaskGroup(of: [Float].self) { group in
