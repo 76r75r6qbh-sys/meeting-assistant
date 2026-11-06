@@ -67,7 +67,7 @@ enum TodoReviewService {
     }
 
     /// A kept to-do's text as stored and as its bare action.
-    private static func comparableTexts(of text: String) -> [String] {
+    nonisolated static func comparableTexts(of text: String) -> [String] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let bare = ActionItemRendering.strippingSuffix(ActionItemOwnership.parse(trimmed).action)
         return bare == trimmed || bare.isEmpty ? [trimmed] : [trimmed, bare]
@@ -124,7 +124,7 @@ enum TodoReviewService {
         guard todo.status == .proposed else { return }
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         let newText = trimmedTask.isEmpty ? todo.text : trimmedTask
-        let newOwner = owner?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let newOwner = owner.flatMap(sanitizedOwner)
         let newDue = dueDate.map { Calendar.current.startOfDay(for: $0) }
 
         var changes: [String: TodoDecisionEntry.Change] = [:]
@@ -142,6 +142,17 @@ enum TodoReviewService {
         var logged = entry(for: todo, action: .edit)
         logged.edit = changes
         log.append(logged)
+    }
+
+    /// An owner that round-trips through the vault line's ` — owner` suffix:
+    /// `—` becomes `-`, line breaks become spaces, trimmed, at most 60
+    /// characters; `nil` when blank.
+    static func sanitizedOwner(_ owner: String) -> String? {
+        let cleaned = owner
+            .replacingOccurrences(of: "\u{2014}", with: "-")
+            .components(separatedBy: .newlines).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return String(cleaned.prefix(60)).trimmingCharacters(in: .whitespaces).nilIfEmpty
     }
 
     /// Accepts every `.proposed` to-do of `meeting` whose verification is
@@ -190,7 +201,7 @@ enum TodoReviewService {
     }
 
     /// `yyyy-MM-dd` as local midnight; `nil` when it does not parse.
-    static func dueDate(fromISO iso: String) -> Date? {
+    nonisolated static func dueDate(fromISO iso: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -218,8 +229,13 @@ enum ActionItemTodoMatcher {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = ActionItemOwnership.parse(target).action
         let candidates: Set<String> = [target, action, ActionItemRendering.strippingSuffix(action)]
+        // Both sides as text and as bare action, so a row holding the whole
+        // bullet (any owner/suffix form) or only the action matches.
         return todos
-            .filter { $0.status != .rejected && candidates.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { todo in
+                todo.status != .rejected
+                    && TodoReviewService.comparableTexts(of: todo.text).contains(where: candidates.contains)
+            }
             .min { a, b in
                 let rankA = a.status == .accepted ? 0 : 1
                 let rankB = b.status == .accepted ? 0 : 1

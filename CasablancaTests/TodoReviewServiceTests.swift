@@ -381,14 +381,14 @@ final class TodoReviewServiceTests: XCTestCase {
 
     /// Ruling (Task 10): the brief's "Plan de demo" vs "Plan demo" pair cannot
     /// merge under `FuzzyText.isFuzzyEqual` (9 < 12 characters, similarity
-    /// 0.75), so the fuzzy pair is "Plan de demo met Kim" / "Plan demo met Kim"
-    /// (similarity 0.85) and "Plan demo" is an exact repeat.
+    /// 0.75), so the fuzzy pair is "Plan de productdemo met Kim" / "Plan
+    /// productdemo met Kim" (similarity 0.889) and "Plan demo" is an exact repeat.
     func testRegenerationKeepsAcceptedAndRejectedAndDropsFuzzyMatches() throws {
         let context = try makeContext()
         let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
         context.insert(meeting)
         let accepted = TodoItem(text: "Stuur offerte naar Kim", meeting: meeting)
-        let rejectedFuzzy = TodoItem(text: "Plan de demo met Kim", meeting: meeting)
+        let rejectedFuzzy = TodoItem(text: "Plan de productdemo met Kim", meeting: meeting)
         rejectedFuzzy.status = .rejected
         let rejectedExact = TodoItem(text: "Plan demo", meeting: meeting)
         rejectedExact.status = .rejected
@@ -399,7 +399,7 @@ final class TodoReviewServiceTests: XCTestCase {
 
         try TodoReviewService.replaceProposedTodos(
             for: meeting,
-            with: [item("Stuur de offerte naar Kim."), item("Plan demo met Kim"), item("Plan demo"), item("Bel leverancier")],
+            with: [item("Stuur de offerte naar Kim."), item("Plan productdemo met Kim"), item("Plan demo"), item("Bel leverancier")],
             in: context
         )
         try context.save()
@@ -409,7 +409,7 @@ final class TodoReviewServiceTests: XCTestCase {
         XCTAssertEqual(rows.count, 4, "the pending proposal is gone; kept rows are untouched")
         XCTAssertEqual(accepted.text, "Stuur offerte naar Kim")
         XCTAssertEqual(accepted.status, .accepted)
-        XCTAssertEqual(rejectedFuzzy.text, "Plan de demo met Kim")
+        XCTAssertEqual(rejectedFuzzy.text, "Plan de productdemo met Kim")
         XCTAssertEqual(rejectedFuzzy.status, .rejected)
         XCTAssertEqual(rejectedExact.status, .rejected)
     }
@@ -511,5 +511,37 @@ final class TodoReviewServiceTests: XCTestCase {
                 XCTAssertTrue(try String(contentsOf: log.fileURL, encoding: .utf8).contains(#""action":"auto_accept""#))
             }
         }
+    }
+
+    // MARK: - Fix round 1
+
+    func testEditSanitizesOwnersThatCannotRoundTrip() throws {
+        let context = try makeContext()
+        let log = makeLog()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let todo = try XCTUnwrap(try proposed([offerItem], in: meeting, context: context).first)
+        let longOwner = String(repeating: "x", count: 70)
+
+        try TodoReviewService.edit(todo, task: "Stuur offerte", owner: " Kim — Youri ", dueDate: todo.dueDate, in: context, log: log)
+        XCTAssertEqual(todo.owner, "Kim - Youri")
+        try TodoReviewService.edit(todo, task: "Stuur offerte", owner: longOwner, dueDate: todo.dueDate, in: context, log: log)
+        XCTAssertEqual(todo.owner, String(repeating: "x", count: 60))
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(for: todo), " — \(todo.owner!) 📅 2026-11-06 [12:34]",
+                       "a sanitized owner is written and parses back")
+        XCTAssertEqual(try entries(in: log).last?.edit?["owner"]?.to, String(repeating: "x", count: 60))
+    }
+
+    /// The bullet's stripped action is compared with the stripped action of the
+    /// to-do's text too, so a row holding a stripped action or a full bullet
+    /// (with or without a suffix) matches.
+    func testMatcherComparesStrippedActionsOnBothSides() {
+        let bullet = "**Youri** — Plan de demo [00:20]"
+        let stripped = TodoItem(text: "Plan de demo")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [stripped]) === stripped)
+        let otherSuffix = TodoItem(text: "**Youri** — Plan de demo (2026-11-06) [00:20]")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [otherSuffix]) === otherSuffix)
+        let unrelated = TodoItem(text: "**Youri** — Plan de demo met Kim [00:20]")
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [unrelated]))
     }
 }

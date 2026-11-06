@@ -284,4 +284,36 @@ final class ObsidianTodoMarkdownTests: XCTestCase {
         XCTAssertEqual(task.due, "2026-11-07")
         XCTAssertTrue(updated.contains("- [ ] Mail Kim — Youri 📅 2026-11-07 <!-- casablanca-todo: \(task.id!.uuidString) -->"))
     }
+
+    // MARK: - Fix round 1
+
+    /// Summary-tab to-dos store the whole bullet; their text is never split.
+    func testBulletOwnerLinesKeepTheirWholeText() {
+        let items = ObsidianTodoMarkdown.parseMeetingActionItems("""
+        ## Action Items
+
+        - [ ] **Youri** — Plan de demo [00:20]
+        - [ ] **?** — Plan de demo (2026-11-06) [00:20]
+        - [ ] **Youri:** Mail Kim 📅 2026-11-06
+        """)
+        XCTAssertEqual(items.map(\.text), [
+            "**Youri** — Plan de demo [00:20]",
+            "**?** — Plan de demo (2026-11-06) [00:20]",
+            "**Youri:** Mail Kim 📅 2026-11-06",
+        ])
+        XCTAssertTrue(items.allSatisfy { $0.owner == nil && $0.due == nil && $0.timestamp == nil })
+    }
+
+    func testImpossibleDueDateStaysText() throws {
+        let markdown = "## Action Items\n\n- [ ] Mail Kim 📅 2026-02-30 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->\n"
+        let task = try XCTUnwrap(ObsidianTodoMarkdown.parseMeetingActionItems(markdown).first)
+        XCTAssertEqual(task.text, "Mail Kim 📅 2026-02-30")
+        XCTAssertNil(task.due)
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "Kim", due: "2026-02-30", timestamp: nil), "")
+        // A re-render keeps the text instead of dropping the date.
+        XCTAssertEqual(
+            ObsidianTodoMarkdown.renderMeetingDocument(markdown, actionItems: [task]),
+            "## Action Items\n\n- [ ] Mail Kim 📅 2026-02-30 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        )
+    }
 }

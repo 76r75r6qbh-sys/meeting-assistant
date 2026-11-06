@@ -61,8 +61,11 @@ enum ObsidianTodoMarkdown {
         return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
     }
 
+    /// A real `yyyy-MM-dd` date (`2026-02-30` is not), so an impossible date
+    /// stays in the text instead of vanishing on a re-render.
     private static func isISODay(_ text: String) -> Bool {
         text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
+            && TodoReviewService.dueDate(fromISO: text) != nil
     }
 
     private static func isValidOwner(_ owner: String) -> Bool {
@@ -71,8 +74,13 @@ enum ObsidianTodoMarkdown {
 
     /// Splits a parsed task text from the end: optional ` [<label>]`, then
     /// optional ` 📅 yyyy-MM-dd`, then — only if one of those matched —
-    /// optional ` — <owner>`. Anything else stays in the text.
+    /// optional ` — <owner>`. Anything else stays in the text. A text that
+    /// starts with a bullet owner prefix (`**Youri** — …`, as
+    /// `ActionItemOwnership.parse` recognises it) is a summary-tab to-do that
+    /// stores the whole bullet: nothing is split off it.
     static func splittingSuffix(_ text: String) -> (text: String, owner: String?, due: String?, timestamp: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ActionItemOwnership.parse(trimmed).action == trimmed else { return (text, nil, nil, nil) }
         var rest = text
         var timestamp: String?
         var due: String?
@@ -96,7 +104,7 @@ enum ObsidianTodoMarkdown {
             let candidate = String(rest[dash.upperBound...])
             let remaining = String(rest[..<dash.lowerBound])
             if isValidOwner(candidate), candidate == candidate.trimmingCharacters(in: .whitespaces),
-               !remaining.trimmingCharacters(in: .whitespaces).isEmpty {
+               !remaining.trimmingCharacters(in: .whitespaces).isEmpty, !remaining.hasSuffix("**") {
                 owner = candidate
                 rest = remaining
             }

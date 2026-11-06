@@ -401,12 +401,20 @@ enum ObsidianTodoSyncService {
         guard let id = task.id else { return }
 
         if let existing = index.byID[id] {
-            existing.text = task.text
             existing.isCompleted = task.isCompleted
             existing.sourceFilePath = sourceFilePath
             existing.meeting = meeting
             // A file never holds proposed rows: a row found in one is accepted.
             existing.status = .accepted
+            // A row whose text is the whole line (a summary-tab to-do such as
+            // `Youri — Plan de demo [00:20]`, written by `createMeetingTodo`)
+            // keeps it byte for byte: what parses as a suffix is its own text.
+            if task.hasSuffix, existing.text == task.text + ObsidianTodoMarkdown.suffix(
+                owner: task.owner, due: task.due, timestamp: task.timestamp
+            ) {
+                return
+            }
+            existing.text = task.text
             // The suffix is the line's own record of these fields; a line
             // without one keeps the row's values.
             if task.hasSuffix { applySuffixFields(of: task, to: existing) }
