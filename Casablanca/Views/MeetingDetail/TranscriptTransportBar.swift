@@ -104,6 +104,12 @@ final class TranscriptPlayback {
         self.player = player
     }
 
+    /// Forgets a failure of another meeting (called on navigation), so its
+    /// ▶ is offered again next time.
+    func clearFailure(unlessFor meetingID: UUID) {
+        if failedMeetingID != meetingID { failedMeetingID = nil }
+    }
+
     func isUnavailable(for meeting: Meeting) -> Bool {
         failedMeetingID == meeting.id
     }

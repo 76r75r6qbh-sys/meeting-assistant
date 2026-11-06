@@ -146,6 +146,8 @@ struct RecordedMeetingView: View {
             // Another meeting's recording must not keep playing without a
             // visible transport (a jump into this meeting may already play).
             stopPlayback(unlessItBelongsTo: meeting)
+            // A playback failure is shown for the meeting it happened in only.
+            playback.clearFailure(unlessFor: meeting.id)
             if transcriptJump?.meetingID != meeting.id { transcriptJump = nil }
             await triggerAutomaticSummaryIfNeeded()
         }

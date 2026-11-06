@@ -184,19 +184,52 @@ final class TimestampLinkTests: XCTestCase {
     /// user collapsed its chapter is a new focus and expands it again.
     func testTargetChapterExpandsForAJumpAndAgainAfterCollapse() {
         let third = 20..<30
-        let first = TranscriptFocus(token: UUID(), index: 25)
-        XCTAssertEqual(TranscriptFocus.expansionTarget(first, chapterLines: third, isExpanded: false), first)
+        let first = TranscriptFocus(token: UUID(), meetingID: meetingID, index: 25)
+        XCTAssertEqual(TranscriptFocus.expansionTarget(first, meetingID: meetingID, chapterLines: third, isExpanded: false), first)
         // Other chapters, an open chapter and no focus do nothing.
-        XCTAssertNil(TranscriptFocus.expansionTarget(first, chapterLines: 0..<10, isExpanded: false))
-        XCTAssertNil(TranscriptFocus.expansionTarget(first, chapterLines: third, isExpanded: true))
-        XCTAssertNil(TranscriptFocus.expansionTarget(nil, chapterLines: third, isExpanded: false))
+        XCTAssertNil(TranscriptFocus.expansionTarget(first, meetingID: meetingID, chapterLines: 0..<10, isExpanded: false))
+        XCTAssertNil(TranscriptFocus.expansionTarget(first, meetingID: meetingID, chapterLines: third, isExpanded: true))
+        XCTAssertNil(TranscriptFocus.expansionTarget(nil, meetingID: meetingID, chapterLines: third, isExpanded: false))
 
         // Same line again after the user collapsed the chapter.
-        let repeatJump = TranscriptFocus(token: UUID(), index: 25)
+        let repeatJump = TranscriptFocus(token: UUID(), meetingID: meetingID, index: 25)
         XCTAssertNotEqual(first, repeatJump, "A repeat jump must be a change for onChange(of: focus)")
-        XCTAssertEqual(TranscriptFocus.expansionTarget(repeatJump, chapterLines: third, isExpanded: false), repeatJump)
+        XCTAssertEqual(TranscriptFocus.expansionTarget(repeatJump, meetingID: meetingID, chapterLines: third, isExpanded: false), repeatJump)
         XCTAssertTrue(repeatJump.expands(chapterLines: third))
         XCTAssertFalse(repeatJump.expands(chapterLines: 30..<40))
+    }
+
+    /// The transcript tab is reused across meetings: meeting A's focus must
+    /// never expand, highlight or (via the onAppear retry) scroll meeting B.
+    func testFocusForAnotherMeetingNeverExpandsOrScrolls() {
+        let other = UUID()
+        let focusA = TranscriptFocus(token: UUID(), meetingID: meetingID, index: 25)
+        let third = 20..<30
+        XCTAssertNil(TranscriptFocus.scoped(focusA, to: other))
+        XCTAssertEqual(TranscriptFocus.scoped(focusA, to: meetingID), focusA)
+        XCTAssertNil(TranscriptFocus.initialTarget(focusA, meetingID: other, chapterLines: third),
+                     "B's chapter is not built expanded or waiting to scroll")
+        XCTAssertNil(TranscriptFocus.expansionTarget(focusA, meetingID: other, chapterLines: third, isExpanded: false))
+        XCTAssertEqual(TranscriptFocus.initialTarget(focusA, meetingID: meetingID, chapterLines: third), focusA)
+        XCTAssertNil(TranscriptFocus.initialTarget(focusA, meetingID: meetingID, chapterLines: 0..<10))
+    }
+
+    func testPlaybackFailureIsClearedWhenNavigatingToAnotherMeeting() throws {
+        let playback = TranscriptPlayback(player: AudioClipPlayer(makeEngine: { _ in throw CocoaError(.fileReadCorruptFile) }))
+        let meeting = Meeting(title: "A", date: Date(), participants: [], status: .completed)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TimestampLinkTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("rec.m4a")
+        try Data([0]).write(to: file)
+        meeting.recordingFileURL = file.path
+
+        playback.play(meeting, isTranscribing: false, from: 0)
+        XCTAssertTrue(playback.isUnavailable(for: meeting))
+        playback.clearFailure(unlessFor: meeting.id)
+        XCTAssertTrue(playback.isUnavailable(for: meeting), "Staying on the meeting keeps its failure")
+        playback.clearFailure(unlessFor: UUID())
+        XCTAssertFalse(playback.isUnavailable(for: meeting), "Navigating away clears it")
     }
 
     func testPlaysOnlyACompletedMeetingWithItsRecording() {

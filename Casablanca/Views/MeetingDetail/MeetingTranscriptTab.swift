@@ -156,7 +156,7 @@ struct MeetingTranscriptTab: View {
                atOrBefore: jump.seconds,
                starts: chapters.flatMap { $0.segments.map(\.start) }
            ) {
-            focus = TranscriptFocus(token: jump.token, index: index)
+            focus = TranscriptFocus(token: jump.token, meetingID: meeting.id, index: index)
             // First attempt on the next run-loop turn, after this update's
             // layout. A chapter that had to expand retries once when the
             // line appears (`onFocusedLineAppear`).
@@ -189,7 +189,8 @@ struct MeetingTranscriptTab: View {
                         chapter: chapter,
                         startsExpanded: index == 0,
                         firstLineIndex: firstIndices[index],
-                        focus: focus,
+                        // Never another meeting's focus (this tab is reused).
+                        focus: TranscriptFocus.scoped(focus, to: meeting.id),
                         meetingID: meeting.id,
                         onFocusedLineAppear: { scroll(to: $0) }
                     )
@@ -256,7 +257,23 @@ struct TranscriptLineAnchor: Hashable {
 /// same line again (after collapsing its chapter) is still a change.
 struct TranscriptFocus: Equatable {
     let token: UUID
+    /// The meeting the jump was for. The tab is reused across meetings, so a
+    /// focus only counts for its own meeting (see ``scoped(_:to:)``).
+    let meetingID: UUID
     let index: Int
+
+    /// `focus` when it belongs to `meetingID`, else `nil`: another meeting's
+    /// focus never expands, highlights or scrolls this one.
+    static func scoped(_ focus: TranscriptFocus?, to meetingID: UUID) -> TranscriptFocus? {
+        focus?.meetingID == meetingID ? focus : nil
+    }
+
+    /// Whether a chapter of `meetingID` should start expanded (and wait for
+    /// the line to appear) for `focus` when it is first built.
+    static func initialTarget(_ focus: TranscriptFocus?, meetingID: UUID, chapterLines lines: Range<Int>) -> TranscriptFocus? {
+        guard let focus = scoped(focus, to: meetingID), focus.expands(chapterLines: lines) else { return nil }
+        return focus
+    }
 
     /// Whether a chapter holding lines `lines` must expand for this focus.
     func expands(chapterLines lines: Range<Int>) -> Bool {
@@ -266,8 +283,13 @@ struct TranscriptFocus: Equatable {
     /// What a chapter does when the focus changes: the focus it must expand
     /// for (and whose line it then waits to appear), or `nil` when the line
     /// is elsewhere or the chapter is already open.
-    static func expansionTarget(_ focus: TranscriptFocus?, chapterLines lines: Range<Int>, isExpanded: Bool) -> TranscriptFocus? {
-        guard let focus, !isExpanded, focus.expands(chapterLines: lines) else { return nil }
+    static func expansionTarget(
+        _ focus: TranscriptFocus?,
+        meetingID: UUID,
+        chapterLines lines: Range<Int>,
+        isExpanded: Bool
+    ) -> TranscriptFocus? {
+        guard let focus = scoped(focus, to: meetingID), !isExpanded, focus.expands(chapterLines: lines) else { return nil }
         return focus
     }
 }
@@ -309,9 +331,9 @@ private struct ChapterDisclosure: View {
         self.meetingID = meetingID
         self.onFocusedLineAppear = onFocusedLineAppear
         let lines = firstLineIndex..<(firstLineIndex + chapter.segments.count)
-        let expandsForFocus = focus?.expands(chapterLines: lines) ?? false
-        _isExpanded = State(initialValue: startsExpanded || expandsForFocus)
-        _awaitingAppear = State(initialValue: expandsForFocus && !startsExpanded ? focus : nil)
+        let target = TranscriptFocus.initialTarget(focus, meetingID: meetingID, chapterLines: lines)
+        _isExpanded = State(initialValue: startsExpanded || target != nil)
+        _awaitingAppear = State(initialValue: startsExpanded ? nil : target)
     }
 
     private var lines: Range<Int> { firstLineIndex..<(firstLineIndex + chapter.segments.count) }
@@ -333,12 +355,13 @@ private struct ChapterDisclosure: View {
                     }
                     .padding(.vertical, CasaSpace.xxs)
                     .background(
-                        lineIndex == focus?.index ? Color.accentPrimary.opacity(0.10) : Color.clear,
+                        lineIndex == TranscriptFocus.scoped(focus, to: meetingID)?.index ? Color.accentPrimary.opacity(0.10) : Color.clear,
                         in: RoundedRectangle(cornerRadius: CasaRadius.sm)
                     )
                     .id(TranscriptLineAnchor(index: lineIndex))
                     .onAppear {
-                        guard let awaiting = awaitingAppear, awaiting.index == lineIndex else { return }
+                        guard let awaiting = TranscriptFocus.scoped(awaitingAppear, to: meetingID),
+                              awaiting.index == lineIndex else { return }
                         awaitingAppear = nil
                         onFocusedLineAppear(lineIndex)
                     }
@@ -354,9 +377,16 @@ private struct ChapterDisclosure: View {
         // Keyed on the whole focus (token included): a repeat jump to a line
         // whose chapter the user collapsed expands it again.
         .onChange(of: focus) { _, newFocus in
-            guard let target = TranscriptFocus.expansionTarget(newFocus, chapterLines: lines, isExpanded: isExpanded) else { return }
+            guard let target = TranscriptFocus.expansionTarget(
+                newFocus, meetingID: meetingID, chapterLines: lines, isExpanded: isExpanded
+            ) else { return }
             awaitingAppear = target
             isExpanded = true
+        }
+        // Collapsed before the focused line appeared: drop the pending retry,
+        // so a later manual expand does not scroll.
+        .onChange(of: isExpanded) { _, expanded in
+            if !expanded { awaitingAppear = nil }
         }
     }
 
