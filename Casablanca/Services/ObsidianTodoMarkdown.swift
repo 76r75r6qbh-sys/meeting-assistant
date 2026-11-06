@@ -80,7 +80,8 @@ enum ObsidianTodoMarkdown {
         return formatter
     }()
 
-    private static func isValidOwner(_ owner: String) -> Bool {
+    /// Whether `owner` can be written in (and parsed back from) the suffix.
+    static func isValidOwner(_ owner: String) -> Bool {
         (1...60).contains(owner.count) && !owner.contains("—") && !owner.contains(where: \.isNewline)
     }
 

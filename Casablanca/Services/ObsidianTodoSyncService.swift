@@ -415,10 +415,27 @@ enum ObsidianTodoSyncService {
             if existing.text + ObsidianTodoMarkdown.suffix(for: existing) == lineText {
                 return
             }
-            existing.text = task.text
+            // The line was edited outside Casablanca. Two ambiguous cases keep
+            // the row's reading: an owner-less row whose text contains ` — `
+            // (the parse took its tail for an owner), and an owner the line
+            // could not carry (too long, or containing `—`).
+            var text = task.text
+            var owner = task.owner
+            if existing.owner == nil, let parsedOwner = task.owner, task.text + " — " + parsedOwner == existing.text {
+                text = existing.text
+                owner = nil
+            }
+            if task.owner == nil, let kept = existing.owner,
+               !ObsidianTodoMarkdown.isValidOwner(kept.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                owner = kept
+            }
+            existing.text = text
             // The suffix is the line's own record of these fields; a line
             // without one keeps the row's values.
-            if task.hasSuffix { applySuffixFields(of: task, to: existing) }
+            if task.hasSuffix {
+                applySuffixFields(of: task, to: existing)
+                existing.owner = owner
+            }
             return
         }
 

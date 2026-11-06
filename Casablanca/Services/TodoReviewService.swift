@@ -219,12 +219,54 @@ private extension String {
 
 /// Which meeting to-do a summary action-item bullet stands for.
 enum ActionItemTodoMatcher {
-    /// The folded owner of a `**owner** —` prefix, `"?"` for an unassigned
-    /// prefix (`**?** —`), `nil` when the text has no owner prefix.
-    private static func ownerKey(ofBullet text: String) -> String? {
+    /// Who an item belongs to, for matching.
+    private enum OwnerKey: Equatable {
+        /// `**?** —`: explicitly nobody.
+        case unassigned
+        /// A named owner; `raw` is kept to recognise a 60-character cut.
+        case named(raw: String, tokens: [String])
+
+        init(named raw: String) {
+            self = .named(raw: raw, tokens: ActionItemOwnership.tokens(raw))
+        }
+
+        /// Same owner: equal word tokens; one token list contained in the
+        /// other (`Youri` / `Youri Broekhuizen`, as `ActionItemOwnership.owner(_:matchesAnyOf:)`);
+        /// or one a prefix of the other, its last token possibly cut short
+        /// when that owner is exactly 60 characters (`TodoReviewService.sanitizedOwner`).
+        func matches(_ other: OwnerKey) -> Bool {
+            switch (self, other) {
+            case (.unassigned, .unassigned):
+                return true
+            case let (.named(rawA, a), .named(rawB, b)):
+                guard !a.isEmpty, !b.isEmpty else { return a == b }
+                if a == b || ActionItemOwnership.owner(rawA, matchesAnyOf: [rawB])
+                    || ActionItemOwnership.owner(rawB, matchesAnyOf: [rawA]) {
+                    return true
+                }
+                let (short, shortRaw, long) = a.count <= b.count ? (a, rawA, b) : (b, rawB, a)
+                guard short.count <= long.count, shortRaw.count == 60 else { return false }
+                let last = short.count - 1
+                return Array(short[..<last]) == Array(long[..<last]) && long[last].hasPrefix(short[last])
+            default:
+                return false
+            }
+        }
+    }
+
+    /// The owner of a `**owner** —` prefix (`.unassigned` for `**?** —`);
+    /// `nil` when the text has no owner prefix.
+    private static func prefixOwner(of text: String) -> OwnerKey? {
         let parsed = ActionItemOwnership.parse(text)
         guard parsed.action != text else { return nil }
-        return parsed.owner.map(ActionItemOwnership.fold) ?? "?"
+        return parsed.owner.map(OwnerKey.init(named:)) ?? .unassigned
+    }
+
+    /// The `[mm:ss]` label at the end of a bullet, if any.
+    private static func trailingTimestamp(of text: String) -> String? {
+        guard let range = text.range(of: #" \[[0-9:]+\]$"#, options: .regularExpression) else { return nil }
+        let label = String(text[range].dropFirst(2).dropLast())
+        return TranscriptLineFormat.seconds(fromLabel: label) != nil ? label : nil
     }
 
     /// The to-do whose text is the bullet, its action without the `**owner** —`
@@ -237,20 +279,27 @@ enum ActionItemTodoMatcher {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = ActionItemOwnership.parse(target).action
         let candidates: Set<String> = [target, action, ActionItemRendering.strippingSuffix(action)]
-        let bulletOwner = ownerKey(ofBullet: target)
+        let bulletOwner = prefixOwner(of: target)
+        let bulletTimestamp = trailingTimestamp(of: target)
         // Both sides as text and as bare action, so a row holding the whole
-        // bullet (any owner/suffix form) or only the action matches — but
-        // only for the same owner: a row's owner (its bullet prefix, else its
-        // owner field) must equal the bullet's; a row without either matches
-        // any owner. An identical text always matches.
+        // bullet (any owner/suffix form) or only the action matches — for
+        // the same owner only. The row's owner is its owner field, else (a
+        // summary-tab row storing the whole bullet) its bullet prefix. A
+        // bullet without a prefix matches any owner. A row with neither
+        // matches any owner, but when it has a timestamp only a bullet at
+        // that timestamp (or without one). An identical text always matches.
         return todos
             .filter { todo in
                 guard todo.status != .rejected else { return false }
                 let rowText = todo.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if rowText == target { return true }
                 guard TodoReviewService.comparableTexts(of: rowText).contains(where: candidates.contains) else { return false }
-                guard let rowOwner = ownerKey(ofBullet: rowText) ?? todo.owner.map(ActionItemOwnership.fold) else { return true }
-                return rowOwner == bulletOwner
+                guard let rowOwner = todo.owner.map(OwnerKey.init(named:)) ?? prefixOwner(of: rowText) else {
+                    guard let rowTimestamp = todo.sourceTimestamp, let bulletTimestamp else { return true }
+                    return rowTimestamp == bulletTimestamp
+                }
+                guard let bulletOwner else { return true }
+                return rowOwner.matches(bulletOwner)
             }
             .min { a, b in
                 let rankA = a.status == .accepted ? 0 : 1

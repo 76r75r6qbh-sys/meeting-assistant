@@ -571,4 +571,67 @@ final class TodoReviewServiceTests: XCTestCase {
         let rows = try proposed([item("Stuur offerte", owner: "Kim — Youri", timestamp: "12:34")], in: meeting, context: context)
         XCTAssertEqual(rows.first?.owner, "Kim - Youri")
     }
+
+    // MARK: - Fix round 3: owner tokens, row owners, wildcard bullets and rows
+
+    /// The bullet and the proposed row come from one item, even when the row's
+    /// owner was sanitized (`—` → `-`, `_`, cut to 60 characters).
+    func testSanitizedOwnerRowStillMatchesItsBullet() throws {
+        let owners = [
+            "Kim — Youri",
+            "Kim_Youri",
+            "Annemarie van den Berg-Hoogendoorn en Kim Owen-Jones en Youri Broekhuizen",
+            String(repeating: "Kim ", count: 20).trimmingCharacters(in: .whitespaces),
+        ]
+        for owner in owners {
+            let context = try makeContext()
+            let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+            context.insert(meeting)
+            let extracted = item("Plan de demo", owner: owner, timestamp: "00:20")
+            let row = try XCTUnwrap(try proposed([extracted], in: meeting, context: context).first)
+            let bullet = ActionItemRendering.bullet(for: extracted)
+            XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [row]) === row, "\(owner) → \(bullet)")
+        }
+
+        // Token containment: an owner edited to the full name still matches.
+        let edited = TodoItem(text: "Plan de demo")
+        edited.owner = "Youri Broekhuizen"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo", in: [edited]) === edited)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo", in: [edited]))
+    }
+
+    /// A bold prefix inside the row's own text is not its owner when the row
+    /// has an owner field.
+    func testBoldTextRowUsesItsOwnerField() {
+        let row = TodoItem(text: "**Urgent:** bel Kim")
+        row.owner = "Kim"
+        row.sourceTimestamp = "12:34"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — **Urgent:** bel Kim [12:34]", in: [row]) === row)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Urgent** — bel Kim [12:34]", in: [row]))
+    }
+
+    /// No prefix is a wildcard; `**?**` is the unassigned owner.
+    func testBulletWithoutOwnerPrefixIsAWildcard() {
+        let kimRow = TodoItem(text: "**Kim** — Plan de demo [00:20]")
+        let fieldRow = TodoItem(text: "Plan de demo")
+        fieldRow.owner = "Kim"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "Plan de demo", in: [kimRow]) === kimRow)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "Plan de demo", in: [fieldRow]) === fieldRow)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**?** — Plan de demo", in: [kimRow]))
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**?** — Plan de demo", in: [fieldRow]))
+        let unassignedRow = TodoItem(text: "**?** — Plan de demo [00:20]")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**?** — Plan de demo", in: [unassignedRow]) === unassignedRow)
+    }
+
+    /// An owner-less row with a timestamp only matches a timestamped bullet at
+    /// the same timestamp: Kim's item elsewhere never flips the user's row.
+    func testOwnerlessRowNeedsTheSameTimestamp() {
+        let mine = TodoItem(text: "Plan de demo")
+        mine.sourceTimestamp = "00:20"
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [05:00]", in: [mine]))
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [mine]) === mine)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo (2026-11-06) [00:20]", in: [mine]) === mine)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo", in: [mine]) === mine,
+                      "a bullet without a timestamp still matches")
+    }
 }

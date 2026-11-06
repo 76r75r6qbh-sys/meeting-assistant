@@ -764,14 +764,59 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-06"))
     }
 
-    /// The general early return does not freeze rows: a line edited in
-    /// Obsidian still updates the row.
-    func testBoldInsideTextStillSplitsTheOwner() throws {
+    /// Removing the `**` remainder check: bold text inside the task no longer
+    /// stops the owner split.
+    func testOwnerSplitsAfterBoldInsideTheText() throws {
         let task = try XCTUnwrap(ObsidianTodoMarkdown.parseMeetingActionItems(
             "## Action Items\n\n- [ ] Stuur **offerte** — Kim [12:34]\n").first)
         XCTAssertEqual(task.text, "Stuur **offerte**")
         XCTAssertEqual(task.owner, "Kim")
         XCTAssertEqual(task.timestamp, "12:34")
+    }
+
+    // MARK: - Fix round 3: edits in Obsidian on ambiguous rows
+
+    private func editLine(_ url: URL, _ from: String, _ to: String) throws {
+        let markdown = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(markdown.contains(from))
+        try markdown.replacingOccurrences(of: from, with: to).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func testDueDateEditKeepsAnUnassignedDashText() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = try exportedMeeting(in: context, defaults: defaults)
+        let (todo, url) = try acceptRow("Stuur offerte — uiterlijk vrijdag", owner: nil, timestamp: "12:34",
+                                        meeting: meeting, in: context, defaults: defaults)
+        try editLine(url, "uiterlijk vrijdag [12:34]", "uiterlijk vrijdag 📅 2026-11-10 [12:35]")
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.text, "Stuur offerte — uiterlijk vrijdag")
+        XCTAssertNil(todo.owner)
+        XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-10"))
+        XCTAssertEqual(todo.sourceTimestamp, "12:35")
+        // Stable: the next refresh changes nothing.
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        XCTAssertEqual(todo.text, "Stuur offerte — uiterlijk vrijdag")
+        XCTAssertNil(todo.owner)
+    }
+
+    func testDueDateEditKeepsAnOwnerTheLineCannotCarry() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = try exportedMeeting(in: context, defaults: defaults)
+        let longOwner = String(repeating: "Kim ", count: 20).trimmingCharacters(in: .whitespaces)
+        let (todo, url) = try acceptRow("Stuur offerte", owner: longOwner, due: "2026-11-06", timestamp: "12:34",
+                                        meeting: meeting, in: context, defaults: defaults)
+        try editLine(url, "📅 2026-11-06", "📅 2026-11-10")
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.text, "Stuur offerte")
+        XCTAssertEqual(todo.owner, longOwner)
+        XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-10"))
+        XCTAssertEqual(todo.sourceTimestamp, "12:34")
     }
 
     /// A line written before Task 10 (no row yet: another Mac, a rebuilt
