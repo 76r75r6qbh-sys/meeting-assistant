@@ -469,13 +469,35 @@ final class SummarizationService {
         let chosen = [explicitID, meeting.summaryTemplateID]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-        let id = chosen ?? SummaryTemplateSelector.templateID(
+        let id = chosen ?? autoTemplateID(for: meeting, attendees: attendees, userAliases: userAliases)
+        return SummaryTemplateStore.template(id: id, in: userDefaults)
+    }
+
+    // MARK: - Templates (for the "Regenerate with…" menu)
+
+    /// Every template, from the same defaults `summarize` reads.
+    func summaryTemplates() -> [SummaryTemplate] {
+        SummaryTemplateStore.all(in: userDefaults)
+    }
+
+    /// The template auto-selection picks for `meeting` now, ignoring its stored
+    /// override: the same title, participants, attendees and aliases a summary
+    /// without an override would use.
+    func autoTemplateID(for meeting: Meeting) -> String {
+        autoTemplateID(
+            for: meeting,
+            attendees: attendeeProvider.attendees(for: meeting),
+            userAliases: AppPreferences.userNameAliases(in: userDefaults)
+        )
+    }
+
+    private func autoTemplateID(for meeting: Meeting, attendees: [MeetingAttendee], userAliases: [String]) -> String {
+        SummaryTemplateSelector.templateID(
             title: meeting.title,
             participants: meeting.participants,
             attendees: attendees,
             userAliases: userAliases
         )
-        return SummaryTemplateStore.template(id: id, in: userDefaults)
     }
 
     // MARK: - Facts (JSON block, repair, markdown fallback)

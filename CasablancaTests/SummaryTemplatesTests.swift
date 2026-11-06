@@ -302,4 +302,104 @@ final class SummaryTemplatesTests: XCTestCase {
         XCTAssertEqual(select("DAILY"), "standup")
         XCTAssertEqual(select("Bìla Martijn"), "one-on-one")
     }
+
+    // MARK: - "Regenerate with…" menu (Task 9)
+
+    func testMenuPresentationMarksCurrent() {
+        let presentation = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateCatalog.builtIns,
+            currentID: SummaryTemplateID.oneOnOne,
+            autoID: SummaryTemplateID.standup
+        )
+        XCTAssertEqual(presentation.currentName, "1:1 / bilateral")
+        XCTAssertEqual(presentation.items.map(\.id), SummaryTemplateCatalog.builtIns.map(\.id))
+        XCTAssertEqual(presentation.items.map(\.name), SummaryTemplateCatalog.builtIns.map(\.name))
+        XCTAssertEqual(presentation.items.filter(\.isCurrent).map(\.id), [SummaryTemplateID.oneOnOne])
+    }
+
+    func testMenuPresentationShowsAutoWhenNoOverride() {
+        let general = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateCatalog.builtIns, currentID: nil, autoID: SummaryTemplateID.general)
+        XCTAssertEqual(general.currentName, "General (auto)")
+        XCTAssertEqual(general.items.filter(\.isCurrent).map(\.id), [SummaryTemplateID.general])
+
+        let standup = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateCatalog.builtIns, currentID: nil, autoID: SummaryTemplateID.standup)
+        XCTAssertEqual(standup.currentName, "Stand-up (auto)")
+        XCTAssertEqual(standup.items.filter(\.isCurrent).map(\.id), [SummaryTemplateID.standup])
+    }
+
+    /// The service treats a blank stored id as no override.
+    func testMenuPresentationTreatsABlankOverrideAsAuto() {
+        let presentation = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateCatalog.builtIns, currentID: "  ", autoID: SummaryTemplateID.workshop)
+        XCTAssertEqual(presentation.currentName, "Workshop (auto)")
+        XCTAssertEqual(presentation.items.filter(\.isCurrent).map(\.id), [SummaryTemplateID.workshop])
+    }
+
+    /// A stored id whose custom template was deleted summarizes with General
+    /// (the store's fallback), so the menu says General, without "(auto)".
+    func testMenuPresentationFallsBackToGeneralForAnUnknownOverride() {
+        let presentation = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateCatalog.builtIns, currentID: "custom-gone", autoID: SummaryTemplateID.standup)
+        XCTAssertEqual(presentation.currentName, "General")
+        XCTAssertEqual(presentation.items.filter(\.isCurrent).map(\.id), [SummaryTemplateID.general])
+    }
+
+    func testMenuPresentationListsCustomTemplatesAndCanMarkThem() {
+        let defaults = makeDefaults()
+        let custom = SummaryTemplate(id: "custom-1", name: "Klantdemo", prompt: "p {{transcript}}", isBuiltIn: false)
+        SummaryTemplateStore.save(custom, in: defaults)
+        let presentation = SummaryTemplateMenuPresentation(
+            templates: SummaryTemplateStore.all(in: defaults), currentID: "custom-1", autoID: SummaryTemplateID.general)
+        XCTAssertEqual(presentation.items.last?.name, "Klantdemo")
+        XCTAssertEqual(presentation.currentName, "Klantdemo")
+        XCTAssertEqual(presentation.items.filter(\.isCurrent).map(\.id), ["custom-1"])
+    }
+
+    // MARK: - Settings editing (Task 9)
+
+    /// Add copies General's current (possibly customised) prompt.
+    func testNewTemplateCopiesGeneral() {
+        let defaults = makeDefaults()
+        defaults.set("Mijn eigen prompt {{transcript}}", forKey: AppPreferenceKey.summaryPromptTemplate)
+
+        let new = SummaryTemplateSettingsEditing.newTemplate(in: defaults)
+        XCTAssertTrue(new.id.hasPrefix("custom-"))
+        XCTAssertGreaterThan(new.id.count, "custom-".count)
+        XCTAssertEqual(new.name, "New template")
+        XCTAssertEqual(new.prompt, "Mijn eigen prompt {{transcript}}")
+        XCTAssertFalse(new.isBuiltIn)
+        XCTAssertNotEqual(SummaryTemplateSettingsEditing.newTemplate(in: defaults).id, new.id)
+    }
+
+    func testOnlyCustomTemplatesCanBeDeletedAndOnlyBuiltInsReset() {
+        let builtIn = SummaryTemplateCatalog.builtIns[2]
+        let custom = SummaryTemplate(id: "custom-1", name: "X", prompt: "p", isBuiltIn: false)
+        XCTAssertFalse(SummaryTemplateSettingsEditing.canDelete(builtIn))
+        XCTAssertTrue(SummaryTemplateSettingsEditing.canDelete(custom))
+        XCTAssertTrue(SummaryTemplateSettingsEditing.canReset(builtIn))
+        XCTAssertFalse(SummaryTemplateSettingsEditing.canReset(custom))
+    }
+
+    /// Editing General in the section writes the legacy key the old prompt
+    /// editor reads, so both editors show the same text.
+    func testEditingGeneralWritesTheLegacyPromptKey() {
+        let defaults = makeDefaults()
+        var general = SummaryTemplateStore.template(id: SummaryTemplateID.general, in: defaults)
+        general.prompt = "Aangepast {{transcript}}"
+        SummaryTemplateSettingsEditing.apply(general, in: defaults)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.summaryPromptTemplate), "Aangepast {{transcript}}")
+        XCTAssertTrue(SummaryTemplateStore.isModified(id: SummaryTemplateID.general, in: defaults))
+    }
+
+    /// A blank name on a custom template is not saved as blank: the list and
+    /// the menu would show an empty row.
+    func testApplyKeepsACustomTemplateNamed() {
+        let defaults = makeDefaults()
+        var custom = SummaryTemplateSettingsEditing.newTemplate(in: defaults)
+        custom.name = "   "
+        SummaryTemplateSettingsEditing.apply(custom, in: defaults)
+        XCTAssertEqual(SummaryTemplateStore.template(id: custom.id, in: defaults).name, "New template")
+    }
 }

@@ -117,6 +117,17 @@ struct MeetingSummaryTab: View {
                 .accessibilityLabel("Copy summary")
             }
 
+            // The service runs one summary at a time and ignores a second
+            // request, so the menu is off while any meeting is summarizing.
+            SummaryTemplateMenu(meeting: meeting) { templateID in
+                appModel.summarizationService.summarizeInBackground(
+                    meeting: meeting,
+                    modelContext: modelContext,
+                    templateID: templateID
+                )
+            }
+            .disabled(appModel.summarizationService.isSummarizing || !canSummarize)
+
             renderedMarkdownSummary(parsed.summary)
         }
         .padding(CasaSpace.lg)

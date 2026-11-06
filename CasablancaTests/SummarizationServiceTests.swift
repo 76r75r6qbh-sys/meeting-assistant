@@ -1759,7 +1759,6 @@ final class SummarizationServiceTests: XCTestCase {
 
     // MARK: - Rendered sections, stored items and proposed to-dos (Task 5)
 
-    /// Kim's item due vrijdag at 00:10, Youri's at 00:20 without a due date.
     // MARK: - Template override persistence
 
     private let emptyFactsJSON = #"{"topics":[],"decisions":[],"action_items":[],"open_questions":[],"facts":[]}"#
@@ -1804,6 +1803,45 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(outcome.templateID, "workshop")
     }
 
+    /// The "(auto)" template the summary header shows is what the service
+    /// would pick now, from the same title, participants and attendees.
+    func testAutoTemplateIDMatchesWhatTheServiceWouldPick() async throws {
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(notes(actionItems: []), json: emptyFactsJSON))])
+        let defaults = makeDefaults()
+        defaults.removeObject(forKey: AppPreferenceKey.summaryPromptTemplate)
+        defaults.set("", forKey: AppPreferenceKey.summaryTemplates)
+        let meeting = makeFactsMeeting(speakers: false)
+
+        meeting.title = "Overleg"
+        XCTAssertEqual(makeService(stub, defaults: defaults).autoTemplateID(for: meeting), SummaryTemplateID.general)
+
+        meeting.title = "Daily Team Link"
+        XCTAssertEqual(makeService(stub, defaults: defaults).autoTemplateID(for: meeting), SummaryTemplateID.standup)
+
+        meeting.title = "Overleg"
+        let external = makeService(stub, defaults: defaults, attendees: [
+            MeetingAttendee(name: "Youri", email: "youri@medicore.nl", isCurrentUser: true),
+            MeetingAttendee(name: "Kim", email: "kim@partner.nl", isCurrentUser: false),
+        ])
+        XCTAssertEqual(external.autoTemplateID(for: meeting), SummaryTemplateID.external)
+        // The stored override does not change the auto pick.
+        meeting.summaryTemplateID = SummaryTemplateID.workshop
+        XCTAssertEqual(external.autoTemplateID(for: meeting), SummaryTemplateID.external)
+        let outcome = try await external.summarizeWithFacts(meeting: meeting)
+        XCTAssertEqual(outcome.templateID, SummaryTemplateID.workshop)
+    }
+
+    func testTemplatesComeFromTheServiceDefaults() {
+        let defaults = makeDefaults()
+        defaults.removeObject(forKey: AppPreferenceKey.summaryPromptTemplate)
+        defaults.set("", forKey: AppPreferenceKey.summaryTemplates)
+        SummaryTemplateStore.save(SummaryTemplate(id: "custom-1", name: "Klantdemo", prompt: "p", isBuiltIn: false), in: defaults)
+        let service = makeService(StubLLMProvider(outcomes: []), defaults: defaults)
+        XCTAssertEqual(service.summaryTemplates().map(\.id).last, "custom-1")
+        XCTAssertEqual(service.summaryTemplates().count, SummaryTemplateCatalog.builtIns.count + 1)
+    }
+
+    /// Kim's item due vrijdag at 00:10, Youri's at 00:20 without a due date.
     private let kimAndYouriJSON = #"""
     {"topics":["Offerte"],"decisions":[{"text":"We gaan door","quote":"we gaan door","timestamp":"00:05"}],"action_items":[{"task":"Mail de offerte","owner":"Kim","due":"vrijdag","due_is_explicit":true,"confidence":0.8,"quote":"ik mail de offerte","timestamp":"00:10"},{"task":"Plan de demo","owner":"Youri","due":null,"confidence":0.9,"quote":"prima","timestamp":"00:20"}],"open_questions":[],"facts":[]}
     """#
