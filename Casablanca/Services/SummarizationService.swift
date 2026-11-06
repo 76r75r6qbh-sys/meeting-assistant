@@ -185,6 +185,16 @@ final class SummarizationService {
     /// to Application Support.
     private let todoDecisionLog: TodoDecisionLog
 
+    /// Schedules the automatic export after auto-accepted to-dos changed the
+    /// meeting, and knows which meetings are soft-deleted (undo grace period).
+    /// Injectable so tests never export.
+    private let exportCoalescer: MeetingExportCoalescer
+    private let automaticExporter: MeetingExportCoalescer.AutomaticExporter
+
+    /// Where the automatic export after an auto-accept reports its status;
+    /// set by `AppModel` to its `ExportStatusCenter`.
+    var exportReporter: ExportStatusCenter?
+
     init(
         providerFactory: @escaping () -> LLMProvider = { LLMProviderFactory.current() },
         userDefaults: UserDefaults = .standard,
@@ -194,7 +204,9 @@ final class SummarizationService {
             await MeetingPrepService.loadResolvedPrepMarkdown(for: $0, userDefaults: $1)
         },
         calendar: Calendar = .current,
-        todoDecisionLog: TodoDecisionLog = .shared
+        todoDecisionLog: TodoDecisionLog = .shared,
+        exportCoalescer: MeetingExportCoalescer = .shared,
+        automaticExporter: @escaping MeetingExportCoalescer.AutomaticExporter = MeetingExportCoalescer.liveAutomaticExporter
     ) {
         self.providerFactory = providerFactory
         self.userDefaults = userDefaults
@@ -203,6 +215,8 @@ final class SummarizationService {
         self.prepLoader = prepLoader
         self.calendar = calendar
         self.todoDecisionLog = todoDecisionLog
+        self.exportCoalescer = exportCoalescer
+        self.automaticExporter = automaticExporter
     }
 
     /// Summarize in a service-owned task that is NOT tied to any view's
@@ -213,7 +227,9 @@ final class SummarizationService {
     /// only — nothing reaches the vault until accepted; see
     /// `ProposedTodoPlanner` / `TodoReviewService`), accepts the verified ones
     /// when `autoAcceptVerifiedTodos` is on (logged as `auto_accept`), then
-    /// persists.
+    /// persists and, when anything was accepted, schedules the automatic
+    /// export. A meeting deleted or soft-deleted while the provider answered
+    /// gets none of this.
     func summarizeInBackground(meeting: Meeting, modelContext: ModelContext, templateID: String? = nil) {
         // If a summary is already in flight, do nothing — never cancel/restart a
         // running summary (e.g. when the view re-appears and re-triggers this).
@@ -233,6 +249,13 @@ final class SummarizationService {
             }
             do {
                 let outcome = try await self.summarizeWithFacts(meeting: meeting, templateID: templateID)
+                // The meeting may have been deleted (or soft-deleted, in its
+                // undo grace period) while the provider answered: write
+                // nothing onto it, propose nothing, accept nothing into the vault.
+                guard self.isAlive(meeting) else {
+                    Log.summarization.info("Meeting deleted during summarization; discarding the summary.")
+                    return
+                }
                 meeting.summary = outcome.parsed.rawMarkdown
                 meeting.actionItems = outcome.facts.actionItems
                 // Only an explicit user choice is an override; an auto-picked
@@ -246,10 +269,11 @@ final class SummarizationService {
                     aliases: AppPreferences.userNameAliases(in: self.userDefaults),
                     includeUnassigned: AppPreferences.includeUnassignedActionItems(in: self.userDefaults)
                 )
+                var autoAccepted = 0
                 do {
                     try TodoReviewService.replaceProposedTodos(for: meeting, with: proposals, in: modelContext)
                     if self.userDefaults.bool(forKey: AppPreferenceKey.autoAcceptVerifiedTodos) {
-                        try TodoReviewService.acceptAllVerified(
+                        autoAccepted = try TodoReviewService.acceptAllVerified(
                             in: meeting,
                             in: modelContext,
                             userDefaults: self.userDefaults,
@@ -270,6 +294,16 @@ final class SummarizationService {
                 } catch {
                     Log.summarization.error("Saving summary failed: \(error.localizedDescription)")
                 }
+                // Accepted to-dos change the meeting's note: export it like
+                // an accept in the review strip does.
+                if autoAccepted > 0 {
+                    self.exportCoalescer.scheduleAutomaticExport(
+                        of: meeting,
+                        reporter: self.exportReporter,
+                        defaults: self.userDefaults,
+                        export: self.automaticExporter
+                    )
+                }
             } catch {
                 // Cancellation (Swift's CancellationError or a wrapped URLSession
                 // cancel) is not a real failure — never surface it.
@@ -277,6 +311,11 @@ final class SummarizationService {
                 self.errorMessage = error.localizedDescription
             }
         }
+    }
+
+    /// Still in its context, not deleted and not soft-deleted.
+    private func isAlive(_ meeting: Meeting) -> Bool {
+        meeting.modelContext != nil && !meeting.isDeleted && !exportCoalescer.isPendingDeletion(meeting.id)
     }
 
     /// The parsed summary only; see `summarizeWithFacts(meeting:templateID:)`.

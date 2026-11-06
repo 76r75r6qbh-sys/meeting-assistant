@@ -513,6 +513,154 @@ final class TodoReviewServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - Final review: deleted meeting, export after auto-accept
+
+    private let autoAcceptMarkdown = """
+    # Samenvatting
+    Korte meeting.
+
+    ## Besluiten
+
+    ## Actiepunten
+    - **Youri** — Stuur offerte naar Kim
+
+    ## Risico's en blockers
+
+    ## Opvolging
+    """
+    private let autoAcceptJSON = #"""
+    {"topics":["Offerte"],"decisions":[],"action_items":[{"task":"Stuur offerte naar Kim","owner":"Youri","due":null,"confidence":0.9,"quote":"ik stuur de offerte naar Kim","timestamp":"00:10"}],"open_questions":[],"facts":[]}
+    """#
+    private let autoAcceptVerdict = #"[{"id": "a1", "supported": true, "reason": "Youri zegt het."}]"#
+
+    private final class ExportRecorder {
+        var exported: [(UUID, ExportStatusCenter?)] = []
+    }
+
+    /// A summarization service on a scratch vault (Obsidian storage, auto-accept
+    /// on) whose exports go to `recorder` through a coalescer without delay.
+    private func makeAutoAcceptService(
+        vault: URL, log: TodoDecisionLog, recorder: ExportRecorder, coalescer: MeetingExportCoalescer,
+        onGenerate: (@MainActor @Sendable () -> Void)? = nil
+    ) -> SummarizationService {
+        let stub = StubLLMProvider(
+            outcomes: [.success(SummaryFixtures.withFacts(autoAcceptMarkdown, json: autoAcceptJSON)), .success(autoAcceptVerdict)],
+            onGenerate: onGenerate
+        )
+        let defaults = makeVaultDefaults(vault)
+        defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+        defaults.set(false, forKey: AppPreferenceKey.includeUnassignedActionItems)
+        defaults.set(false, forKey: AppPreferenceKey.summaryThinkingEnabled)
+        defaults.set(true, forKey: AppPreferenceKey.autoAcceptVerifiedTodos)
+        return SummarizationService(
+            providerFactory: { stub },
+            userDefaults: defaults,
+            attendeeProvider: StaticAttendeeProvider(attendees: []),
+            prepLoader: { _, _ in nil },
+            calendar: SummaryFixtures.amsterdamCalendar,
+            todoDecisionLog: log,
+            exportCoalescer: coalescer,
+            automaticExporter: { meeting, _, reporter in recorder.exported.append((meeting.id, reporter)) }
+        )
+    }
+
+    private func waitForSummary(_ service: SummarizationService) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while service.isSummarizing, Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(service.isSummarizing)
+    }
+
+    /// The meeting is deleted while the provider is still answering: nothing
+    /// is written onto it, no proposal is inserted, nothing is accepted into
+    /// the vault, logged or exported.
+    func testASummaryForAMeetingDeletedMidRunWritesNothing() async throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-deleted-mid-run")
+        let log = makeLog()
+        let recorder = ExportRecorder()
+        let coalescer = MeetingExportCoalescer(delay: .zero, sleep: { _ in })
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.transcript = "[00:10] Youri: Ik stuur de offerte naar Kim vrijdag.\n[00:20] Kim: Prima."
+        context.insert(meeting)
+        try context.save()
+        nonisolated(unsafe) let doomed = meeting
+        nonisolated(unsafe) let doomedContext = context
+        let service = makeAutoAcceptService(vault: vault, log: log, recorder: recorder, coalescer: coalescer) {
+            guard doomed.modelContext != nil else { return }
+            doomedContext.delete(doomed)
+            try? doomedContext.save()
+        }
+
+        service.summarizeInBackground(meeting: meeting, modelContext: context)
+        try await waitForSummary(service)
+        await coalescer.waitUntilIdle()
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Meeting>()), 0)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<TodoItem>()), 0, "no proposal is inserted for a deleted meeting")
+        XCTAssertEqual(vaultContents(vault), [], "nothing reaches the vault")
+        XCTAssertEqual(try entries(in: log).count, 0, "nothing is logged")
+        XCTAssertTrue(recorder.exported.isEmpty, "nothing is exported")
+        XCTAssertNil(service.errorMessage)
+    }
+
+    /// Soft-deleted (undo grace period) while the provider answers: the same.
+    func testASummaryForAMeetingPendingDeletionWritesNothing() async throws {
+        let context = try makeContext()
+        let vault = makeScratchVault("todo-pending-delete")
+        let log = makeLog()
+        let recorder = ExportRecorder()
+        let coalescer = MeetingExportCoalescer(delay: .zero, sleep: { _ in })
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+        meeting.transcript = "[00:10] Youri: Ik stuur de offerte naar Kim vrijdag.\n[00:20] Kim: Prima."
+        context.insert(meeting)
+        try context.save()
+        let id = meeting.id
+        let service = makeAutoAcceptService(vault: vault, log: log, recorder: recorder, coalescer: coalescer) {
+            coalescer.isPendingDeletion = { $0 == id }
+        }
+
+        service.summarizeInBackground(meeting: meeting, modelContext: context)
+        try await waitForSummary(service)
+        await coalescer.waitUntilIdle()
+
+        XCTAssertNil(meeting.summary, "the summary is not written onto a meeting pending deletion")
+        XCTAssertEqual(meeting.actionItems, [])
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<TodoItem>()), 0)
+        XCTAssertEqual(vaultContents(vault), [])
+        XCTAssertEqual(try entries(in: log).count, 0)
+        XCTAssertTrue(recorder.exported.isEmpty)
+    }
+
+    /// Auto-accepted to-dos change the meeting's note: an export is scheduled,
+    /// with the service's reporter. With nothing accepted, none is.
+    func testAutoAcceptSchedulesAnExportWithTheServiceReporter() async throws {
+        for autoAccept in [true, false] {
+            let context = try makeContext()
+            let vault = makeScratchVault("todo-auto-export")
+            let recorder = ExportRecorder()
+            let coalescer = MeetingExportCoalescer(delay: .zero, sleep: { _ in })
+            let service = makeAutoAcceptService(vault: vault, log: makeLog(), recorder: recorder, coalescer: coalescer)
+            let reporter = ExportStatusCenter()
+            service.exportReporter = reporter
+            let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate, status: .completed)
+            meeting.transcript = autoAccept
+                ? "[00:10] Youri: Ik stuur de offerte naar Kim vrijdag.\n[00:20] Kim: Prima."
+                : "[00:10] Youri: Iets heel anders.\n[00:20] Kim: Prima."
+            context.insert(meeting)
+
+            service.summarizeInBackground(meeting: meeting, modelContext: context)
+            try await waitForSummary(service)
+            await coalescer.waitUntilIdle()
+
+            let rows = try todos(of: meeting, in: context)
+            XCTAssertEqual(rows.map(\.status), [autoAccept ? .accepted : .proposed])
+            XCTAssertEqual(recorder.exported.map(\.0), autoAccept ? [meeting.id] : [])
+            XCTAssertTrue(recorder.exported.allSatisfy { $0.1 === reporter }, "the service's reporter is passed on")
+        }
+    }
+
     // MARK: - Fix round 1
 
     func testEditSanitizesOwnersThatCannotRoundTrip() throws {

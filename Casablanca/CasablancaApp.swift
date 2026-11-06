@@ -272,6 +272,7 @@ final class AppModel {
 
     init() {
         meetingListViewModel = MeetingListViewModel(calendarService: calendarService)
+        summarizationService.exportReporter = exportStatusCenter
         meetingStartNotifier = MeetingStartNotifier(calendarService: calendarService)
         recordingController = MeetingRecordingController(recordingService: recordingService)
 
