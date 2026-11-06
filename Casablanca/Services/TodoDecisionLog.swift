@@ -82,4 +82,56 @@ final class TodoDecisionLog: @unchecked Sendable {
             )
         }
     }
+
+    /// Removes every line of `meetingID` (the meeting was deleted, and its
+    /// to-do text and quotes must go with it). Other lines, including ones
+    /// this version cannot decode, are kept byte for byte and in order; the
+    /// file is only rewritten (atomically) when a line was removed. Best
+    /// effort: a failure is logged and never reaches the caller.
+    func removeEntries(forMeetingID meetingID: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let text = try String(contentsOf: fileURL, encoding: .utf8)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let kept = lines.filter { line in
+                (try? decoder.decode(MeetingReference.self, from: Data(line.utf8)))?.meetingID != meetingID
+            }
+            guard kept.count != lines.count else { return }
+            let rewritten = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+            try Data(rewritten.utf8).write(to: fileURL, options: .atomic)
+        } catch {
+            Log.persistence.error(
+                "Removing a meeting from the to-do decision log failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// Deletes the whole log (Settings → To-do Review). A log that does not
+    /// exist counts as deleted. Returns false (and logs) when removal failed.
+    @discardableResult
+    func deleteLog() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            return true
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+            return true
+        } catch {
+            Log.persistence.error(
+                "Deleting the to-do decision log failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// Only the field removal needs, so a line from a newer entry shape still
+    /// decodes.
+    private struct MeetingReference: Decodable {
+        var meetingID: UUID?
+    }
 }

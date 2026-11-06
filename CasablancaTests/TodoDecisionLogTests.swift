@@ -75,6 +75,80 @@ final class TodoDecisionLogTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: blocker, encoding: .utf8), "x")
     }
 
+    // MARK: - Removal (privacy)
+
+    private func entry(_ task: String, meetingID: UUID?) -> TodoDecisionEntry {
+        var value = entry(.accept, task: task)
+        value.meetingID = meetingID
+        return value
+    }
+
+    func testRemoveEntriesForAMeetingKeepsOtherMeetingsLinesIntact() throws {
+        let fileURL = try makeTemporaryDirectory().appendingPathComponent("todo-decisions.jsonl")
+        let log = TodoDecisionLog(fileURL: fileURL)
+        let deleted = UUID()
+        let kept = UUID()
+        log.append(entry("Stuur offerte", meetingID: deleted))
+        log.append(entry("Plan demo", meetingID: kept))
+        log.append(entry("Bel Kim", meetingID: deleted))
+        log.append(entry("Losse taak", meetingID: nil))
+        let before = try String(contentsOf: fileURL, encoding: .utf8).split(separator: "\n").map(String.init)
+        // A line this version cannot decode is not ours to judge: kept.
+        let handle = try FileHandle(forWritingTo: fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("not json\n".utf8))
+        try handle.close()
+
+        log.removeEntries(forMeetingID: deleted)
+
+        let after = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(after.hasSuffix("\n"))
+        XCTAssertEqual(after.split(separator: "\n").map(String.init), [before[1], before[3], "not json"],
+                       "other meetings' lines stay byte-for-byte, in order")
+        XCTAssertFalse(after.contains(deleted.uuidString))
+
+        log.append(entry("Nieuw", meetingID: kept))
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8).split(separator: "\n").count, 4,
+                       "appending still works after a removal")
+    }
+
+    func testRemoveEntriesWithoutAMatchLeavesTheFileUntouched() throws {
+        let fileURL = try makeTemporaryDirectory().appendingPathComponent("todo-decisions.jsonl")
+        let log = TodoDecisionLog(fileURL: fileURL)
+        log.append(entry("Plan demo", meetingID: UUID()))
+        let before = try FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date
+        let text = try String(contentsOf: fileURL, encoding: .utf8)
+
+        log.removeEntries(forMeetingID: UUID())
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), text)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date, before)
+    }
+
+    func testRemoveEntriesNeverThrowsOnAMissingOrUnreadableLog() throws {
+        let directory = try makeTemporaryDirectory()
+        // Missing file.
+        TodoDecisionLog(fileURL: directory.appendingPathComponent("missing.jsonl")).removeEntries(forMeetingID: UUID())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("missing.jsonl").path))
+        // A directory where the log file should be: unreadable as text.
+        let blocker = directory.appendingPathComponent("todo-decisions.jsonl", isDirectory: true)
+        try FileManager.default.createDirectory(at: blocker, withIntermediateDirectories: true)
+        TodoDecisionLog(fileURL: blocker).removeEntries(forMeetingID: UUID())
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blocker.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
+    func testDeleteLogRemovesTheFileAndToleratesAMissingOne() throws {
+        let fileURL = try makeTemporaryDirectory().appendingPathComponent("todo-decisions.jsonl")
+        let log = TodoDecisionLog(fileURL: fileURL)
+        log.append(entry("Plan demo", meetingID: UUID()))
+
+        XCTAssertTrue(log.deleteLog())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertTrue(log.deleteLog(), "a log that is already gone counts as deleted")
+    }
+
     func testSharedLogLivesInApplicationSupportFeedback() {
         XCTAssertTrue(TodoDecisionLog.shared.fileURL.path.hasSuffix("/Casablanca/feedback/todo-decisions.jsonl"))
         XCTAssertTrue(TodoDecisionLog.shared.fileURL.path.contains("/Library/Application Support/"))
