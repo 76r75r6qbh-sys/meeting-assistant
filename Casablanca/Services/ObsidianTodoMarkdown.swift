@@ -65,8 +65,20 @@ enum ObsidianTodoMarkdown {
     /// stays in the text instead of vanishing on a re-render.
     private static func isISODay(_ text: String) -> Bool {
         text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
-            && TodoReviewService.dueDate(fromISO: text) != nil
+            && isoDayValidator.date(from: text) != nil
     }
+
+    /// Non-lenient `yyyy-MM-dd` parser used only to reject impossible dates.
+    /// Configured once and only read afterwards (thread-safe for parsing).
+    private static let isoDayValidator: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }()
 
     private static func isValidOwner(_ owner: String) -> Bool {
         (1...60).contains(owner.count) && !owner.contains("—") && !owner.contains(where: \.isNewline)
@@ -104,7 +116,7 @@ enum ObsidianTodoMarkdown {
             let candidate = String(rest[dash.upperBound...])
             let remaining = String(rest[..<dash.lowerBound])
             if isValidOwner(candidate), candidate == candidate.trimmingCharacters(in: .whitespaces),
-               !remaining.trimmingCharacters(in: .whitespaces).isEmpty, !remaining.hasSuffix("**") {
+               !remaining.trimmingCharacters(in: .whitespaces).isEmpty {
                 owner = candidate
                 rest = remaining
             }

@@ -658,6 +658,122 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         try assertSummaryBulletRoundTrips("Youri — Plan de demo [00:20]")
     }
 
+    func testSummaryTabColonOwnerBulletRoundTripsThroughRefresh() throws {
+        try assertSummaryBulletRoundTrips("**Youri:** Mail Kim [00:20]")
+    }
+
+    func testSummaryTabUnassignedBulletWithDateRoundTripsThroughRefresh() throws {
+        try assertSummaryBulletRoundTrips("**?** — Plan de demo (2026-11-06) [00:20]")
+    }
+
+    // MARK: - Fix round 2: rows that render to their own line are left alone
+
+    /// Accepts a hand-built proposed row through `TodoReviewService.accept`
+    /// (scratch vault, temporary decision log) and returns the todo file URL.
+    private func acceptRow(
+        _ text: String, owner: String?, due: String? = nil, timestamp: String?,
+        meeting: Meeting, in context: ModelContext, defaults: UserDefaults
+    ) throws -> (TodoItem, URL) {
+        let todo = TodoItem(text: text, meeting: meeting)
+        todo.status = .proposed
+        todo.owner = owner
+        todo.dueDate = due.flatMap(TodoReviewService.dueDate(fromISO:))
+        todo.sourceTimestamp = timestamp
+        context.insert(todo)
+        try context.save()
+        try TodoReviewService.accept(todo, in: context, userDefaults: defaults, log: makeDecisionLog())
+        let url = try XCTUnwrap(todo.sourceFilePath.map(URL.init(fileURLWithPath:)))
+        TestVaultGuard.assertTemporary(url, "meeting todo file")
+        return (todo, url)
+    }
+
+    private func exportedMeeting(in context: ModelContext, defaults: UserDefaults) throws -> Meeting {
+        let meeting = makeMeeting()
+        meeting.userNotes = "notes"
+        meeting.summary = "# Summary\nShort."
+        context.insert(meeting)
+        try context.save()
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        return meeting
+    }
+
+    private func taskLines(_ url: URL) throws -> [String] {
+        try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n").filter { $0.contains("casablanca-todo:") }
+    }
+
+    func testUnassignedDashTextWithTimestampSurvivesRefresh() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = try exportedMeeting(in: context, defaults: defaults)
+        let (todo, url) = try acceptRow("Stuur offerte — uiterlijk vrijdag", owner: nil, timestamp: "12:34",
+                                        meeting: meeting, in: context, defaults: defaults)
+        XCTAssertEqual(try taskLines(url), ["- [ ] Stuur offerte — uiterlijk vrijdag [12:34] <!-- casablanca-todo: \(todo.id.uuidString) -->"])
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.text, "Stuur offerte — uiterlijk vrijdag")
+        XCTAssertNil(todo.owner)
+        XCTAssertEqual(todo.sourceTimestamp, "12:34")
+
+        let bullet = "**Youri** — Stuur offerte — uiterlijk vrijdag [12:34]"
+        try toggleSummaryBullet(bullet, meeting: meeting, in: context, defaults: defaults)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(try taskLines(url), ["- [x] Stuur offerte — uiterlijk vrijdag [12:34] <!-- casablanca-todo: \(todo.id.uuidString) -->"],
+                       "the toggle checked the row's own line and appended none")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<TodoItem>()).count, 1)
+        XCTAssertEqual(todo.text, "Stuur offerte — uiterlijk vrijdag")
+    }
+
+    func testBoldPrefixedTodoCarriesItsSuffixOnceInExports() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = try exportedMeeting(in: context, defaults: defaults)
+        let (todo, url) = try acceptRow("**Urgent:** bel Kim", owner: "Kim", timestamp: "12:34",
+                                        meeting: meeting, in: context, defaults: defaults)
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.text, "**Urgent:** bel Kim")
+        XCTAssertEqual(todo.owner, "Kim")
+        XCTAssertEqual(todo.sourceTimestamp, "12:34")
+        XCTAssertEqual(try taskLines(url), ["- [ ] **Urgent:** bel Kim — Kim [12:34] <!-- casablanca-todo: \(todo.id.uuidString) -->"])
+
+        let result = try ObsidianMeetingExporter.exportCompletedMeeting(meeting, userDefaults: defaults)
+        let summary = try String(contentsOf: try XCTUnwrap(result.summaryURL), encoding: .utf8)
+        XCTAssertTrue(summary.contains("- [ ] **Urgent:** bel Kim — Kim [12:34]\n"), summary)
+        XCTAssertEqual(summary.components(separatedBy: "[12:34]").count - 1, 1)
+        let html = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        XCTAssertTrue(html.contains("bel Kim — Kim [12:34]</li>"), html)
+        XCTAssertEqual(html.components(separatedBy: "[12:34]").count - 1, 1)
+    }
+
+    func testOwnerTooLongForTheLineSurvivesRefresh() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = try exportedMeeting(in: context, defaults: defaults)
+        let longOwner = String(repeating: "Kim ", count: 20).trimmingCharacters(in: .whitespaces)
+        let (todo, url) = try acceptRow("Stuur offerte", owner: longOwner, due: "2026-11-06", timestamp: "12:34",
+                                        meeting: meeting, in: context, defaults: defaults)
+        XCTAssertEqual(try taskLines(url), ["- [ ] Stuur offerte 📅 2026-11-06 [12:34] <!-- casablanca-todo: \(todo.id.uuidString) -->"])
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        XCTAssertEqual(todo.text, "Stuur offerte")
+        XCTAssertEqual(todo.owner, longOwner)
+        XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-06"))
+    }
+
+    /// The general early return does not freeze rows: a line edited in
+    /// Obsidian still updates the row.
+    func testBoldInsideTextStillSplitsTheOwner() throws {
+        let task = try XCTUnwrap(ObsidianTodoMarkdown.parseMeetingActionItems(
+            "## Action Items\n\n- [ ] Stuur **offerte** — Kim [12:34]\n").first)
+        XCTAssertEqual(task.text, "Stuur **offerte**")
+        XCTAssertEqual(task.owner, "Kim")
+        XCTAssertEqual(task.timestamp, "12:34")
+    }
+
     /// A line written before Task 10 (no row yet: another Mac, a rebuilt
     /// store) is imported with its whole bold-owner text.
     func testPreTask10BulletLineImportsWithItsWholeText() throws {

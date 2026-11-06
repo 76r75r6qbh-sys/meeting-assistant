@@ -56,7 +56,7 @@ enum TodoReviewService {
             guard !task.isEmpty, !seen.contains(where: { FuzzyText.isFuzzyEqual($0, task) }) else { continue }
             seen.append(task)
             let todo = TodoItem(text: task, isCompleted: false, sourceFilePath: nil, meeting: meeting)
-            todo.owner = item.owner
+            todo.owner = item.owner.flatMap(sanitizedOwner)
             todo.dueDate = item.due.flatMap(dueDate(fromISO:))
             todo.sourceTimestamp = item.timestamp
             todo.quote = item.quote
@@ -147,7 +147,7 @@ enum TodoReviewService {
     /// An owner that round-trips through the vault line's ` — owner` suffix:
     /// `—` becomes `-`, line breaks become spaces, trimmed, at most 60
     /// characters; `nil` when blank.
-    static func sanitizedOwner(_ owner: String) -> String? {
+    nonisolated static func sanitizedOwner(_ owner: String) -> String? {
         let cleaned = owner
             .replacingOccurrences(of: "\u{2014}", with: "-")
             .components(separatedBy: .newlines).joined(separator: " ")
@@ -219,6 +219,14 @@ private extension String {
 
 /// Which meeting to-do a summary action-item bullet stands for.
 enum ActionItemTodoMatcher {
+    /// The folded owner of a `**owner** —` prefix, `"?"` for an unassigned
+    /// prefix (`**?** —`), `nil` when the text has no owner prefix.
+    private static func ownerKey(ofBullet text: String) -> String? {
+        let parsed = ActionItemOwnership.parse(text)
+        guard parsed.action != text else { return nil }
+        return parsed.owner.map(ActionItemOwnership.fold) ?? "?"
+    }
+
     /// The to-do whose text is the bullet, its action without the `**owner** —`
     /// prefix, or that action without the rendered ` (yyyy-MM-dd) [mm:ss]`
     /// suffix. Rejected to-dos never match. An accepted match wins over a
@@ -229,12 +237,20 @@ enum ActionItemTodoMatcher {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = ActionItemOwnership.parse(target).action
         let candidates: Set<String> = [target, action, ActionItemRendering.strippingSuffix(action)]
+        let bulletOwner = ownerKey(ofBullet: target)
         // Both sides as text and as bare action, so a row holding the whole
-        // bullet (any owner/suffix form) or only the action matches.
+        // bullet (any owner/suffix form) or only the action matches — but
+        // only for the same owner: a row's owner (its bullet prefix, else its
+        // owner field) must equal the bullet's; a row without either matches
+        // any owner. An identical text always matches.
         return todos
             .filter { todo in
-                todo.status != .rejected
-                    && TodoReviewService.comparableTexts(of: todo.text).contains(where: candidates.contains)
+                guard todo.status != .rejected else { return false }
+                let rowText = todo.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if rowText == target { return true }
+                guard TodoReviewService.comparableTexts(of: rowText).contains(where: candidates.contains) else { return false }
+                guard let rowOwner = ownerKey(ofBullet: rowText) ?? todo.owner.map(ActionItemOwnership.fold) else { return true }
+                return rowOwner == bulletOwner
             }
             .min { a, b in
                 let rankA = a.status == .accepted ? 0 : 1

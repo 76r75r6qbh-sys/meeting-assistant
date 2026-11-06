@@ -406,12 +406,13 @@ enum ObsidianTodoSyncService {
             existing.meeting = meeting
             // A file never holds proposed rows: a row found in one is accepted.
             existing.status = .accepted
-            // A row whose text is the whole line (a summary-tab to-do such as
-            // `Youri — Plan de demo [00:20]`, written by `createMeetingTodo`)
-            // keeps it byte for byte: what parses as a suffix is its own text.
-            if task.hasSuffix, existing.text == task.text + ObsidianTodoMarkdown.suffix(
-                owner: task.owner, due: task.due, timestamp: task.timestamp
-            ) {
+            // A row that already renders to this line is left alone, whatever
+            // the parse made of it: a summary-tab to-do storing the whole
+            // bullet (`Youri — Plan de demo [00:20]`), an unassigned
+            // `A — B [12:34]`, an owner too long to be written, a `**Urgent:**`
+            // text. Only a line edited outside Casablanca updates the row.
+            let lineText = task.text + ObsidianTodoMarkdown.suffix(owner: task.owner, due: task.due, timestamp: task.timestamp)
+            if existing.text + ObsidianTodoMarkdown.suffix(for: existing) == lineText {
                 return
             }
             existing.text = task.text

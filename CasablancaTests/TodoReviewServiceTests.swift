@@ -544,4 +544,31 @@ final class TodoReviewServiceTests: XCTestCase {
         let unrelated = TodoItem(text: "**Youri** — Plan de demo met Kim [00:20]")
         XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [unrelated]))
     }
+
+    // MARK: - Fix round 2: the matcher respects owners
+
+    func testMatcherDoesNotMatchAnotherOwnersBullet() {
+        let kimRow = TodoItem(text: "**Kim** — Plan de demo [00:20]")
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo [05:00]", in: [kimRow]))
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [05:00]", in: [kimRow]) === kimRow,
+                      "the same owner with another timestamp still matches")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**kím** — Plan de demo", in: [kimRow]) === kimRow,
+                      "owners are compared folded")
+
+        // A row without an owner prefix uses its owner field, else matches any owner.
+        let kimByField = TodoItem(text: "Plan de demo")
+        kimByField.owner = "Kim"
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo [00:20]", in: [kimByField]))
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [kimByField]) === kimByField)
+        let unowned = TodoItem(text: "Plan de demo")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo [00:20]", in: [unowned]) === unowned)
+    }
+
+    func testReplaceSanitizesTheExtractedOwner() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Offerte", date: SummaryFixtures.meetingDate)
+        context.insert(meeting)
+        let rows = try proposed([item("Stuur offerte", owner: "Kim — Youri", timestamp: "12:34")], in: meeting, context: context)
+        XCTAssertEqual(rows.first?.owner, "Kim - Youri")
+    }
 }
