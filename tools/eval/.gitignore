@@ -1,0 +1,4 @@
+gold/
+exports/
+__pycache__/
+*.pyc

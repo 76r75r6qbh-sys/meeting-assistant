@@ -13,6 +13,7 @@ struct ContentView: View {
     // background, and a reopened window built a duplicate set.
     @State private var sidebarMeetings: SidebarMeetingsProvider?
     @State private var searchViewModel: GlobalSearchViewModel?
+    @State private var askService: AskService?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var windowWidth: CGFloat = CasaLayout.windowDefaultWidth
     @State private var detailRoute: SidebarDestination? = .dashboard
@@ -114,6 +115,14 @@ struct ContentView: View {
                     isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
                 )
             }
+            if askService == nil {
+                // Paged background snapshot loading on the shared container,
+                // debounced invalidation on store saves.
+                askService = AskService(
+                    container: modelContext.container,
+                    isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
+                )
+            }
             try? ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
         }
         .onAppear {
@@ -121,6 +130,9 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.sidebarSelection) { _, new in
             detailRoute = new
+        }
+        .onChange(of: viewModel.pendingDeletionIDs) { _, _ in
+            askService?.refreshFilterOptions()
         }
         .onChange(of: isFocusModeActive) { _, _ in
             updateColumnVisibility()
@@ -166,6 +178,29 @@ struct ContentView: View {
             TodosView(viewModel: viewModel)
         case .actionQueue:
             ActionQueueView()
+        case .ask:
+            if let askService {
+                AskView(
+                    service: askService,
+                    isSummaryInProgress: appModel.summarizationService.summarizingMeetingID != nil,
+                    // PHASE 2 HANDOFF: this closure is the single seam for
+                    // citation taps. Phase 2 replaces its body with
+                    // `MeetingDetailNavigator.shared.jump(to: target.meetingID, seconds: target.seconds ?? 0)`
+                    // when `target.seconds != nil`, and keeps this plain
+                    // selection when it is nil. Bare `[mm:ss]` in an Ask
+                    // answer have no meeting context and stay plain text
+                    // (no `TimestampLinkText`).
+                    onOpenCitation: { target in
+                        // A meeting deleted (pending undo) after the answer
+                        // arrived must not reopen.
+                        guard !viewModel.isPendingDeletion(target.meetingID) else { return }
+                        viewModel.sidebarSelection = .meeting(target.meetingID)
+                    }
+                )
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         case .meeting(let id):
             if let meeting = viewModel.selectedMeeting ?? viewModel.fetchMeeting(byID: id) {
                 switch meeting.status.detailPresentation {
