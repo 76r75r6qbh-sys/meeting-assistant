@@ -366,6 +366,65 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         }
     }
 
+    /// The meeting is deleted while the mix is being compressed: the freshly
+    /// written m4a is referenced by nothing, so it is removed.
+    func testMixCompressedForAMeetingDeletedMidCompressionIsRemoved() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        context.insert(meeting)
+        try context.save()
+
+        var written: [URL] = []
+        let pipeline = makePipeline(defaults: makeDefaults(), compress: { url in
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            written.append(m4a)
+            context.delete(meeting)
+            try context.save()
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(written.map(\.lastPathComponent), ["meeting.m4a"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: written[0].path), "the orphaned m4a is removed")
+    }
+
+    /// The meeting is deleted while a speaker track is being compressed: that
+    /// track's freshly written m4a is removed, and nothing after it runs.
+    func testTrackCompressedForAMeetingDeletedMidCompressionIsRemoved() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        try context.save()
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        var written: [URL] = []
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            written.append(m4a)
+            if url.lastPathComponent.contains(".mic.") {
+                context.delete(meeting)
+                try context.save()
+            }
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(written.map(\.lastPathComponent), ["meeting.m4a", "meeting.mic.m4a"], "the system track is not compressed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: written[0].path), "the mix m4a belonged to a live meeting")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: written[1].path), "the orphaned track m4a is removed")
+    }
+
     func testTrackCompressionFailureKeepsTrackWAV() async throws {
         let context = try makeInMemoryModelContext()
         let files = try makeRecordingWithTracks()

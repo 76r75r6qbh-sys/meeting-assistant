@@ -275,9 +275,12 @@ struct PostTranscriptionPipeline {
         do {
             let m4aURL = try await compress(wavURL)
 
-            // The meeting may have been deleted mid-compression; if so, leave the
-            // newly written m4a to be cleaned up with the meeting's other files.
-            guard isAlive(meeting) else { return }
+            // The meeting may have been deleted mid-compression: nothing
+            // references the newly written m4a, so remove it.
+            guard isAlive(meeting) else {
+                removeOrphanedOutput(atPath: m4aURL.path, source: wavURL.path)
+                return
+            }
 
             meeting.recordingFileURL = m4aURL.path
             save(modelContext)
@@ -328,13 +331,19 @@ struct PostTranscriptionPipeline {
 
         guard !AppPreferences.keepOriginalWAV(in: defaults) else { return }
         if let path = meeting.micTrackFileURL, let compressed = await compressTrackFile(atPath: path) {
-            guard isAlive(meeting) else { return }
+            guard isAlive(meeting) else {
+                removeOrphanedOutput(atPath: compressed, source: path)
+                return
+            }
             meeting.micTrackFileURL = compressed
             save(modelContext)
             deleteCompressedWAV(atPath: path)
         }
         if let path = meeting.systemTrackFileURL, let compressed = await compressTrackFile(atPath: path) {
-            guard isAlive(meeting) else { return }
+            guard isAlive(meeting) else {
+                removeOrphanedOutput(atPath: compressed, source: path)
+                return
+            }
             meeting.systemTrackFileURL = compressed
             save(modelContext)
             deleteCompressedWAV(atPath: path)
@@ -368,6 +377,18 @@ struct PostTranscriptionPipeline {
 
     /// Whether the meeting is still in a context, i.e. has not been deleted out
     /// from under a long-running step.
+    /// A compressed file written for a meeting that was deleted meanwhile:
+    /// nothing references it, so it is removed (best effort). Never the
+    /// source itself, should a compressor hand that back.
+    private func removeOrphanedOutput(atPath path: String, source: String) {
+        guard path != source else { return }
+        bestEffort("delete compressed file of a deleted meeting", Log.recording) {
+            if FileManager.default.fileExists(atPath: path) {
+                try FileManager.default.removeItem(atPath: path)
+            }
+        }
+    }
+
     private func isAlive(_ meeting: Meeting) -> Bool {
         meeting.modelContext != nil
     }
