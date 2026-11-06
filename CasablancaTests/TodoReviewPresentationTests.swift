@@ -238,8 +238,9 @@ final class TodoReviewPresentationTests: XCTestCase {
 
     // MARK: - Export coalescing
 
-    func testExportCoalescerRunsOnceAfterABurst() async throws {
-        let coalescer = MeetingExportCoalescer(delay: .milliseconds(80))
+    func testExportCoalescerRunsOnceAfterABurst() async {
+        let sleeper = Gate()
+        let coalescer = MeetingExportCoalescer(delay: .seconds(60), sleep: { _ in await sleeper.wait() })
         let meeting = UUID()
         let other = UUID()
         var runs: [UUID] = []
@@ -247,33 +248,78 @@ final class TodoReviewPresentationTests: XCTestCase {
             coalescer.schedule(meeting) { runs.append(meeting) }
         }
         coalescer.schedule(other) { runs.append(other) }
-        try await Task.sleep(for: .milliseconds(400))
+        await settle { sleeper.waiting == 6 }
+        XCTAssertEqual(sleeper.waiting, 6)
+
+        sleeper.open()
+        await coalescer.waitUntilIdle()
         XCTAssertEqual(runs.filter { $0 == meeting }.count, 1, "A burst for one meeting exports once")
         XCTAssertEqual(runs.filter { $0 == other }.count, 1, "Another meeting is not coalesced away")
     }
 
-    func testExportCoalescerNeverOverlapsRunsForOneMeeting() async throws {
-        let coalescer = MeetingExportCoalescer(delay: .milliseconds(20))
+    func testExportCoalescerNeverOverlapsRunsForOneMeeting() async {
+        let sleeper = Gate()
+        let export = Gate()
+        let coalescer = MeetingExportCoalescer(delay: .seconds(60), sleep: { _ in await sleeper.wait() })
         let meeting = UUID()
+        var started = 0
         var running = 0
         var maxRunning = 0
-        var runs = 0
+        var finished = 0
         let operation: @MainActor () async -> Void = {
+            started += 1
             running += 1
             maxRunning = max(maxRunning, running)
-            try? await Task.sleep(for: .milliseconds(150))
+            await export.wait()
             running -= 1
+            finished += 1
+        }
+
+        coalescer.schedule(meeting, operation)
+        await settle { sleeper.waiting == 1 }
+        sleeper.releaseWaiting()
+        await settle { started == 1 }
+        XCTAssertEqual(started, 1, "Run 1 is held open")
+
+        coalescer.schedule(meeting, operation)
+        await settle { sleeper.waiting == 1 }
+        sleeper.releaseWaiting()
+        await settle(rounds: 200) { started > 1 }
+        XCTAssertEqual(started, 1, "Run 2 waits for run 1")
+
+        export.open()
+        await coalescer.waitUntilIdle()
+        XCTAssertEqual(finished, 2)
+        XCTAssertEqual(maxRunning, 1, "Exports of one meeting never overlap")
+    }
+
+    /// Quit: `willTerminate` is delivered synchronously on the main thread,
+    /// so this test is synchronous too. Pending exports start at once and
+    /// finish before flushAndWait returns, without waiting out the delay.
+    func testFlushRunsPendingExportsImmediately() {
+        let coalescer = MeetingExportCoalescer(delay: .seconds(60))
+        let meeting = UUID()
+        var runs = 0
+        coalescer.schedule(meeting) {
+            await Task.yield()
             runs += 1
         }
-        coalescer.schedule(meeting, operation)
-        try await Task.sleep(for: .milliseconds(60))   // first run in progress
-        coalescer.schedule(meeting, operation)
-        try await Task.sleep(for: .milliseconds(60))
-        coalescer.schedule(meeting, operation)          // queued behind the running export
-        try await Task.sleep(for: .milliseconds(700))
-        XCTAssertEqual(maxRunning, 1, "Exports of one meeting never overlap")
-        XCTAssertGreaterThanOrEqual(runs, 2, "A request during a run still exports after it")
-        XCTAssertLessThanOrEqual(runs, 3)
+
+        coalescer.flushAndWait(timeout: 10)
+        XCTAssertEqual(runs, 1, "The accept before quit is exported")
+        XCTAssertTrue(coalescer.isIdle)
+
+        // The cancelled delay ends without a second run.
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(runs, 1)
+    }
+
+    /// Yields to the main actor until `condition` holds (or `rounds` yields).
+    private func settle(rounds: Int = 1000, _ condition: () -> Bool) async {
+        for _ in 0..<rounds where !condition() {
+            await Task.yield()
+        }
     }
 
     // MARK: - Todos view and counts
@@ -325,5 +371,33 @@ final class TodoReviewPresentationTests: XCTestCase {
         let fetched = try context.fetch(FetchDescriptor<TodoItem>(
             predicate: TodoCounting.notRejectedPredicate, sortBy: [SortDescriptor(\.text)]))
         XCTAssertEqual(fetched.map(\.text), ["Open", "Pending"])
+    }
+}
+
+/// A test-controlled gate: `wait()` suspends until released, or returns at
+/// once after `open()`.
+@MainActor
+private final class Gate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    var waiting: Int { waiters.count }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Releases the current waiters; later waits suspend again.
+    func releaseWaiting() {
+        let current = waiters
+        waiters.removeAll()
+        current.forEach { $0.resume() }
+    }
+
+    /// Releases everyone, now and later.
+    func open() {
+        isOpen = true
+        releaseWaiting()
     }
 }

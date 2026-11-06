@@ -67,37 +67,101 @@ struct TodoReviewActions {
 /// Coalesces work per meeting: a request replaces the meeting's pending one
 /// (still in its `delay`), so a burst runs the work once, after the last
 /// request. Runs for one meeting never overlap: a run waits for the previous
-/// run to finish. A run that has started is never cancelled.
+/// run to finish. A run that has started is never cancelled. `flushAll()`
+/// starts every pending run at once (app quit).
 @MainActor
 final class MeetingExportCoalescer {
     static let shared = MeetingExportCoalescer(delay: .milliseconds(600))
 
-    private let delay: Duration
-    private var pending: [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
-    private var lastRun: [UUID: Task<Void, Never>] = [:]
-
-    init(delay: Duration) {
-        self.delay = delay
+    private struct Pending {
+        let token: UUID
+        let task: Task<Void, Never>
+        let operation: @MainActor () async -> Void
     }
+
+    private let delay: Duration
+    private let sleep: @MainActor (Duration) async -> Void
+    private var pending: [UUID: Pending] = [:]
+    private var lastRun: [UUID: Task<Void, Never>] = [:]
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// `sleep` waits out the delay; injectable so tests need no wall clock.
+    init(
+        delay: Duration,
+        sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    ) {
+        self.delay = delay
+        self.sleep = sleep
+    }
+
+    /// No request is waiting and no run is in progress.
+    var isIdle: Bool { pending.isEmpty && lastRun.isEmpty }
 
     func schedule(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) {
         pending[meetingID]?.task.cancel()
         let token = UUID()
-        let delay = delay
         let task = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
-            guard !Task.isCancelled, let self else { return }
-            if self.pending[meetingID]?.token == token { self.pending[meetingID] = nil }
-            let previous = self.lastRun[meetingID]
-            let run = Task { @MainActor in
-                await previous?.value
-                await operation()
-            }
-            self.lastRun[meetingID] = run
-            await run.value
-            if self.lastRun[meetingID] == run { self.lastRun[meetingID] = nil }
+            guard let self else { return }
+            await self.sleep(self.delay)
+            // Replaced by a newer request, or already started by `flushAll`.
+            guard !Task.isCancelled, self.pending[meetingID]?.token == token else { return }
+            self.pending[meetingID] = nil
+            self.startRun(meetingID, operation)
         }
-        pending[meetingID] = (token, task)
+        pending[meetingID] = Pending(token: token, task: task, operation: operation)
+    }
+
+    /// Starts every pending request now instead of after its delay.
+    func flushAll() {
+        let flushed = pending
+        pending.removeAll()
+        for (meetingID, request) in flushed {
+            request.task.cancel()
+            startRun(meetingID, request.operation)
+        }
+        resumeIdleWaitersIfIdle()
+    }
+
+    /// For the quit path, where nothing can be awaited: flushes, then runs
+    /// the main run loop (which executes MainActor work) until every run has
+    /// finished or `timeout` has passed. Call it from synchronous main-thread
+    /// code such as a `willTerminate` observer: from inside a MainActor async
+    /// job the main queue is not drained re-entrantly, so the runs could not
+    /// progress and it would return at the timeout.
+    func flushAndWait(timeout: TimeInterval) {
+        flushAll()
+        let deadline = Date().addingTimeInterval(timeout)
+        while !isIdle && Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    /// Returns once nothing is pending and nothing is running.
+    func waitUntilIdle() async {
+        guard !isIdle else { return }
+        await withCheckedContinuation { idleWaiters.append($0) }
+    }
+
+    private func startRun(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) {
+        let previous = lastRun[meetingID]
+        let run = Task { @MainActor in
+            await previous?.value
+            await operation()
+        }
+        lastRun[meetingID] = run
+        Task { @MainActor [weak self] in
+            await run.value
+            guard let self else { return }
+            if self.lastRun[meetingID] == run { self.lastRun[meetingID] = nil }
+            self.resumeIdleWaitersIfIdle()
+        }
+    }
+
+    private func resumeIdleWaitersIfIdle() {
+        guard isIdle, !idleWaiters.isEmpty else { return }
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 }
 
