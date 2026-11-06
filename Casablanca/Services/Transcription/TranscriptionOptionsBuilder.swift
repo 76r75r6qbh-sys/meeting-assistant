@@ -91,6 +91,10 @@ struct TranscriptionOptionsBuilder {
         static let silentChunkEnergy = "whisperSilentChunkEnergy"
         static let logProbThreshold = "whisperLogProbThreshold"
         static let compressionRatioThreshold = "whisperCompressionRatioThreshold"
+        /// Feed the terminology list to Whisper as prompt tokens (default on;
+        /// only takes effect when terminology correction is on and the list
+        /// is non-empty). `-whisperPromptTerms NO` A/Bs it.
+        static let promptTerms = "whisperPromptTerms"
     }
 
     // Defaults: exactly what the app did before this seam existed, except
@@ -122,24 +126,45 @@ struct TranscriptionOptionsBuilder {
     private static let defaultEncoderCompute: MLComputeUnits = .cpuAndNeuralEngine
     private static let defaultDecoderCompute: MLComputeUnits = .cpuAndNeuralEngine
     private static let defaultPrefillCompute: MLComputeUnits = .cpuOnly
+    private static let defaultPromptTerms = true
 
     /// Everything one transcription run needs, plus a one-line description of it
     /// for the log so a timing report can be tied back to the settings that
     /// produced it.
     struct Resolved: Equatable {
-        let decoding: DecodingOptions
+        private(set) var decoding: DecodingOptions
         let compute: ModelComputeOptions
         /// Whether near-silent chunks should be dropped before decoding.
         /// Independent of the chunking strategy, but only meaningful with
         /// `.vad`: the filter throws away chunks, so something has to make them.
         let dropSilentChunks: Bool
         let silentChunkEnergyThreshold: Float
-        let summaryLine: String
+        /// Whether the terminology list may be sent as prompt tokens. The
+        /// tokens themselves need the loaded tokenizer, so they are attached
+        /// afterwards with `withPromptTokens`.
+        let promptTermsEnabled: Bool
+        /// Everything except the prompt-token count, which is only known once
+        /// the tokenizer has run.
+        let baseSummaryLine: String
+
+        var summaryLine: String {
+            baseSummaryLine + " promptTokens=\(decoding.promptTokens?.count ?? 0)"
+        }
+
+        /// A copy that decodes with `tokens` as Whisper's previous-text
+        /// prompt. An empty list means no prompt (`nil`), not an empty one.
+        func withPromptTokens(_ tokens: [Int]) -> Resolved {
+            var copy = self
+            copy.decoding.promptTokens = tokens.isEmpty ? nil : tokens
+            return copy
+        }
 
         /// `DecodingOptions` and `ModelComputeOptions` are neither `Equatable`
         /// upstream, so equality compares exactly the fields this builder sets.
         static func == (lhs: Resolved, rhs: Resolved) -> Bool {
             lhs.dropSilentChunks == rhs.dropSilentChunks
+                && lhs.promptTermsEnabled == rhs.promptTermsEnabled
+                && lhs.decoding.promptTokens == rhs.decoding.promptTokens
                 && lhs.silentChunkEnergyThreshold == rhs.silentChunkEnergyThreshold
                 && lhs.summaryLine == rhs.summaryLine
                 && lhs.decoding.language == rhs.decoding.language
@@ -201,6 +226,12 @@ struct TranscriptionOptionsBuilder {
         // so it is a key rather than a rewrite.
         let chunkingStrategy = chunking(defaults, Key.chunking, or: defaultChunking)
 
+        // Word timings feed speaker attribution (per-word mic/system split). A
+        // user-facing preference, unlike the keys above, but read through the
+        // same parser so `-wordTimestampsEnabled NO` works for a benchmark A/B.
+        let wordTimestamps = bool(defaults, AppPreferenceKey.wordTimestampsEnabled, or: true)
+        let promptTerms = bool(defaults, Key.promptTerms, or: defaultPromptTerms)
+
         let decoding = DecodingOptions(
             verbose: false,
             task: .transcribe,
@@ -213,7 +244,7 @@ struct TranscriptionOptionsBuilder {
             // result one step earlier.
             skipSpecialTokens: true,
             withoutTimestamps: false,
-            wordTimestamps: false,
+            wordTimestamps: wordTimestamps,
             compressionRatioThreshold: compressionRatioThreshold,
             logProbThreshold: logProbThreshold,
             concurrentWorkerCount: workers,
@@ -242,6 +273,7 @@ struct TranscriptionOptionsBuilder {
             "prefill=\(name(compute.prefillCompute))",
             "dropSilent=\(dropSilentChunks)",
             "silentEnergy=\(silentChunkEnergy)",
+            "promptTerms=\(promptTerms)",
         ].joined(separator: " ")
 
         return Resolved(
@@ -249,7 +281,8 @@ struct TranscriptionOptionsBuilder {
             compute: compute,
             dropSilentChunks: dropSilentChunks,
             silentChunkEnergyThreshold: silentChunkEnergy,
-            summaryLine: summaryLine
+            promptTermsEnabled: promptTerms,
+            baseSummaryLine: summaryLine
         )
     }
 

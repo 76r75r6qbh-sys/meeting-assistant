@@ -10,6 +10,7 @@ final class MeetingListViewModel {
     private let removeItemAtURL: (URL) throws -> Void
     private let meetingHasPrep: (Meeting) -> Bool
     private let removeResumableRecordingSession: (UUID) throws -> Void
+    private let speakerAnalysisStore: SpeakerAnalysisStore
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -55,12 +56,14 @@ final class MeetingListViewModel {
         },
         removeResumableRecordingSession: @escaping (UUID) throws -> Void = { meetingID in
             try RecordingResumeSessionStore().deleteSession(for: meetingID)
-        }
+        },
+        speakerAnalysisStore: SpeakerAnalysisStore = SpeakerAnalysisStore()
     ) {
         self.calendarService = calendarService
         self.meetingHasPrep = meetingHasPrep
         self.removeItemAtURL = removeItemAtURL
         self.removeResumableRecordingSession = removeResumableRecordingSession
+        self.speakerAnalysisStore = speakerAnalysisStore
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -342,6 +345,23 @@ final class MeetingListViewModel {
                 // Missing recording files should not block deleting the meeting record.
             }
         }
+
+        // The per-source speaker tracks are best-effort: once the recording is
+        // gone, a track that will not delete must not abort the meeting delete.
+        for trackPath in [meeting.micTrackFileURL, meeting.systemTrackFileURL].compactMap({ $0 }) {
+            do {
+                try removeItemAtURL(URL(fileURLWithPath: trackPath))
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                // Already gone.
+            } catch {
+                Log.recording.error(
+                    "Could not remove a speaker track while deleting a meeting: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+
+        // The speaker-analysis sidecar goes with the meeting (best-effort).
+        speakerAnalysisStore.delete(meeting.id)
 
         let isSelectedMeeting = sidebarSelection == .meeting(meeting.id)
         bestEffort("remove resumable recording session", Log.recording) {

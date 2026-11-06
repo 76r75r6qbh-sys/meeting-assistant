@@ -6,6 +6,10 @@ struct MeetingTranscriptTab: View {
     let terminologyService: TerminologyService
     let onTranscribe: () -> Void
     let onSave: () -> Void
+    var speakerAnalysisStore = SpeakerAnalysisStore()
+    /// Runs after the speakers bar renamed or merged a speaker, once the
+    /// meeting is saved (Phase 2: the "regenerate summary with names" offer).
+    var onSpeakersChanged: ((Meeting) -> Void)? = nil
 
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
@@ -87,6 +91,13 @@ struct MeetingTranscriptTab: View {
                 .background(Color.accentWarning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
 
+            if !meeting.speakers.isEmpty {
+                SpeakersBar(meeting: meeting, store: speakerAnalysisStore) { changed in
+                    onSave()
+                    onSpeakersChanged?(changed)
+                }
+            }
+
             if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 transcriptBody(transcript)
             } else {
@@ -139,7 +150,11 @@ struct MeetingTranscriptTab: View {
         )
         guard !entries.isEmpty else { return }
 
-        let corrected = await terminologyService.correct(raw, entries: entries)
+        // A labelled transcript keeps its speaker prefixes through the correction.
+        let knownSpeakers = Set(
+            meeting.speakers.map { TranscriptLineFormat.sanitizedSpeakerName($0.displayName) }.filter { !$0.isEmpty }
+        )
+        let corrected = await terminologyService.correct(raw, entries: entries, knownSpeakers: knownSpeakers)
         guard meeting.modelContext != nil else { return }
         meeting.transcript = corrected
         onSave()

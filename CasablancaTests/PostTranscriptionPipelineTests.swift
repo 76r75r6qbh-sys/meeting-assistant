@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftData
 import XCTest
 @testable import Casablanca
@@ -28,8 +29,9 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let recorder = StepRecorder()
         let pipeline = PostTranscriptionPipeline(
-            correctTerminology: { transcript, entries in
+            correctTerminology: { transcript, entries, correction in
                 recorder.record("terminology", meeting: meeting)
+                XCTAssertEqual(correction, TerminologyCorrectionContext(), "An unlabelled transcript gets the full correction")
                 XCTAssertFalse(entries.isEmpty, "The corrector only runs when there are entries to apply")
                 XCTAssertEqual(transcript, "[00:00] casa blanca is great")
                 return "[00:00] Casablanca is great"
@@ -92,7 +94,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
 
         let recorder = StepRecorder()
         let pipeline = PostTranscriptionPipeline(
-            correctTerminology: { transcript, _ in
+            correctTerminology: { transcript, _, _ in
                 XCTFail("Terminology correction is off, so the corrector must not be called")
                 return transcript
             },
@@ -130,6 +132,809 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(meeting.transcript, "[00:00] hello", "The transcript survives a failed compression")
         XCTAssertNil(meeting.rawTranscript, "With correction off there is no raw transcript to keep")
         XCTAssertEqual(meeting.status, .completed)
+    }
+
+    // MARK: - Speakers
+
+    /// Review focus 4: an old meeting (no tracks) re-transcribes byte-identically,
+    /// through the LIVE analyzer, and carries no speaker data.
+    func testMeetingWithoutTracksRendersLegacyTranscript() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Old meeting", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = "/tmp/does-not-exist.m4a"
+        meeting.speakerSegments = [SpeakerSegment(start: 0, end: 1, speakerID: "me", text: "stale", words: nil)]
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        let result = TranscriptionResult(
+            segments: [
+                TranscriptSegment(startTime: 0, endTime: 4, text: "Goedemorgen allemaal."),
+                TranscriptSegment(startTime: 65, endTime: 70, text: "Agenda: punt 1"),
+                TranscriptSegment(startTime: 3_700, endTime: 3_705, text: "Tot ziens."),
+            ],
+            fullText: "",
+            duration: 3_705
+        )
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: result, recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, result.formattedTranscript)
+        XCTAssertNil(meeting.speakerSegmentsData, "No tracks means no speaker data, and stale data is cleared")
+        XCTAssertNil(meeting.speakersData)
+        XCTAssertEqual(meeting.status, .completed)
+    }
+
+    func testSpeakerSegmentsStoredAndTranscriptHasPrefixes() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "Hello there.", secondText: "Hi Youri.")
+
+        var analyzerSawResult: TranscriptionResult?
+        let pipeline = makePipeline(defaults: makeDefaults(), analyzeSpeakers: { _, result in
+            analyzerSawResult = result
+            return .analysed(analysis)
+        })
+        let result = makeResult(text: "Hello there. Hi Youri.")
+        await pipeline.run(meeting: meeting, result: result, recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertNotNil(analyzerSawResult)
+        XCTAssertEqual(meeting.speakers, analysis.speakers)
+        XCTAssertEqual(meeting.speakerSegments, analysis.segments)
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Hello there.\n[00:05] Others: Hi Youri.")
+        XCTAssertNil(meeting.rawTranscript, "With correction off there is no raw transcript to keep")
+    }
+
+    func testTerminologyAppliedPerSegmentBeforeRender() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        // "Others" is an alias too: a speaker NAME must never be rewritten.
+        defaults.set("Casablanca: casa blanca\nAnderen: Others", forKey: AppPreferenceKey.terminologyList)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "casa blanca rocks", secondText: "Others agree")
+
+        var corrector: (String, TerminologyCorrectionContext)?
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { _, _ in .analysed(analysis) },
+            correctTerminology: { transcript, _, correction in
+                corrector = (transcript, correction)
+                return transcript
+            }
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "x"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.speakerSegments.map(\.text), ["Casablanca rocks", "Anderen agree"])
+        XCTAssertEqual(meeting.rawTranscript, "[00:00] Youri: casa blanca rocks\n[00:05] Others: Others agree",
+                       "The raw transcript is the render BEFORE replacement")
+        XCTAssertEqual(corrector?.0, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
+        XCTAssertEqual(corrector?.1, TerminologyCorrectionContext(knownSpeakers: ["Youri", "Others"], dictionaryAlreadyApplied: true))
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Casablanca rocks\n[00:05] Others: Anderen agree")
+    }
+
+    /// The deterministic pass is not idempotent when a canonical contains its
+    /// own alias ("Team Link: Link"), so the labelled path must run it exactly
+    /// once — checked through the REAL TerminologyService.
+    func testLabelledPathAppliesDictionaryOnceThroughRealTerminologyService() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Team Link: Link", forKey: AppPreferenceKey.terminologyList)
+        let analysis = Self.twoSpeakerAnalysis(firstText: "link is our team", secondText: "ok")
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { _, _ in .analysed(analysis) },
+            correctTerminology: PostTranscriptionPipeline.terminologyCorrector(using: service)
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "x"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, "[00:00] Youri: Team Link is our team\n[00:05] Others: ok")
+        XCTAssertEqual(meeting.speakerSegments.first?.text, "Team Link is our team")
+    }
+
+    /// The unlabelled path still gets the deterministic pass from the service.
+    func testUnlabelledPathStillAppliesDictionaryThroughRealTerminologyService() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.terminologyCorrectionEnabled)
+        defaults.set("Team Link: Link", forKey: AppPreferenceKey.terminologyList)
+        let stub = StubLLMProvider(displayName: "Claude Code", supportsFullTranscriptEcho: false)
+        let service = TerminologyService(providerFactory: { stub })
+
+        let pipeline = makePipeline(
+            defaults: defaults,
+            correctTerminology: PostTranscriptionPipeline.terminologyCorrector(using: service)
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "link is our team"), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.transcript, "[00:00] Team Link is our team")
+    }
+
+    /// An analysis that failed (nil, e.g. an unreadable track) must not cost
+    /// the tracks: a retry can still label the meeting.
+    func testKeepSpeakerTracksOffKeepsTracksWhenAnalysisFailed() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: { _, _ in .failed(reason: "track unreadable") })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertEqual(meeting.systemTrackFileURL, files.system.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.system.path))
+    }
+
+    /// Recognition off + tracks not kept: nobody asked for the remote voices
+    /// to stay on disk, so they go (privacy), even though nothing was analysed.
+    /// Goes through the LIVE analyzer so the disabled outcome is the real one.
+    func testRecognitionDisabledAndKeepSpeakerTracksOffDeletesTracks() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertNil(meeting.micTrackFileURL)
+        XCTAssertNil(meeting.systemTrackFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(meeting.transcript, "[00:00] hi", "Recognition off means the legacy transcript")
+    }
+
+    /// The real failure path: the live analyzer cannot read the (fake) tracks,
+    /// reports a failure, and the tracks stay for a retry.
+    func testUnreadableTracksAreKeptForARetryEvenWhenNotKept() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, analyzeSpeakers: SpeakerAnalysis.live(defaults: defaults))
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(meeting.transcript, "[00:00] hi", "A failed analysis still completes, unlabelled")
+    }
+
+    func testTracksCompressedAfterMixAndMeetingRepointed() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        var compressed: [String] = []
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            compressed.append(url.lastPathComponent)
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(compressed, ["meeting.wav", "meeting.mic.wav", "meeting.system.wav"], "The mix first, then the tracks")
+        XCTAssertEqual(meeting.recordingFileURL.map { URL(fileURLWithPath: $0).lastPathComponent }, "meeting.m4a")
+        XCTAssertTrue(meeting.micTrackFileURL?.hasSuffix(".mic.m4a") == true)
+        XCTAssertTrue(meeting.systemTrackFileURL?.hasSuffix(".system.m4a") == true)
+        for wav in [files.mix, files.mic, files.system] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: wav.path), "\(wav.lastPathComponent) is reclaimed")
+        }
+    }
+
+    func testTrackCompressionFailureKeepsTrackWAV() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            guard !url.lastPathComponent.contains(".mic.") else { throw CocoaError(.fileWriteOutOfSpace) }
+            let m4a = url.deletingPathExtension().appendingPathExtension("m4a")
+            try Data("aac".utf8).write(to: m4a)
+            return m4a
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path, "A failed track compression keeps the WAV")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertTrue(meeting.systemTrackFileURL?.hasSuffix(".system.m4a") == true)
+        XCTAssertEqual(meeting.transcript, "[00:00] hi")
+    }
+
+    func testKeepOriginalWAVLeavesTracksAsWAV() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        let pipeline = makePipeline(defaults: defaults, compress: { url in
+            XCTFail("Nothing is compressed when the user keeps WAVs: \(url.lastPathComponent)")
+            return url
+        })
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertEqual(meeting.micTrackFileURL, files.mic.path)
+        XCTAssertEqual(meeting.systemTrackFileURL, files.system.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: files.mic.path))
+    }
+
+    func testKeepSpeakerTracksOffDeletesTracksAfterAnalysis() async throws {
+        let context = try makeInMemoryModelContext()
+        let files = try makeRecordingWithTracks()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = files.mix.path
+        meeting.micTrackFileURL = files.mic.path
+        meeting.systemTrackFileURL = files.system.path
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+
+        var tracksExistedDuringAnalysis = false
+        var compressed: [String] = []
+        let pipeline = makePipeline(
+            defaults: defaults,
+            analyzeSpeakers: { analysedMeeting, _ in
+                tracksExistedDuringAnalysis = [analysedMeeting.micTrackFileURL, analysedMeeting.systemTrackFileURL]
+                    .allSatisfy { $0.map { FileManager.default.fileExists(atPath: $0) } ?? false }
+                return .analysed(Self.twoSpeakerAnalysis(firstText: "a", secondText: "b"))
+            },
+            compress: { url in
+                compressed.append(url.lastPathComponent)
+                return url
+            }
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "hi"), recordingURL: files.mix, modelContext: context)
+
+        XCTAssertTrue(tracksExistedDuringAnalysis, "The tracks are deleted only after the analysis read them")
+        XCTAssertNil(meeting.micTrackFileURL)
+        XCTAssertNil(meeting.systemTrackFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.system.path))
+        XCTAssertEqual(compressed, ["meeting.wav"], "Tracks about to be deleted are not compressed first")
+    }
+
+    // MARK: - Diarization (A5)
+
+    /// Offline: the models cannot download. The meeting still completes, the
+    /// far end is `Others`, and the sidecar says diarization failed.
+    func testDiarizationFailureStillCompletesWithOthers() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(prepareError: URLError(.notConnectedToInternet))
+        let modelStatus = SpeakerModelStatus()
+        var statuses: [String] = []
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: modelStatus,
+            status: { statuses.append($0) }
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fixture.meeting.status, .completed)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Others: Hello from the far end.")
+        guard case .failed = fixture.store.load(fixture.meeting.id)?.diarization else {
+            return XCTFail("The record shows the failure, got \(String(describing: fixture.store.load(fixture.meeting.id)))")
+        }
+        guard case .failed = modelStatus.state else { return XCTFail("Settings shows the failure") }
+        XCTAssertEqual(fake.diarizeCalls.count, 0, "No diarization without models")
+        XCTAssertEqual(statuses.first, "Recognising speakers\u{2026}")
+    }
+
+    func testRecogniseSpeakersOffSkipsDiarizer() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        let fake = FakeSpeakerDiarizer()
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: SpeakerModelStatus()
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fake.totalCalls, 0)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Hello from the far end.")
+        XCTAssertNil(fixture.store.load(fixture.meeting.id))
+    }
+
+    /// Name suggestions (opt-in) never hold up the transcript: the meeting is
+    /// stored and `.completed` while the LLM is still thinking, and the
+    /// suggestions land in the sidecar afterwards.
+    func testTranscriptIsStoredBeforeNameSuggestionsFinish() async throws {
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000), participants: ["Jan de Vries"])
+        context.insert(meeting)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-suggest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SpeakerAnalysisStore(directory: directory)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically)
+        let analysis = SpeakerAnalysisResult(
+            segments: [SpeakerSegment(start: 0, end: 4, speakerID: "S1", text: "Ik ben Jan.", words: nil)],
+            speakers: [SpeakerInfo(id: "S1", displayName: "Speaker 1", source: .system, isUser: false, nameConfirmed: false)],
+            diarization: .succeeded(clusterCount: 1)
+        )
+        let provider = GatedLLMProvider(answer: #"[{"speakerID": "S1", "name": "Jan", "evidence": "Ik ben Jan"}]"#)
+
+        let pipeline = PostTranscriptionPipeline(
+            analyzeSpeakers: { meeting, _ in
+                try? store.save(SpeakerAnalysisRecord(meetingID: meeting.id, diarization: analysis.diarization, suggestions: []))
+                return .analysed(analysis)
+            },
+            suggestSpeakerNames: SpeakerAnalysis.liveNameSuggester(
+                defaults: defaults,
+                store: store,
+                proposer: SpeakerNameProposer(providerFactory: { provider })
+            ),
+            correctTerminology: { transcript, _, _ in transcript },
+            saveTranscript: { _, _ in URL(fileURLWithPath: "/dev/null") },
+            export: { _ in },
+            compress: { $0 },
+            defaults: defaults
+        )
+        await pipeline.run(meeting: meeting, result: makeResult(text: "Ik ben Jan."), recordingURL: URL(fileURLWithPath: "/tmp/x.m4a"), modelContext: context)
+
+        XCTAssertEqual(meeting.status, .completed)
+        XCTAssertEqual(meeting.transcript, "[00:00] Speaker 1: Ik ben Jan.")
+        XCTAssertEqual(store.load(meeting.id)?.suggestions, [], "The proposer is still running")
+
+        provider.release()
+        let deadline = Date().addingTimeInterval(3)
+        while store.load(meeting.id)?.suggestions.isEmpty ?? true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(store.load(meeting.id)?.suggestions.map(\.name), ["Jan de Vries"])
+        XCTAssertEqual(meeting.speakers.first?.displayName, "Speaker 1", "Suggestions are never applied")
+        XCTAssertTrue(provider.started)
+    }
+
+    func testDiarizedSystemTrackNamesClusters() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(output: DiarizationOutput(
+            turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "spk_7")],
+            embeddings: ["spk_7": [1, 0]]
+        ))
+        let modelStatus = SpeakerModelStatus()
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: modelStatus
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.")
+        XCTAssertEqual(fake.diarizeCalls, [fixture.system], "The system track is the one diarized")
+        XCTAssertEqual(fixture.store.load(fixture.meeting.id)?.diarization, .succeeded(clusterCount: 1))
+        XCTAssertEqual(modelStatus.state, .ready)
+    }
+
+    // MARK: - Voice profiles (A7)
+
+    /// A profile store whose one profile ("Kim") matches the fake's cluster.
+    private func makeVoiceProfileStore(in directory: URL) throws -> VoiceProfileStore {
+        let store = VoiceProfileStore(
+            fileURL: directory.appendingPathComponent("VoiceProfiles/profiles.sealed"),
+            keyStore: InMemoryKeyStore(),
+            isEnabled: { true }
+        )
+        _ = try store.save(name: "Kim", embedding: [1, 0], consentGiven: true)
+        return store
+    }
+
+    private let voiceMatchDiarizer = FakeSpeakerDiarizer(output: DiarizationOutput(
+        turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "spk_7")],
+        embeddings: ["spk_7": [1, 0]]
+    ))
+
+    func testVoiceProfilesDisabledNeverMatches() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }.count, 0)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.")
+    }
+
+    /// Enabled: the match is only a suggestion; the speaker keeps its label.
+    func testVoiceProfilesEnabledSuggestsWithoutRenaming() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.map(\.speakerID), ["S1"])
+        XCTAssertEqual(suggestions.map(\.name), ["Kim"])
+        XCTAssertEqual(suggestions.map(\.source), [.voiceProfile])
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Hello from the far end.", "A match never renames")
+        XCTAssertEqual(fixture.meeting.speakers.map(\.nameConfirmed), [false])
+    }
+
+    /// The user turns voice profiles off while the speaker step reads the
+    /// profiles (here: on the key load). The turn-off purge may already have
+    /// run, so the step must not write voice matches back afterwards.
+    func testVoiceProfilesTurnedOffMidRunPersistNoVoiceSuggestions() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let keyStore = HookedKeyStore()
+        let profiles = VoiceProfileStore(
+            fileURL: fixture.directory.appendingPathComponent("VoiceProfiles/profiles.sealed"),
+            keyStore: keyStore,
+            isEnabled: { true }
+        )
+        _ = try profiles.save(name: "Kim", embedding: [1, 0], consentGiven: true)
+        // UserDefaults is thread-safe; the hook runs on the store's background read.
+        nonisolated(unsafe) let defaults = fixture.defaults
+        keyStore.setOnLoad { defaults.set(false, forKey: AppPreferenceKey.voiceProfilesEnabled) }
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: voiceMatchDiarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertFalse(fixture.defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled), "The hook ran mid-run")
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }, [])
+    }
+
+    /// A profile deleted while the meeting is being analysed is not named.
+    func testProfileDeletedDuringTheRunIsNotSuggested() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+        let kim = try XCTUnwrap(try profiles.all().first)
+        let diarizer = FakeSpeakerDiarizer(
+            output: voiceMatchDiarizer.output,
+            onDiarize: { try? profiles.delete(id: kim.id) }
+        )
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: diarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(try profiles.all(), [], "The hook deleted Kim mid-run")
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }, [])
+    }
+
+    func testRecognisingStatusIsReplacedWhenDiarizationEnds() async throws {
+        for fake in [
+            FakeSpeakerDiarizer(output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "a")], embeddings: [:])),
+            FakeSpeakerDiarizer(diarizeError: CocoaError(.fileReadCorruptFile)),
+        ] {
+            let fixture = try makeDiarizationFixture()
+            defer { fixture.cleanUp() }
+            var statuses: [String] = []
+            let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+                defaults: fixture.defaults, diarizer: fake, store: fixture.store,
+                modelStatus: SpeakerModelStatus(), status: { statuses.append($0) }
+            ))
+            await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+            XCTAssertEqual(statuses.first, "Recognising speakers\u{2026}")
+            XCTAssertEqual(statuses.count, 2, "The recognising line is replaced, got \(statuses)")
+            XCTAssertNotEqual(statuses.last, "Recognising speakers\u{2026}")
+        }
+    }
+
+    /// keepSpeakerTracks OFF + a transient failure (offline): the tracks stay
+    /// so a retry can still diarize.
+    func testTransientDiarizationFailureKeepsTracksWhenNotKept() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        let fake = FakeSpeakerDiarizer(prepareError: URLError(.notConnectedToInternet))
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: fake, store: fixture.store, modelStatus: SpeakerModelStatus()
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fixture.meeting.micTrackFileURL, fixture.mic.path)
+        XCTAssertEqual(fixture.meeting.systemTrackFileURL, fixture.system.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.mic.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.system.path))
+    }
+
+    /// keepSpeakerTracks OFF on a Mac where diarization can never run: nothing
+    /// to retry, so the tracks go — and no per-meeting status lines.
+    func testUnsupportedOSDeletesTracksWhenNotKeptAndShowsNoStatus() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(false, forKey: AppPreferenceKey.keepSpeakerTracks)
+        let fake = FakeSpeakerDiarizer(isAvailable: false)
+        let modelStatus = SpeakerModelStatus()
+        var statuses: [String] = []
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: fake, store: fixture.store,
+            modelStatus: modelStatus, status: { statuses.append($0) }
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fake.totalCalls, 0)
+        XCTAssertEqual(statuses, [])
+        XCTAssertEqual(modelStatus.state, .notDownloaded)
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Others: Hello from the far end.")
+        guard case .unsupported = fixture.store.load(fixture.meeting.id)?.diarization else {
+            return XCTFail("The record says unsupported")
+        }
+        XCTAssertNil(fixture.meeting.micTrackFileURL)
+        XCTAssertNil(fixture.meeting.systemTrackFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.system.path))
+    }
+
+    /// Pins that A2 attributes a mic-only (in-room) meeting, so the in-room
+    /// diarization is reachable: the MIC track is diarized, every speaker is a
+    /// room speaker, and a mic word no turn claims is not labelled the user.
+    func testMicOnlyMeetingIsDiarizedIntoRoomSpeakers() async throws {
+        let fixture = try makeDiarizationFixture(micOnly: true)
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(output: DiarizationOutput(
+            turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "x"), DiarizedTurn(start: 2, end: 4, clusterKey: "y")],
+            embeddings: [:]
+        ))
+        fixture.defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: fake, store: fixture.store, modelStatus: SpeakerModelStatus()
+        ))
+        let result = TranscriptionResult(
+            segments: [
+                TranscriptSegment(startTime: 0, endTime: 2, text: "Welcome."),
+                TranscriptSegment(startTime: 2, endTime: 4, text: "Thanks."),
+                TranscriptSegment(startTime: 8, endTime: 9, text: "Later."),
+            ],
+            fullText: "",
+            duration: 9
+        )
+        await pipeline.run(meeting: fixture.meeting, result: result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(fake.diarizeCalls, [fixture.mic])
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Speaker 1: Welcome.\n[00:02] Speaker 2: Thanks.\n[00:08] Speaker 2: Later.")
+        XCTAssertEqual(fixture.meeting.speakers.map(\.source), [.room, .room])
+        XCTAssertEqual(fixture.meeting.speakers.map(\.isUser), [false, false])
+    }
+
+    func testTimeoutCancelsTheDiarizationRun() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(delay: 5)
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: fake, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), diarizationTimeout: .milliseconds(100)
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !fake.wasCancelled, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(fake.wasCancelled, "The timed-out run is cancelled, so it cannot overlap the next meeting")
+    }
+
+    func testDiarizationTimeoutFallsBackToOthers() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        let fake = FakeSpeakerDiarizer(
+            output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "late")], embeddings: [:]),
+            delay: 5
+        )
+
+        let started = ContinuousClock.now
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults,
+            diarizer: fake,
+            store: fixture.store,
+            modelStatus: SpeakerModelStatus(),
+            diarizationTimeout: .milliseconds(100)
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertLessThan(ContinuousClock.now - started, .seconds(4), "The timeout does not wait for the diarizer")
+        XCTAssertEqual(fixture.meeting.transcript, "[00:00] Others: Hello from the far end.")
+        guard case .failed = fixture.store.load(fixture.meeting.id)?.diarization else {
+            return XCTFail("A timeout is recorded as a failure")
+        }
+    }
+
+    private struct DiarizationFixture {
+        var context: ModelContext
+        var meeting: Meeting
+        var defaults: UserDefaults
+        var store: SpeakerAnalysisStore
+        var result: TranscriptionResult
+        var directory: URL
+        var mix: URL
+        var mic: URL
+        var system: URL
+
+        func cleanUp() {
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// Two seconds of synthetic noise on the system track and silence on the
+    /// mic, so the live attribution puts the one segment on `"others"`.
+    private func makeDiarizationFixture(micOnly: Bool = false) throws -> DiarizationFixture {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-diarization-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mix = directory.appendingPathComponent("meeting.wav")
+        let mic = directory.appendingPathComponent("meeting.mic.wav")
+        let system = directory.appendingPathComponent("meeting.system.wav")
+        if micOnly {
+            // In-room: everyone on the mic for 10 s, no system track.
+            let room = SyntheticSignal.noise(seed: 13, count: SyntheticSignal.samples(10), amplitude: 0.4)
+            try SyntheticSignal.writeWAV(room, to: mic)
+            try SyntheticSignal.writeWAV(room, to: mix)
+        } else {
+            let far = SyntheticSignal.noise(seed: 11, count: SyntheticSignal.samples(2), amplitude: 0.4)
+            try SyntheticSignal.writeWAV(far, to: system)
+            try SyntheticSignal.writeWAV(SyntheticSignal.silence(seconds: 2), to: mic)
+            try SyntheticSignal.writeWAV(far, to: mix)
+        }
+
+        let context = try makeInMemoryModelContext()
+        let meeting = Meeting(title: "Call", date: Date(timeIntervalSince1970: 1_700_000_000))
+        meeting.recordingFileURL = mix.path
+        meeting.micTrackFileURL = mic.path
+        meeting.systemTrackFileURL = micOnly ? nil : system.path
+        meeting.transcriptionLanguage = "en"
+        context.insert(meeting)
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: AppPreferenceKey.recogniseSpeakersEnabled)
+        defaults.set(true, forKey: AppPreferenceKey.keepSpeakerTracks)
+        defaults.set(true, forKey: AppPreferenceKey.keepOriginalWAV)
+
+        return DiarizationFixture(
+            context: context,
+            meeting: meeting,
+            defaults: defaults,
+            store: SpeakerAnalysisStore(directory: directory.appendingPathComponent("Speakers", isDirectory: true)),
+            result: TranscriptionResult(
+                segments: [TranscriptSegment(startTime: 0, endTime: 2, text: "Hello from the far end.")],
+                fullText: "Hello from the far end.",
+                duration: 2
+            ),
+            directory: directory,
+            mix: mix,
+            mic: mic,
+            system: system
+        )
+    }
+
+    /// A segment each for the user and the remote side, at 0 s and 5 s.
+    private static func twoSpeakerAnalysis(firstText: String, secondText: String) -> SpeakerAnalysisResult {
+        SpeakerAnalysisResult(
+            segments: [
+                SpeakerSegment(start: 0, end: 4, speakerID: SpeakerIDs.me, text: firstText, words: nil),
+                SpeakerSegment(start: 5, end: 7, speakerID: SpeakerIDs.others, text: secondText, words: nil),
+            ],
+            speakers: [
+                SpeakerInfo(id: SpeakerIDs.me, displayName: "Youri", source: .microphone, isUser: true, nameConfirmed: true),
+                SpeakerInfo(id: SpeakerIDs.others, displayName: "Others", source: .system, isUser: false, nameConfirmed: false),
+            ],
+            diarization: .notRun
+        )
+    }
+
+    private func makePipeline(
+        defaults: UserDefaults,
+        analyzeSpeakers: @escaping PostTranscriptionPipeline.SpeakerAnalyzer = { _, _ in .skipped },
+        correctTerminology: @escaping PostTranscriptionPipeline.TerminologyCorrector = { transcript, _, _ in transcript },
+        compress: @escaping PostTranscriptionPipeline.Compressor = { url in url }
+    ) -> PostTranscriptionPipeline {
+        PostTranscriptionPipeline(
+            analyzeSpeakers: analyzeSpeakers,
+            correctTerminology: correctTerminology,
+            saveTranscript: { _, _ in URL(fileURLWithPath: "/dev/null") },
+            export: { _ in },
+            compress: compress,
+            defaults: defaults
+        )
+    }
+
+    private func makeRecordingWithTracks() throws -> (directory: URL, mix: URL, mic: URL, system: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-tracks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mix = directory.appendingPathComponent("meeting.wav")
+        let mic = directory.appendingPathComponent("meeting.mic.wav")
+        let system = directory.appendingPathComponent("meeting.system.wav")
+        for url in [mix, mic, system] {
+            try Data("not really audio".utf8).write(to: url)
+        }
+        return (directory, mix, mic, system)
     }
 
     // MARK: - Service-owned background run
@@ -322,7 +1127,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
     /// a test can tell whether the pipeline was reached at all.
     private func makeFakePipeline(log: EventLog) -> PostTranscriptionPipeline {
         PostTranscriptionPipeline(
-            correctTerminology: { transcript, _ in transcript },
+            correctTerminology: { transcript, _, _ in transcript },
             saveTranscript: { _, _ in
                 log.append("pipeline")
                 return URL(fileURLWithPath: "/dev/null")
@@ -440,4 +1245,61 @@ private final class FakeSleepPreventer: SleepPreventing {
 
 private final class FakeMemoryPressureMonitor: MemoryPressureMonitoring {
     func start(handler: @escaping @Sendable () -> Void) {}
+}
+
+/// A provider that answers only once `release()` is called, standing in for a
+/// slow LLM.
+private final class GatedLLMProvider: LLMProvider, @unchecked Sendable {
+    let displayName = "Gated"
+    let endpoint = "stub://gated"
+    let preferredTimeout: TimeInterval? = nil
+    let supportsFullTranscriptEcho = true
+    let promptTokenBudget = LLMPromptSupport.localPromptTokenBudget
+
+    private let answer: String
+    private let lock = NSLock()
+    private var isReleased = false
+    private var didStart = false
+
+    init(answer: String) { self.answer = answer }
+
+    var started: Bool { lock.withLock { didStart } }
+    func release() { lock.withLock { isReleased = true } }
+
+    func generate(
+        prompt: String,
+        temperature: Double?,
+        maxTokens: Int?,
+        timeout: TimeInterval,
+        truncated: ((Bool) -> Void)?
+    ) async throws -> String {
+        lock.withLock { didStart = true }
+        while !lock.withLock({ isReleased }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return answer
+    }
+
+    func fetchAvailableModels(endpoint: String) async throws -> [String] { [] }
+}
+
+/// A key store that runs a hook on every key load, to act "while the
+/// profiles are being read".
+private final class HookedKeyStore: SymmetricKeyStoring, @unchecked Sendable {
+    private let base = InMemoryKeyStore()
+    private let lock = NSLock()
+    private var onLoad: (@Sendable () -> Void)?
+
+    func setOnLoad(_ hook: @escaping @Sendable () -> Void) {
+        lock.withLock { onLoad = hook }
+    }
+
+    func loadOrCreateKey() throws -> SymmetricKey {
+        lock.withLock { onLoad }?()
+        return try base.loadOrCreateKey()
+    }
+
+    func deleteKey() throws {
+        try base.deleteKey()
+    }
 }
