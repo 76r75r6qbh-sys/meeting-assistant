@@ -179,6 +179,26 @@ final class TimestampLinkTests: XCTestCase {
         XCTAssertNil(TimestampJumpPlan.lineIndex(atOrBefore: 3, starts: []))
     }
 
+    /// ChapterDisclosure expands on every focus change it gets (keyed on the
+    /// whole focus, token included): a repeat jump to the same line after the
+    /// user collapsed its chapter is a new focus and expands it again.
+    func testTargetChapterExpandsForAJumpAndAgainAfterCollapse() {
+        let third = 20..<30
+        let first = TranscriptFocus(token: UUID(), index: 25)
+        XCTAssertEqual(TranscriptFocus.expansionTarget(first, chapterLines: third, isExpanded: false), first)
+        // Other chapters, an open chapter and no focus do nothing.
+        XCTAssertNil(TranscriptFocus.expansionTarget(first, chapterLines: 0..<10, isExpanded: false))
+        XCTAssertNil(TranscriptFocus.expansionTarget(first, chapterLines: third, isExpanded: true))
+        XCTAssertNil(TranscriptFocus.expansionTarget(nil, chapterLines: third, isExpanded: false))
+
+        // Same line again after the user collapsed the chapter.
+        let repeatJump = TranscriptFocus(token: UUID(), index: 25)
+        XCTAssertNotEqual(first, repeatJump, "A repeat jump must be a change for onChange(of: focus)")
+        XCTAssertEqual(TranscriptFocus.expansionTarget(repeatJump, chapterLines: third, isExpanded: false), repeatJump)
+        XCTAssertTrue(repeatJump.expands(chapterLines: third))
+        XCTAssertFalse(repeatJump.expands(chapterLines: 30..<40))
+    }
+
     func testPlaysOnlyACompletedMeetingWithItsRecording() {
         XCTAssertTrue(TimestampJumpPlan.shouldPlay(status: .completed, isTranscribing: false, hasRecordingFile: true))
         XCTAssertFalse(TimestampJumpPlan.shouldPlay(status: .completed, isTranscribing: false, hasRecordingFile: false))

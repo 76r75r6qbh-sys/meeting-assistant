@@ -18,30 +18,17 @@ struct MeetingTranscriptTab: View {
     var isTranscribing: Bool = false
     /// Runs once `jump` is carried out, so it is not replayed.
     var onJumpHandled: () -> Void = {}
-    var player: AudioClipPlayer = .shared
+    /// Plays the recording for jumps (the pinned transport uses the same one).
+    var playback: TranscriptPlayback = .shared
 
-    /// The transcript line the last jump landed on (expanded, highlighted).
-    @State private var focusedLineIndex: Int?
-    /// Playing the recording failed; the transport shows it unavailable.
-    @State private var playbackFailed = false
+    /// The line the last jump landed on (expanded, highlighted), with the
+    /// jump's token so a repeat jump to the same line still expands it.
+    @State private var focus: TranscriptFocus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var recordingURL: URL? {
         guard let path = meeting.recordingFileURL else { return nil }
         return URL(fileURLWithPath: path)
-    }
-
-    /// The mixed recording when its file is on disk (the transport's source).
-    private var playableRecordingURL: URL? {
-        TimestampJumpPlan.recordingURL(path: meeting.recordingFileURL)
-    }
-
-    private var canPlay: Bool {
-        TimestampJumpPlan.shouldPlay(
-            status: meeting.status,
-            isTranscribing: isTranscribing,
-            hasRecordingFile: playableRecordingURL != nil
-        )
     }
 
     private var canReapplyTerminology: Bool {
@@ -127,16 +114,6 @@ struct MeetingTranscriptTab: View {
             }
 
             if let transcript = meeting.transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if let playableRecordingURL {
-                    TranscriptTransportBar(
-                        recordingURL: playableRecordingURL,
-                        canPlay: canPlay,
-                        isUnavailable: playbackFailed,
-                        knownDuration: meeting.recordingDuration,
-                        onPlay: { startPlayback(at: $0) },
-                        player: player
-                    )
-                }
                 transcriptBody(transcript)
             } else {
                 ContentUnavailableView {
@@ -154,12 +131,13 @@ struct MeetingTranscriptTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: jump?.token, initial: true) { _, _ in
+        // One handler for meeting changes and jumps, so a reset for a new
+        // meeting can never undo the jump that brought us to it.
+        .onChange(of: TranscriptJumpKey(meetingID: meeting.id, token: jump?.token), initial: true) { old, new in
+            if old.meetingID != new.meetingID, jump?.meetingID != meeting.id {
+                focus = nil
+            }
             carryOutJump()
-        }
-        .onChange(of: meeting.id) { _, _ in
-            focusedLineIndex = nil
-            playbackFailed = false
         }
     }
 
@@ -178,33 +156,20 @@ struct MeetingTranscriptTab: View {
                atOrBefore: jump.seconds,
                starts: chapters.flatMap { $0.segments.map(\.start) }
            ) {
-            focusedLineIndex = index
-            if let scrollProxy {
-                // Let the chapter expand and lay out before scrolling to it.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(80))
-                    withAnimation(reduceMotion ? nil : CasaAnimation.standard) {
-                        scrollProxy.scrollTo(TranscriptLineAnchor(index: index), anchor: .top)
-                    }
-                }
-            }
+            focus = TranscriptFocus(token: jump.token, index: index)
+            // First attempt on the next run-loop turn, after this update's
+            // layout. A chapter that had to expand retries once when the
+            // line appears (`onFocusedLineAppear`).
+            DispatchQueue.main.async { scroll(to: index) }
         }
 
-        if canPlay {
-            startPlayback(at: jump.seconds)
-        }
+        playback.play(meeting, isTranscribing: isTranscribing, from: jump.seconds)
     }
 
-    /// Plays the mixed recording from `seconds`; a failure is logged and
-    /// shown as an unavailable ▶ (R2).
-    private func startPlayback(at seconds: Double) {
-        guard canPlay, let url = playableRecordingURL else { return }
-        do {
-            try player.play(url: url, from: seconds)
-            playbackFailed = false
-        } catch {
-            Log.recording.error("Recording playback failed: \(error.localizedDescription, privacy: .public)")
-            playbackFailed = true
+    private func scroll(to index: Int) {
+        guard let scrollProxy else { return }
+        withAnimation(reduceMotion ? nil : CasaAnimation.standard) {
+            scrollProxy.scrollTo(TranscriptLineAnchor(index: index), anchor: .top)
         }
     }
 
@@ -224,8 +189,9 @@ struct MeetingTranscriptTab: View {
                         chapter: chapter,
                         startsExpanded: index == 0,
                         firstLineIndex: firstIndices[index],
-                        focusedLineIndex: focusedLineIndex,
-                        meetingID: meeting.id
+                        focus: focus,
+                        meetingID: meeting.id,
+                        onFocusedLineAppear: { scroll(to: $0) }
                     )
                 }
             }
@@ -286,6 +252,31 @@ struct TranscriptLineAnchor: Hashable {
     let index: Int
 }
 
+/// The line a jump landed on. The token differs per jump, so jumping to the
+/// same line again (after collapsing its chapter) is still a change.
+struct TranscriptFocus: Equatable {
+    let token: UUID
+    let index: Int
+
+    /// Whether a chapter holding lines `lines` must expand for this focus.
+    func expands(chapterLines lines: Range<Int>) -> Bool {
+        lines.contains(index)
+    }
+
+    /// What a chapter does when the focus changes: the focus it must expand
+    /// for (and whose line it then waits to appear), or `nil` when the line
+    /// is elsewhere or the chapter is already open.
+    static func expansionTarget(_ focus: TranscriptFocus?, chapterLines lines: Range<Int>, isExpanded: Bool) -> TranscriptFocus? {
+        guard let focus, !isExpanded, focus.expands(chapterLines: lines) else { return nil }
+        return focus
+    }
+}
+
+private struct TranscriptJumpKey: Equatable {
+    let meetingID: UUID
+    let token: UUID?
+}
+
 /// One collapsible transcript chapter with a monospaced timestamp gutter on each
 /// segment. The first chapter starts expanded; the rest collapsed. A chapter
 /// holding the focused line (a timestamp jump) expands and highlights it.
@@ -294,29 +285,36 @@ private struct ChapterDisclosure: View {
     let chapter: TranscriptPresentation.Chapter
     let startsExpanded: Bool
     let firstLineIndex: Int
-    let focusedLineIndex: Int?
+    let focus: TranscriptFocus?
     let meetingID: UUID
+    /// Called when the focused line appears because this chapter expanded
+    /// for the focus (the scroll's retry).
+    let onFocusedLineAppear: (Int) -> Void
     @State private var isExpanded: Bool
+    /// The focus this chapter expanded for, until its line has appeared.
+    @State private var awaitingAppear: TranscriptFocus?
 
     init(
         chapter: TranscriptPresentation.Chapter,
         startsExpanded: Bool,
         firstLineIndex: Int,
-        focusedLineIndex: Int?,
-        meetingID: UUID
+        focus: TranscriptFocus?,
+        meetingID: UUID,
+        onFocusedLineAppear: @escaping (Int) -> Void
     ) {
         self.chapter = chapter
         self.startsExpanded = startsExpanded
         self.firstLineIndex = firstLineIndex
-        self.focusedLineIndex = focusedLineIndex
+        self.focus = focus
         self.meetingID = meetingID
-        _isExpanded = State(initialValue: startsExpanded || Self.contains(focusedLineIndex, chapter: chapter, first: firstLineIndex))
+        self.onFocusedLineAppear = onFocusedLineAppear
+        let lines = firstLineIndex..<(firstLineIndex + chapter.segments.count)
+        let expandsForFocus = focus?.expands(chapterLines: lines) ?? false
+        _isExpanded = State(initialValue: startsExpanded || expandsForFocus)
+        _awaitingAppear = State(initialValue: expandsForFocus && !startsExpanded ? focus : nil)
     }
 
-    private static func contains(_ index: Int?, chapter: TranscriptPresentation.Chapter, first: Int) -> Bool {
-        guard let index else { return false }
-        return index >= first && index < first + chapter.segments.count
-    }
+    private var lines: Range<Int> { firstLineIndex..<(firstLineIndex + chapter.segments.count) }
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -335,10 +333,15 @@ private struct ChapterDisclosure: View {
                     }
                     .padding(.vertical, CasaSpace.xxs)
                     .background(
-                        lineIndex == focusedLineIndex ? Color.accentPrimary.opacity(0.10) : Color.clear,
+                        lineIndex == focus?.index ? Color.accentPrimary.opacity(0.10) : Color.clear,
                         in: RoundedRectangle(cornerRadius: CasaRadius.sm)
                     )
                     .id(TranscriptLineAnchor(index: lineIndex))
+                    .onAppear {
+                        guard let awaiting = awaitingAppear, awaiting.index == lineIndex else { return }
+                        awaitingAppear = nil
+                        onFocusedLineAppear(lineIndex)
+                    }
                 }
             }
             .padding(.top, CasaSpace.xs)
@@ -348,10 +351,12 @@ private struct ChapterDisclosure: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.textPrimary)
         }
-        .onChange(of: focusedLineIndex) { _, index in
-            if Self.contains(index, chapter: chapter, first: firstLineIndex) {
-                isExpanded = true
-            }
+        // Keyed on the whole focus (token included): a repeat jump to a line
+        // whose chapter the user collapsed expands it again.
+        .onChange(of: focus) { _, newFocus in
+            guard let target = TranscriptFocus.expansionTarget(newFocus, chapterLines: lines, isExpanded: isExpanded) else { return }
+            awaitingAppear = target
+            isExpanded = true
         }
     }
 
@@ -359,8 +364,11 @@ private struct ChapterDisclosure: View {
     private func gutter(_ start: TimeInterval) -> some View {
         var label = AttributedString(TranscriptPresentation.formatClock(start))
         label.link = TimestampLinks.url(meetingID: meetingID, seconds: start)
+        // Still a link, in the gutter's quiet tertiary colour.
         return Text(label)
             .font(.caption.monospaced())
+            .foregroundStyle(Color.textTertiary)
+            .tint(Color.textTertiary)
             .help("Play from here")
     }
 }

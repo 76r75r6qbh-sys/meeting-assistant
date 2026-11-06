@@ -38,6 +38,7 @@ struct RecordedMeetingView: View {
     /// A timestamp-link jump handed to the transcript tab, until it is done.
     @State private var transcriptJump: TimestampJump?
     private let navigator = MeetingDetailNavigator.shared
+    private let playback = TranscriptPlayback.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Responsive width tier of the window, published by ContentView. Defaults
     /// to `.expanded` so previews and tests keep the inspector visible.
@@ -65,6 +66,18 @@ struct RecordedMeetingView: View {
                     .padding(CasaSpace.xl)
                     .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .top)
+            }
+            // Pinned above the transcript, outside the scroll content.
+            // Playback keeps going on other tabs; it stops when the meeting
+            // changes or this view goes away.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if selectedTab == .transcript {
+                    TranscriptTransportInset(
+                        meeting: meeting,
+                        isTranscribing: isTranscribingThisMeeting,
+                        playback: playback
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -181,7 +194,8 @@ struct RecordedMeetingView: View {
                     jump: transcriptJump,
                     scrollProxy: scrollProxy,
                     isTranscribing: isTranscribingThisMeeting,
-                    onJumpHandled: { transcriptJump = nil }
+                    onJumpHandled: { transcriptJump = nil },
+                    playback: playback
                 )
             case .notes:
                 MeetingNotesTab(

@@ -84,7 +84,7 @@ final class TranscriptTransportLayoutTests: XCTestCase {
         let player = makePlayer()
         let state = TransportHarnessState()
         let window = makeWindow(
-            TransportSplitHarness(meeting: meeting, player: player, state: state),
+            TransportSplitHarness(meeting: meeting, playback: TranscriptPlayback(player: player), state: state),
             size: CGSize(width: 1080, height: 720)
         )
         SplitColumnMinimumSizeProbe.observe(window)
@@ -132,7 +132,7 @@ final class TranscriptTransportLayoutTests: XCTestCase {
         let player = makePlayer()
         let state = TransportHarnessState()
         let window = makeWindow(
-            TransportSplitHarness(meeting: meeting, player: player, state: state),
+            TransportSplitHarness(meeting: meeting, playback: TranscriptPlayback(player: player), state: state),
             size: CGSize(width: CasaLayout.windowMinWidth, height: CasaLayout.windowMinHeight)
         )
         settle(window)
@@ -238,10 +238,11 @@ private final class TransportHarnessState: ObservableObject {
 }
 
 /// ContentView's split with the transcript tab as the detail, laid out as
-/// RecordedMeetingView does (scroll view reader, padding, content max width).
+/// RecordedMeetingView does (scroll view reader, padding, content max width,
+/// transport pinned with `safeAreaInset`).
 private struct TransportSplitHarness: View {
     let meeting: Meeting
-    let player: AudioClipPlayer
+    let playback: TranscriptPlayback
     @ObservedObject var state: TransportHarnessState
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var windowWidth: CGFloat = CasaLayout.windowDefaultWidth
@@ -268,11 +269,15 @@ private struct TransportSplitHarness: View {
                         jump: state.jump,
                         scrollProxy: proxy,
                         onJumpHandled: { state.jump = nil },
-                        player: player
+                        playback: playback
                     )
                     .padding(CasaSpace.xl)
                     .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .top)
+                }
+                // Pinned as in RecordedMeetingView.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    TranscriptTransportInset(meeting: meeting, isTranscribing: false, playback: playback)
                 }
             }
             .stableSplitColumnMinimumSize(minWidth: CasaLayout.detailColumnMinWidth)
