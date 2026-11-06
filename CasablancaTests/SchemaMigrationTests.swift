@@ -141,6 +141,47 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(todos.first { $0.text == "Book room" }?.isCompleted, true)
     }
 
+    /// The fetch predicates the sidebar badge and the Todos view use must see
+    /// migrated legacy to-dos as accepted: `statusRaw` has to be stored as
+    /// "accepted" (not NULL) in the migrated store, or the SQL-side predicate
+    /// would drop them even though the Swift accessor reads them as accepted.
+    func testV2TodosMatchTheTodoCountingPredicatesAfterMigration() throws {
+        let storeURL = tempDir.appending(path: "default.store")
+
+        try autoreleasepool {
+            let v2Schema = Schema(versionedSchema: CasablancaSchemaV2.self)
+            let config = ModelConfiguration(schema: v2Schema, url: storeURL)
+            let container = try ModelContainer(for: v2Schema, configurations: config)
+            let context = ModelContext(container)
+
+            let meeting = CasablancaSchemaV2.Meeting(title: "Sprint review", date: Date(timeIntervalSince1970: 1_750_000_000))
+            context.insert(meeting)
+            context.insert(CasablancaSchemaV2.TodoItem(text: "Send minutes", meeting: meeting))
+            context.insert(CasablancaSchemaV2.TodoItem(text: "Book room", isCompleted: true, meeting: meeting))
+            context.insert(CasablancaSchemaV2.TodoItem(text: "Loose task"))
+            try context.save()
+        }
+
+        let result = try PersistenceController.makeContainer(storeURL: storeURL) { url in
+            try ModelContainer(
+                for: Meeting.self, TodoItem.self,
+                migrationPlan: CasablancaMigrationPlan.self,
+                configurations: ModelConfiguration(url: url)
+            )
+        }
+        XCTAssertEqual(result.recovery, .clean)
+        let context = ModelContext(result.container)
+
+        let open = try context.fetch(FetchDescriptor<TodoItem>(predicate: TodoCounting.openTodoPredicate))
+        XCTAssertEqual(Set(open.map(\.text)), ["Send minutes", "Loose task"],
+                       "migrated open to-dos count as open; the completed one does not")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<TodoItem>(predicate: TodoCounting.openTodoPredicate)), 2)
+
+        let visible = try context.fetch(FetchDescriptor<TodoItem>(predicate: TodoCounting.notRejectedPredicate))
+        XCTAssertEqual(Set(visible.map(\.text)), ["Send minutes", "Book room", "Loose task"],
+                       "every migrated to-do, completed included, is shown")
+    }
+
     func testTodoStatusUnknownRawIsAccepted() {
         let todo = TodoItem(text: "x")
         XCTAssertEqual(todo.status, .accepted, "new to-dos default to accepted")
