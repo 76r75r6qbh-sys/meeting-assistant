@@ -375,8 +375,6 @@ struct PostTranscriptionPipeline {
 
     // MARK: - Helpers
 
-    /// Whether the meeting is still in a context, i.e. has not been deleted out
-    /// from under a long-running step.
     /// A compressed file written for a meeting that was deleted meanwhile:
     /// nothing references it, so it is removed (best effort). Never the
     /// source itself, should a compressor hand that back.
@@ -389,6 +387,8 @@ struct PostTranscriptionPipeline {
         }
     }
 
+    /// Whether the meeting is still in a context, i.e. has not been deleted out
+    /// from under a long-running step.
     private func isAlive(_ meeting: Meeting) -> Bool {
         meeting.modelContext != nil
     }
