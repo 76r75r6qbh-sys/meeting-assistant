@@ -27,46 +27,9 @@ enum SummarizationError: LocalizedError {
 @MainActor
 @Observable
 final class SummarizationService {
-    static let defaultPromptTemplate = """
-    You are a meeting assistant creating structured, high-signal meeting notes.
-
-    Write the notes in the dominant language of the transcript (Dutch transcript -> Dutch notes, English transcript -> English notes).
-
-    Use only the information provided below. If something is unclear or missing, leave it out instead of guessing.
-
-    The transcript comes from machine speech recognition and may misspell names of people, companies and products. Correct obvious mistranscriptions using the terminology list and the participants list. Never invent names, and never comment on transcript quality in the notes.
-
-    Structure the notes as follows:
-
-    1. Start with a single `# Summary` heading (Dutch: `# Samenvatting`) followed by a 2-4 sentence paragraph: what the meeting was about and its main outcome.
-    2. Then 2-5 thematic sections, each with a descriptive `## <theme>` heading, containing a short intro sentence and/or `- **subtopic:** detail` bullets. Capture the reasoning behind conclusions, not just the conclusions.
-    3. If the meeting discussed planning across dates, weeks or months, add a `## Planning` section with chronological bullets: `- **<period>** — <milestone or activity>`.
-    4. If hiring or staffing was discussed, add a `## Personele zaken` (English: `## Personnel`) section.
-    5. End with these four sections, always present, in this order. Use exactly these headings — Dutch notes / English notes:
-       `## Besluiten` / `## Decisions`
-       `## Actiepunten` / `## Action Items`
-       `## Risico's en blockers` / `## Risks and Blockers`
-       `## Opvolging` / `## Follow-ups`
-
-    Rules for the four closing sections:
-    - Every item is a `- ` bullet. If a section has no items, keep the heading with nothing below it.
-    - Decisions include their stated rationale.
-    - Each action item is one bullet formatted `- **<owner>** — <action>`. Resolve the owner against the participants list; use the person's name, never "me" or "I". If no owner was stated, use `- **?** — <action>`.
-    - The note-taker is {{user_name}}. When the note-taker commits to something ("I will…", "ik pak dat op"), the owner is {{user_name}}.
-    - Transcript lines may start with a speaker label (`[12:34] Kim: …`). A labelled speaker's first-person commitment makes that speaker the owner. Generic labels such as "Speaker 1", "Spreker 2", "Others" or "Anderen" are not names.
-    - Omit optional sections that have nothing meaningful. Never add sections about the transcript itself.
-
-    {{terminology_list}}
-
-    Meeting title: {{title}}
-    Scheduled time: {{scheduled_time}}
-    Participants: {{participants}}
-
-    {{user_focus}}
-
-    Transcript:
-    {{transcript}}
-    """
+    /// The General template as shipped: `SummaryTemplateCatalog`'s shared
+    /// prompt with the general body structure (items 2.–4.).
+    static let defaultPromptTemplate = SummaryTemplateCatalog.compose(structure: SummaryTemplateCatalog.generalStructure)
 
     /// Upper bound on generated summary length when thinking is OFF. Local models
     /// can otherwise ramble or loop for thousands of tokens on a short transcript.
@@ -313,7 +276,9 @@ final class SummarizationService {
     /// `.verifying` repair) before the sections are rendered; a failed or
     /// partial verification only adds `verificationFailedWarning` or
     /// `verificationIncompleteWarning`.
-    /// `templateID` is echoed as `"general"` until templates exist.
+    /// The prompt is the template `templateID` names, else the meeting's
+    /// `summaryTemplateID`, else the one `SummaryTemplateSelector` picks; an
+    /// unknown id is General. `outcome.templateID` is the id actually used.
     func summarizeWithFacts(meeting: Meeting, templateID: String? = nil) async throws -> SummaryOutcome {
         let rawTranscript = meeting.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -339,9 +304,11 @@ final class SummarizationService {
         // Read once, before the context: the prep shapes every prompt's size.
         let prep = await prepLoader(meeting, userDefaults)
         let aliases = AppPreferences.userNameAliases(in: userDefaults)
+        let attendees = attendeeProvider.attendees(for: meeting)
+        let template = resolvedTemplate(for: meeting, explicitID: templateID, attendees: attendees, userAliases: aliases)
         let context = PromptContext(
             meeting: meeting,
-            template: userDefaults.string(forKey: AppPreferenceKey.summaryPromptTemplate) ?? Self.defaultPromptTemplate,
+            template: template.prompt,
             freeformNotes: freeformNotes,
             terminologyBlock: TerminologyService.renderTerminologyBlock(
                 enabled: userDefaults.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
@@ -350,7 +317,7 @@ final class SummarizationService {
             userName: aliases.first,
             participantsLine: SummaryPromptContext.participantsLine(
                 participants: meeting.participants,
-                attendees: attendeeProvider.attendees(for: meeting),
+                attendees: attendees,
                 userAliases: aliases
             ),
             prep: prep,
@@ -484,7 +451,27 @@ final class SummarizationService {
         if !warnings.isEmpty {
             warningMessage = warnings.joined(separator: " ")
         }
-        return SummaryOutcome(parsed: parsed, facts: facts, factsSource: factsSource, templateID: "general")
+        return SummaryOutcome(parsed: parsed, facts: facts, factsSource: factsSource, templateID: template.id)
+    }
+
+    /// Explicit id → the meeting's stored id → auto-selection from title,
+    /// participants and attendees. Empty ids count as absent.
+    private func resolvedTemplate(
+        for meeting: Meeting,
+        explicitID: String?,
+        attendees: [MeetingAttendee],
+        userAliases: [String]
+    ) -> SummaryTemplate {
+        let chosen = [explicitID, meeting.summaryTemplateID]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let id = chosen ?? SummaryTemplateSelector.templateID(
+            title: meeting.title,
+            participants: meeting.participants,
+            attendees: attendees,
+            userAliases: userAliases
+        )
+        return SummaryTemplateStore.template(id: id, in: userDefaults)
     }
 
     // MARK: - Facts (JSON block, repair, markdown fallback)

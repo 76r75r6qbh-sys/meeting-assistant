@@ -1338,6 +1338,121 @@ final class SummarizationServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - Templates (B5)
+
+    /// `makeFactsService` with both template keys set explicitly (R12).
+    private func makeTemplateService(_ stub: StubLLMProvider, legacyPrompt: String? = nil) -> SummarizationService {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: AppPreferenceKey.summaryThinkingEnabled)
+        defaults.set("", forKey: AppPreferenceKey.summaryTemplates)
+        if let legacyPrompt {
+            defaults.set(legacyPrompt, forKey: AppPreferenceKey.summaryPromptTemplate)
+        } else {
+            defaults.removeObject(forKey: AppPreferenceKey.summaryPromptTemplate)
+        }
+        defaults.set("Youri", forKey: AppPreferenceKey.userNameAliases)
+        defaults.set(false, forKey: AppPreferenceKey.includeUnassignedActionItems)
+        return SummarizationService(
+            providerFactory: { stub },
+            userDefaults: defaults,
+            attendeeProvider: StaticAttendeeProvider(attendees: []),
+            prepLoader: { _, _ in nil },
+            calendar: SummaryFixtures.amsterdamCalendar
+        )
+    }
+
+    private func templateStub() -> StubLLMProvider {
+        StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)), kimVerdict])
+    }
+
+    func testAutoSelectedTemplateIsUsedAndReturned() async throws {
+        for speakers in [true, false] {
+            let stub = templateStub()
+            let service = makeTemplateService(stub)
+            let meeting = makeFactsMeeting(speakers: speakers)
+            meeting.title = "Daily stand-up"
+
+            let outcome = try await service.summarizeWithFacts(meeting: meeting)
+
+            let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+            XCTAssertTrue(prompt.contains("## Per persoon"))
+            XCTAssertFalse(prompt.contains("2-5 thematic sections"))
+            XCTAssertTrue(prompt.contains("add one fenced code block that starts with ```json"), "the JSON instruction still follows")
+            XCTAssertTrue(prompt.contains(factsTranscript(speakers: speakers)))
+            XCTAssertEqual(outcome.templateID, "standup")
+            XCTAssertEqual(outcome.facts.actionItems.map(\.owner), ["Kim"], "structured facts still come through")
+        }
+    }
+
+    func testMeetingOverrideBeatsSelector() async throws {
+        let stub = templateStub()
+        let service = makeTemplateService(stub)
+        let meeting = makeFactsMeeting(speakers: true)
+        meeting.title = "Daily stand-up"
+        meeting.summaryTemplateID = "workshop"
+
+        let outcome = try await service.summarizeWithFacts(meeting: meeting)
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains("## Parkeerplaats"))
+        XCTAssertFalse(prompt.contains("## Per persoon"))
+        XCTAssertEqual(outcome.templateID, "workshop")
+    }
+
+    func testExplicitTemplateBeatsMeetingOverride() async throws {
+        let stub = templateStub()
+        let service = makeTemplateService(stub)
+        let meeting = makeFactsMeeting(speakers: false)
+        meeting.title = "Daily stand-up"
+        meeting.summaryTemplateID = "workshop"
+
+        let outcome = try await service.summarizeWithFacts(meeting: meeting, templateID: "refinement")
+
+        let prompt = try XCTUnwrap(stub.calls.first?.prompt)
+        XCTAssertTrue(prompt.contains("- **Estimate:** 5 SP"))
+        XCTAssertFalse(prompt.contains("## Parkeerplaats"))
+        XCTAssertEqual(outcome.templateID, "refinement")
+    }
+
+    /// A stored id that no longer exists (deleted custom template) is General.
+    func testUnknownMeetingTemplateFallsBackToGeneral() async throws {
+        let stub = templateStub()
+        let service = makeTemplateService(stub)
+        let meeting = makeFactsMeeting(speakers: true)
+        meeting.summaryTemplateID = "custom-gone"
+
+        let outcome = try await service.summarizeWithFacts(meeting: meeting)
+
+        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains("2-5 thematic sections"))
+        XCTAssertEqual(outcome.templateID, "general")
+    }
+
+    /// The user's customised legacy prompt is General's prompt.
+    func testLegacyCustomPromptIsTheGeneralTemplate() async throws {
+        let stub = templateStub()
+        let service = makeTemplateService(stub, legacyPrompt: "MY OWN PROMPT {{transcript}}")
+        let meeting = makeFactsMeeting(speakers: true)
+
+        let outcome = try await service.summarizeWithFacts(meeting: meeting)
+
+        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).hasPrefix("MY OWN PROMPT "))
+        XCTAssertEqual(outcome.templateID, "general")
+    }
+
+    func testBackgroundSummaryPersistsTheAutoSelectedTemplate() async throws {
+        let stub = templateStub()
+        let service = makeTemplateService(stub)
+        let context = try makeTodoContext()
+        let meeting = makeFactsMeeting(speakers: true)
+        meeting.title = "Bila Martijn"
+        context.insert(meeting)
+
+        try await runInBackground(service, meeting, context)
+
+        XCTAssertEqual(meeting.summaryTemplateID, "one-on-one")
+        XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains("## Hoe gaat het"))
+    }
+
     func testJSONBlockIsStrippedFromTheStoredSummary() async throws {
         for speakers in [true, false] {
             let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(kimNotes, json: SummaryFixtures.kimActionJSON)), kimVerdict])
