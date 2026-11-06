@@ -3,11 +3,14 @@ import SwiftUI
 /// Settings → Recording → Privacy: the opt-in for voice profiles (off by
 /// default), what they are, and the saved profiles with a delete per row.
 /// Turning the toggle off deletes every profile and the key, after a
-/// confirmation; Cancel leaves it on.
+/// confirmation; Cancel leaves it on. Deleting a profile, or turning off, also
+/// removes the voice-profile suggestions from the meetings' sidecars. Profile
+/// I/O runs off the main actor (the keychain may prompt).
 struct PrivacySettingsSection: View {
     @AppStorage(AppPreferenceKey.voiceProfilesEnabled) private var voiceProfilesEnabled = false
 
     var store = VoiceProfileStore()
+    var speakerStore = SpeakerAnalysisStore()
 
     @State private var profiles: [VoiceProfile] = []
     @State private var confirmingTurnOff = false
@@ -45,10 +48,10 @@ struct PrivacySettingsSection: View {
         }
         .task {
             // Off: nothing to list, and no reason to read the key.
-            if voiceProfilesEnabled { reload() }
+            if voiceProfilesEnabled { await reload() }
         }
         .alert(Self.turnOffMessage, isPresented: $confirmingTurnOff) {
-            Button("Delete profiles", role: .destructive) { turnOff() }
+            Button("Delete profiles", role: .destructive) { Task { await turnOff() } }
             Button("Cancel", role: .cancel) {}
         }
     }
@@ -56,7 +59,7 @@ struct PrivacySettingsSection: View {
     private func profileRow(_ profile: VoiceProfile) -> some View {
         LabeledContent {
             Button(role: .destructive) {
-                delete(profile)
+                Task { await delete(profile) }
             } label: {
                 Image(systemName: "trash")
             }
@@ -77,19 +80,20 @@ struct PrivacySettingsSection: View {
             set: { isOn in
                 if isOn {
                     voiceProfilesEnabled = true
-                    reload()
+                    Task { await reload() }
                 } else if FileManager.default.fileExists(atPath: store.fileURL.path) {
                     confirmingTurnOff = true
                 } else {
-                    turnOff()
+                    Task { await turnOff() }
                 }
             }
         )
     }
 
-    private func reload() {
+    private func reload() async {
+        let store = self.store
         do {
-            profiles = try store.all()
+            profiles = try await Task.detached { try store.all() }.value
             errorMessage = nil
         } catch {
             profiles = []
@@ -97,23 +101,36 @@ struct PrivacySettingsSection: View {
         }
     }
 
-    private func delete(_ profile: VoiceProfile) {
+    private func delete(_ profile: VoiceProfile) async {
+        let store = self.store
+        let speakerStore = self.speakerStore
         do {
-            try store.delete(id: profile.id)
-            reload()
+            try await Task.detached {
+                try store.delete(id: profile.id)
+                speakerStore.removeVoiceProfileSuggestions(naming: profile.name)
+            }.value
+            await reload()
         } catch {
             errorMessage = "The voice profile could not be deleted: \(error.localizedDescription)"
         }
     }
 
-    /// Deletes the file and the key; the toggle only goes off once that worked.
-    private func turnOff() {
+    /// Switches the feature off first (so a save still running is refused),
+    /// then deletes the file, the key and every voice-profile suggestion. If
+    /// deleting fails, the toggle goes back on with the error shown.
+    private func turnOff() async {
+        voiceProfilesEnabled = false
+        let store = self.store
+        let speakerStore = self.speakerStore
         do {
-            try store.deleteAll()
-            voiceProfilesEnabled = false
+            try await Task.detached {
+                try store.deleteAll()
+                speakerStore.removeVoiceProfileSuggestions()
+            }.value
             profiles = []
             errorMessage = nil
         } catch {
+            voiceProfilesEnabled = true
             errorMessage = "The voice profiles could not be deleted: \(error.localizedDescription)"
         }
     }

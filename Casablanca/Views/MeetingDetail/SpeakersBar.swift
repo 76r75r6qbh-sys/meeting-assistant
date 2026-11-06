@@ -91,9 +91,16 @@ struct SpeakersBar: View {
             record = store.load(meeting.id)
         }
         .sheet(item: $rememberingSpeaker) { speaker in
-            SaveVoiceProfileSheet(speakerName: speaker.displayName) { consentGiven in
-                try await rememberVoice(of: speaker, consentGiven: consentGiven)
-            }
+            SaveVoiceProfileSheet(
+                speakerName: speaker.displayName,
+                loadExistingSampleCount: { await existingSampleCount(for: speaker.displayName) },
+                onSave: { consentGiven in try await rememberVoice(of: speaker, consentGiven: consentGiven) }
+            )
+        }
+        // Turning voice profiles off closes the sheet, which cancels a
+        // running analysis; the store refuses a late save anyway.
+        .onChange(of: voiceProfilesEnabled) { _, enabled in
+            if !enabled { rememberingSpeaker = nil }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Speakers")
@@ -288,18 +295,28 @@ struct SpeakersBar: View {
             ) != nil
     }
 
-    /// One embedding from up to 30 s of the speaker's longest segments on its
-    /// track, saved under its name. Consent is checked before any voice is
-    /// analysed.
+    /// One embedding of only up to 30 s of the speaker's longest segments on
+    /// its track, saved under its name (`VoiceProfileEnrollment`: consent
+    /// first, cancellable, saved off the main actor).
     private func rememberVoice(of speaker: SpeakerInfo, consentGiven: Bool) async throws {
-        guard consentGiven else { throw VoiceProfileStore.StoreError.consentRequired }
         guard let sample = SpeakerClipSelector.voiceSample(
             for: speaker.id,
             meeting: meeting,
             sourceOverrides: record?.segmentSources ?? [:]
         ) else { throw RememberVoiceError.trackMissing }
-        let embedding = try await diarizer.embedding(trackURL: sample.url, ranges: sample.ranges)
-        try voiceProfiles.save(name: speaker.displayName, embedding: embedding, consentGiven: consentGiven)
+        try await VoiceProfileEnrollment(diarizer: diarizer, store: voiceProfiles).remember(
+            name: speaker.displayName,
+            trackURL: sample.url,
+            ranges: sample.ranges,
+            consentGiven: consentGiven
+        )
+    }
+
+    /// Off the main actor: opening the profiles may show a keychain prompt.
+    private func existingSampleCount(for name: String) async -> Int? {
+        let store = voiceProfiles
+        let profiles = (try? await Task.detached { try store.all() }.value) ?? []
+        return profiles.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.sampleCount
     }
 
     private enum RememberVoiceError: LocalizedError {
@@ -335,7 +352,10 @@ struct SpeakersBar: View {
 
     private func suggestions(for speakerID: String) -> [SpeakerNameSuggestion] {
         guard let speaker = meeting.speakers.first(where: { $0.id == speakerID }), !speaker.nameConfirmed else { return [] }
-        return record?.suggestions.filter { $0.speakerID == speakerID } ?? []
+        // Voice matches are biometric results: hidden while the feature is off.
+        return record?.suggestions.filter {
+            $0.speakerID == speakerID && ($0.source != .voiceProfile || voiceProfilesEnabled)
+        } ?? []
     }
 
     /// Participants not already the name of another speaker.

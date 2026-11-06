@@ -238,6 +238,10 @@
 		SPKA0036 /* VoiceProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0136 /* VoiceProfileStoreTests.swift */; };
 		SPKA0037 /* VoiceProfileMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0137 /* VoiceProfileMatcherTests.swift */; };
 		SPKA0038 /* VoiceProfileKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0138 /* VoiceProfileKeyStoreTests.swift */; };
+		SPKA0039 /* VoiceSpanExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0139 /* VoiceSpanExtractor.swift */; };
+		SPKA0040 /* VoiceProfileEnrollment.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0140 /* VoiceProfileEnrollment.swift */; };
+		SPKA0041 /* VoiceSpanExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0141 /* VoiceSpanExtractorTests.swift */; };
+		SPKA0042 /* VoiceProfileEnrollmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKA0142 /* VoiceProfileEnrollmentTests.swift */; };
 		SPKA0300 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = SPKA0302 /* FluidAudio */; };
 		A10615 /* WAVCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* WAVCodec.swift */; };
 		A10616 /* AudioLevelAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* AudioLevelAggregator.swift */; };
@@ -589,6 +593,10 @@
 		SPKA0136 /* VoiceProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileStoreTests.swift; sourceTree = "<group>"; };
 		SPKA0137 /* VoiceProfileMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileMatcherTests.swift; sourceTree = "<group>"; };
 		SPKA0138 /* VoiceProfileKeyStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileKeyStoreTests.swift; sourceTree = "<group>"; };
+		SPKA0139 /* VoiceSpanExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSpanExtractor.swift; sourceTree = "<group>"; };
+		SPKA0140 /* VoiceProfileEnrollment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileEnrollment.swift; sourceTree = "<group>"; };
+		SPKA0141 /* VoiceSpanExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSpanExtractorTests.swift; sourceTree = "<group>"; };
+		SPKA0142 /* VoiceProfileEnrollmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileEnrollmentTests.swift; sourceTree = "<group>"; };
 		B10615 /* WAVCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVCodec.swift; sourceTree = "<group>"; };
 		B10616 /* AudioLevelAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLevelAggregator.swift; sourceTree = "<group>"; };
 		B10617 /* PCMTrackWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMTrackWriter.swift; sourceTree = "<group>"; };
@@ -725,6 +733,8 @@
 				SPKA0132 /* VoiceProfileStore.swift */,
 				SPKA0133 /* VoiceProfileKeyStore.swift */,
 				SPKA0134 /* VoiceProfileMatcher.swift */,
+				SPKA0139 /* VoiceSpanExtractor.swift */,
+				SPKA0140 /* VoiceProfileEnrollment.swift */,
 			);
 			path = Speakers;
 			sourceTree = "<group>";
@@ -1070,6 +1080,8 @@
 				SPKA0136 /* VoiceProfileStoreTests.swift */,
 				SPKA0137 /* VoiceProfileMatcherTests.swift */,
 				SPKA0138 /* VoiceProfileKeyStoreTests.swift */,
+				SPKA0141 /* VoiceSpanExtractorTests.swift */,
+				SPKA0142 /* VoiceProfileEnrollmentTests.swift */,
 				SPKA0201 /* Speakers */,
 				B10701 /* RecordingMixdownTests.swift */,
 				B10702 /* AudioInputDeviceProviderTests.swift */,
@@ -1410,6 +1422,8 @@
 				SPKA0032 /* VoiceProfileStore.swift in Sources */,
 				SPKA0033 /* VoiceProfileKeyStore.swift in Sources */,
 				SPKA0034 /* VoiceProfileMatcher.swift in Sources */,
+				SPKA0039 /* VoiceSpanExtractor.swift in Sources */,
+				SPKA0040 /* VoiceProfileEnrollment.swift in Sources */,
 				SPKA0035 /* SaveVoiceProfileSheet.swift in Sources */,
 				A10615 /* WAVCodec.swift in Sources */,
 				A10616 /* AudioLevelAggregator.swift in Sources */,
@@ -1591,6 +1605,8 @@
 				SPKA0036 /* VoiceProfileStoreTests.swift in Sources */,
 				SPKA0037 /* VoiceProfileMatcherTests.swift in Sources */,
 				SPKA0038 /* VoiceProfileKeyStoreTests.swift in Sources */,
+				SPKA0041 /* VoiceSpanExtractorTests.swift in Sources */,
+				SPKA0042 /* VoiceProfileEnrollmentTests.swift in Sources */,
 				A10701 /* RecordingMixdownTests.swift in Sources */,
 				A10702 /* AudioInputDeviceProviderTests.swift in Sources */,
 				A10703 /* PCMTrackWriterTests.swift in Sources */,

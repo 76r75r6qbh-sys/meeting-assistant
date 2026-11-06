@@ -123,7 +123,7 @@ enum SpeakerAnalysis {
                 status: status,
                 timeout: diarizationTimeout
             )
-            let suggestions = voiceProfileSuggestions(
+            let suggestions = await voiceProfileSuggestions(
                 clusterEmbeddings: diarized.clusterEmbeddings,
                 defaults: defaults,
                 voiceProfiles: voiceProfiles
@@ -148,17 +148,18 @@ enum SpeakerAnalysis {
     /// Voice-profile name suggestions for the meeting's clusters, or none:
     /// only when the user turned voice profiles on and has saved some. The
     /// embeddings are used here and dropped; they are never stored. A profile
-    /// file that cannot be opened is a log line, not a failure.
+    /// file that cannot be opened is a log line, not a failure. The profiles
+    /// are read off the main actor (the keychain may prompt).
     @MainActor
     static func voiceProfileSuggestions(
         clusterEmbeddings: [String: [Float]],
         defaults: UserDefaults,
         voiceProfiles: VoiceProfileStore
-    ) -> [SpeakerNameSuggestion] {
+    ) async -> [SpeakerNameSuggestion] {
         guard defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled), !clusterEmbeddings.isEmpty else { return [] }
         let profiles: [VoiceProfile]
         do {
-            profiles = try voiceProfiles.all()
+            profiles = try await Task.detached(priority: .utility) { try voiceProfiles.all() }.value
         } catch {
             Log.transcription.error("Could not open the voice profiles: \(error.localizedDescription, privacy: .public)")
             return []

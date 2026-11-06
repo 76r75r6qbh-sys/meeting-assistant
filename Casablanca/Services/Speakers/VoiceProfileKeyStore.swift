@@ -2,8 +2,9 @@ import CryptoKit
 import Foundation
 import Security
 
-/// Holds the one symmetric key that seals the voice profiles file.
-protocol SymmetricKeyStoring {
+/// Holds the one symmetric key that seals the voice profiles file. Sendable,
+/// so the store can run its keychain access off the main actor.
+protocol SymmetricKeyStoring: Sendable {
     /// The stored key, or a new random 256-bit key that is stored first.
     func loadOrCreateKey() throws -> SymmetricKey
     /// Forgets the key. Not finding one is not an error.

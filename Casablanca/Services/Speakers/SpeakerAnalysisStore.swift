@@ -68,6 +68,37 @@ struct SpeakerAnalysisStore: Sendable {
         if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
     }
 
+    /// Removes voice-profile suggestions from every sidecar: those naming
+    /// `name` (case-insensitive) after one profile was deleted, or all of them
+    /// (`name` nil) after voice profiles were turned off. They are results
+    /// derived from biometric data, so they go with the profile. Best-effort;
+    /// returns how many sidecars changed.
+    @discardableResult
+    func removeVoiceProfileSuggestions(naming name: String? = nil) -> Int {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        var changed = 0
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  var record = try? JSONDecoder().decode(SpeakerAnalysisRecord.self, from: data)
+            else { continue }
+            let before = record.suggestions.count
+            record.suggestions.removeAll { suggestion in
+                suggestion.source == .voiceProfile
+                    && (name.map { suggestion.name.caseInsensitiveCompare($0) == .orderedSame } ?? true)
+            }
+            guard record.suggestions.count != before else { continue }
+            do {
+                try save(record)
+                changed += 1
+            } catch {
+                Log.transcription.error(
+                    "Could not remove voice-profile suggestions: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+        return changed
+    }
+
     /// Best-effort: a missing sidecar is fine.
     func delete(_ meetingID: UUID) {
         let url = fileURL(meetingID)

@@ -3,7 +3,7 @@ import Foundation
 
 /// A saved voice: biometric personal data (GDPR/AVG art. 9). Lives only in
 /// the sealed profiles file, never in a meeting or a sidecar.
-struct VoiceProfile: Codable, Equatable, Identifiable {
+struct VoiceProfile: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var name: String
     /// L2-normalised mean of the embeddings saved under this name.
@@ -19,21 +19,32 @@ struct VoiceProfile: Codable, Equatable, Identifiable {
 /// written atomically with file protection.
 ///
 /// Reading without a file touches no key, so a user who never saved a profile
-/// never gets a keychain item.
-final class VoiceProfileStore {
+/// never gets a keychain item. `save` refuses while voice profiles are off
+/// (`isEnabled`, checked under the store's lock), so an analysis that finishes
+/// after the user turned the feature off cannot write a profile back.
+///
+/// Sendable: callers run it off the main actor, because the keychain may show
+/// an access prompt. Writes are serialised by a lock.
+final class VoiceProfileStore: Sendable {
     enum StoreError: Error, Equatable {
-        case consentRequired, emptyEmbedding
+        case consentRequired, emptyEmbedding, emptyName, disabled
     }
 
     let fileURL: URL
     private let keyStore: SymmetricKeyStoring
+    private let isEnabled: @Sendable () -> Bool
+    private let lock = NSLock()
 
     init(
         fileURL: URL = VoiceProfileStore.defaultFileURL,
-        keyStore: SymmetricKeyStoring = KeychainSymmetricKeyStore()
+        keyStore: SymmetricKeyStoring = KeychainSymmetricKeyStore(),
+        isEnabled: @escaping @Sendable () -> Bool = {
+            UserDefaults.standard.bool(forKey: AppPreferenceKey.voiceProfilesEnabled)
+        }
     ) {
         self.fileURL = fileURL
         self.keyStore = keyStore
+        self.isEnabled = isEnabled
     }
 
     static var defaultFileURL: URL {
@@ -51,13 +62,18 @@ final class VoiceProfileStore {
     /// Saves `embedding` under `name`. An existing profile with that name
     /// (case-insensitive) gets the new embedding folded into its centroid as a
     /// normalised running mean; a profile of another dimension (a different
-    /// embedding model) starts over from this embedding.
+    /// embedding model) starts over from this embedding. A file that cannot be
+    /// opened is never overwritten (the error is thrown).
     @discardableResult
     func save(name: String, embedding: [Float], consentGiven: Bool, now: Date = .now) throws -> VoiceProfile {
         guard consentGiven else { throw StoreError.consentRequired }
-        guard let normalised = Self.l2Normalised(embedding) else { throw StoreError.emptyEmbedding }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw StoreError.emptyName }
+        guard let normalised = Self.l2Normalised(embedding) else { throw StoreError.emptyEmbedding }
 
+        lock.lock()
+        defer { lock.unlock() }
+        guard isEnabled() else { throw StoreError.disabled }
         var profiles = try all()
         let saved: VoiceProfile
         if let index = profiles.firstIndex(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
@@ -82,7 +98,10 @@ final class VoiceProfileStore {
         return saved
     }
 
+    /// Fails closed: a file that cannot be opened is left as it is.
     func delete(id: UUID) throws {
+        lock.lock()
+        defer { lock.unlock() }
         var profiles = try all()
         profiles.removeAll { $0.id == id }
         try write(profiles)
@@ -90,6 +109,8 @@ final class VoiceProfileStore {
 
     /// Removes the file and the key: nothing of the profiles is left.
     func deleteAll() throws {
+        lock.lock()
+        defer { lock.unlock() }
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.removeItem(at: fileURL)
         }
@@ -118,6 +139,8 @@ extension VoiceProfileStore.StoreError: LocalizedError {
         switch self {
         case .consentRequired: return "A voice profile needs the person\u{2019}s explicit consent."
         case .emptyEmbedding: return "No usable speech was found for this speaker."
+        case .emptyName: return "A voice profile needs a name."
+        case .disabled: return "Voice profiles are turned off."
         }
     }
 }

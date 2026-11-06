@@ -36,10 +36,13 @@ import FluidAudio
 //   `.startTimeSeconds` / `.endTimeSeconds` (Float), `.embedding` per segment,
 //   plus `speakerDatabase: [String: [Float]]?` — the per-speaker MEAN segment
 //   embedding (not normalised). So per-speaker embeddings ARE exposed (A7); we
-//   L2-normalise them. There is no public span embedder
+//   L2-normalise them. NOTE: a segment's `.embedding` is its whole-meeting
+//   cluster CENTROID (OfflineReconstruction `appendSegment`), not an embedding
+//   of that segment's audio. There is no public span embedder
 //   (`OfflineEmbeddingExtractor.embedSpan` is internal), so
-//   `embedding(trackURL:ranges:)` diarizes the track and averages the segment
-//   embeddings overlapping the ranges.
+//   `embedding(trackURL:ranges:)` reads ONLY the ranges into memory
+//   (`VoiceSpanExtractor`), runs `process(audio:)` on that short buffer, and
+//   takes the dominant cluster's vector — nothing outside the ranges counts.
 // - macOS 14 has an Apple BNNS bug that can CRASH offline diarization
 //   (FluidAudio #878, fixed in macOS 15). A crash would fail the pipeline, so
 //   this adapter refuses to run before macOS 15 (→ "Others" fallback).
@@ -76,7 +79,8 @@ protocol SpeakerDiarizing: Sendable {
     /// in 0…1, or nil when the step has no measurable progress.
     func prepareModels(progress: @escaping @Sendable (Double?) -> Void) async throws
     func diarize(trackURL: URL) async throws -> DiarizationOutput
-    /// The L2-normalised voice embedding of the speech in `ranges` (seconds).
+    /// The L2-normalised voice embedding of the speech in `ranges` (seconds),
+    /// computed from those ranges only.
     func embedding(trackURL: URL, ranges: [ClosedRange<Double>]) async throws -> [Float]
     /// False when diarization can never run here (FluidAudio on macOS < 15).
     /// The speaker step then skips it silently; Settings explains why.
@@ -155,34 +159,46 @@ final class FluidAudioDiarizer: SpeakerDiarizing {
     }
 
     func embedding(trackURL: URL, ranges: [ClosedRange<Double>]) async throws -> [Float] {
-        let result = try await process(trackURL: trackURL)
-        var sum: [Float] = []
-        var totalWeight: Float = 0
-        for segment in result.segments where !segment.embedding.isEmpty {
-            let start = Double(segment.startTimeSeconds)
-            let end = Double(segment.endTimeSeconds)
-            let overlap = ranges.reduce(0.0) { $0 + max(0, min(end, $1.upperBound) - max(start, $1.lowerBound)) }
-            guard overlap > 0 else { continue }
-            if sum.isEmpty { sum = [Float](repeating: 0, count: segment.embedding.count) }
-            guard segment.embedding.count == sum.count else { continue }
-            let weight = Float(overlap)
-            for index in sum.indices { sum[index] += segment.embedding[index] * weight }
-            totalWeight += weight
+        let audio = try VoiceSpanExtractor.samples(url: trackURL, ranges: ranges)
+        guard !audio.isEmpty else { throw SpeakerDiarizerError.noSpeechInRanges }
+        let manager = try await makeManager()
+        let result = try await manager.process(audio: audio)
+        let durations = result.segments.map {
+            (speakerID: $0.speakerId, seconds: Double($0.endTimeSeconds - $0.startTimeSeconds))
         }
-        guard totalWeight > 0, let normalised = Self.l2Normalised(sum) else {
+        guard let embedding = Self.dominantEmbedding(durations: durations, database: result.speakerDatabase ?? [:]) else {
             throw SpeakerDiarizerError.noSpeechInRanges
         }
-        return normalised
+        return embedding
+    }
+
+    /// The L2-normalised vector of the cluster with the most speech; ties go
+    /// to the smaller id. Nil when no cluster with speech has a vector.
+    static func dominantEmbedding(
+        durations: [(speakerID: String, seconds: Double)],
+        database: [String: [Float]]
+    ) -> [Float]? {
+        var total: [String: Double] = [:]
+        for entry in durations where entry.seconds > 0 { total[entry.speakerID, default: 0] += entry.seconds }
+        let ranked = total.keys.sorted { total[$0]! != total[$1]! ? total[$0]! > total[$1]! : $0 < $1 }
+        for id in ranked {
+            if let vector = database[id], let normalised = l2Normalised(vector) { return normalised }
+        }
+        return nil
     }
 
     // MARK: - Internals
 
     private func process(trackURL: URL) async throws -> DiarizationResult {
+        try await makeManager().process(trackURL)
+    }
+
+    /// A fresh manager per run: it is not Sendable, the models are.
+    private func makeManager() async throws -> OfflineDiarizerManager {
         let models = try await models(progress: { _ in })
-        // A fresh manager per run: it is not Sendable, the models are.
         let manager = OfflineDiarizerManager(config: OfflineDiarizerConfig())
         manager.initialize(models: models)
-        return try await manager.process(trackURL)
+        return manager
     }
 
     private func models(progress: @escaping @Sendable (Double?) -> Void) async throws -> OfflineDiarizerModels {

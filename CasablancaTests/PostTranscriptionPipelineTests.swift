@@ -581,7 +581,8 @@ final class PostTranscriptionPipelineTests: XCTestCase {
     private func makeVoiceProfileStore(in directory: URL) throws -> VoiceProfileStore {
         let store = VoiceProfileStore(
             fileURL: directory.appendingPathComponent("VoiceProfiles/profiles.sealed"),
-            keyStore: InMemoryKeyStore()
+            keyStore: InMemoryKeyStore(),
+            isEnabled: { true }
         )
         _ = try store.save(name: "Kim", embedding: [1, 0], consentGiven: true)
         return store

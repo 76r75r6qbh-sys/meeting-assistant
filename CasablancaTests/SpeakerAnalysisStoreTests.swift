@@ -31,6 +31,29 @@ final class SpeakerAnalysisStoreTests: XCTestCase {
         XCTAssertFalse(json.contains("embedding"), "The sidecar holds no biometric data")
     }
 
+    /// Voice matches go with their profile: deleting one drops the
+    /// suggestions naming it; turning voice profiles off drops them all.
+    /// Transcript suggestions stay.
+    func testRemovingVoiceProfileSuggestions() throws {
+        let store = SpeakerAnalysisStore(directory: directory)
+        let transcript = SpeakerNameSuggestion(speakerID: "S1", name: "Kim", evidence: "Ik ben Kim", source: .transcript, score: nil)
+        let kim = SpeakerNameSuggestion(speakerID: "S1", name: "Kim", evidence: "Voice profile match", source: .voiceProfile, score: 0.9)
+        let jeroen = SpeakerNameSuggestion(speakerID: "S2", name: "Jeroen", evidence: "Voice profile match", source: .voiceProfile, score: 0.85)
+        let first = SpeakerAnalysisRecord(meetingID: UUID(), diarization: .succeeded(clusterCount: 2), suggestions: [transcript, kim, jeroen])
+        let second = SpeakerAnalysisRecord(meetingID: UUID(), diarization: .succeeded(clusterCount: 1), suggestions: [jeroen])
+        try store.save(first)
+        try store.save(second)
+
+        XCTAssertEqual(store.removeVoiceProfileSuggestions(naming: "KIM"), 1)
+        XCTAssertEqual(store.load(first.meetingID)?.suggestions, [transcript, jeroen])
+        XCTAssertEqual(store.load(second.meetingID)?.suggestions, [jeroen])
+
+        XCTAssertEqual(store.removeVoiceProfileSuggestions(), 2)
+        XCTAssertEqual(store.load(first.meetingID)?.suggestions, [transcript])
+        XCTAssertEqual(store.load(second.meetingID)?.suggestions, [])
+        XCTAssertEqual(store.removeVoiceProfileSuggestions(), 0, "Nothing left to remove")
+    }
+
     func testFailedOutcomeRoundTrips() throws {
         let store = SpeakerAnalysisStore(directory: directory)
         let record = SpeakerAnalysisRecord(meetingID: UUID(), diarization: .failed(reason: "offline"), suggestions: [])
