@@ -227,7 +227,11 @@ final class SummarizationService {
                 let outcome = try await self.summarizeWithFacts(meeting: meeting, templateID: templateID)
                 meeting.summary = outcome.parsed.rawMarkdown
                 meeting.actionItems = outcome.facts.actionItems
-                meeting.summaryTemplateID = outcome.templateID
+                // Only an explicit user choice is an override; an auto-picked
+                // template is re-derived next time (title or attendees may change).
+                if let explicit = templateID?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+                    meeting.summaryTemplateID = outcome.templateID
+                }
 
                 let proposals = ProposedTodoPlanner.itemsToPropose(
                     outcome.facts.actionItems,

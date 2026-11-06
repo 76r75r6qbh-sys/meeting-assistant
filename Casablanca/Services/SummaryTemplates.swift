@@ -262,7 +262,7 @@ enum SummaryTemplateSelector {
         (SummaryTemplateID.standup, ["stand-up", "standup", "daily", "dagstart"]),
         (SummaryTemplateID.refinement, ["refinement", "refinen", "planning", "sprintplanning", "grooming", "backlog"]),
         (SummaryTemplateID.workshop, ["workshop", "brainstorm", "hackathon"]),
-        (SummaryTemplateID.oneOnOne, ["bila", "bilateral", "bilateraal", "1-op-1", "1:1", "1on1", "1-1", "one-on-one"]),
+        (SummaryTemplateID.oneOnOne, ["bila", "bilateral", "bilateraal", "1-op-1", "1:1", "1on1", "1op1", "1-1", "one-on-one"]),
     ]
 
     static func templateID(
@@ -272,7 +272,7 @@ enum SummaryTemplateSelector {
         userAliases: [String]
     ) -> String {
         // Padded so a keyword only matches whole words ("daily" ≠ "dailymotion").
-        let foldedTitle = " " + FuzzyText.normalized(title) + " "
+        let foldedTitle = " " + FuzzyText.normalized(protectingVersionsAndDates(title)) + " "
         for rule in titleRules where rule.keywords.contains(where: { keyword in
             let folded = FuzzyText.normalized(keyword)
             return !folded.isEmpty && foldedTitle.contains(" " + folded + " ")
@@ -310,26 +310,50 @@ enum SummaryTemplateSelector {
         return domain.isEmpty ? nil : domain
     }
 
-    /// Distinct people in participants ∪ attendees, by folded name. The user
-    /// (an `isCurrentUser` attendee, or any name equal to one of the user's
-    /// aliases) counts once; a nameless attendee counts by e-mail.
+    /// "1.1" (a version) and "1-1-2026" (a date) would fold to "1 1" and match the
+    /// "1:1"/"1-1" keywords; spell their separators out so they stay distinct.
+    private static func protectingVersionsAndDates(_ title: String) -> String {
+        var result = title.replacingOccurrences(
+            of: #"(?<=\d)\.(?=\d)"#, with: "dot", options: .regularExpression)
+        result = result.replacingOccurrences(
+            of: #"(?<=\d)[-/](?=\d{1,4}[-/]\d)|(?<=\d[-/]\d{1,4})[-/](?=\d)"#, with: "dash", options: .regularExpression)
+        return result
+    }
+
+    /// Distinct people in participants ∪ attendees. Names are folded to word
+    /// sets; one name is the same person as another when its words are a subset
+    /// of the other's ("Martijn" ⊂ "Martijn de Hoogh"), while "Martijn de Hoogh"
+    /// and "Martijn Jansen" stay two. The user (an `isCurrentUser` attendee, or a
+    /// name matching one of the user's aliases or the current user's full name
+    /// this way) counts once; a nameless attendee counts by e-mail.
     private static func peopleCount(participants: [String], attendees: [MeetingAttendee], userAliases: [String]) -> Int {
-        let me = "\u{0}me"
-        let aliases = Set(userAliases.map(FuzzyText.normalized).filter { !$0.isEmpty })
-        var people = Set<String>()
-        func add(_ name: String, isCurrentUser: Bool = false) {
-            let folded = FuzzyText.normalized(name)
-            if isCurrentUser || aliases.contains(folded) {
-                people.insert(me)
-            } else if !folded.isEmpty {
-                people.insert(folded)
+        func words(_ name: String) -> Set<String> {
+            Set(FuzzyText.normalized(name).split(separator: " ").map(String.init))
+        }
+        func related(_ a: Set<String>, _ b: Set<String>) -> Bool {
+            a.isSubset(of: b) || b.isSubset(of: a)
+        }
+        var mine = userAliases.map(words).filter { !$0.isEmpty }
+        mine += attendees.filter(\.isCurrentUser).map { words($0.name) }.filter { !$0.isEmpty }
+
+        var userSeen = attendees.contains(where: \.isCurrentUser)
+        var others: [Set<String>] = []
+        func add(_ name: String) {
+            let w = words(name)
+            guard !w.isEmpty else { return }
+            if mine.contains(where: { related($0, w) }) {
+                userSeen = true
+            } else if let i = others.firstIndex(where: { related($0, w) }) {
+                if w.count > others[i].count { others[i] = w }
+            } else {
+                others.append(w)
             }
         }
-        participants.forEach { add($0) }
-        for attendee in attendees {
+        participants.forEach(add)
+        for attendee in attendees where !attendee.isCurrentUser {
             let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            add(name.isEmpty ? (attendee.email ?? "") : name, isCurrentUser: attendee.isCurrentUser)
+            add(name.isEmpty ? (attendee.email ?? "") : name)
         }
-        return people.count
+        return others.count + (userSeen ? 1 : 0)
     }
 }

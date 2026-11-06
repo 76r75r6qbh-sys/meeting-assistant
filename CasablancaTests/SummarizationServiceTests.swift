@@ -1439,7 +1439,7 @@ final class SummarizationServiceTests: XCTestCase {
         XCTAssertEqual(outcome.templateID, "general")
     }
 
-    func testBackgroundSummaryPersistsTheAutoSelectedTemplate() async throws {
+    func testBackgroundSummaryUsesButDoesNotStoreTheAutoSelectedTemplate() async throws {
         let stub = templateStub()
         let service = makeTemplateService(stub)
         let context = try makeTodoContext()
@@ -1449,7 +1449,7 @@ final class SummarizationServiceTests: XCTestCase {
 
         try await runInBackground(service, meeting, context)
 
-        XCTAssertEqual(meeting.summaryTemplateID, "one-on-one")
+        XCTAssertNil(meeting.summaryTemplateID, "auto-picked templates are not stored as overrides")
         XCTAssertTrue(try XCTUnwrap(stub.calls.first?.prompt).contains("## Hoe gaat het"))
     }
 
@@ -1760,6 +1760,50 @@ final class SummarizationServiceTests: XCTestCase {
     // MARK: - Rendered sections, stored items and proposed to-dos (Task 5)
 
     /// Kim's item due vrijdag at 00:10, Youri's at 00:20 without a due date.
+    // MARK: - Template override persistence
+
+    private let emptyFactsJSON = #"{"topics":[],"decisions":[],"action_items":[],"open_questions":[],"facts":[]}"#
+
+    func testAutoPickedTemplateIsNotStoredAndStaysRederivable() async throws {
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(notes(actionItems: []), json: emptyFactsJSON))])
+        let service = makeBackgroundService(stub)
+        let context = try makeTodoContext()
+        let meeting = makeFactsMeeting(speakers: false)
+        meeting.title = "Overleg"
+        context.insert(meeting)
+
+        try await runInBackground(service, meeting, context)
+        XCTAssertNil(meeting.summaryTemplateID)
+        let first = try await service.summarizeWithFacts(meeting: meeting)
+        XCTAssertEqual(first.templateID, "general")
+
+        meeting.title = "Daily"
+        try await runInBackground(service, meeting, context)
+        XCTAssertNil(meeting.summaryTemplateID)
+        let second = try await service.summarizeWithFacts(meeting: meeting)
+        XCTAssertEqual(second.templateID, "standup")
+    }
+
+    func testExplicitTemplateIsPersistedAndWinsNextTime() async throws {
+        let stub = StubLLMProvider(outcomes: [.success(SummaryFixtures.withFacts(notes(actionItems: []), json: emptyFactsJSON))])
+        let service = makeBackgroundService(stub)
+        let context = try makeTodoContext()
+        let meeting = makeFactsMeeting(speakers: false)
+        meeting.title = "Daily"
+        context.insert(meeting)
+
+        service.summarizeInBackground(meeting: meeting, modelContext: context, templateID: "workshop")
+        let deadline = Date().addingTimeInterval(5)
+        while service.isSummarizing, Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertEqual(meeting.summaryTemplateID, "workshop")
+
+        // A later run without an explicit id keeps the override, even though the title says standup.
+        try await runInBackground(service, meeting, context)
+        XCTAssertEqual(meeting.summaryTemplateID, "workshop")
+        let outcome = try await service.summarizeWithFacts(meeting: meeting)
+        XCTAssertEqual(outcome.templateID, "workshop")
+    }
+
     private let kimAndYouriJSON = #"""
     {"topics":["Offerte"],"decisions":[{"text":"We gaan door","quote":"we gaan door","timestamp":"00:05"}],"action_items":[{"task":"Mail de offerte","owner":"Kim","due":"vrijdag","due_is_explicit":true,"confidence":0.8,"quote":"ik mail de offerte","timestamp":"00:10"},{"task":"Plan de demo","owner":"Youri","due":null,"confidence":0.9,"quote":"prima","timestamp":"00:20"}],"open_questions":[],"facts":[]}
     """#
@@ -1811,7 +1855,7 @@ final class SummarizationServiceTests: XCTestCase {
 
             XCTAssertEqual(meeting.actionItems.count, 2, "every owner's item is stored on the meeting")
             XCTAssertEqual(meeting.actionItems.map(\.owner), ["Kim", "Youri"])
-            XCTAssertEqual(meeting.summaryTemplateID, "general")
+            XCTAssertNil(meeting.summaryTemplateID, "an auto-picked template is never stored as an override")
             let todos = try context.fetch(FetchDescriptor<TodoItem>())
             XCTAssertEqual(todos.map(\.text), ["Plan de demo"], "only the user's own item becomes a to-do")
             XCTAssertEqual(todos.first?.status, .proposed)

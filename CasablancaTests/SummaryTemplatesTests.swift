@@ -196,6 +196,27 @@ final class SummaryTemplatesTests: XCTestCase {
 
     private let me = MeetingAttendee(name: "Youri Broekhuizen", email: "youri@medicore.nl", isCurrentUser: true)
 
+    func testVersionAndDateTitlesAreNotOneOnOne() {
+        XCTAssertNotEqual(select("Sprint 1.1 review"), "one-on-one")
+        XCTAssertNotEqual(select("Wegiz 1.1"), "one-on-one")
+        XCTAssertNotEqual(select("Release 1-1-2026"), "one-on-one")
+        XCTAssertEqual(select("1:1 Martijn"), "one-on-one")
+        XCTAssertEqual(select("1-1 Martijn"), "one-on-one")
+        XCTAssertEqual(select("1op1 Martijn"), "one-on-one")
+    }
+
+    func testTwoPeopleDedupeByNamePrefix() {
+        let martijn = MeetingAttendee(name: "Martijn de Hoogh", email: "martijn@medicore.nl", isCurrentUser: false)
+        XCTAssertEqual(select("Afstemming", participants: ["Youri Broekhuizen", "Martijn"], attendees: [me, martijn]), "one-on-one")
+        XCTAssertEqual(select("Afstemming", participants: ["Youri", "Martijn"], attendees: [me, martijn]), "one-on-one")
+    }
+
+    func testSameFirstNameWithDifferentSurnamesAreTwoPeople() {
+        let hoogh = MeetingAttendee(name: "Martijn de Hoogh", email: "a@medicore.nl", isCurrentUser: false)
+        let jansen = MeetingAttendee(name: "Martijn Jansen", email: "b@medicore.nl", isCurrentUser: false)
+        XCTAssertEqual(select("Afstemming", attendees: [me, hoogh, jansen]), "general")
+    }
+
     func testBilaTitleIsOneOnOne() {
         XCTAssertEqual(select("Bila Martijn"), "one-on-one")
         XCTAssertEqual(select("1-op-1 Arriejanne"), "one-on-one")
