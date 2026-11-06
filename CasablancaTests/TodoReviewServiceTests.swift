@@ -647,6 +647,21 @@ final class TodoReviewServiceTests: XCTestCase {
         XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [early, late]) === early)
     }
 
+    /// Status ranks before the timestamp: an accepted row beats a proposed row
+    /// at the bullet's timestamp, so a checked-off item never turns back into
+    /// "In review" when a regenerated proposal carries the timestamp.
+    func testAcceptedRowBeatsAProposedRowAtTheBulletTimestamp() {
+        let accepted = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 200))
+        accepted.owner = "Kim"
+        let proposedAtTimestamp = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 100))
+        proposedAtTimestamp.owner = "Kim"
+        proposedAtTimestamp.sourceTimestamp = "00:20"
+        proposedAtTimestamp.status = .proposed
+        let bullet = "**Kim** — Plan de demo [00:20]"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [proposedAtTimestamp, accepted]) === accepted)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: [accepted, proposedAtTimestamp]) === accepted)
+    }
+
     /// An owner field that means "nobody" is the unassigned owner.
     func testUnassignedOwnerFieldMatchesTheUnassignedBullet() {
         for owner in ["?", "-", "unknown", "Onbekend", "***"] {

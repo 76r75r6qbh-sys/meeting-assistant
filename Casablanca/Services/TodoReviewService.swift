@@ -311,10 +311,10 @@ enum ActionItemTodoMatcher {
     /// prefix, or that action without the rendered ` (yyyy-MM-dd) [mm:ss]`
     /// suffix. Rejected to-dos never match. Among several matches: a row
     /// whose owner matches only by containment or a 60-character cut loses
-    /// to any other (equal tokens, a wildcard, an identical text); then a row
-    /// whose `sourceTimestamp` is the bullet's wins; then an accepted row over a proposed one, so a
-    /// checked item never shows "In review"; then the oldest row (then the
-    /// lowest id), whatever the order of `todos`.
+    /// to any other (equal tokens, a wildcard, an identical text); then an
+    /// accepted row beats a proposed one, so a checked item never shows
+    /// "In review"; then a row whose `sourceTimestamp` is the bullet's wins;
+    /// then the oldest row (then the lowest id), whatever the order of `todos`.
     static func matchingTodo(for text: String, in todos: [TodoItem]) -> TodoItem? {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = ActionItemOwnership.parse(target).action
@@ -353,10 +353,10 @@ enum ActionItemTodoMatcher {
         }
         return matches.min { a, b in
             if a.owner != b.owner { return a.owner < b.owner }
-            if a.sameTimestamp != b.sameTimestamp { return a.sameTimestamp }
             let rankA = a.todo.status == .accepted ? 0 : 1
             let rankB = b.todo.status == .accepted ? 0 : 1
             if rankA != rankB { return rankA < rankB }
+            if a.sameTimestamp != b.sameTimestamp { return a.sameTimestamp }
             if a.todo.createdAt != b.todo.createdAt { return a.todo.createdAt < b.todo.createdAt }
             return a.todo.id.uuidString < b.todo.id.uuidString
         }?.todo

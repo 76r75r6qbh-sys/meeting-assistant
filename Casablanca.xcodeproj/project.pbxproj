@@ -129,6 +129,10 @@
 		SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */; };
 		SPKB0021 /* TodoDecisionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0121 /* TodoDecisionLog.swift */; };
 		SPKB0022 /* TodoDecisionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0122 /* TodoDecisionLogTests.swift */; };
+		SPKB0026 /* TodoReviewLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0126 /* TodoReviewLayoutTests.swift */; };
+		SPKB0025 /* TodoReviewPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0125 /* TodoReviewPresentationTests.swift */; };
+		SPKB0024 /* TodoReviewStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0124 /* TodoReviewStrip.swift */; };
+		SPKB0023 /* TodoReviewRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKB0123 /* TodoReviewRow.swift */; };
 		ACPS0002 /* AudioClipPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0102 /* AudioClipPlayer.swift */; };
 		ACPS0003 /* SpeakerSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0103 /* SpeakerSettingsSection.swift */; };
 		ACPS0004 /* PrivacySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACPS0104 /* PrivacySettingsSection.swift */; };
@@ -464,6 +468,10 @@
 		SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateMenuLayoutTests.swift; sourceTree = "<group>"; };
 		SPKB0121 /* TodoDecisionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLog.swift; sourceTree = "<group>"; };
 		SPKB0122 /* TodoDecisionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDecisionLogTests.swift; sourceTree = "<group>"; };
+		SPKB0126 /* TodoReviewLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewLayoutTests.swift; sourceTree = "<group>"; };
+		SPKB0125 /* TodoReviewPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewPresentationTests.swift; sourceTree = "<group>"; };
+		SPKB0124 /* TodoReviewStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewStrip.swift; sourceTree = "<group>"; };
+		SPKB0123 /* TodoReviewRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoReviewRow.swift; sourceTree = "<group>"; };
 		ACPS0102 /* AudioClipPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipPlayer.swift; sourceTree = "<group>"; };
 		ACPS0103 /* SpeakerSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerSettingsSection.swift; sourceTree = "<group>"; };
 		ACPS0104 /* PrivacySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsSection.swift; sourceTree = "<group>"; };
@@ -963,6 +971,7 @@
 				B10800 /* NativeMarkdownEditor.swift */,
 				B10205 /* DeviceLanguageChip.swift */,
 				B10206 /* MeetingTodosPanel.swift */,
+				SPKB0123 /* TodoReviewRow.swift */,
 				B10207 /* BlockingProgressOverlay.swift */,
 				B10209 /* ExportAlertPresenter.swift */,
 				B10217 /* ProcessingStatusCard.swift */,
@@ -1006,6 +1015,8 @@
 				SPKB0120 /* SummaryTemplateMenuLayoutTests.swift */,
 				SPKB0114 /* TodoReviewServiceTests.swift */,
 				SPKB0122 /* TodoDecisionLogTests.swift */,
+				SPKB0126 /* TodoReviewLayoutTests.swift */,
+				SPKB0125 /* TodoReviewPresentationTests.swift */,
 				CHAT0104 /* MeetingChatServiceTests.swift */,
 				B10049 /* RecordingInterruptionMonitorTests.swift */,
 				B10700 /* RecordingSegmentMergerTests.swift */,
@@ -1105,6 +1116,7 @@
 				B10208 /* MeetingDetailPresentation.swift */,
 				B10211 /* MeetingDetailInspector.swift */,
 				B10212 /* MeetingSummaryTab.swift */,
+				SPKB0124 /* TodoReviewStrip.swift */,
 				B10213 /* MeetingTranscriptTab.swift */,
 				B10214 /* MeetingNotesTab.swift */,
 				CHAT0103 /* MeetingChatTab.swift */,
@@ -1306,11 +1318,13 @@
 				A10204 /* MeetingNotesHeader.swift in Sources */,
 				A10205 /* DeviceLanguageChip.swift in Sources */,
 				A10206 /* MeetingTodosPanel.swift in Sources */,
+				SPKB0023 /* TodoReviewRow.swift in Sources */,
 				A10207 /* BlockingProgressOverlay.swift in Sources */,
 				A10208 /* MeetingDetailPresentation.swift in Sources */,
 				A10209 /* ExportAlertPresenter.swift in Sources */,
 				A10211 /* MeetingDetailInspector.swift in Sources */,
 				A10212 /* MeetingSummaryTab.swift in Sources */,
+				SPKB0024 /* TodoReviewStrip.swift in Sources */,
 				A10213 /* MeetingTranscriptTab.swift in Sources */,
 				A10214 /* MeetingNotesTab.swift in Sources */,
 				A10220 /* SkeletonModifier.swift in Sources */,
@@ -1501,6 +1515,8 @@
 				SPKB0020 /* SummaryTemplateMenuLayoutTests.swift in Sources */,
 				SPKB0014 /* TodoReviewServiceTests.swift in Sources */,
 				SPKB0022 /* TodoDecisionLogTests.swift in Sources */,
+				SPKB0026 /* TodoReviewLayoutTests.swift in Sources */,
+				SPKB0025 /* TodoReviewPresentationTests.swift in Sources */,
 				CHAT0004 /* MeetingChatServiceTests.swift in Sources */,
 				CHAT0005 /* LLMPromptSupportTests.swift in Sources */,
 				A10049 /* RecordingInterruptionMonitorTests.swift in Sources */,

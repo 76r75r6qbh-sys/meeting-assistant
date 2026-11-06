@@ -1,4 +1,5 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
 struct MeetingSummaryTab: View {
@@ -47,6 +48,9 @@ struct MeetingSummaryTab: View {
 
             VStack(alignment: .leading, spacing: CasaSpace.xl) {
                 summaryHero(parsed)
+
+                // Proposed to-dos are reviewed here first (spec B6).
+                TodoReviewStrip(meeting: meeting)
 
                 if !parsed.decisions.isEmpty {
                     parsedSection("Decisions", systemImage: "diamond.fill") {
@@ -173,7 +177,13 @@ struct MeetingSummaryTab: View {
 
     @ViewBuilder
     private func actionItemsSection(_ texts: [String]) -> some View {
-        let doneCount = texts.filter { isActionItemCompleted($0) }.count
+        let todos = meeting.todos
+        let items = meeting.actionItems
+        let states = texts.map { TodoReviewPresentation.summaryBulletState(for: $0, todos: todos, items: items) }
+        let doneCount = states.filter { state in
+            if case .toggle(let todo?) = state { return todo.isCompleted }
+            return false
+        }.count
 
         VStack(alignment: .leading, spacing: CasaSpace.sm) {
             HStack(spacing: CasaSpace.xs) {
@@ -188,43 +198,74 @@ struct MeetingSummaryTab: View {
                     .foregroundStyle(Color.textTertiary)
             }
 
-            ForEach(Array(texts.enumerated()), id: \.offset) { _, text in
-                let match = matchingTodo(for: text)
-                let completed = match?.isCompleted ?? false
-                HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
-                    if match?.status == .proposed {
-                        // A proposal is reviewed first; it cannot be checked off yet.
-                        Text("In review")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.textSecondary)
-                            .padding(.horizontal, CasaSpace.xs)
-                            .padding(.vertical, 1)
-                            .background(Color.textTertiary.opacity(0.15), in: Capsule())
-                            .help("Proposed to-do, waiting for review")
-                            .accessibilityLabel("In review: \(text)")
-                    } else {
-                        Button {
-                            toggleActionItem(text)
-                        } label: {
-                            Image(systemName: completed ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
-                                .symbolEffect(.bounce, value: completed)
-                        }
-                        .buttonStyle(.borderless)
-                        .help(completed ? "Mark as not done" : "Mark as done")
-                        .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
-                    }
-
-                    Text(text)
-                        .font(.body)
-                        .strikethrough(completed)
-                        .foregroundStyle(completed ? Color.textTertiary : Color.textPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            ForEach(Array(zip(texts, states).enumerated()), id: \.offset) { _, pair in
+                actionItemRow(text: pair.0, state: pair.1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One action-item bullet: the completion toggle (accepted, or a legacy
+    /// meeting), the review state for a proposal (no toggle; the strip above
+    /// accepts, edits or rejects it), or another person's item read-only with
+    /// its owner and verification badge.
+    @ViewBuilder
+    private func actionItemRow(text: String, state: TodoReviewPresentation.SummaryBulletState) -> some View {
+        switch state {
+        case .review(let todo):
+            HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+                Text("In review")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.horizontal, CasaSpace.xs)
+                    .padding(.vertical, 1)
+                    .background(Color.textTertiary.opacity(0.15), in: Capsule())
+                    .help("Proposed to-do, waiting for review")
+                    .accessibilityLabel("In review: \(text)")
+                TodoVerificationBadge(badge: TodoReviewPresentation(todo: todo).badge)
+                Text(text)
+                    .font(.body)
+                    .foregroundStyle(Color.textPrimary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .readOnly(let owner, let action, let badge):
+            HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+                TodoVerificationBadge(badge: badge)
+                VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                    Text(action)
+                        .font(.body)
+                        .foregroundStyle(Color.textPrimary)
+                        .textSelection(.enabled)
+                    Text(owner ?? "Unassigned")
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityElement(children: .combine)
+        case .toggle(let todo):
+            let completed = todo?.isCompleted ?? false
+            HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+                Button {
+                    toggleActionItem(text)
+                } label: {
+                    Image(systemName: completed ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(completed ? Color.accentSuccess : Color.textTertiary)
+                        .symbolEffect(.bounce, value: completed)
+                }
+                .buttonStyle(.borderless)
+                .help(completed ? "Mark as not done" : "Mark as done")
+                .accessibilityLabel(completed ? "Completed: \(text)" : "Not completed: \(text)")
+
+                Text(text)
+                    .font(.body)
+                    .strikethrough(completed)
+                    .foregroundStyle(completed ? Color.textTertiary : Color.textPrimary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     @ViewBuilder
@@ -251,14 +292,12 @@ struct MeetingSummaryTab: View {
 
     // MARK: - Action item ↔ todo sync
 
-    /// The meeting `TodoItem` a parsed action item stands for; see
-    /// `ActionItemTodoMatcher` (accepted before proposed, rejected never).
+    /// The meeting `TodoItem` a parsed action item stands for, per
+    /// `ActionItemTodoMatcher`: rejected rows never match; among several,
+    /// a row whose owner only partly matches loses, then accepted beats
+    /// proposed, then a row at the bullet's timestamp wins, then the oldest.
     private func matchingTodo(for text: String) -> TodoItem? {
         ActionItemTodoMatcher.matchingTodo(for: text, in: meeting.todos)
-    }
-
-    private func isActionItemCompleted(_ text: String) -> Bool {
-        matchingTodo(for: text)?.isCompleted ?? false
     }
 
     /// Toggles a parsed action item's completion through the existing
@@ -269,6 +308,8 @@ struct MeetingSummaryTab: View {
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         do {
             if let todo = matchingTodo(for: text) {
+                // Proposals cannot be completed; the strip reviews them.
+                guard todo.status == .accepted else { return }
                 try ObsidianTodoSyncService.setCompleted(
                     !todo.isCompleted,
                     for: todo,

@@ -25,7 +25,8 @@ struct SidebarView: View {
     /// the old `@Query` that hydrated every meeting (transcripts included).
     var meetingsProvider: SidebarMeetingsProvider
     @Environment(AppModel.self) private var appModel
-    @Query(filter: #Predicate<TodoItem> { !$0.isCompleted }) private var openTodos: [TodoItem]
+    /// Accepted, open to-dos only (`TodoCounting`): proposals are not open to-dos.
+    @Query(filter: TodoCounting.openTodoPredicate) private var openTodos: [TodoItem]
     // @State drives List(selection:) directly — avoids @Bindable+@Observable binding issues
     @State private var selection: SidebarDestination? = .dashboard
     @State private var deletionErrorMessage: String?
