@@ -340,12 +340,6 @@ final class MeetingListViewModel {
     func deleteMeeting(_ meeting: Meeting) throws {
         guard let modelContext else { return }
 
-        // An edit just before the delete must not export afterwards: that
-        // would rewrite or recreate the deleted meeting's note or file. (The
-        // soft-delete grace period is covered by the export's own guard, so
-        // an Undo keeps the pending export.)
-        exportCoalescer.cancel(meeting.id)
-
         if let recordingPath = meeting.recordingFileURL {
             let recordingURL = URL(fileURLWithPath: recordingPath)
             do {
@@ -376,6 +370,11 @@ final class MeetingListViewModel {
         bestEffort("remove resumable recording session", Log.recording) {
             try removeResumableRecordingSession(meeting.id)
         }
+        // An edit just before the delete must not export afterwards: that
+        // would rewrite or recreate the deleted meeting's note or file.
+        // Cancelled only here, after the file removals that can throw, so a
+        // failed delete (meeting un-hidden) keeps its pending export.
+        exportCoalescer.cancel(meeting.id)
         modelContext.delete(meeting)
 
         if isSelectedMeeting {

@@ -263,6 +263,11 @@ struct SidebarView: View {
                 pendingDeletionTasks[id]?.cancel()
                 pendingDeletionTasks[id] = nil
                 viewModel.undoSoftDelete(id)
+                // An edit made just before the delete was skipped while the
+                // meeting was pending deletion; export it again now.
+                MeetingExportCoalescer.shared.scheduleAutomaticExport(
+                    of: meeting, reporter: appModel.exportStatusCenter
+                )
             },
             duration: 6
         )

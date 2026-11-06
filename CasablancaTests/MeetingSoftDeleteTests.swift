@@ -148,6 +148,7 @@ final class MeetingSoftDeleteTests: XCTestCase {
         coalescer.scheduleAutomaticExport(of: meeting, reporter: nil) { _, _, _ in exported += 1 }
         vm.beginSoftDelete(meeting.id)
         try vm.commitSoftDelete(meeting)
+        XCTAssertTrue(coalescer.isIdle, "The delete cancels the pending export")
         coalescer.flushAndWait(timeout: 5)
 
         XCTAssertEqual(exported, 0)
