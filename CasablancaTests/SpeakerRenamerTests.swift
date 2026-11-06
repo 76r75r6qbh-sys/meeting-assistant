@@ -223,13 +223,17 @@ final class SpeakerRenamerTests: XCTestCase {
 
     func testRenamesNeverLeaveTwoSpeakersWithOneName() throws {
         let meeting = makeMeeting(
-            transcript: "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two.\n[00:09] Speaker 3: Three.",
-            speakers: [cluster("S1", "Speaker 1"), cluster("S2", "Speaker 2"), cluster("S3", "Speaker 3")]
+            transcript: "[00:00] Speaker 1: One.\n[00:05] Speaker 2: Two.\n[00:09] Speaker 3: Three.\n[00:12] Speaker 4: Four.",
+            speakers: [cluster("S1", "Speaker 1"), cluster("S2", "Speaker 2"), cluster("S3", "Speaker 3"), cluster("S4", "Speaker 4")]
         )
 
         try SpeakerRenamer.rename(speakerID: "S1", to: "Kim", in: meeting, store: store)
         XCTAssertTrue(try SpeakerRenamer.rename(speakerID: "S2", to: "KIM", in: meeting, store: store), "Kim is confirmed: merge")
-        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S3", to: "Speaker 1", in: meeting, store: store))
+        // S4 still carries its placeholder label: taking it is a clash, not a merge.
+        XCTAssertThrowsError(try SpeakerRenamer.rename(speakerID: "S3", to: "Speaker 4", in: meeting, store: store))
+        // "Speaker 1" was freed when S1 became Kim, so taking it is allowed.
+        XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S3", to: "Speaker 1", in: meeting, store: store))
+        XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S3", to: "Speaker 3", in: meeting, store: store))
         // Renaming a speaker to (a case variant of) its own name is not a clash.
         XCTAssertFalse(try SpeakerRenamer.rename(speakerID: "S3", to: "speaker 3", in: meeting, store: store))
 
