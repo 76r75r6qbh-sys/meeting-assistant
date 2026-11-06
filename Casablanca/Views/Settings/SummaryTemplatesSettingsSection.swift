@@ -178,6 +178,9 @@ struct SummaryTemplatesSettingsSection: View {
         selectedID = template.id
         draftName = template.name
         draftPrompt = template.prompt
+        // The draft now equals the store, so an earlier own write must not mask
+        // a later external change back to that same value.
+        lastWritten[template.id] = nil
     }
 
     /// Saves only real edits, so loading a template never rewrites it.
