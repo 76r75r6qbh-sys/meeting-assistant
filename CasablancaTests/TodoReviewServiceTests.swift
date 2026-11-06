@@ -610,6 +610,61 @@ final class TodoReviewServiceTests: XCTestCase {
         XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Urgent** — bel Kim [12:34]", in: [row]))
     }
 
+    /// A row that stores only the action (its bold text is emphasis, not an
+    /// owner) is a wildcard under the timestamp guard; only a row storing the
+    /// whole bullet owns its prefix.
+    func testActionOnlyRowDoesNotOwnItsBoldPrefix() {
+        // Unassigned item `**Urgent:** bel Kim` [12:34] → row text = task, owner nil.
+        let row = TodoItem(text: "**Urgent:** bel Kim")
+        row.sourceTimestamp = "12:34"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**?** — **Urgent:** bel Kim [12:34]", in: [row]) === row)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**?** — **Urgent:** bel Kim [05:00]", in: [row]),
+                     "still under the timestamp guard")
+        // A pre-Task-10 whole-bullet row keeps using its prefix.
+        let legacy = TodoItem(text: "**Kim** — Plan de demo")
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [legacy]) === legacy)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Youri** — Plan de demo [00:20]", in: [legacy]))
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**?** — Plan de demo [00:20]", in: [legacy]))
+    }
+
+    /// Among rows of the same text, an exact owner beats a contained one,
+    /// whatever their age; then an equal timestamp wins.
+    func testExactOwnerAndTimestampWinTheSelection() {
+        let jansen = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 100))
+        jansen.owner = "Kim Jansen"
+        let kim = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 200))
+        kim.owner = "Kim"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [jansen, kim]) === kim)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim Jansen** — Plan de demo", in: [kim, jansen]) === jansen)
+
+        let early = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 100))
+        early.owner = "Kim"
+        early.sourceTimestamp = "00:20"
+        let late = TodoItem(text: "Plan de demo", createdAt: Date(timeIntervalSince1970: 200))
+        late.owner = "Kim"
+        late.sourceTimestamp = "05:00"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [05:00]", in: [early, late]) === late)
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [early, late]) === early)
+    }
+
+    /// An owner field that means "nobody" is the unassigned owner.
+    func testUnassignedOwnerFieldMatchesTheUnassignedBullet() {
+        for owner in ["?", "-", "unknown", "Onbekend", "***"] {
+            let row = TodoItem(text: "Plan de demo")
+            row.owner = owner
+            XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**?** — Plan de demo [00:20]", in: [row]) === row, owner)
+            XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [row]), owner)
+        }
+    }
+
+    /// Timestamps compare as seconds: `0:20` is `00:20`.
+    func testTimestampsCompareAsSeconds() {
+        let row = TodoItem(text: "Plan de demo")
+        row.sourceTimestamp = "0:20"
+        XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:20]", in: [row]) === row)
+        XCTAssertNil(ActionItemTodoMatcher.matchingTodo(for: "**Kim** — Plan de demo [00:21]", in: [row]))
+    }
+
     /// No prefix is a wildcard; `**?**` is the unassigned owner.
     func testBulletWithoutOwnerPrefixIsAWildcard() {
         let kimRow = TodoItem(text: "**Kim** — Plan de demo [00:20]")
