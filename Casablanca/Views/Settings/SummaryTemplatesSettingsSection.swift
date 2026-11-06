@@ -30,6 +30,20 @@ enum SummaryTemplateSettingsEditing {
         }
         SummaryTemplateStore.save(edited, in: defaults)
     }
+
+    /// Whether the stored template changed somewhere else (the legacy prompt
+    /// editor, another window) and the draft should show it. Our own write
+    /// notifies us too, possibly after the user typed on; then the store still
+    /// equals `lastWritten` and reloading would drop the newer keystrokes.
+    static func shouldReload(stored: SummaryTemplate, draft: SummaryTemplate, lastWritten: SummaryTemplate?) -> Bool {
+        stored != draft && stored != lastWritten
+    }
+
+    /// The name field's text once editing ends: a blank custom name was saved
+    /// as the stored name, so show that again.
+    static func committedName(draft: String, stored: SummaryTemplate) -> String {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? stored.name : draft
+    }
 }
 
 /// Settings → AI → Summary Templates: the templates (built-ins first, then the
@@ -46,6 +60,9 @@ struct SummaryTemplatesSettingsSection: View {
     @State private var draftName = ""
     @State private var draftPrompt = ""
     @State private var didLoad = false
+    /// What this view last saved, per template id, as the store resolved it.
+    @State private var lastWritten: [String: SummaryTemplate] = [:]
+    @FocusState private var isNameFocused: Bool
 
     private var defaults: UserDefaults { .standard }
 
@@ -64,6 +81,8 @@ struct SummaryTemplatesSettingsSection: View {
             }
 
             TextField("Name", text: $draftName)
+                .focused($isNameFocused)
+                .onSubmit { commitName() }
                 .disabled(selected.isBuiltIn)
                 .help(selected.isBuiltIn ? "Built-in templates keep their name" : "")
 
@@ -92,6 +111,9 @@ struct SummaryTemplatesSettingsSection: View {
         }
         .onChange(of: draftName) { _, _ in saveDraft() }
         .onChange(of: draftPrompt) { _, _ in saveDraft() }
+        .onChange(of: isNameFocused) { _, focused in
+            if !focused { commitName() }
+        }
         .onChange(of: legacyPrompt) { _, _ in reloadIfChangedElsewhere() }
         .onChange(of: storedTemplates) { _, _ in reloadIfChangedElsewhere() }
     }
@@ -163,17 +185,36 @@ struct SummaryTemplatesSettingsSection: View {
         guard didLoad else { return }
         let saved = SummaryTemplateStore.template(id: selectedID, in: defaults)
         guard saved.id == selectedID, draftName != saved.name || draftPrompt != saved.prompt else { return }
-        SummaryTemplateSettingsEditing.apply(
-            SummaryTemplate(id: saved.id, name: draftName, prompt: draftPrompt, isBuiltIn: saved.isBuiltIn),
-            in: defaults
-        )
+        SummaryTemplateSettingsEditing.apply(draft(isBuiltIn: saved.isBuiltIn), in: defaults)
+        lastWritten[saved.id] = SummaryTemplateStore.template(id: saved.id, in: defaults)
     }
 
-    /// The other editor (or another window) changed the selected template:
-    /// show its text. Our own saves leave the draft equal, so nothing reloads.
+    private func draft(isBuiltIn: Bool) -> SummaryTemplate {
+        SummaryTemplate(id: selectedID, name: draftName, prompt: draftPrompt, isBuiltIn: isBuiltIn)
+    }
+
+    /// A blank custom name was saved as the stored name; show it again.
+    private func commitName() {
+        let stored = SummaryTemplateStore.template(id: selectedID, in: defaults)
+        guard stored.id == selectedID else { return }
+        let name = SummaryTemplateSettingsEditing.committedName(draft: draftName, stored: stored)
+        if name != draftName { draftName = name }
+    }
+
+    /// Another editor (or window) changed the selected template, or deleted
+    /// it: show the stored version. Notifications of our own saves are ignored
+    /// (see `SummaryTemplateSettingsEditing.shouldReload`).
     private func reloadIfChangedElsewhere() {
-        let saved = SummaryTemplateStore.template(id: selectedID, in: defaults)
-        if saved.id != selectedID || saved.prompt != draftPrompt {
+        let stored = SummaryTemplateStore.template(id: selectedID, in: defaults)
+        guard stored.id == selectedID else {
+            loadDraft()
+            return
+        }
+        if SummaryTemplateSettingsEditing.shouldReload(
+            stored: stored,
+            draft: draft(isBuiltIn: stored.isBuiltIn),
+            lastWritten: lastWritten[stored.id]
+        ) {
             loadDraft()
         }
     }

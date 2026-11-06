@@ -39,20 +39,56 @@ struct SummaryTemplateMenu: View {
     let onPick: (String) -> Void
 
     @Environment(AppModel.self) private var appModel
-    // Observed only so an edit in Settings re-renders the names.
     @AppStorage(AppPreferenceKey.summaryTemplates) private var storedTemplates = ""
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var legacyPrompt = SummarizationService.defaultPromptTemplate
 
+    /// The templates and the auto pick, computed off the render path: the auto
+    /// pick reads the calendar event (EventKit) and the templates decode JSON.
+    /// Refreshed whenever an input of either changes.
+    @State private var resolved: Resolved?
+
+    private struct Resolved {
+        let templates: [SummaryTemplate]
+        let autoID: String
+    }
+
+    /// Everything `resolved` depends on: the selector's inputs and both
+    /// template settings keys. (User name aliases are not observed; they only
+    /// change in Settings, and the next refresh picks them up.)
+    private struct RefreshKey: Equatable {
+        let title: String
+        let calendarEventID: String?
+        let participants: [String]
+        let storedTemplates: String
+        let legacyPrompt: String
+    }
+
     var body: some View {
-        let service = appModel.summarizationService
+        // Until the first refresh has run, resolve once inline so the first
+        // frame already shows the right "(auto)" name instead of a placeholder.
+        let current = resolved ?? resolve()
         SummaryTemplateMenuContent(
             presentation: SummaryTemplateMenuPresentation(
-                templates: service.summaryTemplates(),
+                templates: current.templates,
                 currentID: meeting.summaryTemplateID,
-                autoID: service.autoTemplateID(for: meeting)
+                autoID: current.autoID
             ),
             onPick: onPick
         )
+        .task(id: RefreshKey(
+            title: meeting.title,
+            calendarEventID: meeting.calendarEventID,
+            participants: meeting.participants,
+            storedTemplates: storedTemplates,
+            legacyPrompt: legacyPrompt
+        )) {
+            resolved = resolve()
+        }
+    }
+
+    private func resolve() -> Resolved {
+        let service = appModel.summarizationService
+        return Resolved(templates: service.summaryTemplates(), autoID: service.autoTemplateID(for: meeting))
     }
 }
 

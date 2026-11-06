@@ -402,4 +402,37 @@ final class SummaryTemplatesTests: XCTestCase {
         SummaryTemplateSettingsEditing.apply(custom, in: defaults)
         XCTAssertEqual(SummaryTemplateStore.template(id: custom.id, in: defaults).name, "New template")
     }
+
+    // MARK: - Settings draft sync (Task 9, fix round 1)
+
+    /// Our own save notifies us after the user typed on: the store still holds
+    /// what we wrote, the draft is newer. Reloading would drop the keystroke.
+    func testOwnWriteFollowedByANewerDraftDoesNotReload() {
+        let written = SummaryTemplate(id: "general", name: "General", prompt: "ab", isBuiltIn: true)
+        let draft = SummaryTemplate(id: "general", name: "General", prompt: "abc", isBuiltIn: true)
+        XCTAssertFalse(SummaryTemplateSettingsEditing.shouldReload(stored: written, draft: draft, lastWritten: written))
+    }
+
+    func testAnExternalChangeReloads() {
+        let written = SummaryTemplate(id: "general", name: "General", prompt: "ab", isBuiltIn: true)
+        let draft = SummaryTemplate(id: "general", name: "General", prompt: "abc", isBuiltIn: true)
+        let external = SummaryTemplate(id: "general", name: "General", prompt: "from the legacy editor", isBuiltIn: true)
+        XCTAssertTrue(SummaryTemplateSettingsEditing.shouldReload(stored: external, draft: draft, lastWritten: written))
+        // Nothing written yet by this view: any difference is external.
+        XCTAssertTrue(SummaryTemplateSettingsEditing.shouldReload(stored: external, draft: draft, lastWritten: nil))
+    }
+
+    func testStoredEqualToTheDraftNeverReloads() {
+        let draft = SummaryTemplate(id: "custom-1", name: "Demo", prompt: "p", isBuiltIn: false)
+        XCTAssertFalse(SummaryTemplateSettingsEditing.shouldReload(stored: draft, draft: draft, lastWritten: nil))
+    }
+
+    /// A blank custom name is stored as the saved name; the field shows it
+    /// again once editing ends.
+    func testCommittedNameRestoresTheStoredNameForABlankDraft() {
+        let stored = SummaryTemplate(id: "custom-1", name: "Klantdemo", prompt: "p", isBuiltIn: false)
+        XCTAssertEqual(SummaryTemplateSettingsEditing.committedName(draft: "   ", stored: stored), "Klantdemo")
+        XCTAssertEqual(SummaryTemplateSettingsEditing.committedName(draft: "Nieuw", stored: stored), "Nieuw")
+        XCTAssertEqual(SummaryTemplateSettingsEditing.committedName(draft: "", stored: stored), "Klantdemo")
+    }
 }
