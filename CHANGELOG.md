@@ -2,6 +2,34 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Casablanca now knows who said what, writes summaries from structured facts with a source for every action item, and lets you approve to-dos before they reach Obsidian. Based on a comparison with Granola, Otter, Fireflies, Teams Copilot and recent research (see `docs/research/2026-11-05-transcription-diarization-summary-best-practices.md`).
+
+### Added
+
+- **Speakers.** The microphone and the call audio are kept as separate tracks, so the transcript marks your own lines ("Me") apart from the others. Lines from the call that leak into the microphone are attributed to the call. On macOS 15 and later, the other voices are told apart on this Mac (FluidAudio with the pyannote community-1 models; see *Licences* below), as "Speaker 1", "Speaker 2", and so on. In a room meeting with one microphone, everyone becomes a room speaker. Rename a speaker in the speakers bar above the transcript and listen to a short sample of their voice. Giving two speakers the same name merges them. "Suggest names" asks the summary model to propose names from the calendar attendees and what was said; this is a button, and automatic suggestions are off by default, so transcript excerpts never go to a model without you asking.
+- **Action items with a source.** Every action item now carries an owner, a due date (relative dates such as "vrijdag" become a date), a quote and a `[mm:ss]` timestamp. A second check compares each item with the transcript and marks it *supported*, *unsupported* or *not checked*.
+- **Approve to-dos before they sync.** New to-dos are *proposed*: review them in the strip at the top of the summary, in *To-dos → Review*, or in the meeting panel. Accept, edit or reject each one, or *Accept all verified*. Only accepted to-dos are written to Obsidian, exported or counted. *Settings → Action Items → Auto-accept verified to-dos* (off by default) accepts items the transcript supports. Your decisions are logged on this Mac (Application Support/Casablanca/feedback) to measure quality; the log can be deleted in Settings, and deleting a meeting removes its entries.
+- **Clickable timestamps.** Every `[mm:ss]` in a summary, to-do or Ask answer jumps to that line in the transcript and plays the recording from there. The transcript has a small play/pause bar.
+- **Summary templates per meeting type.** General, 1:1 / bilateral, Stand-up, Refinement / planning, Workshop and External / partner are picked automatically from the title and the attendees. Change the template with *Regenerate with…*, and edit or add templates in *Settings → Summary Templates*. After you rename speakers, the meeting offers to regenerate the summary with the new names.
+- **Ask across meetings.** Ask a question over all your meetings, for example "what did we agree with Prakikon?". The answer cites the meetings and timestamps it is based on. Search runs on this Mac; only the selected passages go to your summary model.
+- **Voice profiles (off by default).** With your colleague's explicit consent, save their voice once; Casablanca then suggests their name in later meetings. A voice profile is biometric personal data (GDPR/AVG art. 9). It is stored only on this Mac, encrypted (AES-GCM, key in the Keychain), and used only for suggestions. Turning the setting off deletes all profiles and their suggestions. Within an organisation, do a DPIA first.
+- **Export for evaluation.** *File → Export Meeting for Evaluation…* writes the meeting as JSON for the `tools/eval` scorer, which measures the recall and precision of action items against a hand-made gold set.
+
+### Changed
+
+- **Summaries always start from structured facts.** Decisions, action items and open questions are extracted first (per part for long meetings, also with Claude Code), and the summary is written from them. If the model's JSON is unusable, Casablanca repairs it once and otherwise falls back to the previous method, never silently with fewer action items.
+- **Your prep and notes guide the summary.** They are sent as "what I find important". The attendee list marks you and includes e-mail addresses.
+- **Whisper gets your terminology as a prompt** (the most important terms, within Whisper's 224-token limit), and word timestamps are on so speakers line up with the words. New installs default to `large-v3`; existing installs keep their model. *Measurements of WER and speed on this Mac follow after on-device testing.*
+- **A custom General prompt** still applies to General meetings. Meetings that auto-select another template (1:1 / bilateral, Stand-up, External / partner) now use that template; choose *Regenerate with… → General* to use your own prompt, or edit the other templates.
+- The old *Customize Prompt…* editor in Settings is replaced by *Settings → Summary Templates* (General edits the same prompt).
+- Automatic exports of one meeting are combined and never overlap, so rapid edits or accepts no longer risk duplicate Apple Notes. Quitting finishes pending exports.
+
+### Licences
+
+Speaker separation uses [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0) and the pyannote speaker-diarization-community-1 models (segmentation, WeSpeaker embedding and PLDA by BUT Speech@FIT), converted to Core ML by Fluid Inference and licensed [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). About 22 MB, downloaded once from Hugging Face; audio never leaves this Mac.
+
 ## [0.20.0] — 2026-11-05
 
 Teams auto-record now knows which call it is recording. An ad-hoc 1:1 taken during a calendar item no longer ends up in that item's meeting, and a call that follows another without a break is recorded too.
