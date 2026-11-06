@@ -185,8 +185,10 @@ final class AskCitationsTests: XCTestCase {
             XCTAssertEqual(found.first?.timeLabel, time)
             XCTAssertEqual(found.first?.target, AskCitationTarget(meetingID: id, seconds: nil), time)
         }
-        XCTAssertEqual(AskCitations.seconds(fromTimeLabel: "59:59"), 3599)
-        XCTAssertEqual(AskCitations.seconds(fromTimeLabel: "1:59:59"), 7199)
+        for (time, seconds) in [("59:59", 3599.0), ("1:59:59", 7199.0)] {
+            let found = citations(AskCitations.segments(in: "[T, 2026-11-03, \(time)]", sources: sources))
+            XCTAssertEqual(found.first?.target, AskCitationTarget(meetingID: id, seconds: seconds), time)
+        }
     }
 
     func testUnterminatedAndNestedBracketsStayText() {

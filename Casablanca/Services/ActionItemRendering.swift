@@ -35,17 +35,25 @@ enum ActionItemRendering {
     /// `TranscriptLineFormat` can read) and then a trailing ` (yyyy-MM-dd)`.
     /// Anything else, such as `Bel [Kim]`, is left alone.
     static func strippingSuffix(_ action: String) -> String {
+        splittingSuffix(action).action
+    }
+
+    /// `strippingSuffix`'s result together with the timestamp label it took
+    /// off (without brackets), or `nil` when there was none.
+    static func splittingSuffix(_ action: String) -> (action: String, timestamp: String?) {
         var text = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        var timestamp: String?
         if let range = text.range(of: #" \[[0-9:]+\]$"#, options: .regularExpression) {
             let label = String(text[range].dropFirst(2).dropLast())
             if TranscriptLineFormat.seconds(fromLabel: label) != nil {
                 text.removeSubrange(range)
+                timestamp = label
             }
         }
         if let range = text.range(of: #" \(\d{4}-\d{2}-\d{2}\)$"#, options: .regularExpression) {
             text.removeSubrange(range)
         }
-        return text
+        return (text, timestamp)
     }
 
     // MARK: - Sections

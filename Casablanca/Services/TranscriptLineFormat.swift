@@ -72,7 +72,10 @@ enum TranscriptLineFormat {
     /// Seconds for a `mm:ss` or `h:mm:ss` label; `nil` if it is neither.
     /// Grammar: the first component has 1–2 digits, every later one exactly 2
     /// (`5:07`, `12:34`, `1:02:03`, `10:02:03`), so the sum can never overflow.
-    static func seconds(fromLabel label: String) -> Double? {
+    /// `strict` also requires the minutes and seconds to be < 60 (in `mm:ss`
+    /// the first field is minutes; hours are unbounded), for labels a model
+    /// cites (`99:99`, `1:60:00`); the default accepts them, as it always did.
+    static func seconds(fromLabel label: String, strict: Bool = false) -> Double? {
         let parts = label.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2 || parts.count == 3,
               parts.allSatisfy({ $0.allSatisfy(\.isASCIIDigit) }),
@@ -81,6 +84,10 @@ enum TranscriptLineFormat {
         else { return nil }
         let values = parts.compactMap { Int($0) }
         guard values.count == parts.count else { return nil }
+        if strict {
+            let bounded = values.count == 2 ? values[...] : values.dropFirst()
+            guard bounded.allSatisfy({ $0 < 60 }) else { return nil }
+        }
         let total = values.reduce(0) { $0 * 60 + $1 }
         return Double(total)
     }

@@ -174,6 +174,21 @@ final class TranscriptLineFormatTests: XCTestCase {
         XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "10:02:03"), 36123)
     }
 
+    /// Strict: minutes and seconds must be < 60 (in `mm:ss` the first field
+    /// is minutes); hours are unbounded. Non-strict stays as it was.
+    func testStrictSecondsBoundMinutesAndSeconds() {
+        for label in ["99:99", "60:00", "12:60", "1:60:00", "1:00:60", "garbage", "[03:10]"] {
+            XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: label, strict: true), label)
+        }
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "03:10", strict: true), 190)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "59:59", strict: true), 3599)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "1:59:59", strict: true), 7199)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "99:02:03", strict: true), 356_523, "hours are unbounded")
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "99:99"), 6039, "non-strict is unchanged")
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "99:99", strict: false), 6039)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "1:60:00"), 7200)
+    }
+
     func testRenameLeavesOverflowingLabelLineUnchanged() {
         let transcript = "[999999999999999999:1] Spreker 1: x\n[00:02] Spreker 1: y"
         XCTAssertEqual(

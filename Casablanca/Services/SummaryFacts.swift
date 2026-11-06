@@ -110,14 +110,18 @@ struct SummaryFacts: Equatable {
 
     /// Facts recovered from a markdown-only summary: action items from the
     /// Action Items section (`**owner** — action`), decisions from Decisions.
+    /// A bullet in the rendered format loses its ` (yyyy-MM-dd) [mm:ss]`
+    /// suffix (`ActionItemRendering.strippingSuffix`); the timestamp is kept
+    /// on the item.
     static func fromMarkdown(_ parsed: SummaryResponseParser.ParsedResponse) -> SummaryFacts {
         var facts = SummaryFacts.empty
         for line in parsed.todoTexts {
             let item = ActionItemOwnership.parse(line)
-            guard !item.action.isEmpty else { continue }
+            let (task, timestamp) = ActionItemRendering.splittingSuffix(item.action)
+            guard !task.isEmpty else { continue }
             facts.actionItems.append(ExtractedActionItem(
-                task: item.action, owner: sanitizedOwner(item.owner), due: nil, dueIsExplicit: false,
-                confidence: 0.5, quote: nil, timestamp: nil, verified: .unverified, verificationReason: nil))
+                task: task, owner: sanitizedOwner(item.owner), due: nil, dueIsExplicit: false,
+                confidence: 0.5, quote: nil, timestamp: timestamp, verified: .unverified, verificationReason: nil))
         }
         for text in parsed.decisions {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

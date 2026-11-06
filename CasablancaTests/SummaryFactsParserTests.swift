@@ -215,6 +215,27 @@ final class SummaryFactsParserTests: XCTestCase {
         XCTAssertEqual(facts.decisions, [ExtractedDecision(text: "We gaan voor B")])
     }
 
+    /// Fallback bullets in the rendered format lose the ` (yyyy-MM-dd) [mm:ss]`
+    /// suffix from the task; the timestamp stays on the item.
+    func testFromMarkdownStripsTheRenderedSuffixAndKeepsTheTimestamp() {
+        let parsed = SummaryResponseParser.ParsedResponse(
+            summary: "", decisions: [],
+            todoTexts: [
+                "**Kim** — Stuur offerte (2026-11-06) [12:34]",
+                "**Youri** — Lang overleg [1:02:03]",
+                "**?** — Spec sturen (2026-11-12)",
+                "Bel [Kim]",
+            ],
+            risks: [], followUps: [], rawMarkdown: "")
+        let facts = SummaryFacts.fromMarkdown(parsed)
+        XCTAssertEqual(facts.actionItems, [
+            item("Stuur offerte", owner: "Kim", timestamp: "12:34"),
+            item("Lang overleg", owner: "Youri", timestamp: "1:02:03"),
+            item("Spec sturen"),
+            item("Bel [Kim]"),
+        ])
+    }
+
     func testNotesMarkdownHeadingsAndTimestamps() {
         let facts = SummaryFacts(
             topics: ["Planning"],

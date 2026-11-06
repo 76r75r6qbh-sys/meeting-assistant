@@ -358,19 +358,13 @@ enum ActionItemVerifier {
     }
 
     /// Seconds for an item's cited timestamp (`mm:ss` or `h:mm:ss`, optionally
-    /// in brackets), or nil when it is missing or out of range: every
-    /// component after the first, and `mm` of a `mm:ss` label, must be < 60
-    /// (``TranscriptLineFormat/seconds(fromLabel:)`` alone accepts `99:99`).
-    static func itemSeconds(_ timestamp: String?) -> Double? {
+    /// in brackets), or nil when it is missing or out of range (strict).
+    private static func itemSeconds(_ timestamp: String?) -> Double? {
         guard var label = timestamp?.trimmingCharacters(in: .whitespaces) else { return nil }
         if label.hasPrefix("["), label.hasSuffix("]"), label.count >= 2 {
             label = String(label.dropFirst().dropLast())
         }
-        guard let seconds = TranscriptLineFormat.seconds(fromLabel: label) else { return nil }
-        let parts = label.split(separator: ":").compactMap { Int($0) }
-        let bounded = parts.count == 2 ? parts : Array(parts.dropFirst())
-        guard bounded.allSatisfy({ $0 < 60 }) else { return nil }
-        return seconds
+        return TranscriptLineFormat.seconds(fromLabel: label, strict: true)
     }
 
     private enum QuoteCheck {

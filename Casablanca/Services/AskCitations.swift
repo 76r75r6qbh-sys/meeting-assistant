@@ -134,18 +134,11 @@ enum AskCitations {
         let date = String(part[dateRange])
         let time = Range(match.range(at: 3), in: part).map { String(part[$0]) }
         let target = resolver.meetingID(title: title, dateLabel: date).map { meetingID in
-            AskCitationTarget(meetingID: meetingID, seconds: time.flatMap(seconds(fromTimeLabel:)))
+            // An out-of-range time (`99:99`) still resolves the meeting;
+            // only the jump time is dropped.
+            AskCitationTarget(meetingID: meetingID, seconds: time.flatMap { TranscriptLineFormat.seconds(fromLabel: $0, strict: true) })
         }
         return AskCitation(title: title, dateLabel: date, timeLabel: time, target: target)
-    }
-
-    /// `TranscriptLineFormat.seconds(fromLabel:)`, but `nil` when a minutes
-    /// (in `h:mm:ss`) or seconds field is 60 or more (`99:99`). Such a
-    /// citation still resolves its meeting; only the jump time is dropped.
-    static func seconds(fromTimeLabel label: String) -> Double? {
-        let fields = label.split(separator: ":").dropFirst()
-        guard fields.allSatisfy({ (Int($0) ?? 60) < 60 }) else { return nil }
-        return TranscriptLineFormat.seconds(fromLabel: label)
     }
 
     /// Resolution against the prompt's sources only: exact match on folded

@@ -161,11 +161,11 @@ final class ActionItemVerifierTests: XCTestCase {
     }
 
     func testOutOfRangeItemTimestampIsIgnored() {
-        XCTAssertNil(ActionItemVerifier.itemSeconds("99:99"))
-        XCTAssertNil(ActionItemVerifier.itemSeconds("1:60:00"))
-        XCTAssertNil(ActionItemVerifier.itemSeconds("garbage"))
-        XCTAssertEqual(ActionItemVerifier.itemSeconds("03:10"), 190)
-        XCTAssertEqual(ActionItemVerifier.itemSeconds("[1:02:03]"), 3723)
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "99:99", strict: true))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "1:60:00", strict: true))
+        XCTAssertNil(TranscriptLineFormat.seconds(fromLabel: "garbage", strict: true))
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "03:10", strict: true), 190)
+        XCTAssertEqual(TranscriptLineFormat.seconds(fromLabel: "1:02:03", strict: true), 3723)
         for (name, index) in Self.indexes {
             let input = facts(items: [item("Offerte", quote: "Ik stuur de offerte vrijdag naar Kim", timestamp: "99:99")])
             let (out, claims) = ActionItemVerifier.precheck(input, index: index)

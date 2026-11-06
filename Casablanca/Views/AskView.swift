@@ -322,7 +322,7 @@ struct AskView: View {
                     Button {
                         onOpenCitation(AskCitationTarget(
                             meetingID: source.meetingID,
-                            seconds: source.timeLabel.flatMap(TranscriptLineFormat.seconds(fromLabel:))
+                            seconds: source.timeLabel.flatMap { TranscriptLineFormat.seconds(fromLabel: $0) }
                         ))
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
