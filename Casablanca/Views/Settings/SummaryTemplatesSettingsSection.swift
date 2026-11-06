@@ -31,8 +31,8 @@ enum SummaryTemplateSettingsEditing {
         SummaryTemplateStore.save(edited, in: defaults)
     }
 
-    /// Whether the stored template changed somewhere else (the legacy prompt
-    /// editor, another window) and the draft should show it. Our own write
+    /// Whether the stored template changed somewhere else (another window)
+    /// and the draft should show it. Our own write
     /// notifies us too, possibly after the user typed on; then the store still
     /// equals `lastWritten` and reloading would drop the newer keystrokes.
     static func shouldReload(stored: SummaryTemplate, draft: SummaryTemplate, lastWritten: SummaryTemplate?) -> Bool {
@@ -48,10 +48,11 @@ enum SummaryTemplateSettingsEditing {
 
 /// Settings → AI → Summary Templates: the templates (built-ins first, then the
 /// user's own), with the selected one's name and prompt editable. Every edit is
-/// saved as it is typed. General is the same text as the "Customize Prompt…"
-/// editor (both use `summaryPromptTemplate`).
+/// saved as it is typed. General is stored under the legacy
+/// `summaryPromptTemplate` key (this section replaced the old "Customize
+/// Prompt…" sheet, which edited the same key).
 struct SummaryTemplatesSettingsSection: View {
-    // Observed so changes made elsewhere (the legacy prompt editor) re-render
+    // Observed so changes made elsewhere (another Settings window) re-render
     // the list and reload the draft.
     @AppStorage(AppPreferenceKey.summaryTemplates) private var storedTemplates = ""
     @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var legacyPrompt = SummarizationService.defaultPromptTemplate

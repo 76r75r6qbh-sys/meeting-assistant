@@ -328,9 +328,7 @@ struct RecordedMeetingView: View {
             summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
         case .export:
             exportStatusCenter.clearFailure(for: meeting.id)
-            Task { @MainActor in
-                await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
-            }
+            MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
         }
     }
 
@@ -558,9 +556,7 @@ struct RecordedMeetingView: View {
 
     private func save() {
         try? modelContext.save()
-        Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
     }
 
     private func debouncedSave() {

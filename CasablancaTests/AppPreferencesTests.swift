@@ -105,6 +105,7 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.voiceProfilesEnabled) as? Bool, false)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.summaryTemplates), "")
         XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.autoAcceptVerifiedTodos) as? Bool, false)
+        XCTAssertEqual(defaults.object(forKey: AppPreferenceKey.suggestSpeakerNamesAutomatically) as? Bool, false)
 
         XCTAssertEqual(AppPreferenceKey.recogniseSpeakersEnabled, "recogniseSpeakersEnabled")
         XCTAssertEqual(AppPreferenceKey.keepSpeakerTracks, "keepSpeakerTracks")
@@ -112,6 +113,8 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(AppPreferenceKey.voiceProfilesEnabled, "voiceProfilesEnabled")
         XCTAssertEqual(AppPreferenceKey.summaryTemplates, "summaryTemplates")
         XCTAssertEqual(AppPreferenceKey.autoAcceptVerifiedTodos, "autoAcceptVerifiedTodos")
+        // Same string as Track A's former `SpeakerPreferenceKey`, so a stored choice survives.
+        XCTAssertEqual(AppPreferenceKey.suggestSpeakerNamesAutomatically, "suggestSpeakerNamesAutomatically")
     }
 
     /// Registered defaults live in the volatile registration domain: a value the

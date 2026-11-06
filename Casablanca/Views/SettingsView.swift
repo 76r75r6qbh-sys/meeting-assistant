@@ -27,7 +27,6 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
     @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
     @AppStorage(AppPreferenceKey.summaryThinkingEnabled) private var summaryThinkingEnabled = false
-    @AppStorage(AppPreferenceKey.summaryPromptTemplate) private var summaryPromptTemplate = SummarizationService.defaultPromptTemplate
     @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
     @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
     @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
@@ -45,7 +44,6 @@ struct SettingsView: View {
     @State private var notificationsDenied = false
 
     private enum SettingsSheet: Identifiable {
-        case summaryPrompt
         case terminologyList
         var id: Self { self }
     }
@@ -365,14 +363,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
 
-                Button("Customize Prompt...") {
-                    presentedSheet = .summaryPrompt
-                }
-                .buttonStyle(SecondaryButtonStyle())
-
-                Text("Open the prompt editor in a separate sheet to adjust the summary structure and placeholders.")
+                // The prompts are edited in Summary Templates, right below;
+                // General is the prompt the old "Customize Prompt…" sheet edited.
+                Text("Edit the prompts under Summary Templates below. General is the default prompt; Reset restores the shipped text.")
                     .font(.caption)
                     .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{participants}}, {{user_name}}, {{transcript}}, {{freeform_notes}}.")
                     .font(.caption)
@@ -412,8 +408,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
-            case .summaryPrompt:
-                summaryPromptSheet
             case .terminologyList:
                 terminologyListSheet
             }
@@ -627,31 +621,6 @@ struct SettingsView: View {
 
         availableInputDevices = AudioRecordingService.availableRecordingInputDevices()
         systemDefaultInputDeviceName = AudioRecordingService.systemDefaultInputDeviceName() ?? ""
-    }
-
-    private var summaryPromptSheet: some View {
-        sheetContainer(title: "Customize Summary Prompt") {
-            Text("This template is sent to \(LLMProviderCopy.displayName(for: llmProvider)) whenever Casablanca generates a summary.")
-                .font(.subheadline)
-                .foregroundStyle(Color.textSecondary)
-
-            TextEditor(text: $summaryPromptTemplate)
-                .font(.system(.body, design: .monospaced))
-                .frame(height: 240)
-
-            Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{transcript}}, {{freeform_notes}}.")
-                .font(.caption)
-                .foregroundStyle(Color.textTertiary)
-
-            HStack {
-                Button("Reset to Default Prompt") {
-                    summaryPromptTemplate = SummarizationService.defaultPromptTemplate
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-            }
-        }
     }
 
     private var terminologyListSheet: some View {

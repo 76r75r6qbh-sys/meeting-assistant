@@ -513,7 +513,7 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SpeakerAnalysisStore(directory: directory)
         let defaults = makeDefaults()
-        defaults.set(true, forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically)
+        defaults.set(true, forKey: AppPreferenceKey.suggestSpeakerNamesAutomatically)
         let analysis = SpeakerAnalysisResult(
             segments: [SpeakerSegment(start: 0, end: 4, speakerID: "S1", text: "Ik ben Jan.", words: nil)],
             speakers: [SpeakerInfo(id: "S1", displayName: "Speaker 1", source: .system, isUser: false, nameConfirmed: false)],

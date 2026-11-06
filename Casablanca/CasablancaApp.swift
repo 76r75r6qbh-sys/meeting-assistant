@@ -682,10 +682,7 @@ final class AppModel {
     /// What the editor's `save()` does: persist, then auto-export if enabled.
     private func persist(_ meeting: Meeting, in context: ModelContext) {
         try? context.save()
-        let reporter = exportStatusCenter
-        Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
     }
 
     private func registerSentinelCleanup() {

@@ -315,6 +315,63 @@ final class TodoReviewPresentationTests: XCTestCase {
         XCTAssertEqual(runs, 1)
     }
 
+    /// A caller that must continue only after the export (the transcription
+    /// pipeline) runs at once, with no debounce, and is resumed when it ends.
+    func testRunStartsAtOnceAndReturnsWhenTheExportIsDone() async {
+        let sleeper = Gate()
+        let coalescer = MeetingExportCoalescer(delay: .seconds(60), sleep: { _ in await sleeper.wait() })
+        var ran = false
+
+        await coalescer.run(UUID()) { ran = true }
+
+        XCTAssertTrue(ran)
+        XCTAssertEqual(sleeper.waiting, 0, "No debounce delay")
+        XCTAssertTrue(coalescer.isIdle)
+    }
+
+    /// An awaited run joins the meeting's chain: it waits for the meeting's
+    /// export in progress, so the two never overlap (no duplicate Apple Note).
+    func testRunWaitsForTheMeetingsRunningExport() async {
+        let sleeper = Gate()
+        let export = Gate()
+        let coalescer = MeetingExportCoalescer(delay: .seconds(60), sleep: { _ in await sleeper.wait() })
+        let meeting = UUID()
+        var running = 0
+        var maxRunning = 0
+        var order: [String] = []
+        func operation(_ name: String, hold: Bool) -> @MainActor () async -> Void {
+            {
+                running += 1
+                maxRunning = max(maxRunning, running)
+                order.append(name)
+                if hold { await export.wait() }
+                running -= 1
+            }
+        }
+
+        coalescer.schedule(meeting, operation("scheduled", hold: true))
+        await settle { sleeper.waiting == 1 }
+        sleeper.releaseWaiting()
+        await settle { order == ["scheduled"] }
+
+        var runReturned = false
+        Task { @MainActor in
+            await coalescer.run(meeting, operation("awaited", hold: false))
+            runReturned = true
+        }
+        await settle(rounds: 200) { order.count > 1 }
+        XCTAssertEqual(order, ["scheduled"], "The awaited run waits for the running export")
+        XCTAssertFalse(runReturned)
+
+        export.open()
+        await settle { runReturned }
+        XCTAssertTrue(runReturned)
+        XCTAssertEqual(order, ["scheduled", "awaited"])
+        XCTAssertEqual(maxRunning, 1, "Exports of one meeting never overlap")
+        await coalescer.waitUntilIdle()
+        XCTAssertTrue(coalescer.isIdle)
+    }
+
     /// Yields to the main actor until `condition` holds (or `rounds` yields).
     private func settle(rounds: Int = 1000, _ condition: () -> Bool) async {
         for _ in 0..<rounds where !condition() {

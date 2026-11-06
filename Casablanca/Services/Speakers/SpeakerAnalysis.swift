@@ -182,7 +182,7 @@ enum SpeakerAnalysis {
     /// are saved, asks `proposer` in the background and writes the answers
     /// into the sidecar (the speakers bar refreshes on the store's change
     /// notification). Returns the background task, or `nil` when nothing runs:
-    /// the user has not opted in (`SpeakerPreferenceKey`, default off — no
+    /// the user has not opted in (`AppPreferenceKey.suggestSpeakerNamesAutomatically`, default off — no
     /// automatic LLM call without consent), diarization did not succeed, or no
     /// unconfirmed non-user speaker is left. A failure or timeout is only a log
     /// line (the proposer's), and the sidecar stays as it was.
@@ -193,7 +193,7 @@ enum SpeakerAnalysis {
         proposer: SpeakerNameProposer = SpeakerNameProposer()
     ) -> PostTranscriptionPipeline.SpeakerNameSuggester {
         { meeting in
-            guard defaults.bool(forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically) else { return nil }
+            guard defaults.bool(forKey: AppPreferenceKey.suggestSpeakerNamesAutomatically) else { return nil }
             // Read the meeting now: it may be deleted while the LLM runs.
             let meetingID = meeting.id
             let speakers = meeting.speakers

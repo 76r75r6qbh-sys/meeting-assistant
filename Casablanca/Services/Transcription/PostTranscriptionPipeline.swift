@@ -108,8 +108,11 @@ struct PostTranscriptionPipeline {
                 // `defaults` goes to the exporter too: it decides both WHETHER to
                 // export and WHERE, so leaving it on `.standard` would let a
                 // scratch-preference caller reach the user's real vault.
-                await ExportService.exportAutomaticallyIfEnabled(
-                    meeting,
+                // Awaited (compression runs only after the export), but in the
+                // meeting's export chain so it never overlaps another export
+                // of the same meeting (an editor save, an accept).
+                await MeetingExportCoalescer.shared.runAutomaticExport(
+                    of: meeting,
                     defaults: defaults,
                     reporter: exportReporter
                 )

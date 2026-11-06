@@ -56,11 +56,7 @@ struct TodoReviewActions {
     /// duplicate notes.
     private func exportAfterAccept(_ meeting: Meeting?) {
         guard let meeting else { return }
-        let reporter = appModel.exportStatusCenter
-        MeetingExportCoalescer.shared.schedule(meeting.id) { [weak meeting] in
-            guard let meeting else { return }
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: appModel.exportStatusCenter)
     }
 }
 
@@ -68,7 +64,13 @@ struct TodoReviewActions {
 /// (still in its `delay`), so a burst runs the work once, after the last
 /// request. Runs for one meeting never overlap: a run waits for the previous
 /// run to finish. A run that has started is never cancelled. `flushAll()`
-/// starts every pending run at once (app quit).
+/// starts every pending run at once (app quit). `run(_:_:)` is for a caller
+/// that must wait for the work: no delay, but still in the meeting's chain.
+///
+/// Every automatic export goes through `.shared` (`scheduleAutomaticExport`,
+/// or `runAutomaticExport` where the caller continues only afterwards), so two
+/// exports of one meeting never overlap and race the Apple Notes upsert into
+/// duplicate notes.
 @MainActor
 final class MeetingExportCoalescer {
     static let shared = MeetingExportCoalescer(delay: .milliseconds(600))
@@ -111,6 +113,13 @@ final class MeetingExportCoalescer {
         pending[meetingID] = Pending(token: token, task: task, operation: operation)
     }
 
+    /// Runs `operation` now — no delay, not coalesced — after the meeting's
+    /// run in progress (if any), and returns when it has finished. A pending
+    /// request stays pending and runs after this one.
+    func run(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) async {
+        await startRun(meetingID, operation).value
+    }
+
     /// Starts every pending request now instead of after its delay.
     func flushAll() {
         let flushed = pending
@@ -142,7 +151,8 @@ final class MeetingExportCoalescer {
         await withCheckedContinuation { idleWaiters.append($0) }
     }
 
-    private func startRun(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) {
+    @discardableResult
+    private func startRun(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let previous = lastRun[meetingID]
         let run = Task { @MainActor in
             await previous?.value
@@ -155,6 +165,7 @@ final class MeetingExportCoalescer {
             if self.lastRun[meetingID] == run { self.lastRun[meetingID] = nil }
             self.resumeIdleWaitersIfIdle()
         }
+        return run
     }
 
     private func resumeIdleWaitersIfIdle() {
@@ -162,6 +173,25 @@ final class MeetingExportCoalescer {
         let waiters = idleWaiters
         idleWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
+    }
+}
+
+extension MeetingExportCoalescer {
+    /// The automatic export (if enabled) of `meeting`, coalesced: after a
+    /// save, an accept, a retry. The meeting is held weakly while it waits.
+    func scheduleAutomaticExport(of meeting: Meeting, reporter: ExportStatusCenter?) {
+        schedule(meeting.id) { [weak meeting] in
+            guard let meeting else { return }
+            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
+        }
+    }
+
+    /// The automatic export (if enabled) of `meeting` now, serialized with the
+    /// meeting's other exports; returns once it has finished.
+    func runAutomaticExport(of meeting: Meeting, defaults: UserDefaults, reporter: ExportStatusCenter?) async {
+        await run(meeting.id) {
+            await ExportService.exportAutomaticallyIfEnabled(meeting, defaults: defaults, reporter: reporter)
+        }
     }
 }
 

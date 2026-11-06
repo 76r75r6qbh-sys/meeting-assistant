@@ -27,6 +27,7 @@ enum AppPreferences {
         AppPreferenceKey.voiceProfilesEnabled: false,
         AppPreferenceKey.summaryTemplates: "",
         AppPreferenceKey.autoAcceptVerifiedTodos: false,
+        AppPreferenceKey.suggestSpeakerNamesAutomatically: false,
     ]
 
     /// Registers ``registeredDefaults``. The registration domain is volatile:

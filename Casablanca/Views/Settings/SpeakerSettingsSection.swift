@@ -6,7 +6,7 @@ struct SpeakerSettingsSection: View {
     @AppStorage(AppPreferenceKey.recogniseSpeakersEnabled) private var recogniseSpeakersEnabled = true
     @AppStorage(AppPreferenceKey.keepSpeakerTracks) private var keepSpeakerTracks = true
     @AppStorage(AppPreferenceKey.wordTimestampsEnabled) private var wordTimestampsEnabled = true
-    @AppStorage(SpeakerPreferenceKey.suggestSpeakerNamesAutomatically) private var suggestNamesAutomatically = false
+    @AppStorage(AppPreferenceKey.suggestSpeakerNamesAutomatically) private var suggestNamesAutomatically = false
 
     @State private var modelStatus = SpeakerModelStatus.shared
     var diarizer: SpeakerDiarizing = FluidAudioDiarizer.shared

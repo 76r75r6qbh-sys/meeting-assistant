@@ -59,6 +59,10 @@ enum AppPreferenceKey {
     static let summaryTemplates = "summaryTemplates"
     /// Accept to-dos whose quote the transcript confirms without review. Default off.
     static let autoAcceptVerifiedTodos = "autoAcceptVerifiedTodos"
+    /// Ask the LLM for speaker names after each transcription. Default off:
+    /// no automatic LLM call without the user's opt-in. "Suggest names" in the
+    /// speakers bar works either way.
+    static let suggestSpeakerNamesAutomatically = "suggestSpeakerNamesAutomatically"
 }
 
 enum AppPreferenceValue {

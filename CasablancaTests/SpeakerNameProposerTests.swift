@@ -203,7 +203,7 @@ final class SpeakerNameProposerTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         if let autoSuggest {
-            defaults.set(autoSuggest, forKey: SpeakerPreferenceKey.suggestSpeakerNamesAutomatically)
+            defaults.set(autoSuggest, forKey: AppPreferenceKey.suggestSpeakerNamesAutomatically)
         }
         return defaults
     }
