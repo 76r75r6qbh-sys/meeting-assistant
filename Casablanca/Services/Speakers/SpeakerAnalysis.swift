@@ -123,14 +123,13 @@ enum SpeakerAnalysis {
                 status: status,
                 timeout: diarizationTimeout
             )
-            let matched = await voiceProfileSuggestions(
+            // No await between this and the save: a turn-off while the
+            // profiles were read is honoured (see voiceProfileSuggestions).
+            let suggestions = await voiceProfileSuggestions(
                 clusterEmbeddings: diarized.clusterEmbeddings,
                 defaults: defaults,
                 voiceProfiles: voiceProfiles
             )
-            // No await between this and the save: a turn-off or delete that
-            // happened while the profiles were read is honoured.
-            let suggestions = await stillCurrent(matched, defaults: defaults, voiceProfiles: voiceProfiles)
             do {
                 try store.save(SpeakerAnalysisRecord(
                     meetingID: meetingID,
@@ -148,30 +147,17 @@ enum SpeakerAnalysis {
 
     // MARK: - Voice profiles (Task A7)
 
-    /// `suggestions` as they may be stored now: none when voice profiles were
-    /// turned off meanwhile (the turn-off purge may already have run), and
-    /// only names of profiles that still exist (one may have been deleted).
-    /// The flag is read after the last await, so the caller's synchronous
-    /// save cannot interleave with a turn-off on the main actor.
-    @MainActor
-    static func stillCurrent(
-        _ suggestions: [SpeakerNameSuggestion],
-        defaults: UserDefaults,
-        voiceProfiles: VoiceProfileStore
-    ) async -> [SpeakerNameSuggestion] {
-        guard !suggestions.isEmpty else { return [] }
-        let names = (try? await Task.detached(priority: .utility) { try voiceProfiles.all().map(\.name) }.value) ?? []
-        guard defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled) else { return [] }
-        return suggestions.filter { suggestion in
-            names.contains { $0.caseInsensitiveCompare(suggestion.name) == .orderedSame }
-        }
-    }
-
     /// Voice-profile name suggestions for the meeting's clusters, or none:
     /// only when the user turned voice profiles on and has saved some. The
     /// embeddings are used here and dropped; they are never stored. A profile
     /// file that cannot be opened is a log line, not a failure. The profiles
-    /// are read off the main actor (the keychain may prompt).
+    /// are read once, off the main actor (the keychain may prompt), and only
+    /// those profiles can be suggested, so one deleted before the read is
+    /// never named. The setting is read again after that read, the last
+    /// await before the caller's save: switched off meanwhile (the turn-off
+    /// purge may already have run), nothing is returned. A profile deleted
+    /// after the read can still slip through by a hair; that is accepted (the
+    /// per-name purge usually runs after this save).
     @MainActor
     static func voiceProfileSuggestions(
         clusterEmbeddings: [String: [Float]],
@@ -186,7 +172,7 @@ enum SpeakerAnalysis {
             Log.transcription.error("Could not open the voice profiles: \(error.localizedDescription, privacy: .public)")
             return []
         }
-        guard !profiles.isEmpty else { return [] }
+        guard !profiles.isEmpty, defaults.bool(forKey: AppPreferenceKey.voiceProfilesEnabled) else { return [] }
         return VoiceProfileMatcher.suggestions(clusterEmbeddings: clusterEmbeddings, profiles: profiles)
     }
 

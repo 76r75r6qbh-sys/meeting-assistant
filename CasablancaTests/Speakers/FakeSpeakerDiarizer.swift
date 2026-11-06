@@ -15,14 +15,18 @@ final class FakeSpeakerDiarizer: SpeakerDiarizing, @unchecked Sendable {
     /// Seconds `diarize` sleeps first (for the timeout path).
     let delay: Double
     let isAvailable: Bool
+    /// Runs at the start of every `diarize` (to act "during the run").
+    let onDiarize: @Sendable () -> Void
 
     init(
         output: DiarizationOutput = DiarizationOutput(turns: [], embeddings: [:]),
         prepareError: Error? = nil,
         diarizeError: Error? = nil,
         delay: Double = 0,
-        isAvailable: Bool = true
+        isAvailable: Bool = true,
+        onDiarize: @escaping @Sendable () -> Void = {}
     ) {
+        self.onDiarize = onDiarize
         self.isAvailable = isAvailable
         self.output = output
         self.prepareError = prepareError
@@ -44,6 +48,7 @@ final class FakeSpeakerDiarizer: SpeakerDiarizing, @unchecked Sendable {
 
     func diarize(trackURL: URL) async throws -> DiarizationOutput {
         lock.withLock { _diarizeCalls.append(trackURL) }
+        onDiarize()
         if delay > 0 {
             // Wakes early when cancelled; records that it was.
             try? await Task.sleep(for: .seconds(delay))

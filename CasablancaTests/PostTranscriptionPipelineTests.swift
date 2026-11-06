@@ -661,6 +661,29 @@ final class PostTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }, [])
     }
 
+    /// A profile deleted while the meeting is being analysed is not named.
+    func testProfileDeletedDuringTheRunIsNotSuggested() async throws {
+        let fixture = try makeDiarizationFixture()
+        defer { fixture.cleanUp() }
+        fixture.defaults.set(true, forKey: AppPreferenceKey.voiceProfilesEnabled)
+        let profiles = try makeVoiceProfileStore(in: fixture.directory)
+        let kim = try XCTUnwrap(try profiles.all().first)
+        let diarizer = FakeSpeakerDiarizer(
+            output: voiceMatchDiarizer.output,
+            onDiarize: { try? profiles.delete(id: kim.id) }
+        )
+
+        let pipeline = makePipeline(defaults: fixture.defaults, analyzeSpeakers: SpeakerAnalysis.live(
+            defaults: fixture.defaults, diarizer: diarizer, store: fixture.store,
+            modelStatus: SpeakerModelStatus(), voiceProfiles: profiles
+        ))
+        await pipeline.run(meeting: fixture.meeting, result: fixture.result, recordingURL: fixture.mix, modelContext: fixture.context)
+
+        XCTAssertEqual(try profiles.all(), [], "The hook deleted Kim mid-run")
+        let suggestions = try XCTUnwrap(fixture.store.load(fixture.meeting.id)).suggestions
+        XCTAssertEqual(suggestions.filter { $0.source == .voiceProfile }, [])
+    }
+
     func testRecognisingStatusIsReplacedWhenDiarizationEnds() async throws {
         for fake in [
             FakeSpeakerDiarizer(output: DiarizationOutput(turns: [DiarizedTurn(start: 0, end: 2, clusterKey: "a")], embeddings: [:])),

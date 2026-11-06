@@ -94,33 +94,64 @@ final class VoiceSpanExtractorTests: XCTestCase {
         XCTAssertLessThanOrEqual(samples.count, 16_000 + 64)
     }
 
-    /// A read that throws after frames were read is the end of the file
-    /// (AAC's phantom tail); the frames already read are kept.
-    func testThrowAfterSomeFramesIsTheEndOfTheFile() throws {
-        struct PhantomTail: Error {}
-        var calls = 0
-        let samples = try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { count in
-            calls += 1
-            if calls == 3 { throw PhantomTail() }
+    /// A reader over `count` frames of 1.0 that throws for any read crossing
+    /// `tail` (AAC's phantom tail), and records each read.
+    private final class TailReader {
+        let tail: Int
+        private(set) var reads: [(offset: Int, count: Int)] = []
+        init(tail: Int) { self.tail = tail }
+        func read(_ offset: Int, _ count: Int) throws -> [Float] {
+            reads.append((offset, count))
+            if offset + count > tail { throw CocoaError(.fileReadUnknown) }
             return [Float](repeating: 1, count: count)
         }
-        XCTAssertEqual(samples.count, 8)
-
-        XCTAssertThrowsError(try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _ in throw PhantomTail() },
-                             "Nothing read at all is a real error")
-        XCTAssertThrowsError(try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _ in throw CancellationError() }) { error in
-            XCTAssertTrue(error is CancellationError)
-        }
-        XCTAssertEqual(try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _ in [1, 1] }.count, 2, "A short chunk ends the read")
     }
 
-    func testRangesAreClampedToTheFile() throws {
-        let url = directory.appendingPathComponent("track.wav")
-        try SyntheticSignal.writeWAV(steppedSamples(rate: 16_000), to: url)
+    /// A range of 1 s or less is a single read; when it crosses the tail the
+    /// reader backs off (4096, then 512 frames) and keeps the real frames.
+    func testSingleChunkRangeBacksOffAtTheTailAndKeepsRealFrames() throws {
+        let reader = TailReader(tail: 12_000)
 
-        let samples = try VoiceSpanExtractor.samples(url: url, ranges: [3.5...10, 20...30])
+        let result = try VoiceSpanExtractor.readFrames(total: 16_000, chunk: 48_000, read: reader.read)
 
-        XCTAssertEqual(samples.count, 8_000, "Half a second left in the file; the range past the end adds nothing")
+        XCTAssertEqual(result.samples.count, 11_776, "Every whole 512-frame read before frame 12 000")
+        XCTAssertTrue(result.samples.allSatisfy { $0 == 1 })
+        XCTAssertNotNil(result.failure, "Stopped at the tail")
+        XCTAssertEqual(reader.reads.first?.count, 16_000)
+        XCTAssertTrue(reader.reads.contains { $0.count == 4_096 } && reader.reads.contains { $0.count == 512 })
+    }
+
+    /// A longer range keeps its earlier chunks and the real frames of the
+    /// chunk that crossed the tail (no second of audio dropped).
+    func testLongRangeKeepsTheRealFramesOfTheThrowingChunk() throws {
+        let reader = TailReader(tail: 100_000)
+
+        let result = try VoiceSpanExtractor.readFrames(total: 120_000, chunk: 48_000, read: reader.read)
+
+        XCTAssertGreaterThanOrEqual(result.samples.count, 100_000 - 512)
+        XCTAssertLessThanOrEqual(result.samples.count, 100_000)
+        XCTAssertNotNil(result.failure)
+    }
+
+    func testReadFramesEdgeCases() throws {
+        let nothing = try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _, _ in throw CocoaError(.fileReadUnknown) }
+        XCTAssertTrue(nothing.samples.isEmpty)
+        XCTAssertNotNil(nothing.failure, "Returned to the caller, which decides")
+
+        XCTAssertThrowsError(try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _, _ in throw CancellationError() }) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        let short = try VoiceSpanExtractor.readFrames(total: 10, chunk: 4) { _, _ in [1, 1] }
+        XCTAssertEqual(short.samples.count, 2, "A short read ends the range")
+        XCTAssertNil(short.failure)
+    }
+
+    /// A range whose every read threw is an error only when nothing was
+    /// produced yet and it starts before the last second of the file.
+    func testEndOfFileRule() {
+        XCTAssertTrue(VoiceSpanExtractor.isEndOfFile(rangeStart: 0, fileLength: 160_000, rate: 16_000, producedAudio: true))
+        XCTAssertTrue(VoiceSpanExtractor.isEndOfFile(rangeStart: 150_000, fileLength: 160_000, rate: 16_000, producedAudio: false))
+        XCTAssertFalse(VoiceSpanExtractor.isEndOfFile(rangeStart: 100_000, fileLength: 160_000, rate: 16_000, producedAudio: false))
     }
 
     func testNoSpeechFromFluidAudioIsOurNoSpeechInRanges() {
