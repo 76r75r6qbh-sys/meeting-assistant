@@ -198,4 +198,100 @@ final class MeetingSoftDeleteTests: XCTestCase {
 
         XCTAssertEqual(exported, 0)
     }
+
+    // MARK: - Leftover files and the decision log
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MeetingSoftDeleteTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    /// A view model whose side stores all live in `directory`.
+    private func makeIsolatedViewModel(in directory: URL, log: TodoDecisionLog) -> MeetingListViewModel {
+        MeetingListViewModel(
+            calendarService: CalendarService(),
+            removeResumableRecordingSession: { _ in },
+            speakerAnalysisStore: SpeakerAnalysisStore(directory: directory.appendingPathComponent("Speakers", isDirectory: true)),
+            exportCoalescer: makeCoalescer(),
+            todoDecisionLog: log
+        )
+    }
+
+    /// Stop failed, so the meeting references only its mix: the per-source
+    /// track WAVs (and any m4a of them) next to it still go with the meeting.
+    func testDeleteRemovesUnreferencedTrackFilesNextToTheRecording() throws {
+        let directory = try makeTemporaryDirectory()
+        let context = ModelContext(try makeContainer())
+        let vm = makeIsolatedViewModel(in: directory, log: TodoDecisionLog(fileURL: directory.appendingPathComponent("log.jsonl")))
+        vm.setModelContext(context)
+        let mix = directory.appendingPathComponent("meeting.m4a")
+        let leftovers = ["meeting.mic.wav", "meeting.system.wav", "meeting.mic.m4a", "meeting.system.m4a"]
+            .map { directory.appendingPathComponent($0) }
+        let unrelated = directory.appendingPathComponent("other.mic.wav")
+        for url in [mix, unrelated] + leftovers { try Data("x".utf8).write(to: url) }
+        let meeting = Meeting(title: "Standup", date: .now, status: .completed)
+        meeting.recordingFileURL = mix.path
+        context.insert(meeting)
+        try context.save()
+
+        try vm.deleteMeeting(meeting)
+
+        for url in [mix] + leftovers {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) is removed")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path), "another recording's track is left alone")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Meeting>()), 0)
+    }
+
+    /// Only some leftovers exist (or none): a missing file is not an error.
+    func testDeleteWithMissingTrackFilesStillDeletesTheMeeting() throws {
+        let directory = try makeTemporaryDirectory()
+        let context = ModelContext(try makeContainer())
+        let vm = makeIsolatedViewModel(in: directory, log: TodoDecisionLog(fileURL: directory.appendingPathComponent("log.jsonl")))
+        vm.setModelContext(context)
+        let mix = directory.appendingPathComponent("meeting.wav")
+        let mic = directory.appendingPathComponent("meeting.mic.wav")
+        try Data("x".utf8).write(to: mix)
+        try Data("x".utf8).write(to: mic)
+        let meeting = Meeting(title: "Standup", date: .now, status: .completed)
+        meeting.recordingFileURL = mix.path
+        meeting.systemTrackFileURL = directory.appendingPathComponent("meeting.system.wav").path
+        context.insert(meeting)
+        try context.save()
+
+        XCTAssertNoThrow(try vm.deleteMeeting(meeting))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Meeting>()), 0)
+    }
+
+    /// The deleted meeting's to-do text and quotes leave the decision log;
+    /// other meetings' lines stay.
+    func testDeleteRemovesTheMeetingsDecisionLogEntries() throws {
+        let directory = try makeTemporaryDirectory()
+        let log = TodoDecisionLog(fileURL: directory.appendingPathComponent("todo-decisions.jsonl"))
+        let context = ModelContext(try makeContainer())
+        let vm = makeIsolatedViewModel(in: directory, log: log)
+        vm.setModelContext(context)
+        let meeting = try makeStoredMeeting(in: context)
+        let other = UUID()
+        for (task, meetingID) in [("Stuur offerte", meeting.id), ("Plan demo", other)] {
+            log.append(TodoDecisionEntry(
+                date: Date(timeIntervalSince1970: 1_793_000_000), meetingID: meetingID, todoID: UUID(), action: .accept,
+                item: .init(task: task, owner: nil, due: nil, timestamp: nil, quote: "quote \(task)"),
+                edit: nil, verification: nil, verificationReason: nil
+            ))
+        }
+
+        try vm.deleteMeeting(meeting)
+
+        let text = try String(contentsOf: log.fileURL, encoding: .utf8)
+        XCTAssertFalse(text.contains("Stuur offerte"))
+        XCTAssertFalse(text.contains(meeting.id.uuidString))
+        XCTAssertTrue(text.contains("Plan demo"))
+        XCTAssertTrue(text.contains(other.uuidString))
+    }
 }
