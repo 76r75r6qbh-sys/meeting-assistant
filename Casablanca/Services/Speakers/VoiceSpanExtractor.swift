@@ -86,6 +86,9 @@ enum VoiceSpanExtractor {
                 got = try read(samples.count, wanted)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as ExtractionError {
+                // Our own failures (no buffer) are not end-of-file.
+                throw error
             } catch {
                 sizes = sizes.dropFirst()
                 if sizes.isEmpty { return (samples, error) }

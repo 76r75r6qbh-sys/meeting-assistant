@@ -53,6 +53,15 @@ final class VoiceSpanExtractorTests: XCTestCase {
     }
 
     /// Stereo is averaged to mono, not reduced to the left channel.
+    func testRangesAreClampedToTheFile() throws {
+        let url = directory.appendingPathComponent("track.wav")
+        try SyntheticSignal.writeWAV(steppedSamples(rate: 16_000), to: url)
+
+        let samples = try VoiceSpanExtractor.samples(url: url, ranges: [3.5...10, 20...30])
+
+        XCTAssertEqual(samples.count, 8_000, "Half a second left in the file; the range past the end adds nothing")
+    }
+
     func testResamplesStereoToSixteenKilohertzMonoAverage() throws {
         let url = directory.appendingPathComponent("track48k.wav")
         let left = steppedSamples(rate: 48_000)
