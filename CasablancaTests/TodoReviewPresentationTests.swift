@@ -70,13 +70,17 @@ final class TodoReviewPresentationTests: XCTestCase {
         context.insert(edited)
         context.insert(unknown)
 
-        let badge = TodoReviewPresentation(todo: byText).badge
+        // The caller decodes the meeting's items once and passes them in.
+        let items = meeting.actionItems
+        let badge = TodoReviewPresentation(todo: byText, actionItems: items).badge
         XCTAssertEqual(badge, .unsupported(reason: "Quote not found in the transcript"))
         XCTAssertEqual(badge.help, "Quote not found in the transcript")
-        XCTAssertEqual(TodoReviewPresentation(todo: edited).badge, .unsupported(reason: "Speaker differs"))
-        let fallback = TodoReviewPresentation(todo: unknown).badge
+        XCTAssertEqual(TodoReviewPresentation(todo: edited, actionItems: items).badge, .unsupported(reason: "Speaker differs"))
+        let fallback = TodoReviewPresentation(todo: unknown, actionItems: items).badge
         XCTAssertEqual(fallback, .unsupported(reason: nil))
         XCTAssertFalse(fallback.help.isEmpty, "Without a reason the badge still explains itself")
+        // Nothing is decoded from the meeting behind the caller's back.
+        XCTAssertEqual(TodoReviewPresentation(todo: byText).badge, .unsupported(reason: nil))
     }
 
     func testCaptionPartsOmitMissingFields() {
@@ -209,6 +213,69 @@ final class TodoReviewPresentationTests: XCTestCase {
         }
     }
 
+    /// "· X of N done" counts only bullets with a toggle; in-review and
+    /// read-only bullets can't be done, and with none the suffix is hidden.
+    func testDoneSummaryCountsOnlyToggleableBullets() {
+        let doneMine = TodoItem(text: "Stuur offerte", isCompleted: true)
+        let openMine = TodoItem(text: "Bel Kim")
+        let inReview = proposed("Plan de demo")
+        let kim = TodoReviewPresentation.SummaryBulletState.readOnly(owner: "Kim", action: "Deel planning", badge: .verified)
+
+        // Structured meeting: the user finished all of their own items.
+        XCTAssertEqual(
+            TodoReviewPresentation.doneSummary([.toggle(doneMine), kim, .review(inReview), kim]),
+            "\u{00B7} 1 of 1 done"
+        )
+        XCTAssertEqual(
+            TodoReviewPresentation.doneSummary([.toggle(doneMine), .toggle(openMine), .review(inReview)]),
+            "\u{00B7} 1 of 2 done"
+        )
+        // Legacy meeting: bullets without a to-do yet still count.
+        XCTAssertEqual(TodoReviewPresentation.doneSummary([.toggle(nil), .toggle(doneMine)]), "\u{00B7} 1 of 2 done")
+        XCTAssertNil(TodoReviewPresentation.doneSummary([kim, .review(inReview)]))
+        XCTAssertNil(TodoReviewPresentation.doneSummary([]))
+    }
+
+    // MARK: - Export coalescing
+
+    func testExportCoalescerRunsOnceAfterABurst() async throws {
+        let coalescer = MeetingExportCoalescer(delay: .milliseconds(80))
+        let meeting = UUID()
+        let other = UUID()
+        var runs: [UUID] = []
+        for _ in 0..<5 {
+            coalescer.schedule(meeting) { runs.append(meeting) }
+        }
+        coalescer.schedule(other) { runs.append(other) }
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(runs.filter { $0 == meeting }.count, 1, "A burst for one meeting exports once")
+        XCTAssertEqual(runs.filter { $0 == other }.count, 1, "Another meeting is not coalesced away")
+    }
+
+    func testExportCoalescerNeverOverlapsRunsForOneMeeting() async throws {
+        let coalescer = MeetingExportCoalescer(delay: .milliseconds(20))
+        let meeting = UUID()
+        var running = 0
+        var maxRunning = 0
+        var runs = 0
+        let operation: @MainActor () async -> Void = {
+            running += 1
+            maxRunning = max(maxRunning, running)
+            try? await Task.sleep(for: .milliseconds(150))
+            running -= 1
+            runs += 1
+        }
+        coalescer.schedule(meeting, operation)
+        try await Task.sleep(for: .milliseconds(60))   // first run in progress
+        coalescer.schedule(meeting, operation)
+        try await Task.sleep(for: .milliseconds(60))
+        coalescer.schedule(meeting, operation)          // queued behind the running export
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertEqual(maxRunning, 1, "Exports of one meeting never overlap")
+        XCTAssertGreaterThanOrEqual(runs, 2, "A request during a run still exports after it")
+        XCTAssertLessThanOrEqual(runs, 3)
+    }
+
     // MARK: - Todos view and counts
 
     func testTodoFiltersShowAcceptedOnlyAndReviewShowsProposed() {
@@ -243,5 +310,20 @@ final class TodoReviewPresentationTests: XCTestCase {
 
         let fetched = try context.fetch(FetchDescriptor<TodoItem>(predicate: TodoCounting.openTodoPredicate))
         XCTAssertEqual(fetched.map(\.text), ["Open"])
+    }
+
+    /// The Todos view's query never fetches rejected to-dos.
+    func testTodosQueryLeavesOutRejected() throws {
+        let context = try makeContext()
+        let open = TodoItem(text: "Open")
+        let pending = proposed("Pending")
+        let rejected = proposed("Rejected")
+        rejected.status = .rejected
+        for todo in [open, pending, rejected] { context.insert(todo) }
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<TodoItem>(
+            predicate: TodoCounting.notRejectedPredicate, sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(fetched.map(\.text), ["Open", "Pending"])
     }
 }

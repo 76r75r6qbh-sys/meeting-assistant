@@ -494,6 +494,40 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         return try XCTUnwrap(try context.fetch(FetchDescriptor<TodoItem>()).first { $0.status == .proposed })
     }
 
+    /// Defence in depth: proposed and rejected to-dos are never completed, in
+    /// local storage or in the vault.
+    func testSetCompletedIgnoresProposedAndRejectedTodos() throws {
+        let localDefaults = makeScratchDefaults(label: "todo-sync-local")
+        AppPreferences.setPrepTodoStorage(.local, in: localDefaults)
+        let localContext = ModelContext(try makeContainer())
+        let meeting = makeMeeting()
+        localContext.insert(meeting)
+        let pending = try proposeOffer(for: meeting, in: localContext)
+        try ObsidianTodoSyncService.setCompleted(true, for: pending, in: localContext, userDefaults: localDefaults)
+        XCTAssertFalse(pending.isCompleted)
+        try TodoReviewService.reject(pending, in: localContext, log: makeDecisionLog())
+        try ObsidianTodoSyncService.setCompleted(true, for: pending, in: localContext, userDefaults: localDefaults)
+        XCTAssertFalse(pending.isCompleted)
+
+        // Vault: an accepted line whose row is (somehow) no longer accepted
+        // is not ticked.
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let vaultMeeting = makeMeeting()
+        vaultMeeting.userNotes = "notes"
+        context.insert(vaultMeeting)
+        _ = try ObsidianMeetingExporter.exportCompletedMeeting(vaultMeeting, userDefaults: defaults)
+        let todo = try proposeOffer(for: vaultMeeting, in: context)
+        try TodoReviewService.accept(todo, in: context, userDefaults: defaults, log: makeDecisionLog())
+        let path = try XCTUnwrap(todo.sourceFilePath)
+        todo.status = .proposed
+        try ObsidianTodoSyncService.setCompleted(true, for: todo, in: context, userDefaults: defaults)
+        XCTAssertFalse(todo.isCompleted)
+        let markdown = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("- [ ] Stuur offerte"), markdown)
+        XCTAssertFalse(markdown.contains("- [x] Stuur offerte"), markdown)
+    }
+
     func testRejectedRowsSurviveRefresh() throws {
         let context = ModelContext(try makeContainer())
         let defaults = makeDefaults(vaultURL: try makeVault())

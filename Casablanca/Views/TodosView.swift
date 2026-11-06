@@ -5,7 +5,9 @@ import SwiftData
 
 struct TodosView: View {
     @Bindable var viewModel: MeetingListViewModel
-    @Query(sort: \TodoItem.createdAt, order: .reverse) private var allTodos: [TodoItem]
+    /// Rejected to-dos are never shown, so they are not fetched.
+    @Query(filter: TodoCounting.notRejectedPredicate, sort: \TodoItem.createdAt, order: .reverse)
+    private var allTodos: [TodoItem]
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
     @State private var filter: TodoFilter = .open
@@ -104,9 +106,11 @@ struct TodosView: View {
     }
 
     private var todoList: some View {
-        List(filteredTodos) { todo in
+        let todos = filteredTodos
+        let itemsByMeeting = filter == .review ? Self.actionItemsByMeeting(of: todos) : [:]
+        return List(todos) { todo in
             if filter == .review {
-                reviewRow(todo)
+                reviewRow(todo, actionItems: todo.meeting.flatMap { itemsByMeeting[$0.id] } ?? [])
             } else {
                 TodoRow(todo: todo, reduceMotion: reduceMotion, toastCenter: appModel.toastCenter) {
                     navigateToMeeting(of: todo)
@@ -114,16 +118,26 @@ struct TodosView: View {
             }
         }
         .listStyle(.inset)
-        .animation(reduceMotion ? nil : CasaAnimation.fast, value: filteredTodos.map(\.id))
+        .animation(reduceMotion ? nil : CasaAnimation.fast, value: todos.map(\.id))
+    }
+
+    /// Each meeting's extracted items, decoded once per meeting.
+    private static func actionItemsByMeeting(of todos: [TodoItem]) -> [UUID: [ExtractedActionItem]] {
+        var result: [UUID: [ExtractedActionItem]] = [:]
+        for case let meeting? in todos.map(\.meeting) where result[meeting.id] == nil {
+            result[meeting.id] = meeting.actionItems
+        }
+        return result
     }
 
     /// A proposal across meetings: the review row, with its meeting below it.
-    private func reviewRow(_ todo: TodoItem) -> some View {
+    private func reviewRow(_ todo: TodoItem, actionItems: [ExtractedActionItem]) -> some View {
         let actions = TodoReviewActions(modelContext: modelContext, appModel: appModel)
         let presentation = TodoRowPresentation(todo: todo)
         return VStack(alignment: .leading, spacing: CasaSpace.xs) {
             TodoReviewRow(
                 todo: todo,
+                actionItems: actionItems,
                 onAccept: { actions.accept(todo) },
                 onReject: { actions.reject(todo) },
                 onEdit: { task, owner, due in actions.edit(todo, task: task, owner: owner, dueDate: due) }
@@ -231,6 +245,12 @@ enum TodoCounting {
     static var openTodoPredicate: Predicate<TodoItem> {
         let accepted = TodoStatus.accepted.rawValue
         return #Predicate<TodoItem> { !$0.isCompleted && $0.statusRaw == accepted }
+    }
+
+    /// Everything the Todos view can show: rejected to-dos are left out.
+    static var notRejectedPredicate: Predicate<TodoItem> {
+        let rejected = TodoStatus.rejected.rawValue
+        return #Predicate<TodoItem> { $0.statusRaw != rejected }
     }
 }
 

@@ -179,6 +179,8 @@ enum ObsidianTodoSyncService {
         userDefaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) throws {
+        // Proposed and rejected to-dos are not to-dos yet: never completed.
+        guard todo.status == .accepted else { return }
         if AppPreferences.prepTodoStorage(in: userDefaults) == .local {
             todo.isCompleted = isCompleted
             try modelContext.save()

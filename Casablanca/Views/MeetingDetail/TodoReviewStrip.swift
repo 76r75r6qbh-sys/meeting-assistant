@@ -51,12 +51,53 @@ struct TodoReviewActions {
         }
     }
 
+    /// One export per burst of accepts: rapid accepts would otherwise start
+    /// overlapping full exports, which can race the Apple Notes upsert into
+    /// duplicate notes.
     private func exportAfterAccept(_ meeting: Meeting?) {
         guard let meeting else { return }
         let reporter = appModel.exportStatusCenter
-        Task { @MainActor in
+        MeetingExportCoalescer.shared.schedule(meeting.id) { [weak meeting] in
+            guard let meeting else { return }
             await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: reporter)
         }
+    }
+}
+
+/// Coalesces work per meeting: a request replaces the meeting's pending one
+/// (still in its `delay`), so a burst runs the work once, after the last
+/// request. Runs for one meeting never overlap: a run waits for the previous
+/// run to finish. A run that has started is never cancelled.
+@MainActor
+final class MeetingExportCoalescer {
+    static let shared = MeetingExportCoalescer(delay: .milliseconds(600))
+
+    private let delay: Duration
+    private var pending: [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
+    private var lastRun: [UUID: Task<Void, Never>] = [:]
+
+    init(delay: Duration) {
+        self.delay = delay
+    }
+
+    func schedule(_ meetingID: UUID, _ operation: @escaping @MainActor () async -> Void) {
+        pending[meetingID]?.task.cancel()
+        let token = UUID()
+        let delay = delay
+        let task = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            if self.pending[meetingID]?.token == token { self.pending[meetingID] = nil }
+            let previous = self.lastRun[meetingID]
+            let run = Task { @MainActor in
+                await previous?.value
+                await operation()
+            }
+            self.lastRun[meetingID] = run
+            await run.value
+            if self.lastRun[meetingID] == run { self.lastRun[meetingID] = nil }
+        }
+        pending[meetingID] = (token, task)
     }
 }
 
@@ -75,6 +116,7 @@ struct TodoReviewStrip: View {
             let actions = TodoReviewActions(modelContext: modelContext, appModel: appModel)
             TodoReviewStripContent(
                 todos: proposed,
+                actionItems: meeting.actionItems,
                 verifiedCount: TodoReviewPresentation.acceptAllVerifiedCount(proposed),
                 onAccept: actions.accept,
                 onReject: actions.reject,
@@ -88,6 +130,8 @@ struct TodoReviewStrip: View {
 /// The strip's layout, without environment, so it can be laid out in tests.
 struct TodoReviewStripContent: View {
     let todos: [TodoItem]
+    /// The meeting's decoded extracted items, decoded once for all rows.
+    var actionItems: [ExtractedActionItem] = []
     let verifiedCount: Int
     let onAccept: (TodoItem) -> Void
     let onReject: (TodoItem) -> Void
@@ -115,6 +159,7 @@ struct TodoReviewStripContent: View {
                 }
                 TodoReviewRow(
                     todo: todo,
+                    actionItems: actionItems,
                     onAccept: { onAccept(todo) },
                     onReject: { onReject(todo) },
                     onEdit: { task, owner, due in onEdit(todo, task, owner, due) }

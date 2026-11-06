@@ -57,8 +57,11 @@ struct TodoReviewPresentation {
     /// The quote in typographic quotes.
     let quoteText: String?
 
-    init(todo: TodoItem) {
-        badge = Badge(todo.verification, reason: Self.verificationReason(for: todo))
+    /// `actionItems` are the meeting's decoded extracted items, the source of
+    /// an unsupported verdict's reason; callers decode them once per meeting,
+    /// not per row. Without them the badge has no reason.
+    init(todo: TodoItem, actionItems: [ExtractedActionItem] = []) {
+        badge = Badge(todo.verification, reason: Self.verificationReason(for: todo, in: actionItems))
         ownerText = todo.owner?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
         dueText = todo.dueDate.map(Self.dueText)
         timestampLabel = todo.sourceTimestamp?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank.map { "[\($0)]" }
@@ -74,10 +77,15 @@ struct TodoReviewPresentation {
     /// Whether the caption line has anything to show.
     var hasCaption: Bool { ownerAndDueText != nil || timestampLabel != nil }
 
-    static func dueText(_ date: Date) -> String {
+    /// Current locale, like the app's other date captions.
+    private static let dueFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE d MMM"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    static func dueText(_ date: Date) -> String {
+        dueFormatter.string(from: date)
     }
 
     /// How many to-dos "Accept all verified" accepts: proposed and supported.
@@ -97,14 +105,27 @@ struct TodoReviewPresentation {
     /// The verifier's reason, from the meeting's extracted item with the same
     /// task or (after an edit) the same quote and timestamp — the lookup the
     /// decision log uses. TodoItem itself has no reason field.
-    private static func verificationReason(for todo: TodoItem) -> String? {
-        guard todo.verification == .unsupported, let items = todo.meeting?.actionItems, !items.isEmpty else { return nil }
+    private static func verificationReason(for todo: TodoItem, in items: [ExtractedActionItem]) -> String? {
+        guard todo.verification == .unsupported, !items.isEmpty else { return nil }
         let source = items.first { $0.task.trimmingCharacters(in: .whitespacesAndNewlines) == todo.text }
             ?? items.first { todo.quote != nil && $0.quote == todo.quote && $0.timestamp == todo.sourceTimestamp }
         return source?.verificationReason
     }
 
     // MARK: - Summary tab bullets
+
+    /// The action-items header suffix: `· X of N done`, where N counts only
+    /// bullets with a completion toggle (proposed and read-only bullets can't
+    /// be done); `nil` when there are none.
+    static func doneSummary(_ states: [SummaryBulletState]) -> String? {
+        var total = 0
+        var done = 0
+        for case .toggle(let todo) in states {
+            total += 1
+            if todo?.isCompleted == true { done += 1 }
+        }
+        return total == 0 ? nil : "\u{00B7} \(done) of \(total) done"
+    }
 
     /// How the summary tab shows one action-item bullet.
     enum SummaryBulletState {
@@ -165,6 +186,8 @@ struct TodoVerificationBadge: View {
 /// quote, and Accept / Edit / Reject.
 struct TodoReviewRow: View {
     let todo: TodoItem
+    /// The meeting's decoded extracted items (for the badge's reason).
+    var actionItems: [ExtractedActionItem] = []
     let onAccept: () -> Void
     let onReject: () -> Void
     let onEdit: (String, String?, Date?) -> Void
@@ -172,7 +195,7 @@ struct TodoReviewRow: View {
     @State private var isEditing = false
 
     var body: some View {
-        let presentation = TodoReviewPresentation(todo: todo)
+        let presentation = TodoReviewPresentation(todo: todo, actionItems: actionItems)
         VStack(alignment: .leading, spacing: CasaSpace.xs) {
             HStack(alignment: .firstTextBaseline, spacing: CasaSpace.xs) {
                 TodoVerificationBadge(badge: presentation.badge)

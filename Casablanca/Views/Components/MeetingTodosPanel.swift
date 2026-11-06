@@ -26,6 +26,7 @@ struct MeetingTodosPanel: View {
                     let actions = TodoReviewActions(modelContext: modelContext, appModel: appModel)
                     MeetingTodosReviewSection(
                         todos: proposed,
+                        actionItems: meeting.actionItems,
                         onAccept: actions.accept,
                         onReject: actions.reject,
                         onEdit: { todo, task, owner, due in actions.edit(todo, task: task, owner: owner, dueDate: due) }
@@ -128,6 +129,8 @@ struct MeetingTodosPanel: View {
 /// above the accepted list in MeetingTodosPanel.
 struct MeetingTodosReviewSection: View {
     let todos: [TodoItem]
+    /// The meeting's decoded extracted items, decoded once for all rows.
+    var actionItems: [ExtractedActionItem] = []
     let onAccept: (TodoItem) -> Void
     let onReject: (TodoItem) -> Void
     let onEdit: (TodoItem, String, String?, Date?) -> Void
@@ -142,6 +145,7 @@ struct MeetingTodosReviewSection: View {
             ForEach(todos) { todo in
                 TodoReviewRow(
                     todo: todo,
+                    actionItems: actionItems,
                     onAccept: { onAccept(todo) },
                     onReject: { onReject(todo) },
                     onEdit: { task, owner, due in onEdit(todo, task, owner, due) }

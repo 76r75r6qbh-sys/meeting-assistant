@@ -180,10 +180,7 @@ struct MeetingSummaryTab: View {
         let todos = meeting.todos
         let items = meeting.actionItems
         let states = texts.map { TodoReviewPresentation.summaryBulletState(for: $0, todos: todos, items: items) }
-        let doneCount = states.filter { state in
-            if case .toggle(let todo?) = state { return todo.isCompleted }
-            return false
-        }.count
+        let doneSummary = TodoReviewPresentation.doneSummary(states)
 
         VStack(alignment: .leading, spacing: CasaSpace.sm) {
             HStack(spacing: CasaSpace.xs) {
@@ -193,13 +190,15 @@ struct MeetingSummaryTab: View {
                     .foregroundStyle(Color.textTertiary)
                     .symbolRenderingMode(.hierarchical)
 
-                Text("· \(doneCount) of \(texts.count) done")
-                    .font(.caption)
-                    .foregroundStyle(Color.textTertiary)
+                if let doneSummary {
+                    Text(doneSummary)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
             }
 
             ForEach(Array(zip(texts, states).enumerated()), id: \.offset) { _, pair in
-                actionItemRow(text: pair.0, state: pair.1)
+                actionItemRow(text: pair.0, state: pair.1, items: items)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -210,7 +209,11 @@ struct MeetingSummaryTab: View {
     /// accepts, edits or rejects it), or another person's item read-only with
     /// its owner and verification badge.
     @ViewBuilder
-    private func actionItemRow(text: String, state: TodoReviewPresentation.SummaryBulletState) -> some View {
+    private func actionItemRow(
+        text: String,
+        state: TodoReviewPresentation.SummaryBulletState,
+        items: [ExtractedActionItem]
+    ) -> some View {
         switch state {
         case .review(let todo):
             HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
@@ -222,7 +225,7 @@ struct MeetingSummaryTab: View {
                     .background(Color.textTertiary.opacity(0.15), in: Capsule())
                     .help("Proposed to-do, waiting for review")
                     .accessibilityLabel("In review: \(text)")
-                TodoVerificationBadge(badge: TodoReviewPresentation(todo: todo).badge)
+                TodoVerificationBadge(badge: TodoReviewPresentation(todo: todo, actionItems: items).badge)
                 Text(text)
                     .font(.body)
                     .foregroundStyle(Color.textPrimary)
