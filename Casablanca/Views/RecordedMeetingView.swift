@@ -166,6 +166,16 @@ struct RecordedMeetingView: View {
         VStack(alignment: .leading, spacing: CasaSpace.xl) {
             infoBar
 
+            // Above the tab switch, so it shows on the Transcript tab where
+            // speakers are renamed as well as on the Summary tab.
+            if summaryOffer.offerRegenerateSummary(for: meeting, isSummarizing: summarizationService.isSummarizing) {
+                SummaryRegenerationBanner(
+                    canRegenerate: canSummarize,
+                    onRegenerate: regenerateSummaryWithNames,
+                    onDismiss: { summaryOffer.dismiss(meeting) }
+                )
+            }
+
             Picker("View", selection: $selectedTab) {
                 ForEach(DetailTab.allCases) { tab in
                     Text(tab.rawValue).tag(tab)
@@ -195,13 +205,7 @@ struct RecordedMeetingView: View {
                     canSummarize: canSummarize,
                     onSummarize: {
                         summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
-                    },
-                    showRegenerateOffer: summaryOffer.offerRegenerateSummary(
-                        for: meeting,
-                        isSummarizing: summarizationService.isSummarizing
-                    ),
-                    onRegenerateOffer: regenerateSummaryWithNames,
-                    onDismissRegenerateOffer: { summaryOffer.dismiss(meeting) }
+                    }
                 )
             case .transcript:
                 MeetingTranscriptTab(

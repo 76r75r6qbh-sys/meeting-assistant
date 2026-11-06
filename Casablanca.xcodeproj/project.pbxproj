@@ -274,6 +274,7 @@
 		CA604E75D903664CE5D5A80A /* UpdateProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7CA09912D7E22E2CA3CE7B /* UpdateProgressView.swift */; };
 		CB412AA44B3DE4C4764F62EF /* TopdeskResponseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2E5170240E071A7AFDB478 /* TopdeskResponseCard.swift */; };
 		CB88AFB502038FEDE1584365 /* UpdateDownloaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A064F199C7F1A4EA8845250C /* UpdateDownloaderTests.swift */; };
+		CE8A106FFC8AF37ADA548B87 /* MeetingExportCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DEEAC699626A5A9112FC58 /* MeetingExportCoalescer.swift */; };
 		CEFB80B9E5C58D2FB05541A7 /* UpdatePromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78870DE27FC6FEFF9085B32B /* UpdatePromptView.swift */; };
 		CHAT0001 /* LLMPromptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0101 /* LLMPromptSupport.swift */; };
 		CHAT0002 /* MeetingChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAT0102 /* MeetingChatService.swift */; };
@@ -521,6 +522,7 @@
 		ACPS0106 /* ActionItemReviewSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemReviewSettingsSection.swift; sourceTree = "<group>"; };
 		B0714BB51165E07B6318DEB4 /* WhisperModelRetentionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelRetentionPolicy.swift; sourceTree = "<group>"; };
 		B0A3C59D83667C487809FF56 /* RecordingSessionRecovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingSessionRecovery.swift; sourceTree = "<group>"; };
+		B0DEEAC699626A5A9112FC58 /* MeetingExportCoalescer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/MeetingExportCoalescer.swift; sourceTree = SOURCE_ROOT; };
 		B10001 /* CasablancaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasablancaApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -1035,6 +1037,7 @@
 				0C69A9D4C8872BFBEC011432 /* AskCitations.swift */,
 				34E721E1179392FDCB9B2E4E /* AskService.swift */,
 				58FCED0FD6BD8B68732D520E /* MeetingDetailNavigator.swift */,
+				B0DEEAC699626A5A9112FC58 /* MeetingExportCoalescer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -1734,6 +1737,7 @@
 				7E576F8BF50485A9C6FD5E37 /* MeetingDetailNavigator.swift in Sources */,
 				40749D90173D42044DA524CC /* TranscriptTransportBar.swift in Sources */,
 				BBA6BC9501AC19F001746FEC /* SummaryRegenerationOffer.swift in Sources */,
+				CE8A106FFC8AF37ADA548B87 /* MeetingExportCoalescer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -80,6 +80,19 @@ final class TodoReviewLayoutTests: XCTestCase {
         }
     }
 
+    /// The regenerate-summary banner sits above the detail tabs, in the same
+    /// reading column: it must fit the narrowest one (stacking if needed).
+    func testRegenerateBannerFitsTheNarrowestReadingColumn() {
+        let host = NSHostingController(rootView: SummaryRegenerationBanner(onRegenerate: {}, onDismiss: {}))
+        let minimum = host.sizeThatFits(in: CGSize(width: 1, height: 10_000))
+        XCTAssertLessThanOrEqual(
+            minimum.width, Self.summaryContentWidth,
+            "The banner needs \(minimum.width) pt; the reading column gives \(Self.summaryContentWidth) pt"
+        )
+        let fitted = host.sizeThatFits(in: CGSize(width: Self.summaryContentWidth, height: 10_000))
+        XCTAssertLessThanOrEqual(fitted.width, Self.summaryContentWidth)
+    }
+
     func testReviewUIAtMinimumWidthDoesNotRedirtyTheConstraintPass() throws {
         let state = ReviewState(todos: try makeTodos())
         let window = makeWindow(ReviewSplitHarness(state: state), size: CGSize(width: 1080, height: 720))
@@ -108,6 +121,17 @@ final class TodoReviewLayoutTests: XCTestCase {
         state.todos.removeLast()
         pump(window)
         first.owner = "Arriejanne Brouwer en Kim Owen-Jones namens het partnerteam"
+        pump(window)
+        // The regenerate offer appears and goes away above the tabs.
+        state.showOffer = true
+        pump(window)
+        for width in [CGFloat(760), CasaLayout.windowMinWidth] {
+            resize(window, to: CGSize(width: width, height: 500))
+            pump(window)
+        }
+        state.showOffer = false
+        pump(window)
+        state.showOffer = true
         pump(window)
         for width in [CGFloat(620), CasaLayout.windowMinWidth, 900, CasaLayout.windowMinWidth] {
             resize(window, to: CGSize(width: width, height: 500))
@@ -204,6 +228,7 @@ final class TodoReviewLayoutTests: XCTestCase {
 private final class ReviewState: ObservableObject {
     @Published var todos: [TodoItem]
     @Published var verifiedCount = 1
+    @Published var showOffer = false
 
     init(todos: [TodoItem]) {
         self.todos = todos
@@ -228,6 +253,9 @@ private struct ReviewSplitHarness: View {
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: CasaSpace.xl) {
+                    if state.showOffer {
+                        SummaryRegenerationBanner(onRegenerate: {}, onDismiss: {})
+                    }
                     TodoReviewStripContent(
                         todos: state.todos,
                         verifiedCount: state.verifiedCount,

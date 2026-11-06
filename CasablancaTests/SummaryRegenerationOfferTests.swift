@@ -14,6 +14,13 @@ final class SummaryRegenerationOfferTests: XCTestCase {
         return meeting
     }
 
+    /// "This is me" also changes speakers without naming anyone: the copy
+    /// must not claim that names changed.
+    func testBannerCopyIsNeutral() {
+        XCTAssertEqual(SummaryRegenerationBanner.message, "Speakers changed — regenerate the summary?")
+        XCTAssertEqual(SummaryRegenerationBanner.buttonTitle, "Regenerate summary")
+    }
+
     func testNoOfferBeforeAnySpeakerChange() {
         let offer = SummaryRegenerationOffer()
         XCTAssertFalse(offer.offerRegenerateSummary(for: makeMeeting(), isSummarizing: false))

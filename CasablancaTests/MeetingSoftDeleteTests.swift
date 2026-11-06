@@ -103,4 +103,98 @@ final class MeetingSoftDeleteTests: XCTestCase {
         let remaining = try context.fetch(FetchDescriptor<Meeting>())
         XCTAssertEqual(remaining.count, 1)
     }
+
+    // MARK: - No export after delete
+
+    /// A coalescer with a long delay, so a scheduled export only runs on flush.
+    private func makeCoalescer() -> MeetingExportCoalescer {
+        MeetingExportCoalescer(delay: .seconds(60))
+    }
+
+    private func makeStoredMeeting(in context: ModelContext) throws -> Meeting {
+        let meeting = Meeting(title: "Standup", date: .now, status: .completed)
+        context.insert(meeting)
+        try context.save()
+        return meeting
+    }
+
+    /// Positive control: a live meeting's scheduled export runs on flush.
+    func testScheduledExportOfALiveMeetingRuns() throws {
+        let context = ModelContext(try makeContainer())
+        let meeting = try makeStoredMeeting(in: context)
+        let coalescer = makeCoalescer()
+        var exported: [UUID] = []
+
+        coalescer.scheduleAutomaticExport(of: meeting, reporter: nil) { meeting, _, _ in exported.append(meeting.id) }
+        coalescer.flushAndWait(timeout: 5)
+
+        XCTAssertEqual(exported, [meeting.id])
+    }
+
+    /// Edit, then delete within the debounce: the pending export is cancelled,
+    /// so the deleted meeting's note or file is never rewritten or recreated.
+    func testDeletingAMeetingCancelsItsScheduledExport() throws {
+        let context = ModelContext(try makeContainer())
+        let coalescer = makeCoalescer()
+        let vm = MeetingListViewModel(
+            calendarService: CalendarService(),
+            removeItemAtURL: { _ in },
+            exportCoalescer: coalescer
+        )
+        vm.setModelContext(context)
+        let meeting = try makeStoredMeeting(in: context)
+        var exported = 0
+
+        coalescer.scheduleAutomaticExport(of: meeting, reporter: nil) { _, _, _ in exported += 1 }
+        vm.beginSoftDelete(meeting.id)
+        try vm.commitSoftDelete(meeting)
+        coalescer.flushAndWait(timeout: 5)
+
+        XCTAssertEqual(exported, 0)
+        XCTAssertTrue(coalescer.isIdle)
+    }
+
+    /// A delete that bypasses the cancel (or races it) is still caught when
+    /// the run starts: a deleted model is never exported (or touched).
+    func testAScheduledExportSkipsAMeetingDeletedElsewhere() throws {
+        let context = ModelContext(try makeContainer())
+        let meeting = try makeStoredMeeting(in: context)
+        let coalescer = makeCoalescer()
+        var exported = 0
+
+        coalescer.scheduleAutomaticExport(of: meeting, reporter: nil) { _, _, _ in exported += 1 }
+        context.delete(meeting)
+        try context.save()
+        coalescer.flushAndWait(timeout: 5)
+
+        XCTAssertEqual(exported, 0)
+    }
+
+    /// During the undo grace period the meeting is soft-deleted: no export.
+    func testAScheduledExportSkipsAMeetingPendingDeletion() throws {
+        let context = ModelContext(try makeContainer())
+        let meeting = try makeStoredMeeting(in: context)
+        let coalescer = makeCoalescer()
+        coalescer.isPendingDeletion = { $0 == meeting.id }
+        var exported = 0
+
+        coalescer.scheduleAutomaticExport(of: meeting, reporter: nil) { _, _, _ in exported += 1 }
+        coalescer.flushAndWait(timeout: 5)
+
+        XCTAssertEqual(exported, 0)
+    }
+
+    /// The awaited export (transcription pipeline) has the same guard.
+    func testAnAwaitedExportSkipsADeletedMeeting() async throws {
+        let context = ModelContext(try makeContainer())
+        let meeting = try makeStoredMeeting(in: context)
+        let coalescer = makeCoalescer()
+        var exported = 0
+        context.delete(meeting)
+        try context.save()
+
+        await coalescer.runAutomaticExport(of: meeting, defaults: .standard, reporter: nil) { _, _, _ in exported += 1 }
+
+        XCTAssertEqual(exported, 0)
+    }
 }

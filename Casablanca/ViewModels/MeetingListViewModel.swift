@@ -11,6 +11,7 @@ final class MeetingListViewModel {
     private let meetingHasPrep: (Meeting) -> Bool
     private let removeResumableRecordingSession: (UUID) throws -> Void
     private let speakerAnalysisStore: SpeakerAnalysisStore
+    private let exportCoalescer: MeetingExportCoalescer
     private var modelContext: ModelContext?
     var meetingSearchText = ""
 
@@ -57,13 +58,15 @@ final class MeetingListViewModel {
         removeResumableRecordingSession: @escaping (UUID) throws -> Void = { meetingID in
             try RecordingResumeSessionStore().deleteSession(for: meetingID)
         },
-        speakerAnalysisStore: SpeakerAnalysisStore = SpeakerAnalysisStore()
+        speakerAnalysisStore: SpeakerAnalysisStore = SpeakerAnalysisStore(),
+        exportCoalescer: MeetingExportCoalescer = .shared
     ) {
         self.calendarService = calendarService
         self.meetingHasPrep = meetingHasPrep
         self.removeItemAtURL = removeItemAtURL
         self.removeResumableRecordingSession = removeResumableRecordingSession
         self.speakerAnalysisStore = speakerAnalysisStore
+        self.exportCoalescer = exportCoalescer
     }
 
     func setModelContext(_ context: ModelContext) {
@@ -336,6 +339,12 @@ final class MeetingListViewModel {
 
     func deleteMeeting(_ meeting: Meeting) throws {
         guard let modelContext else { return }
+
+        // An edit just before the delete must not export afterwards: that
+        // would rewrite or recreate the deleted meeting's note or file. (The
+        // soft-delete grace period is covered by the export's own guard, so
+        // an Undo keeps the pending export.)
+        exportCoalescer.cancel(meeting.id)
 
         if let recordingPath = meeting.recordingFileURL {
             let recordingURL = URL(fileURLWithPath: recordingPath)

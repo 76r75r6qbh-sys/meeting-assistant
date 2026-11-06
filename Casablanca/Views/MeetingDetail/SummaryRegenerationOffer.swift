@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// The "Regenerate summary" offer shown after a speaker is renamed or merged
 /// on a meeting that already has a summary (spec A6/I2, Task 2.2).
@@ -49,5 +49,75 @@ struct SummaryRegenerationOffer: Equatable {
 
     private static func hasSummary(_ meeting: Meeting) -> Bool {
         meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+}
+
+/// The offer's banner: small and non-modal, shown above the detail tabs so it
+/// is visible on the Transcript tab (where speakers change) and on Summary.
+/// Neutral wording: "This is me" also changes speakers without renaming.
+/// Side by side when there is room, stacked in a narrow column.
+struct SummaryRegenerationBanner: View {
+    var canRegenerate: Bool = true
+    let onRegenerate: () -> Void
+    let onDismiss: () -> Void
+
+    static let message = "Speakers changed — regenerate the summary?"
+    static let buttonTitle = "Regenerate summary"
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: CasaSpace.sm) {
+                icon
+                text
+                regenerateButton
+                dismissButton
+            }
+            VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: CasaSpace.sm) {
+                    icon
+                    text
+                    dismissButton
+                }
+                regenerateButton
+            }
+        }
+        .padding(CasaSpace.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentSecondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var icon: some View {
+        Image(systemName: "person.2.wave.2")
+            .foregroundStyle(Color.accentSecondary)
+            .symbolRenderingMode(.hierarchical)
+            .accessibilityHidden(true)
+    }
+
+    private var text: some View {
+        Text(Self.message)
+            .font(.caption)
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help("Accepted and rejected to-dos are kept.")
+    }
+
+    private var regenerateButton: some View {
+        Button(Self.buttonTitle, action: onRegenerate)
+            .buttonStyle(GhostButtonStyle())
+            .font(.caption)
+            .fixedSize()
+            .disabled(!canRegenerate)
+    }
+
+    private var dismissButton: some View {
+        Button(action: onDismiss) {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(Color.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .help("Dismiss")
+        .accessibilityLabel("Dismiss regenerate summary offer")
     }
 }

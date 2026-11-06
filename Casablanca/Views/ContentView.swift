@@ -109,6 +109,8 @@ struct ContentView: View {
         }
         .task {
             viewModel.setModelContext(modelContext)
+            // Automatic exports skip meetings in the delete grace period.
+            MeetingExportCoalescer.shared.isPendingDeletion = { [viewModel] id in viewModel.isPendingDeletion(id) }
             if sidebarMeetings == nil {
                 sidebarMeetings = SidebarMeetingsProvider(modelContext: modelContext)
             }
