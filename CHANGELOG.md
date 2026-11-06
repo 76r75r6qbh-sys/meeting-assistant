@@ -2,7 +2,7 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.0] — 2026-11-06
 
 Casablanca now knows who said what, writes summaries from structured facts with a source for every action item, and lets you approve to-dos before they reach Obsidian. Based on a comparison with Granola, Otter, Fireflies, Teams Copilot and recent research (see `docs/research/2026-11-05-transcription-diarization-summary-best-practices.md`).
 
