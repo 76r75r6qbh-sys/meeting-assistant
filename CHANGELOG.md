@@ -2,6 +2,14 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] — 2026-11-10
+
+Teams' compact meeting view no longer splits a recording into several meetings.
+
+### Fixed
+
+- **The compact meeting view is part of the call.** Teams shows a small floating "Meeting compact view" window when the meeting window is not in front or a screen is shared. Casablanca read it as a new call: each time it opened or closed, the recording stopped and a new one started, so one meeting became several ("<meeting> (continued)" for a calendar meeting, or "Meeting compact view | <meeting>" for an ad-hoc one). The compact view now resolves to the meeting's own name, and any Teams window titled "<something> | <current call>" counts as the current call, so a variant not seen yet (such as the Dutch Teams wording) does not split a recording either. A new call whose title is exactly "<something> | <current call's name>" is therefore not detected as a switch.
+
 ## [0.21.0] — 2026-11-06
 
 Casablanca now knows who said what, writes summaries from structured facts with a source for every action item, and lets you approve to-dos before they reach Obsidian. Based on a comparison with Granola, Otter, Fireflies, Teams Copilot and recent research (see `docs/research/2026-11-05-transcription-diarization-summary-best-practices.md`).
