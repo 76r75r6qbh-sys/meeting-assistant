@@ -347,8 +347,10 @@ enum TeamsAutoRecordPolicy {
 ///
 /// Calls are identified by window number and normalized name
 /// (`TeamsAutoRecordPolicy.normalizedTitle`). A known window that is
-/// retitled, or a new window with a known name (a shared-content pop-out),
-/// is adopted as known without a switch. Pre-join windows are ignored: they
+/// retitled, a new window with a known name (a shared-content pop-out), or
+/// one whose name is a known name behind one leading title component (an
+/// auxiliary window's token the parser does not strip yet), is adopted as
+/// known without a switch. Pre-join windows are ignored: they
 /// are never known and never a candidate.
 struct TeamsCallSwitchDetector {
     /// The window server is read at most this often during a call; monitor
@@ -426,9 +428,21 @@ struct TeamsCallSwitchDetector {
         return nil
     }
 
+    /// A window is known by its number, its name, or a name that is a known
+    /// name behind one leading title component: Teams' auxiliary windows put
+    /// a single token in front of the call name ("Meeting compact view |
+    /// <call>"), and a token the parser does not strip yet (another UI
+    /// language) must not split the recording. Accepted trade-off: a real new
+    /// call titled "<X> | <known name>" is not seen as a switch.
     private func isKnown(_ window: TeamsCallWindowName) -> Bool {
-        knownNumbers.contains(window.number)
-            || knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(window.name))
+        if knownNumbers.contains(window.number)
+            || knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(window.name)) {
+            return true
+        }
+        let components = window.name.components(separatedBy: TeamsCallWindowTitle.separator)
+        guard components.count > 1 else { return false }
+        let tail = components.dropFirst().joined(separator: TeamsCallWindowTitle.separator)
+        return knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(tail))
     }
 
     /// Pre-join windows never become known: the in-call window that replaces
