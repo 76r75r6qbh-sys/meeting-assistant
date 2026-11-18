@@ -109,10 +109,19 @@ says "add a to-do" / "zet op mijn lijst". It holds:
   heading when Open is empty), keeping the blank line before `## Done`;
   read the file back afterwards and confirm each new line is there (the app
   rewrites the file when it assigns ids, so a simultaneous write can lose a
-  line — re-add it once if missing); never edit, reorder, tick or
-  remove existing lines; never write under `## Done`; keep the three headings;
+  line — re-add it once if missing); never edit, reorder or
+  remove existing lines (ticking only as in "Ticking off" below); never write under `## Done`; keep the three headings;
   if the file or a heading is missing, add nothing and report it in the
   run's output.
+- **Ticking off (Youri, 2026-11-18: "yes, with proof"):** only
+  `end-of-day` ticks, and only an Open line with a `🔗` link whose source
+  proves it is done: `teams:`/`outlook:` — Youri's own reply in that thread
+  after the message that asked him; `jira:` — the issue is resolved/done, or
+  Youri posted the comment the to-do asked for; `topdesk:` — the call is
+  closed. It flips `- [ ]` to `- [x]` in place, keeping the line and its
+  marker (the app moves it to Done), and names each ticked to-do with its
+  proof in the EOD summary. No link, unclear proof or a connector error →
+  leave it open.
 - **Cap:** at most **5** new to-dos per skill run. Beyond that, list the
   extra candidates in the run's output ("3 more possible to-dos: …") instead
   of writing them.
@@ -126,7 +135,7 @@ bodies are no longer composed; `notify-youri` calls go.
 
 | File | Today | After |
 |---|---|---|
-| `commands/end-of-day.md`, `skills/end-of-day` | "Now" Teams threads → pending draft; "Tomorrow" → follow_up task; queue cleanup | Threads that pass the bar → `add-todo` with `teams:` link; others listed in the EOD summary; cleanup step removed |
+| `commands/end-of-day.md`, `skills/end-of-day` | "Now" Teams threads → pending draft; "Tomorrow" → follow_up task; queue cleanup | Threads that pass the bar → `add-todo` with `teams:` link; others listed in the EOD summary; queue cleanup removed; its "Casablanca todo sync" step becomes add-via-`add-todo` plus ticking off with proof |
 | `commands/executive-triage.md` | reads queue; appends drafts/tasks | reads open to-dos instead; `add-todo` for new actions |
 | `commands/post-meeting-autopilot.md` | queues drafts/tasks per meeting; adds/updates todos | no to-dos for the meeting's own action items (Casablanca's to-do review owns them); `add-todo` only for a non-meeting follow-up it finds (a mail or chat that asks Youri something) |
 | `commands/topdesk.md`, `commands/topdesk-triage.md` | queue Dutch reply / internal-note drafts | `add-todo` with `topdesk:` link; reply text only when Youri asks in the session |
@@ -224,7 +233,8 @@ silently.
 - Cap of 5 new to-dos per run; extras listed in the output.
 - No Teams self-ping at all (project 3's Reminders sync may bring phone
   alerts back, opt-in).
-- Skills never tick or edit existing to-dos; status belongs to the app.
+- Only end-of-day ticks to-dos, only with proof from the linked source
+  (Youri agreed); no other skill edits existing lines.
 - Skills never add a meeting's own action items; Casablanca's to-do review
   owns them. post-meeting-autopilot stops producing to-dos for them.
 - When the Jira/Topdesk check can't run, the to-do is added anyway and the
