@@ -61,7 +61,10 @@ struct DraftReplyService {
     ].map { gatewayToolPrefix + $0 }
 
     /// Denied explicitly on top of the allowlist: every gateway tool that sends,
-    /// replies, creates or changes something, plus the local write tools.
+    /// replies, creates or changes something, plus the local write tools and the
+    /// built-ins that reach the network or start another agent. A skill's
+    /// `allowed-tools` frontmatter can grant tools while `Skill` is allowed;
+    /// the deny list still wins over that.
     static let blockedTools: [String] = [
         "bitbucket_add_pr_comment", "bitbucket_approve_pull_request", "bitbucket_create_pr_task",
         "bitbucket_create_pull_request", "bitbucket_decline_pull_request",
@@ -91,7 +94,9 @@ struct DraftReplyService {
         "microsoft365_send_draft", "microsoft365_send_email", "microsoft365_update_contact",
         "microsoft365_update_email", "microsoft365_update_event", "microsoft365_upload_file",
         "microsoft365_write_worksheet_range",
-    ].map { gatewayToolPrefix + $0 } + ["Bash", "Write", "Edit"]
+    ].map { gatewayToolPrefix + $0 } + [
+        "Bash", "Write", "Edit", "WebFetch", "WebSearch", "NotebookEdit", "Agent", "Task",
+    ]
 
     /// The argument list of the tool-using draft run. A test locks it.
     static func arguments(model: String, mcpConfigPath: String) -> [String] {

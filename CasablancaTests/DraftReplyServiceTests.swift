@@ -78,7 +78,9 @@ final class DraftReplyServiceTests: XCTestCase {
             "microsoft365_send_draft", "microsoft365_send_email", "microsoft365_update_contact",
             "microsoft365_update_email", "microsoft365_update_event", "microsoft365_upload_file",
             "microsoft365_write_worksheet_range",
-        ].map { Self.gateway + $0 } + ["Bash", "Write", "Edit"]
+        ].map { Self.gateway + $0 } + [
+            "Bash", "Write", "Edit", "WebFetch", "WebSearch", "NotebookEdit", "Agent", "Task",
+        ]
 
         XCTAssertEqual(DraftReplyService.readOnlyTools, read)
         XCTAssertEqual(DraftReplyService.blockedTools, blocked)
@@ -133,6 +135,15 @@ final class DraftReplyServiceTests: XCTestCase {
             "microsoft365_update_email", "jira_add_comment",
         ].map { Self.gateway + $0 }
         for tool in mustBlock {
+            XCTAssertTrue(DraftReplyService.blockedTools.contains(tool), "not blocked: \(tool)")
+        }
+    }
+
+    /// `Skill` is allowed, and a skill's `allowed-tools` frontmatter can grant
+    /// tools; the built-ins that write, reach the network or start another agent
+    /// must therefore be denied by name.
+    func testBlockedListNamesTheRiskyBuiltIns() {
+        for tool in ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "NotebookEdit", "Agent", "Task"] {
             XCTAssertTrue(DraftReplyService.blockedTools.contains(tool), "not blocked: \(tool)")
         }
     }
