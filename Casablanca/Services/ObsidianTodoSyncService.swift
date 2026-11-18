@@ -67,16 +67,18 @@ enum ObsidianTodoSyncService {
             fileManager: fileManager
         )
 
-        let syncedTasks = try syncMeetingFiles(
+        let (syncedTasks, scannedPaths) = try syncMeetingFiles(
             files,
             meeting: meeting,
             in: modelContext,
             index: index,
             fileManager: fileManager
         )
+        // Every existing note file was scanned, also one with no task lines
+        // left, so its rows go; a file that is missing keeps its rows.
         removeMissingMeetingRows(
             for: meeting,
-            sourcePaths: Set(syncedTasks.map(\.sourceFilePath)),
+            sourcePaths: scannedPaths,
             importedIDs: Set(syncedTasks.map(\.id)),
             in: modelContext,
             index: index
@@ -353,8 +355,9 @@ enum ObsidianTodoSyncService {
         in modelContext: ModelContext,
         index: TodoIndex,
         fileManager: FileManager
-    ) throws -> [SyncedTask] {
+    ) throws -> (tasks: [SyncedTask], scannedPaths: Set<String>) {
         var syncedTasks: [SyncedTask] = []
+        var scannedPaths: Set<String> = []
 
         let existingURLs = Array(
             Set(files.prepCandidates + files.notesCandidates)
@@ -362,6 +365,7 @@ enum ObsidianTodoSyncService {
 
         for url in existingURLs {
             let markdown = try readMarkdownIfPresent(at: url, fileManager: fileManager)
+            scannedPaths.insert(url.path)
             let (updatedMarkdown, assignedTasks) = ObsidianTodoMarkdown.assigningMissingTaskIDs(markdown)
 
             if updatedMarkdown != markdown {
@@ -376,7 +380,7 @@ enum ObsidianTodoSyncService {
             }
         }
 
-        return syncedTasks
+        return (syncedTasks, scannedPaths)
     }
 
     /// Every TodoItem keyed by id, fetched once per refresh and kept in step

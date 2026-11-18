@@ -177,6 +177,75 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertTrue(todos[0].isCompleted)
     }
 
+    /// Writes a notes file holding two marked open tasks for `meeting`, syncs it
+    /// and returns the file's URL. Both rows are accepted.
+    private func syncNotesFileWithTwoTasks(
+        meeting: Meeting,
+        in context: ModelContext,
+        defaults: UserDefaults
+    ) throws -> URL {
+        let files = try XCTUnwrap(ObsidianMeetingFiles.meetingFiles(for: meeting, userDefaults: defaults))
+        try FileManager.default.createDirectory(at: files.notesDirectory, withIntermediateDirectories: true)
+        try """
+        # Notes
+
+        Some discussion.
+
+        ## Action Items
+
+        - [ ] First task <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440001 -->
+        - [ ] Second task <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440002 -->
+        """.write(to: files.notesURL, atomically: true, encoding: .utf8)
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+        let rows = try context.fetch(FetchDescriptor<TodoItem>()).filter { $0.meeting?.id == meeting.id }
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0.status == .accepted })
+        return files.notesURL
+    }
+
+    /// A note whose last task line was deleted still exists, so its rows go:
+    /// the file was scanned and holds none of them.
+    func testAcceptedRowsRemovedWhenNoteHasNoTaskLinesLeft() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+        let notesURL = try syncNotesFileWithTwoTasks(meeting: meeting, in: context, defaults: defaults)
+
+        try """
+        # Notes
+
+        Some discussion.
+
+        ## Action Items
+
+        """.write(to: notesURL, atomically: true, encoding: .utf8)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let rows = try context.fetch(FetchDescriptor<TodoItem>())
+            .filter { $0.meeting?.id == meeting.id && $0.status == .accepted }
+        XCTAssertEqual(rows.count, 0)
+    }
+
+    /// A note file that is gone entirely was not scanned, so its rows stay.
+    func testRowsKeptWhenNoteFileIsMissing() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+        let notesURL = try syncNotesFileWithTwoTasks(meeting: meeting, in: context, defaults: defaults)
+
+        try FileManager.default.removeItem(at: notesURL)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let rows = try context.fetch(FetchDescriptor<TodoItem>())
+            .filter { $0.meeting?.id == meeting.id && $0.status == .accepted }
+        XCTAssertEqual(rows.count, 2)
+    }
+
     /// Regression: with no Prep file, meeting todos live in the Notes file, and an
     /// auto-export after a notes edit used to rewrite that file without its
     /// Action Items. The next new todo then made refresh delete the old rows.
