@@ -1,3 +1,5 @@
+> **Retired 2026-11-18** — see [docs/superpowers/specs/2026-11-18-todos-only-draft-reply-design.md](superpowers/specs/2026-11-18-todos-only-draft-reply-design.md).
+
 # Action Queue (Approvals)
 
 The **Approvals** inbox (sidebar) is where AI-prepared drafts land for you to act on — draft emails,
