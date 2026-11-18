@@ -13,6 +13,9 @@ enum AppPreferenceKey {
     /// writes the path it detected back here so Settings can show it.
     static let claudeCLIPath = "claudeCLIPath"
     static let claudeCLIModel = "claudeCLIModel"
+    /// Model for to-do draft replies (`haiku|sonnet|opus`). Unset means
+    /// `DraftReplyService.defaultModel`.
+    static let draftReplyModel = "draftReplyModel"
     static let whisperModel = "whisperModel"
     static let defaultTranscriptionLanguage = "defaultTranscriptionLanguage"
     static let summaryPromptTemplate = "summaryPromptTemplate"
@@ -25,7 +28,6 @@ enum AppPreferenceKey {
     static let terminologyList = "terminologyList"
     static let exportDestination = "exportDestination"
     static let prepTodoStorage = "prepTodoStorage"
-    static let actionQueuePath = "actionQueuePath"
     static let prepInspectorWidth = "prepInspectorWidth"
     static let detailInspectorWidth = "detailInspectorWidth"
     static let notesTextSize = "notesTextSize"

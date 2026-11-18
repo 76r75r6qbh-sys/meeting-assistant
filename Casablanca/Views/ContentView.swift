@@ -117,7 +117,6 @@ struct ContentView: View {
             if searchViewModel == nil {
                 searchViewModel = GlobalSearchViewModel(
                     modelContext: modelContext,
-                    actionQueueModel: appModel.actionQueueModel,
                     isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
                 )
             }
@@ -202,8 +201,6 @@ struct ContentView: View {
         switch detailRoute {
         case .todos:
             TodosView(viewModel: viewModel)
-        case .actionQueue:
-            ActionQueueView()
         case .ask:
             if let askService {
                 AskView(

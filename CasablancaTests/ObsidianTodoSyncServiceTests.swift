@@ -878,6 +878,117 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertTrue(ActionItemTodoMatcher.matchingTodo(for: bullet, in: meeting.todos) === row)
     }
 
+    // MARK: - Source links (`🔗 <scheme>:<ref>`)
+
+    private func writeGenericFile(_ openLines: [String], defaults: UserDefaults) throws -> URL {
+        let genericURL = try XCTUnwrap(ObsidianMeetingFiles.genericTodosURL(userDefaults: defaults))
+        try FileManager.default.createDirectory(
+            at: genericURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try (["# Casablanca Todos", "", "## Open", ""] + openLines + ["", "## Done"])
+            .joined(separator: "\n")
+            .write(to: genericURL, atomically: true, encoding: .utf8)
+        return genericURL
+    }
+
+    func testGenericTodoLinkSurvivesCompletionToggle() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let genericURL = try writeGenericFile(
+            ["- [ ] Reply to Kim 🔗 jira:IO-1 <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->"],
+            defaults: defaults
+        )
+
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        let todo = try XCTUnwrap(try context.fetch(FetchDescriptor<TodoItem>()).first)
+        XCTAssertEqual(todo.text, "Reply to Kim")
+        XCTAssertEqual(todo.sourceRef, "jira:IO-1")
+
+        try ObsidianTodoSyncService.setCompleted(true, for: todo, in: context, userDefaults: defaults)
+        var markdown = try String(contentsOf: genericURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("- [x] Reply to Kim 🔗 jira:IO-1 <!-- casablanca-todo:"), markdown)
+
+        try ObsidianTodoSyncService.setCompleted(false, for: todo, in: context, userDefaults: defaults)
+        markdown = try String(contentsOf: genericURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("- [ ] Reply to Kim 🔗 jira:IO-1 <!-- casablanca-todo:"), markdown)
+        XCTAssertEqual(todo.sourceRef, "jira:IO-1")
+
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        let refreshed = try XCTUnwrap(try context.fetch(FetchDescriptor<TodoItem>()).first)
+        XCTAssertEqual(refreshed.sourceRef, "jira:IO-1")
+        XCTAssertEqual(refreshed.text, "Reply to Kim")
+    }
+
+    func testMeetingTodoLinkImported() throws {
+        let context = ModelContext(try makeContainer())
+        let vaultURL = try makeVault()
+        let defaults = makeDefaults(vaultURL: vaultURL)
+        let notesDirectory = vaultURL.appendingPathComponent("meeting notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+
+        let prepURL = notesDirectory.appendingPathComponent("2025-04-12 Weekly Sync - Prep.md")
+        try """
+        # Prep
+
+        ## Action Items
+
+        - [ ] Answer the ticket — Youri 📅 2026-11-20 🔗 topdesk:MC2611 0123 <!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->
+        """.write(to: prepURL, atomically: true, encoding: .utf8)
+
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let row = try XCTUnwrap(try context.fetch(FetchDescriptor<TodoItem>()).first)
+        XCTAssertEqual(row.text, "Answer the ticket")
+        XCTAssertEqual(row.owner, "Youri")
+        XCTAssertEqual(row.sourceRef, "topdesk:MC2611 0123")
+        XCTAssertEqual(row.meeting?.id, meeting.id)
+    }
+
+    /// The line is the source of truth for the link: a link added, changed or
+    /// removed in Obsidian reaches the row, also on a line with no other suffix.
+    func testLinkEditedInObsidianUpdatesTheRow() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let marker = "<!-- casablanca-todo: 550E8400-E29B-41D4-A716-446655440000 -->"
+        _ = try writeGenericFile(["- [ ] Reply to Kim \(marker)"], defaults: defaults)
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        let todo = try XCTUnwrap(try context.fetch(FetchDescriptor<TodoItem>()).first)
+        XCTAssertNil(todo.sourceRef)
+
+        _ = try writeGenericFile(["- [ ] Reply to Kim 📅 2026-11-20 🔗 outlook:AAMkAD= \(marker)"], defaults: defaults)
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        XCTAssertEqual(todo.sourceRef, "outlook:AAMkAD=")
+        XCTAssertEqual(todo.text, "Reply to Kim")
+        XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-20"))
+
+        // A value the line does not carry; a link-only line must not clear it.
+        todo.owner = "Kim"
+        try context.save()
+
+        _ = try writeGenericFile(["- [ ] Reply to Kim 🔗 teams:19:abc@thread.v2 \(marker)"], defaults: defaults)
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        XCTAssertEqual(todo.sourceRef, "teams:19:abc@thread.v2", "a link-only line updates the link")
+        XCTAssertEqual(todo.text, "Reply to Kim")
+        XCTAssertEqual(todo.owner, "Kim", "a link-only line keeps the row's owner")
+        XCTAssertEqual(todo.dueDate, TodoReviewService.dueDate(fromISO: "2026-11-20"), "and its due date")
+
+        _ = try writeGenericFile(["- [ ] Reply to Kim \(marker)"], defaults: defaults)
+        try ObsidianTodoSyncService.refreshAllTodos(in: context, userDefaults: defaults)
+        XCTAssertNil(todo.sourceRef, "a link removed in Obsidian clears the row's link")
+        XCTAssertEqual(todo.text, "Reply to Kim")
+    }
+
+    func testExportedActionItemsCarryTheLink() throws {
+        let todo = TodoItem(text: "Reply to Kim")
+        todo.sourceRef = "jira:IO-1234"
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(for: todo), " 🔗 jira:IO-1234")
+        XCTAssertEqual(ObsidianTodoMarkdown.taskLine(for: todo).link, "jira:IO-1234")
+    }
+
     private func makeVault() throws -> URL {
         makeScratchVault("todo-sync")
     }

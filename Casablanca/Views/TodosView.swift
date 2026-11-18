@@ -13,6 +13,10 @@ struct TodosView: View {
     @State private var filter: TodoFilter = .open
     @State private var newTodoText = ""
     @State private var isRefreshing = false
+    /// The open draft sheet's snapshot of its to-do, taken when the user asked
+    /// for the draft. The sheet hangs off the list, not a row, so a lazily
+    /// recycled row cannot take it down.
+    @State private var draftReply: DraftReplyRequest?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum TodoFilter: String, CaseIterable {
@@ -71,6 +75,11 @@ struct TodosView: View {
                 appModel.toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
             }
         }
+        .sheet(item: $draftReply) { request in
+            DraftReplySheet(request: request, toastCenter: appModel.toastCenter) {
+                navigateToMeeting(id: request.meetingID)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("Filter", selection: $filter) {
@@ -112,9 +121,13 @@ struct TodosView: View {
             if filter == .review {
                 reviewRow(todo, actionItems: todo.meeting.flatMap { itemsByMeeting[$0.id] } ?? [])
             } else {
-                TodoRow(todo: todo, reduceMotion: reduceMotion, toastCenter: appModel.toastCenter) {
-                    navigateToMeeting(of: todo)
-                }
+                TodoRow(
+                    todo: todo,
+                    reduceMotion: reduceMotion,
+                    toastCenter: appModel.toastCenter,
+                    onNavigateToMeeting: { navigateToMeeting(of: todo) },
+                    onDraftReply: { draftReply = DraftReplyRequest(todo: todo) }
+                )
             }
         }
         .listStyle(.inset)
@@ -159,7 +172,11 @@ struct TodosView: View {
     }
 
     private func navigateToMeeting(of todo: TodoItem) {
-        if let meetingID = TodoRowPresentation(todo: todo).meetingID {
+        navigateToMeeting(id: TodoRowPresentation(todo: todo).meetingID)
+    }
+
+    private func navigateToMeeting(id meetingID: UUID?) {
+        if let meetingID {
             viewModel.sidebarSelection = .meeting(meetingID)
         }
     }
@@ -271,13 +288,67 @@ struct TodoRowPresentation {
         formatter.dateFormat = "MMM d"
         return "\(meeting.title) \u{00B7} \(formatter.string(from: meeting.date))"
     }
+
+    /// "Draft reply" is offered on open, accepted to-dos only: not on done
+    /// ones, nor on proposals still in review.
+    var canDraftReply: Bool {
+        todo.status == .accepted && !todo.isCompleted
+    }
+
+    /// The to-do's source link, when it has a readable one.
+    var sourceLink: TodoSourceLink? {
+        todo.sourceRef.flatMap(TodoSourceLink.init)
+    }
 }
 
-private struct TodoRow: View {
+/// A to-do's source link under its text: the label as a caption pill, a
+/// button opening the URL when the link has one. Its own button, so a click
+/// opens the link and never the row's meeting.
+struct TodoSourceLinkChip: View {
+    let link: TodoSourceLink
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        if let url = link.url {
+            Button {
+                openURL(url)
+            } label: {
+                pill(systemImage: "arrow.up.right.square")
+            }
+            .buttonStyle(.borderless)
+            .help("Open \(link.label)")
+            .accessibilityLabel("Open source: \(link.label)")
+        } else {
+            pill(systemImage: "link")
+                .help("Source: \(link.label)")
+                .accessibilityLabel("Source: \(link.label)")
+        }
+    }
+
+    private func pill(systemImage: String) -> some View {
+        HStack(spacing: CasaSpace.xxs) {
+            Image(systemName: systemImage)
+                .imageScale(.small)
+            Text(link.label)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.caption)
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, CasaSpace.sm)
+        .padding(.vertical, CasaSpace.xxs)
+        .background(Color.backgroundTertiary, in: Capsule())
+    }
+}
+
+struct TodoRow: View {
     @Bindable var todo: TodoItem
     var reduceMotion: Bool = false
     let toastCenter: ToastCenter
     let onNavigateToMeeting: () -> Void
+    /// Opens the draft sheet; offered only when ``TodoRowPresentation/canDraftReply``.
+    let onDraftReply: () -> Void
+    @State private var isHovering = false
     @Environment(\.modelContext) private var modelContext
 
     private var presentation: TodoRowPresentation {
@@ -305,14 +376,36 @@ private struct TodoRow: View {
                     .strikethrough(todo.isCompleted)
                     .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
 
-                if let subtitle = presentation.meetingSubtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(Color.textTertiary)
+                if presentation.meetingSubtitle != nil || presentation.sourceLink != nil {
+                    HStack(spacing: CasaSpace.sm) {
+                        if let subtitle = presentation.meetingSubtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                        if let sourceLink = presentation.sourceLink {
+                            TodoSourceLinkChip(link: sourceLink)
+                        }
+                    }
                 }
             }
 
             Spacer()
+
+            if presentation.canDraftReply {
+                Button {
+                    onDraftReply()
+                } label: {
+                    Image(systemName: "text.bubble")
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Draft reply")
+                .accessibilityLabel("Draft reply")
+                // Revealed on hover; the context menu offers it too.
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+            }
 
             if presentation.canNavigateToMeeting {
                 Image(systemName: "chevron.right")
@@ -321,9 +414,26 @@ private struct TodoRow: View {
             }
         }
         .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
         .onTapGesture {
             guard presentation.canNavigateToMeeting else { return }
             onNavigateToMeeting()
+        }
+        .contextMenu {
+            if presentation.canDraftReply {
+                Button("Draft reply", systemImage: "text.bubble") {
+                    onDraftReply()
+                }
+            }
+        }
+        // The hover button is invisible to the keyboard and VoiceOver; this
+        // is their way to it.
+        .accessibilityActions {
+            if presentation.canDraftReply {
+                Button("Draft reply") {
+                    onDraftReply()
+                }
+            }
         }
     }
 

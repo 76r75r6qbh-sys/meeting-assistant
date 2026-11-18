@@ -12,12 +12,10 @@ final class GlobalSearchViewModelTests: XCTestCase {
 
     private func makeViewModel(
         _ context: ModelContext,
-        actionQueue: ActionQueueModel = ActionQueueModel(),
         debounce: Duration = .milliseconds(1)
     ) -> GlobalSearchViewModel {
         GlobalSearchViewModel(
             modelContext: context,
-            actionQueueModel: actionQueue,
             debounceInterval: debounce
         )
     }
@@ -237,7 +235,6 @@ final class GlobalSearchViewModelTests: XCTestCase {
         var pending: Set<UUID> = [meeting.id]
         let vm = GlobalSearchViewModel(
             modelContext: context,
-            actionQueueModel: ActionQueueModel(),
             debounceInterval: .milliseconds(1),
             isPendingDeletion: { pending.contains($0) }
         )

@@ -20,6 +20,11 @@ final class TodoItem {
     var statusRaw: String = TodoStatus.accepted.rawValue
     /// Raw ``VerificationState``; `nil` for to-dos that were never verified.
     var verificationRaw: String?
+    // Schema V4 — optional so the V3 → V4 migration is additive.
+    /// Source link as raw `scheme:ref` (the line's ` 🔗 <scheme>:<ref>`, no
+    /// emoji), e.g. `jira:IO-1234`. The Obsidian line is its source of truth;
+    /// see ``TodoSourceLink`` for the label and URL.
+    var sourceRef: String?
 
     init(
         id: UUID = UUID(),

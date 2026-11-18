@@ -2,6 +2,27 @@
 
 All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.23.0] — 2026-11-18
+
+One list: the To-Dos. The Approvals inbox is gone, and a draft reply is made only when you ask for one on a to-do.
+
+> **One-way upgrade:** this version migrates the store to schema V4. Older builds (0.22.x and earlier) cannot open it afterwards.
+
+### Added
+
+- **Draft reply on to-dos.** Open, accepted to-dos have a *Draft reply* action (hover the row, or the context menu); it is not offered on proposed or done to-dos. A sheet shows the to-do, a link to its meeting and its source link, and Claude Code writes a draft from the to-do, the meeting's summary and transcript, and the source it points to, in the language of the source, with a one-line hint of the channel (email, Teams, Jira, Topdesk). The run is headless (`claude -p`) and read-only: only `medicore-gateway` is loaded (`--strict-mcp-config`), only read tools are allowed, every gateway send/write tool plus `Bash`, `Write` and `Edit` is blocked, and `--permission-mode default` overrides a user `auto` mode, so the app cannot send anything. User skills and `CLAUDE.md` apply; user hooks do not run. Timeout 180 s.
+  - **Revise** rewrites the current draft, including your edits, with a steer ("shorter, Dutch, more formal…"); it runs without tools and a failed revision keeps the draft.
+  - **Start over** runs the full draft again and asks before discarding edits. **Copy** puts the draft on the clipboard. **Continue in Claude Code** opens Terminal with an interactive `claude` session in ask mode (`--permission-mode default`), seeded with the prompt, the draft and the steer.
+  - Drafts are never saved; closing the sheet cancels a running draft.
+  - *Settings → Draft replies* picks the model (Haiku, Sonnet or Opus; default Sonnet) and shows the `claude` CLI it uses, shared with the Claude Code summarization provider.
+- **Source links on to-dos.** An Obsidian to-do line can end with `🔗 <scheme>:<ref>`, written last after ` — owner 📅 yyyy-MM-dd [mm:ss]`, e.g. `🔗 jira:IO-1234` or `🔗 topdesk:MC2611 0123`. Schemes: `outlook`, `teams`, `jira`, `topdesk`, `url`. A line with only a link is valid, and lines round-trip unchanged. The link is stored on the to-do (schema V4, a lightweight migration from V3) and shown as a chip next to the meeting; `jira` opens the issue on tenzinger.atlassian.net and `url` opens http(s) links in the browser. A `topdesk` ref is passed to the draft as text only (no Topdesk connector in the run).
+
+### Removed
+
+- **The Approvals inbox.** The sidebar item, its cards, the Approvals results in global search, *Settings → Action Queue* (the `action-queue.json` path), the menu-bar pending count and the Dock badge are gone. Casablanca no longer reads `action-queue.json`; the file itself is left alone. `docs/action-queue-approvals.md` is marked retired.
+
 ## [0.22.0] — 2026-11-10
 
 Teams' compact meeting view no longer splits a recording into several meetings.

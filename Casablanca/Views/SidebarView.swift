@@ -39,9 +39,6 @@ struct SidebarView: View {
     private var openTodoCount: Int { openTodos.count }
 
     var body: some View {
-        // Read in this view's tracked context so the badge updates reactively
-        // when the watcher/bootstrap mutates the queue.
-        let pendingCount = appModel.actionQueueModel.pendingCount
         // Filtered/sorted once per body pass; they were computed twice each.
         let upcoming = upcomingMeetings
         let recent = recentMeetings
@@ -56,12 +53,6 @@ struct SidebarView: View {
                 Label("To-Dos", systemImage: "checklist")
                     .badge(openTodoCount)
                     .tag(SidebarDestination.todos)
-            }
-
-            Section {
-                Label("Approvals", systemImage: "tray.full")
-                    .badge(pendingCount)
-                    .tag(SidebarDestination.actionQueue)
             }
 
             Section {
@@ -473,7 +464,6 @@ struct SidebarPlaceholderView: View {
 enum SidebarDestination: Hashable {
     case dashboard
     case todos
-    case actionQueue
     case ask
     case meeting(UUID)
 }

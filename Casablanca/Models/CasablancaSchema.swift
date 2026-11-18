@@ -209,16 +209,112 @@ enum CasablancaSchemaV2: VersionedSchema {
     }
 }
 
-// MARK: - V3 (current schema)
+// MARK: - V3 (v0.20.0 … v0.22.x schema)
 
-/// The current schema: the top-level ``Meeting`` / ``TodoItem`` models are the
-/// single source of truth. Adds (all optional or defaulted, so additive):
+/// The speech-pipeline schema: adds (all optional or defaulted, so additive)
 /// `Meeting.speakerSegmentsData`, `speakersData`, `actionItemsData`,
 /// `summaryTemplateID`, `micTrackFileURL`, `systemTrackFileURL`; and
 /// `TodoItem.owner`, `dueDate`, `sourceTimestamp`, `quote`,
-/// `statusRaw = "accepted"`, `verificationRaw`.
+/// `statusRaw = "accepted"`, `verificationRaw`. FROZEN copy of the top-level
+/// models at commit f987c85 — never edit; add a new version instead.
 enum CasablancaSchemaV3: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
+
+    static var models: [any PersistentModel.Type] {
+        [Meeting.self, TodoItem.self]
+    }
+
+    @Model
+    final class Meeting {
+        var id: UUID
+        var title: String
+        var date: Date
+        var endDate: Date?
+        var calendarEventID: String?
+        var participants: [String]
+        var status: MeetingStatus
+        var userNotes: String
+        var transcript: String?
+        var rawTranscript: String?
+        var summary: String?
+        var recordingFileURL: String?
+        var recordingDuration: Double?
+        var transcriptionLanguage: String = "en-US"
+        var tags: [String] = []
+        var appleNotesSummaryNoteID: String?
+        var appleNotesRawNotesNoteID: String?
+        var localPrepNotes: String = ""
+        var speakerSegmentsData: Data?
+        var speakersData: Data?
+        var actionItemsData: Data?
+        var summaryTemplateID: String?
+        var micTrackFileURL: String?
+        var systemTrackFileURL: String?
+        var createdAt: Date
+        @Relationship(deleteRule: .cascade, inverse: \TodoItem.meeting) var todos: [TodoItem] = []
+
+        init(
+            title: String,
+            date: Date,
+            endDate: Date? = nil,
+            calendarEventID: String? = nil,
+            participants: [String] = [],
+            status: MeetingStatus = .upcoming
+        ) {
+            self.id = UUID()
+            self.title = title
+            self.date = date
+            self.endDate = endDate
+            self.calendarEventID = calendarEventID
+            self.participants = participants
+            self.status = status
+            self.userNotes = ""
+            self.transcriptionLanguage = "en-US"
+            self.createdAt = Date()
+            self.todos = []
+        }
+    }
+
+    @Model
+    final class TodoItem {
+        var id: UUID
+        var text: String
+        var isCompleted: Bool
+        var createdAt: Date
+        var sourceFilePath: String?
+        var meeting: Meeting?
+        var owner: String?
+        var dueDate: Date?
+        var sourceTimestamp: String?
+        var quote: String?
+        var statusRaw: String = "accepted"
+        var verificationRaw: String?
+
+        init(
+            id: UUID = UUID(),
+            text: String,
+            isCompleted: Bool = false,
+            createdAt: Date = Date(),
+            sourceFilePath: String? = nil,
+            meeting: Meeting? = nil
+        ) {
+            self.id = id
+            self.text = text
+            self.isCompleted = isCompleted
+            self.createdAt = createdAt
+            self.sourceFilePath = sourceFilePath
+            self.meeting = meeting
+        }
+    }
+}
+
+// MARK: - V4 (current schema)
+
+/// The current schema: the top-level ``Meeting`` / ``TodoItem`` models are the
+/// single source of truth. Adds `TodoItem.sourceRef` (optional, so additive):
+/// the raw `scheme:ref` source link of a to-do line.
+enum CasablancaSchemaV4: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(4, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [Meeting.self, TodoItem.self]
@@ -227,20 +323,21 @@ enum CasablancaSchemaV3: VersionedSchema {
 
 // MARK: - Migration plan
 
-/// Deterministic V1 → V2 → V3 migration. Each delta is additive (plus one
+/// Deterministic V1 → V2 → V3 → V4 migration. Each delta is additive (plus one
 /// dropped property in V1 → V2), so lightweight (inferred-mapping) stages
 /// suffice — but declaring them EXPLICITLY pins the path so it no longer
 /// depends on SwiftData's per-OS inference. Existing to-dos pick up the
 /// `statusRaw` default and read as `.accepted`.
 enum CasablancaMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [CasablancaSchemaV1.self, CasablancaSchemaV2.self, CasablancaSchemaV3.self]
+        [CasablancaSchemaV1.self, CasablancaSchemaV2.self, CasablancaSchemaV3.self, CasablancaSchemaV4.self]
     }
 
     static var stages: [MigrationStage] {
         [
             .lightweight(fromVersion: CasablancaSchemaV1.self, toVersion: CasablancaSchemaV2.self),
-            .lightweight(fromVersion: CasablancaSchemaV2.self, toVersion: CasablancaSchemaV3.self)
+            .lightweight(fromVersion: CasablancaSchemaV2.self, toVersion: CasablancaSchemaV3.self),
+            .lightweight(fromVersion: CasablancaSchemaV3.self, toVersion: CasablancaSchemaV4.self)
         ]
     }
 }

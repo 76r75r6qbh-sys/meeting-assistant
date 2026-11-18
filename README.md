@@ -14,7 +14,9 @@ Casablanca is a macOS meeting assistant for capturing notes during meetings, rec
 - **Teams call recording** — optionally starts recording when a Microsoft Teams call starts (filed under the calendar event that is running) and stops it when the call ends
 - **Prep at hand** — a meeting's prep opens automatically beside the notes
 - **Your own to-dos only** — only action items assigned to you (Settings → Action Items → Your name(s)) become to-dos
-- **Approvals inbox** — a sidebar queue of AI-prepared draft emails / Jira comments / Teams messages backed by a shared `action-queue.json`; approve, decline, edit, or send a draft back with a steer ("Request changes"), and a paired agent executes the approved ones. See the [Action Queue (Approvals) setup guide](docs/action-queue-approvals.md).
+- **To-dos are the one list** — the Approvals inbox (`action-queue.json`) is gone; drafts are made only when you ask for one
+- **Draft reply** — on an open, accepted to-do (hover the row, or right-click → Draft reply), Claude Code drafts a reply in a sheet, using the to-do, its meeting's summary and transcript, and its source link. The run is headless and read-only: it loads only `medicore-gateway` (mail, Teams, Jira, Confluence), with read tools allowed and every send/write tool blocked, so the app never sends anything. Edit the draft, **Revise** it with a steer ("shorter, Dutch, more formal…") without losing your edits, **Start over**, **Copy**, or **Continue in Claude Code** (opens Terminal in ask mode). Drafts are not saved. Pick the model in Settings → Draft replies (default Sonnet).
+- **Source links on to-dos** — an Obsidian to-do line can end with `🔗 <scheme>:<ref>`, written last, after ` — owner 📅 yyyy-MM-dd [mm:ss]` (each part optional, the owner only together with a date or timestamp; a link on its own is valid). Schemes: `outlook`, `teams`, `jira`, `topdesk`, `url`. Example: `- [ ] Answer Kim about the API scope — Youri 📅 2026-11-20 [12:34] 🔗 jira:IO-1234`. The link shows as a chip on the to-do; `jira` opens the issue on tenzinger.atlassian.net and `url` opens http(s) links in the browser.
 
 ### New in `v0.8.0`
 
