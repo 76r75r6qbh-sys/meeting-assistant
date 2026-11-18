@@ -164,7 +164,27 @@ loaders, so nothing loads them): `skills/sweep-queue`, `skills/notify-youri`,
 `commands/sweep-action-queue.md`, `commands/review-action-queue.md`. Delete
 the disabled `review-action-queue` scheduled task.
 
-### 5. The queue file and the 71 pending items
+### 5. Clear out to-dos from before 1 November (Youri, 2026-11-18)
+
+Youri wants every to-do from before 2026-11-01 gone ("Delete, with
+backup"). Counted on a copy of the store: **194 open accepted to-dos**, all
+as `- [ ] … <!-- casablanca-todo: … -->` action-item lines in
+`meeting notes/` files dated before 2026-11-01; **5 proposed** ones that
+live only in the app (Review filter); and 280 completed ones.
+
+- Copy every affected meeting note to
+  `~/.claude/retired/2026-11-18/meeting-notes-backup/` (same relative paths).
+- Delete only the open marked lines (`- [ ] … casablanca-todo:`) from notes
+  whose filename date is before 2026-11-01; touch nothing else in those
+  notes. The app's next sync drops the rows.
+- Verify: the store copy query and a grep both return 0 open pre-November
+  to-dos; the notes otherwise diff clean against the backup.
+- The 5 proposed ones are app-only; Youri dismisses them in the Review
+  filter (no store surgery while the app runs).
+- *Claude's call:* the 280 completed ones stay as history (they are not on
+  the Open list).
+
+### 6. The queue file and the 71 pending items
 
 - Triage: apply the bar to each pending item; show Youri the list that
   passes (proposed to-do line with `🔗` link, and why), plus a one-line
@@ -175,7 +195,7 @@ the disabled `review-action-queue` scheduled task.
   `action-queue-schema.md` gets a "Retired 2026-11-18" banner pointing at
   `add-todo` and moves with them.
 
-### 6. Vault and profile docs
+### 7. Vault and profile docs
 
 - `Memory/operating-rules.md`: the `## Action-queue Policy` section becomes
   a short "To-dos" section pointing at `add-todo`; rules whose output was "a
@@ -191,7 +211,7 @@ the disabled `review-action-queue` scheduled task.
 - `~/CLAUDE.md` L78 (Memory contents): drop the queue files, mention the
   to-do file and `add-todo`.
 
-### 7. claude.ai copies
+### 8. claude.ai copies
 
 The synced copies under `~/.claude/skills/synced/…` are byte-identical to
 the local ones today and are overwritten by sync, so they are not edited.
@@ -202,13 +222,13 @@ folders (and zips) in `~/Documents/claude-skill-uploads/2026-11-18/` for
 there. Claude does not publish them (publishing goes to the Medicore
 library).
 
-### 8. Safety net
+### 9. Safety net
 
 `~/.claude/skills` and `~/.claude/commands` are not git repos. Before any
 edit, snapshot both plus the touched vault files into a dated tarball in
 `~/.claude/retired/2026-11-18/backup.tar.gz`.
 
-### 9. Contract test (app repo)
+### 10. Contract test (app repo)
 
 A Casablanca unit test feeds the exact example lines from `add-todo`'s
 SKILL.md through `ObsidianTodoMarkdown` and asserts text, due date and link
@@ -221,7 +241,7 @@ silently.
   across `~/.claude/skills` (excluding `synced/`), `~/.claude/commands`,
   `~/.claude/scheduled-tasks`, `~/CLAUDE.md`, `operating-rules.md`,
   `MEMORY.md`, `README.md` and `feedback_*.md` returns only "retired"
-  banners or pointers (history files excluded, see 6).
+  banners or pointers (history files excluded, see 7).
 - A dry run of `add-todo` against a scratch copy of the to-do file: three
   sample candidates (one passing, one Jira-tracked, one duplicate link) → one
   line added, structure intact, the app parser reads it.
@@ -240,6 +260,7 @@ silently.
 - When the Jira/Topdesk check can't run, the to-do is added anyway and the
   skipped check is reported.
 - History and log files in the vault are not rewritten.
+- Pre-November cleanup removes open to-dos only; completed ones stay.
 - Bilateral-cadence reminders pass the bar as a standing commitment.
 - `teams:` refs are `<chat id>` or `<chat id>/<message id>`; `outlook:` refs
   are Graph message ids.
