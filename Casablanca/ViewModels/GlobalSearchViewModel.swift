@@ -59,17 +59,11 @@ final class GlobalSearchViewModel {
     /// renders snippets exactly as before.
     private(set) var results: [SearchResult] = []
 
-    /// Action-queue items whose title/body match the current query. Kept in the
-    /// VM so all search work is debounced together; the view renders the
-    /// "Approvals" group from this.
-    private(set) var approvalItems: [ActionQueueItem] = []
-
     /// The query that produced the current `results` — lets the view render
     /// highlighting/snippets against the settled query, not the in-flight text.
     private(set) var settledQuery: String = ""
 
     private let modelContext: ModelContext
-    private let actionQueueModel: ActionQueueModel
 
     /// Excludes meetings hidden behind a pending soft-delete (the 6s undo grace
     /// window owned by `MeetingListViewModel`). The sidebar already filters these
@@ -87,12 +81,10 @@ final class GlobalSearchViewModel {
 
     init(
         modelContext: ModelContext,
-        actionQueueModel: ActionQueueModel,
         debounceInterval: Duration = .milliseconds(250),
         isPendingDeletion: @escaping (UUID) -> Bool = { _ in false }
     ) {
         self.modelContext = modelContext
-        self.actionQueueModel = actionQueueModel
         self.debounceInterval = debounceInterval
         self.isPendingDeletion = isPendingDeletion
     }
@@ -130,7 +122,6 @@ final class GlobalSearchViewModel {
         debounceTask?.cancel()
         debounceTask = nil
         results = []
-        approvalItems = []
         settledQuery = ""
     }
 
@@ -140,9 +131,8 @@ final class GlobalSearchViewModel {
         let tier1 = fetchScalarMatches(trimmed)
         let tier2 = scanTranscriptAndParticipants(trimmed)
         results = merge(tier1: tier1, tier2: tier2)
-        approvalItems = matchingApprovals(trimmed)
         settledQuery = trimmed
-        Log.search.debug("Global search '\(trimmed, privacy: .public)': \(self.results.count) meeting results, \(self.approvalItems.count) approvals")
+        Log.search.debug("Global search '\(trimmed, privacy: .public)': \(self.results.count) meeting results")
     }
 
     // MARK: - Tier 1 — predicate fetches (title / summary / userNotes)
@@ -267,15 +257,5 @@ final class GlobalSearchViewModel {
         let id: UUID
         let kind: ResultKind
         let person: String?
-    }
-
-    // MARK: - Approvals
-
-    private func matchingApprovals(_ query: String) -> [ActionQueueItem] {
-        let needle = query.lowercased()
-        return actionQueueModel.items.filter { item in
-            item.title.lowercased().contains(needle)
-            || item.body.lowercased().contains(needle)
-        }
     }
 }

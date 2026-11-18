@@ -1,8 +1,7 @@
 import Foundation
 
 /// Tiny helper for building Jira issue URLs from a bare issue key or from an
-/// item's freeform `target` string. Used by the refinement-prep and ticket cards
-/// to make story / issue keys clickable.
+/// item's freeform `target` string, to make story / issue keys clickable.
 enum JiraLink {
     static let browseBase = "https://tenzinger.atlassian.com/browse/"
 
@@ -20,7 +19,7 @@ enum JiraLink {
     /// to constructing a browse URL from the first issue-key-looking token.
     static func url(fromTarget target: String?) -> URL? {
         guard let target, !target.isEmpty else { return nil }
-        if let embedded = ActionBodyParsing.firstURL(in: target),
+        if let embedded = firstURL(in: target),
            let url = URL(string: embedded) {
             return url
         }
@@ -29,6 +28,17 @@ enum JiraLink {
             return url(forKey: key)
         }
         return nil
+    }
+
+    /// The first link `NSDataDetector` finds in `text`, as a string.
+    private static func firstURL(in text: String) -> String? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = detector.firstMatch(in: text, options: [], range: range),
+              let url = match.url else { return nil }
+        return url.absoluteString
     }
 
     /// Extract the first token matching the Jira issue-key shape `ABC-123`.

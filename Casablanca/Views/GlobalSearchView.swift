@@ -3,13 +3,13 @@ import SwiftUI
 /// A Spotlight-style global search overlay (⌘F).
 ///
 /// Searches via ``GlobalSearchViewModel`` (debounced, two-tier: SQLite
-/// predicates + a bounded in-memory transcript/participant scan) plus the
-/// action-queue items, groups the results by source, and navigates the app on
-/// selection. Presented as a sheet from `ContentView`.
+/// predicates + a bounded in-memory transcript/participant scan), groups the
+/// results by source, and navigates the app on selection. Presented as a sheet
+/// from `ContentView`.
 ///
 /// The view does NO searching itself: it binds the field to the VM and renders
-/// `searchViewModel.results` / `searchViewModel.approvalItems`. The search runs
-/// once per settled query in the VM, not on every render/keystroke.
+/// `searchViewModel.results`. The search runs once per settled query in the VM,
+/// not on every render/keystroke.
 ///
 /// Keyboard: ↑/↓ move the selection, ⏎ opens the selected result, esc dismisses.
 /// Rows are also clickable.
@@ -71,7 +71,7 @@ struct GlobalSearchView: View {
                 .font(.title3)
                 .foregroundStyle(Color.textTertiary)
 
-            TextField("Search meetings, people, summaries, approvals…", text: $query)
+            TextField("Search meetings, people, summaries…", text: $query)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($fieldFocused)
@@ -100,7 +100,7 @@ struct GlobalSearchView: View {
             Text("Search everything")
                 .font(.headline)
                 .foregroundStyle(Color.textSecondary)
-            Text("Titles, people, summaries, transcripts, notes, and approvals.")
+            Text("Titles, people, summaries, transcripts, and notes.")
                 .font(.caption)
                 .foregroundStyle(Color.textTertiary)
                 .multilineTextAlignment(.center)
@@ -253,7 +253,7 @@ struct GlobalSearchView: View {
     /// omitted.
     private var groups: [ResultGroup] {
         let searchResults = searchViewModel.results
-        guard !searchResults.isEmpty || !searchViewModel.approvalItems.isEmpty else { return [] }
+        guard !searchResults.isEmpty else { return [] }
 
         // People — dedupe by person name, count their meetings.
         var personMeetings: [String: Set<UUID>] = [:]
@@ -297,7 +297,6 @@ struct GlobalSearchView: View {
         makeGroup("In transcripts", transcriptResults.map { .snippetMeeting($0.meeting, kind: .transcript, snippet: $0.snippet) })
         makeGroup("Notes", notesResults.map { .snippetMeeting($0.meeting, kind: .notes, snippet: $0.snippet) })
         makeGroup("Tagged", tagResults.map { .snippetMeeting($0.meeting, kind: .tag, snippet: nil) })
-        makeGroup("Approvals", searchViewModel.approvalItems.map { .approval($0) })
 
         return built
     }
@@ -324,8 +323,6 @@ struct GlobalSearchView: View {
             if let meeting {
                 viewModel.sidebarSelection = .meeting(meeting.id)
             }
-        case .approval:
-            viewModel.sidebarSelection = .actionQueue
         }
         onDismiss()
     }
@@ -342,7 +339,6 @@ private enum RowPayload {
     case person(name: String, count: Int, meeting: Meeting?)
     case meeting(Meeting)
     case snippetMeeting(Meeting, kind: ResultKind, snippet: String?)
-    case approval(ActionQueueItem)
 }
 
 private struct ResultRow: Identifiable {
@@ -363,7 +359,6 @@ private struct ResultRow: Identifiable {
             case .tag: return "tag"
             default: return "doc"
             }
-        case .approval: return "tray.full"
         }
     }
 
@@ -371,7 +366,6 @@ private struct ResultRow: Identifiable {
         switch payload {
         case .person(let name, _, _): return name
         case .meeting(let meeting), .snippetMeeting(let meeting, _, _): return meeting.title
-        case .approval(let item): return item.title.isEmpty ? "(untitled)" : item.title
         }
     }
 
@@ -387,8 +381,6 @@ private struct ResultRow: Identifiable {
             return "\(Self.dateString(meeting.date)) · \(meeting.status.rawValue)"
         case .snippetMeeting(let meeting, let kind, _):
             return "\(Self.dateString(meeting.date)) · \(Self.kindLabel(kind))"
-        case .approval(let item):
-            return "Approval · \(ActionQueuePresentation.statusLabel(item.status))"
         }
     }
 
@@ -408,8 +400,6 @@ private struct ResultRow: Identifiable {
             return meeting.tags
         case .person(_, _, let meeting):
             return meeting?.tags ?? []
-        case .approval:
-            return []
         }
     }
 

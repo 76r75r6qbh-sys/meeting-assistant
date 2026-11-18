@@ -25,8 +25,7 @@ struct SearchResult {
 /// Pure, meeting-focused search over an in-memory collection of meetings.
 ///
 /// No SwiftData fetches and no UI: callers pass the meetings to search and the
-/// view layer renders the results. Action-queue results integrate separately at
-/// the view layer.
+/// view layer renders the results.
 enum MeetingSearchIndex {
     /// Characters of surrounding context to include on each side of a match.
     private static let snippetContext = 40

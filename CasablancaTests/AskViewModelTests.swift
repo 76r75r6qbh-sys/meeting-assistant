@@ -67,7 +67,7 @@ final class AskViewModelTests: XCTestCase {
 
     func testSidebarDestinationAskIsDistinct() {
         XCTAssertNotEqual(SidebarDestination.ask, .dashboard)
-        let all: Set<SidebarDestination> = [.dashboard, .todos, .actionQueue, .ask, .meeting(UUID())]
-        XCTAssertEqual(all.count, 5)
+        let all: Set<SidebarDestination> = [.dashboard, .todos, .ask, .meeting(UUID())]
+        XCTAssertEqual(all.count, 4)
     }
 }

@@ -12,7 +12,6 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.userNameAliases) private var userNameAliases = ""
     @AppStorage(AppPreferenceKey.includeUnassignedActionItems) private var includeUnassignedActionItems = false
     @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
-    @AppStorage(AppPreferenceKey.actionQueuePath) private var actionQueuePath = ""
     @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
     @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
     @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
@@ -200,36 +199,6 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Action Queue") {
-                HStack {
-                    TextField("action-queue.json path", text: $actionQueuePath)
-
-                    Button("Browse...") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = false
-                        panel.canChooseFiles = true
-                        panel.allowsMultipleSelection = false
-                        panel.message = "Select your action-queue.json file"
-
-                        if panel.runModal() == .OK, let url = panel.url {
-                            actionQueuePath = url.path
-                        }
-                    }
-                }
-
-                if actionQueuePath.isEmpty {
-                    Text("Leave empty to use the default location: `Memory/action-queue.json` inside your Obsidian vault (or `~/.claude/projects/-Users-youri-broekhuizen/memory/action-queue.json` when no vault is set). The Approvals inbox reads draft items from this file and writes back your decisions.")
-                        .font(.caption)
-                        .foregroundStyle(Color.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("The Approvals inbox reads draft items from this file and writes back your decisions.")
-                        .font(.caption)
-                        .foregroundStyle(Color.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
             Section("Automation") {
                 Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
 
@@ -252,14 +221,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: actionQueuePath) { _, _ in
-            appModel.actionQueueModel.refreshWatch()
-        }
-        .onChange(of: obsidianVaultPath) { _, _ in
-            // The default queue path lives inside the vault, so a vault change
-            // can move the queue file the inbox should read and watch.
-            appModel.actionQueueModel.refreshWatch()
-        }
         .onChange(of: prepTodoStorageRaw) { _, newValue in
             if newValue == PrepTodoStorage.obsidian.rawValue {
                 Task { @MainActor in
