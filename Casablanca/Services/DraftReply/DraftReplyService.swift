@@ -63,12 +63,34 @@ struct DraftReplyService {
     /// Denied explicitly on top of the allowlist: every gateway tool that sends,
     /// replies, creates or changes something, plus the local write tools.
     static let blockedTools: [String] = [
-        "microsoft365_send_email", "microsoft365_send_draft", "microsoft365_reply_to_email",
-        "microsoft365_forward_email", "microsoft365_create_draft", "microsoft365_send_chat_message",
-        "microsoft365_create_chat", "microsoft365_respond_to_event", "microsoft365_create_event",
-        "microsoft365_update_event", "jira_add_comment", "jira_transition_issue",
-        "jira_edit_issue", "jira_create_issue", "confluence_create_footer_comment",
-        "confluence_create_inline_comment", "confluence_update_page", "confluence_create_page",
+        "bitbucket_add_pr_comment", "bitbucket_approve_pull_request", "bitbucket_create_pr_task",
+        "bitbucket_create_pull_request", "bitbucket_decline_pull_request",
+        "bitbucket_delete_pr_comment", "bitbucket_merge_pull_request",
+        "bitbucket_remove_pr_change_request", "bitbucket_reopen_pr_comment",
+        "bitbucket_request_pr_changes", "bitbucket_resolve_pr_comment", "bitbucket_run_pipeline",
+        "bitbucket_unapprove_pull_request", "bitbucket_update_pr_comment",
+        "bitbucket_update_pr_task", "bitbucket_update_pull_request", "confluence_append_to_page",
+        "confluence_create_footer_comment", "confluence_create_inline_comment",
+        "confluence_create_page", "confluence_update_page", "confluence_upload_attachment",
+        "jira_add_comment", "jira_add_issues_to_sprint", "jira_add_worklog", "jira_create_issue",
+        "jira_create_issue_link", "jira_create_request", "jira_delete_comment", "jira_edit_issue",
+        "jira_transition_issue", "jira_update_comment", "microsoft365_add_invitees",
+        "microsoft365_add_table_row", "microsoft365_cancel_event",
+        "microsoft365_close_workbook_session", "microsoft365_complete_task",
+        "microsoft365_copy_file", "microsoft365_create_chat", "microsoft365_create_contact",
+        "microsoft365_create_draft", "microsoft365_create_event", "microsoft365_create_folder",
+        "microsoft365_create_mail_folder", "microsoft365_create_task",
+        "microsoft365_create_workbook_session", "microsoft365_delete_contact",
+        "microsoft365_delete_event", "microsoft365_delete_file", "microsoft365_delete_item",
+        "microsoft365_delete_mail_folder", "microsoft365_delete_task",
+        "microsoft365_format_worksheet_range", "microsoft365_forward_email",
+        "microsoft365_move_email", "microsoft365_move_emails", "microsoft365_move_file",
+        "microsoft365_move_mail_folder", "microsoft365_rename_file",
+        "microsoft365_rename_mail_folder", "microsoft365_reply_to_email",
+        "microsoft365_respond_to_event", "microsoft365_send_chat_message",
+        "microsoft365_send_draft", "microsoft365_send_email", "microsoft365_update_contact",
+        "microsoft365_update_email", "microsoft365_update_event", "microsoft365_upload_file",
+        "microsoft365_write_worksheet_range",
     ].map { gatewayToolPrefix + $0 } + ["Bash", "Write", "Edit"]
 
     /// The argument list of the tool-using draft run. A test locks it.
@@ -136,6 +158,9 @@ struct DraftReplyService {
             workingDirectory: workingDirectory,
             timeout: Self.timeout
         )
+        // As in `ClaudeCLIProvider.generate`: the launch proved the path, so
+        // Settings shows it and the next run skips detection.
+        await cli.persistResolvedPath(executable)
         return DraftReplyOutput.parse(try cli.completionText(from: result))
     }
 

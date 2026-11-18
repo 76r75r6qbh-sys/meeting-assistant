@@ -50,12 +50,34 @@ final class DraftReplyServiceTests: XCTestCase {
             "microsoft365_find_user", "microsoft365_search_contacts", "microsoft365_get_contact",
         ].map { Self.gateway + $0 }
         let blocked = [
-            "microsoft365_send_email", "microsoft365_send_draft", "microsoft365_reply_to_email",
-            "microsoft365_forward_email", "microsoft365_create_draft", "microsoft365_send_chat_message",
-            "microsoft365_create_chat", "microsoft365_respond_to_event", "microsoft365_create_event",
-            "microsoft365_update_event", "jira_add_comment", "jira_transition_issue",
-            "jira_edit_issue", "jira_create_issue", "confluence_create_footer_comment",
-            "confluence_create_inline_comment", "confluence_update_page", "confluence_create_page",
+            "bitbucket_add_pr_comment", "bitbucket_approve_pull_request", "bitbucket_create_pr_task",
+            "bitbucket_create_pull_request", "bitbucket_decline_pull_request",
+            "bitbucket_delete_pr_comment", "bitbucket_merge_pull_request",
+            "bitbucket_remove_pr_change_request", "bitbucket_reopen_pr_comment",
+            "bitbucket_request_pr_changes", "bitbucket_resolve_pr_comment", "bitbucket_run_pipeline",
+            "bitbucket_unapprove_pull_request", "bitbucket_update_pr_comment",
+            "bitbucket_update_pr_task", "bitbucket_update_pull_request", "confluence_append_to_page",
+            "confluence_create_footer_comment", "confluence_create_inline_comment",
+            "confluence_create_page", "confluence_update_page", "confluence_upload_attachment",
+            "jira_add_comment", "jira_add_issues_to_sprint", "jira_add_worklog", "jira_create_issue",
+            "jira_create_issue_link", "jira_create_request", "jira_delete_comment", "jira_edit_issue",
+            "jira_transition_issue", "jira_update_comment", "microsoft365_add_invitees",
+            "microsoft365_add_table_row", "microsoft365_cancel_event",
+            "microsoft365_close_workbook_session", "microsoft365_complete_task",
+            "microsoft365_copy_file", "microsoft365_create_chat", "microsoft365_create_contact",
+            "microsoft365_create_draft", "microsoft365_create_event", "microsoft365_create_folder",
+            "microsoft365_create_mail_folder", "microsoft365_create_task",
+            "microsoft365_create_workbook_session", "microsoft365_delete_contact",
+            "microsoft365_delete_event", "microsoft365_delete_file", "microsoft365_delete_item",
+            "microsoft365_delete_mail_folder", "microsoft365_delete_task",
+            "microsoft365_format_worksheet_range", "microsoft365_forward_email",
+            "microsoft365_move_email", "microsoft365_move_emails", "microsoft365_move_file",
+            "microsoft365_move_mail_folder", "microsoft365_rename_file",
+            "microsoft365_rename_mail_folder", "microsoft365_reply_to_email",
+            "microsoft365_respond_to_event", "microsoft365_send_chat_message",
+            "microsoft365_send_draft", "microsoft365_send_email", "microsoft365_update_contact",
+            "microsoft365_update_email", "microsoft365_update_event", "microsoft365_upload_file",
+            "microsoft365_write_worksheet_range",
         ].map { Self.gateway + $0 } + ["Bash", "Write", "Edit"]
 
         XCTAssertEqual(DraftReplyService.readOnlyTools, read)
@@ -99,6 +121,19 @@ final class DraftReplyServiceTests: XCTestCase {
                 readVerbs.contains { verb == $0 || verb.hasPrefix($0 + "_") },
                 "not a read verb: \(tool)"
             )
+        }
+    }
+
+    /// The tools that would send something or touch a mailbox on the user's behalf
+    /// must be named explicitly, not only left off the allowlist.
+    func testBlockedListNamesTheSendTools() {
+        let mustBlock = [
+            "microsoft365_send_email", "microsoft365_send_draft", "microsoft365_reply_to_email",
+            "microsoft365_forward_email", "microsoft365_send_chat_message",
+            "microsoft365_update_email", "jira_add_comment",
+        ].map { Self.gateway + $0 }
+        for tool in mustBlock {
+            XCTAssertTrue(DraftReplyService.blockedTools.contains(tool), "not blocked: \(tool)")
         }
     }
 
@@ -152,6 +187,17 @@ final class DraftReplyServiceTests: XCTestCase {
         let arguments = try XCTUnwrap(runner.lastCall?.arguments)
         let modelIndex = try XCTUnwrap(arguments.firstIndex(of: "--model"))
         XCTAssertEqual(arguments[modelIndex + 1], "opus")
+    }
+
+    /// Like `ClaudeCLIProvider.generate`: an auto-detected binary is written back to
+    /// the CLI path setting, so Settings shows it and the next run skips the scan.
+    func testDraftPersistsTheResolvedPath() async throws {
+        XCTAssertNil(defaults.string(forKey: AppPreferenceKey.claudeCLIPath))
+        let runner = FakeCommandRunner.succeeding(standardOutput: #"{"result":"Hi","is_error":false}"#)
+
+        _ = try await makeService(runner: runner).draft(Self.context)
+
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKey.claudeCLIPath), Self.stubPath)
     }
 
     func testDraftSurfacesCLIError() async {

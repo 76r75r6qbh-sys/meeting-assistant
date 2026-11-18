@@ -256,7 +256,9 @@ struct ClaudeCLIProvider: LLMProvider {
     /// SwiftUI change from a background thread whenever either view is open.
     /// Both call sites already have the subprocess result in hand, so the hop sits
     /// outside the timed region and costs the caller nothing measurable.
-    private func persistResolvedPath(_ executable: String) async {
+    ///
+    /// Internal so `DraftReplyService`'s run records its path the same way.
+    func persistResolvedPath(_ executable: String) async {
         guard defaults.string(forKey: AppPreferenceKey.claudeCLIPath) != executable else { return }
         // Boxed rather than captured directly: `UserDefaults` is documented
         // thread-safe but is not `Sendable` in this SDK, and the provider itself is
