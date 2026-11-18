@@ -4,7 +4,11 @@ All notable changes to Casablanca are documented here. This project follows [Sem
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-11-18
+
 One list: the To-Dos. The Approvals inbox is gone, and a draft reply is made only when you ask for one on a to-do.
+
+> **One-way upgrade:** this version migrates the store to schema V4. Older builds (0.22.x and earlier) cannot open it afterwards.
 
 ### Added
 
