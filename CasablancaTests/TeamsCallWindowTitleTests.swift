@@ -56,6 +56,21 @@ final class TeamsCallWindowTitleParserTests: XCTestCase {
             "Medicore/Prakikon/Levvel")
     }
 
+    // 2026-11-09: Teams' compact meeting view (the floating mini window it
+    // shows when the meeting window loses focus or a screen is shared) was
+    // read as a call named "Meeting compact view | <meeting>".
+    func testCompactViewWindowNamesTheMeeting() {
+        XCTAssertEqual(
+            TeamsCallWindowTitle.callName(
+                fromWindowTitle: "Meeting compact view | AI frontrunners  | Medicore | youri.broekhuizen@medicore.nl"),
+            "AI frontrunners")
+        let windows = TeamsCallWindowTitle.callWindows(fromWindows: [
+            TeamsWindow(number: 22489, title: "Meeting compact view | Daily AI team | Medicore | youri.broekhuizen@medicore.nl"),
+        ])
+        XCTAssertEqual(windows, [TeamsCallWindowName(number: 22489, name: "Daily AI team", isPreJoin: false)],
+                       "The compact view is in the call, not a pre-join screen")
+    }
+
     func testScheduledMeetingPreJoinAndInCall() {
         XCTAssertEqual(
             TeamsCallWindowTitle.callName(

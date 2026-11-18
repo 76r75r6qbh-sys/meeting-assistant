@@ -795,6 +795,34 @@ final class TeamsCallSwitchDetectorTests: XCTestCase {
         XCTAssertNil(detector.observe(windows: [popOut, meeting], at: at(20)), "Names compare normalized")
     }
 
+    // An auxiliary window whose title prefixes the running call's name with a
+    // token the parser does not know yet (another UI language) is that call.
+    func testAWindowPrefixingAKnownNameIsNoSwitch() {
+        var detector = started(with: [meeting])
+        let auxiliary = TeamsCallWindowName(number: 150, name: "Compacte weergave | Healthtalk", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [auxiliary, meeting], at: at(10)))
+        XCTAssertNil(detector.observe(windows: [auxiliary, meeting], at: at(20)))
+        XCTAssertNil(detector.observe(windows: [auxiliary, meeting], at: at(40)))
+        // It closes: the meeting window is newest again and still known.
+        XCTAssertNil(detector.observe(windows: [meeting], at: at(50)))
+        XCTAssertNil(detector.observe(windows: [meeting], at: at(60)))
+    }
+
+    func testOnlyOneLeadingComponentIsDropped() {
+        var detector = started(with: [meeting])
+        let nested = TeamsCallWindowName(number: 150, name: "Medicore | Team Link | Healthtalk", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [nested, meeting], at: at(10)))
+        XCTAssertEqual(detector.observe(windows: [nested, meeting], at: at(20)), nested)
+    }
+
+    func testANameEndingInAKnownNameWithoutASeparatorIsStillASwitch() {
+        var detector = started(with: [meeting])
+        let other = TeamsCallWindowName(number: 150, name: "Partner Healthtalk", isPreJoin: false)
+        XCTAssertNil(detector.observe(windows: [other, meeting], at: at(10)))
+        XCTAssertEqual(detector.observe(windows: [other, meeting], at: at(20)), other,
+                       "Only whole title components count as the known call")
+    }
+
     func testPreJoinWindowsAreIgnored() {
         var detector = started(with: [meeting])
         let preJoin = TeamsCallWindowName(number: 200, name: "Partner sync", isPreJoin: true)
@@ -1311,6 +1339,41 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         // The real mic end stops the switched call's recording.
         await coordinator.callEnded()
         XCTAssertEqual(host.stoppedMeetingIDs, [second])
+    }
+
+    // The 2026-11-09 evidence: during "AI frontrunners" Teams opened its
+    // compact meeting view (a floating window, newer number) and closed it
+    // again. Each change was confirmed as a call switch, so one meeting
+    // became the event's meeting plus three "(continued)" meetings.
+    func testTheCompactMeetingViewOpeningAndClosingKeepsOneRecording() async throws {
+        setPreferences(autoRecord: true, autoStop: true)
+        let suffix = " | Medicore | youri.broekhuizen@medicore.nl"
+        func read(_ windows: [TeamsWindow]) -> [TeamsCallWindowName] {
+            TeamsCallWindowTitle.callWindows(fromWindows: windows)
+        }
+        let main = TeamsWindow(number: 22425, title: "AI frontrunners " + suffix)
+        let chat = TeamsWindow(number: 15000, title: "Chat | AI frontrunners " + suffix)
+        let meeting = try await startCall(windows: read([chat, main]))
+
+        // A re-opened compact view is a new window with a new number, so
+        // every cycle has to be recognised by its name.
+        for cycle in 0..<3 {
+            let compact = TeamsWindow(number: 22489 + 100 * cycle, title: "Meeting compact view | AI frontrunners " + suffix)
+            host.callWindows = read([chat, main, compact])
+            tickTwiceTenSecondsApart()
+            tickTwiceTenSecondsApart()
+            host.callWindows = read([chat, main])
+            tickTwiceTenSecondsApart()
+            tickTwiceTenSecondsApart()
+        }
+
+        XCTAssertNil(coordinator.switchTask, "No call switch")
+        XCTAssertTrue(host.stoppedMeetingIDs.isEmpty)
+        XCTAssertEqual(host.startRequests.count, 1)
+        XCTAssertEqual(coordinator.linkedMeetingID, meeting)
+
+        await coordinator.callEnded()
+        XCTAssertEqual(host.stoppedMeetingIDs, [meeting])
     }
 
     func testSwitchStopsTheActiveLinkedRecordingThenStartsTheNewCall() async throws {

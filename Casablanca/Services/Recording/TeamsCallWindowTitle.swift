@@ -24,7 +24,9 @@ struct TeamsCallWindowName: Equatable {
 /// Reads the name of the running call from new Teams' window titles.
 ///
 /// New Teams gives a call its own window, present from the pre-join screen
-/// on, titled `[Meeting join | ]<call name> | <tenant> | <account email>`.
+/// on, titled `[Meeting join | ]<call name> | <tenant> | <account email>`
+/// (its shared-content pop-out and compact view put `Shared content | ` or
+/// `Meeting compact view | ` in front instead).
 /// The main window has the same shape with a section name (`Chat`,
 /// `Calendar`, …) as its first component. For a scheduled meeting the call
 /// name equals the calendar subject; for an ad-hoc call it is the person or
@@ -37,12 +39,15 @@ enum TeamsCallWindowTitle {
     static let separator = " | "
 
     /// First components Teams puts in front of the call name: the pre-join
-    /// screen ("Meeting join") and the shared-content pop-out ("Shared
-    /// content"). Stored lowercased; compared case-insensitively. Add the
-    /// Dutch-UI tokens once captured.
-    static let preJoinTokens: Set<String> = ["meeting join", "shared content"]
+    /// screen ("Meeting join"), the shared-content pop-out ("Shared
+    /// content") and the compact meeting view ("Meeting compact view", the
+    /// floating mini window shown while the meeting window is not in front
+    /// or a screen is shared). Stored lowercased; compared case-insensitively.
+    /// Add the Dutch-UI tokens once captured; until then the switch detector
+    /// treats any `<token> | <known call name>` window as the known call.
+    static let callNamePrefixTokens: Set<String> = ["meeting join", "shared content", "meeting compact view"]
 
-    /// The tokens among `preJoinTokens` that mark the pre-join screen itself,
+    /// The tokens among `callNamePrefixTokens` that mark the pre-join screen itself,
     /// before the call is joined. The shared-content pop-out is in the call.
     static let preJoinScreenTokens: Set<String> = ["meeting join"]
 
@@ -127,9 +132,10 @@ enum TeamsCallWindowTitle {
         guard let last = components.last, last.contains("@") else { return nil }
         components.removeLast(min(2, components.count))
 
-        // 3. The pre-join screen prefixes the call name with a token.
+        // 3. The pre-join screen, the shared-content pop-out and the compact
+        //    meeting view prefix the call name with a token.
         var isPreJoin = false
-        if let first = components.first?.lowercased(), preJoinTokens.contains(first) {
+        if let first = components.first?.lowercased(), callNamePrefixTokens.contains(first) {
             isPreJoin = preJoinScreenTokens.contains(first)
             components.removeFirst()
         }
