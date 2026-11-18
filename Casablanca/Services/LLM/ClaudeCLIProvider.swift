@@ -149,6 +149,17 @@ struct ClaudeCLIProvider: LLMProvider {
         )
         await persistResolvedPath(executable)
 
+        let text = try completionText(from: result)
+        // The CLI reports no length-limit signal, so a completion is never known
+        // to be truncated.
+        truncated?(false)
+        return text
+    }
+
+    /// The reply text of a finished `claude -p --output-format json` run, or the
+    /// `LLMProviderError` its exit status / envelope reports. Shared with
+    /// `DraftReplyService`, whose tool-using run returns the same envelope.
+    func completionText(from result: CommandResult) throws -> String {
         // A non-zero exit must not require JSON: usage limits and rejected flags
         // print plain text, and demanding a decodable envelope here would replace a
         // useful message with "malformed response".
@@ -191,9 +202,6 @@ struct ClaudeCLIProvider: LLMProvider {
         guard !text.isEmpty else {
             throw LLMProviderError.emptyResponse(provider: displayName)
         }
-        // The CLI reports no length-limit signal, so a completion is never known
-        // to be truncated.
-        truncated?(false)
         return text
     }
 
@@ -273,7 +281,9 @@ struct ClaudeCLIProvider: LLMProvider {
     /// `CancellationError` is deliberately *not* caught: converting it into an
     /// `LLMProviderError` would let `LLMRetryPolicy` rerun a call the user just
     /// cancelled. It propagates unchanged.
-    private func run(
+    ///
+    /// Internal so `DraftReplyService` gets the same error mapping for its run.
+    func run(
         executable: String,
         arguments: [String],
         standardInput: String,
@@ -323,7 +333,7 @@ struct ClaudeCLIProvider: LLMProvider {
     /// A non-blank `preferred` path wins outright: a bogus one then surfaces as
     /// `.invalidEndpoint` via `launchFailed`, which is the correct visible failure
     /// rather than a silent fall-through to some other binary.
-    private func resolvedExecutablePath(preferring preferred: String) async throws -> String? {
+    func resolvedExecutablePath(preferring preferred: String) async throws -> String? {
         let trimmed = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
         if let known = candidates.first(where: isExecutable) {

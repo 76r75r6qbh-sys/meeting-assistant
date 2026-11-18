@@ -530,6 +530,9 @@ final class FakeCommandRunner: CommandRunning {
         /// Whether `workingDirectory` existed at the moment `run` was called — the
         /// provider deletes it before the caller can look.
         let workingDirectoryExisted: Bool
+        /// Name → UTF-8 contents of each regular file in `workingDirectory` at the
+        /// moment `run` was called; empty when there is no directory.
+        let workingDirectoryFiles: [String: String]
         let timeout: TimeInterval
     }
 
@@ -571,6 +574,7 @@ final class FakeCommandRunner: CommandRunning {
         timeout: TimeInterval
     ) async throws -> CommandResult {
         let existed = workingDirectory.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        let files = workingDirectory.map(Self.snapshot(of:)) ?? [:]
         calls.withLock {
             $0.append(Call(
                 executable: executable,
@@ -578,9 +582,20 @@ final class FakeCommandRunner: CommandRunning {
                 standardInput: standardInput,
                 workingDirectory: workingDirectory,
                 workingDirectoryExisted: existed,
+                workingDirectoryFiles: files,
                 timeout: timeout
             ))
         }
         return try outcome()
+    }
+
+    private static func snapshot(of directory: URL) -> [String: String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        var files: [String: String] = [:]
+        for name in names {
+            guard let data = FileManager.default.contents(atPath: directory.appendingPathComponent(name).path) else { continue }
+            files[name] = String(decoding: data, as: UTF8.self)
+        }
+        return files
     }
 }
