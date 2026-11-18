@@ -3,7 +3,7 @@ import Foundation
 enum ObsidianTodoMarkdown {
     struct TaskLine: Equatable {
         let id: UUID?
-        /// The task without its ` — owner 📅 due [timestamp]` suffix.
+        /// The task without its ` — owner 📅 due [timestamp] 🔗 link` suffix.
         let text: String
         let isCompleted: Bool
         var owner: String? = nil
@@ -11,35 +11,78 @@ enum ObsidianTodoMarkdown {
         var due: String? = nil
         /// Transcript timestamp label (`mm:ss` or `h:mm:ss`).
         var timestamp: String? = nil
+        /// Source link as raw `scheme:ref` (no `🔗`), e.g. `jira:IO-1234`.
+        var link: String? = nil
 
-        /// `true` when the line carried (or will carry) a suffix.
+        /// `true` when the line carried (or will carry) an owner/due/timestamp
+        /// suffix. A `🔗` link alone does not count.
         var hasSuffix: Bool { !ObsidianTodoMarkdown.suffix(owner: owner, due: due, timestamp: timestamp).isEmpty }
 
         /// The same task with another id; suffix fields are kept.
         func withID(_ id: UUID) -> TaskLine {
-            TaskLine(id: id, text: text, isCompleted: isCompleted, owner: owner, due: due, timestamp: timestamp)
+            TaskLine(id: id, text: text, isCompleted: isCompleted, owner: owner, due: due, timestamp: timestamp, link: link)
         }
     }
 
-    // MARK: - Suffix ` — <owner> 📅 <yyyy-MM-dd> [<label>]`
+    // MARK: - Suffix ` — <owner> 📅 <yyyy-MM-dd> [<label>] 🔗 <scheme>:<ref>`
 
     /// The suffix written after a task's text: `""`, or e.g.
-    /// `" — Youri 📅 2026-11-06 [12:34]"`. Each part is written only when set
-    /// and valid; the owner only together with a due date or timestamp (and
-    /// only when it is 1–60 characters without `—`), so the line parses back
-    /// unambiguously and a user-typed `Bel Kim — dringend` is never read as an
-    /// owner.
-    static func suffix(owner: String?, due: String?, timestamp: String?) -> String {
+    /// `" — Youri 📅 2026-11-06 [12:34] 🔗 jira:IO-1234"`. Each part is written
+    /// only when set and valid; the owner only together with a due date or
+    /// timestamp (and only when it is 1–60 characters without `—`), so the
+    /// line parses back unambiguously and a user-typed `Bel Kim — dringend` is
+    /// never read as an owner. The link is always the last part and does not
+    /// enable the owner.
+    static func suffix(owner: String?, due: String?, timestamp: String?, link: String? = nil) -> String {
         let due = due.flatMap { isISODay($0) ? $0 : nil }
         let timestamp = timestamp.flatMap { TranscriptLineFormat.seconds(fromLabel: $0) != nil ? $0 : nil }
-        guard due != nil || timestamp != nil else { return "" }
         var out = ""
-        if let owner = owner?.trimmingCharacters(in: .whitespacesAndNewlines), isValidOwner(owner) {
-            out += " — \(owner)"
+        if due != nil || timestamp != nil {
+            if let owner = owner?.trimmingCharacters(in: .whitespacesAndNewlines), isValidOwner(owner) {
+                out += " — \(owner)"
+            }
+            if let due { out += " 📅 \(due)" }
+            if let timestamp { out += " [\(timestamp)]" }
         }
-        if let due { out += " 📅 \(due)" }
-        if let timestamp { out += " [\(timestamp)]" }
+        if let link, isValidLink(link) { out += "\(linkMarker)\(link)" }
         return out
+    }
+
+    /// Schemes a `🔗 <scheme>:<ref>` source link may use.
+    static let linkSchemes: Set<String> = ["outlook", "teams", "jira", "topdesk", "url"]
+
+    private static let linkMarker = " 🔗 "
+
+    /// `scheme:ref` with a known scheme and a non-empty ref.
+    private static func isLink(_ candidate: String) -> Bool {
+        guard let colon = candidate.firstIndex(of: ":") else { return false }
+        return linkSchemes.contains(String(candidate[..<colon]))
+            && candidate.index(after: colon) < candidate.endIndex
+    }
+
+    /// Whether `link` can be written in (and parsed back from) the suffix:
+    /// a known scheme, a non-empty single-line ref without trailing
+    /// whitespace, and nothing in it that would parse as a later link.
+    private static func isValidLink(_ link: String) -> Bool {
+        isLink(link)
+            && !link.contains(where: \.isNewline)
+            && link == link.trimmingCharacters(in: .whitespaces)
+            && splittingLink("x\(linkMarker)\(link)")?.link == link
+    }
+
+    /// Splits a trailing ` 🔗 <scheme>:<ref>` off `text`: the last ` 🔗 `
+    /// followed by a known scheme, `:` and a non-empty ref (which runs to the
+    /// end and may contain spaces). Nil when there is none.
+    private static func splittingLink(_ text: String) -> (rest: String, link: String)? {
+        var searchEnd = text.endIndex
+        while let marker = text.range(of: linkMarker, options: .backwards, range: text.startIndex..<searchEnd) {
+            let candidate = String(text[marker.upperBound...])
+            if isLink(candidate) {
+                return (String(text[..<marker.lowerBound]), candidate)
+            }
+            searchEnd = marker.lowerBound
+        }
+        return nil
     }
 
     /// The suffix for a stored to-do (`dueDate` as local `yyyy-MM-dd`).
@@ -85,19 +128,26 @@ enum ObsidianTodoMarkdown {
         (1...60).contains(owner.count) && !owner.contains("—") && !owner.contains(where: \.isNewline)
     }
 
-    /// Splits a parsed task text from the end: optional ` [<label>]`, then
-    /// optional ` 📅 yyyy-MM-dd`, then — only if one of those matched —
-    /// optional ` — <owner>`. Anything else stays in the text. A text that
-    /// starts with a bullet owner prefix (`**Youri** — …`, as
-    /// `ActionItemOwnership.parse` recognises it) is a summary-tab to-do that
-    /// stores the whole bullet: nothing is split off it.
-    static func splittingSuffix(_ text: String) -> (text: String, owner: String?, due: String?, timestamp: String?) {
+    /// Splits a parsed task text from the end: optional ` 🔗 <scheme>:<ref>`,
+    /// then optional ` [<label>]`, then optional ` 📅 yyyy-MM-dd`, then — only
+    /// if the label or due date matched — optional ` — <owner>`. Anything else
+    /// stays in the text. A text that starts with a bullet owner prefix
+    /// (`**Youri** — …`, as `ActionItemOwnership.parse` recognises it) is a
+    /// summary-tab to-do that stores the whole bullet: nothing is split off it.
+    static func splittingSuffix(_ text: String)
+        -> (text: String, owner: String?, due: String?, timestamp: String?, link: String?) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard ActionItemOwnership.parse(trimmed).action == trimmed else { return (text, nil, nil, nil) }
+        guard ActionItemOwnership.parse(trimmed).action == trimmed else { return (text, nil, nil, nil, nil) }
         var rest = text
         var timestamp: String?
         var due: String?
         var owner: String?
+        var link: String?
+
+        if let split = splittingLink(rest) {
+            link = split.link
+            rest = split.rest
+        }
 
         if rest.hasSuffix("]"), let open = rest.range(of: " [", options: .backwards) {
             let label = String(rest[open.upperBound..<rest.index(before: rest.endIndex)])
@@ -122,8 +172,8 @@ enum ObsidianTodoMarkdown {
                 rest = remaining
             }
         }
-        guard !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return (text, nil, nil, nil) }
-        return (rest, owner, due, timestamp)
+        guard !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return (text, nil, nil, nil, nil) }
+        return (rest, owner, due, timestamp, link)
     }
 
     struct GenericDocument: Equatable {
@@ -377,7 +427,8 @@ enum ObsidianTodoMarkdown {
             isCompleted: completedMarker.lowercased() == "x",
             owner: split.owner,
             due: split.due,
-            timestamp: split.timestamp
+            timestamp: split.timestamp,
+            link: split.link
         )
     }
 
@@ -389,7 +440,7 @@ enum ObsidianTodoMarkdown {
         return tasks
             .map { task in
                 let marker = task.isCompleted ? "x" : " "
-                let body = task.text + suffix(owner: task.owner, due: task.due, timestamp: task.timestamp)
+                let body = task.text + suffix(owner: task.owner, due: task.due, timestamp: task.timestamp, link: task.link)
                 if let id = task.id {
                     return "- [\(marker)] \(body) <!-- casablanca-todo: \(id.uuidString.uppercased()) -->"
                 }

@@ -316,4 +316,73 @@ final class ObsidianTodoMarkdownTests: XCTestCase {
             "## Action Items\n\n- [ ] Mail Kim 📅 2026-02-30 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
         )
     }
+
+    // MARK: - 🔗 source link
+
+    /// Parses `line` as the only open task of a generic document, and the
+    /// generic document re-rendered from it.
+    private func parseGenericLine(_ line: String) throws -> (task: ObsidianTodoMarkdown.TaskLine, rendered: String) {
+        let markdown = "# Casablanca Todos\n\n## Open\n\n\(line)\n\n## Done\n\n"
+        let document = ObsidianTodoMarkdown.parseGenericDocument(markdown)
+        let task = try XCTUnwrap(document.openTasks.first)
+        XCTAssertEqual(document.openTasks.count, 1)
+        let rendered = ObsidianTodoMarkdown.renderGenericDocument(openTasks: document.openTasks, doneTasks: document.doneTasks)
+        return (task, rendered)
+    }
+
+    /// The rendered generic document's lines include `line` byte-identical.
+    private func assertRoundTrips(_ line: String, _ rendered: String, file: StaticString = #filePath, line number: UInt = #line) {
+        XCTAssertTrue(rendered.components(separatedBy: "\n").contains(line),
+                      "\(line) not reproduced in:\n\(rendered)", file: file, line: number)
+    }
+
+    func testLinkOnlyLineParsesAndRoundTrips() throws {
+        let line = "- [ ] Reply to Kim 🔗 outlook:AAMkAD123 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let (task, rendered) = try parseGenericLine(line)
+        XCTAssertEqual(task.id, suffixID)
+        XCTAssertEqual(task.text, "Reply to Kim")
+        XCTAssertEqual(task.link, "outlook:AAMkAD123")
+        XCTAssertNil(task.owner)
+        XCTAssertNil(task.due)
+        XCTAssertNil(task.timestamp)
+        assertRoundTrips(line, rendered)
+    }
+
+    func testFullSuffixWithLinkRoundTrips() throws {
+        let line = "- [ ] Plan demo — Youri 📅 2026-11-20 [12:34] 🔗 jira:IO-1234 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let (task, rendered) = try parseGenericLine(line)
+        XCTAssertEqual(task.text, "Plan demo")
+        XCTAssertEqual(task.owner, "Youri")
+        XCTAssertEqual(task.due, "2026-11-20")
+        XCTAssertEqual(task.timestamp, "12:34")
+        XCTAssertEqual(task.link, "jira:IO-1234")
+        assertRoundTrips(line, rendered)
+        XCTAssertEqual(ObsidianTodoMarkdown.suffix(owner: "Youri", due: "2026-11-20", timestamp: "12:34", link: "jira:IO-1234"),
+                       " — Youri 📅 2026-11-20 [12:34] 🔗 jira:IO-1234")
+    }
+
+    func testTopdeskRefWithSpaceRoundTrips() throws {
+        let line = "- [ ] Antwoord sturen 🔗 topdesk:MC2611 0123 <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let (task, rendered) = try parseGenericLine(line)
+        XCTAssertEqual(task.text, "Antwoord sturen")
+        XCTAssertEqual(task.link, "topdesk:MC2611 0123")
+        assertRoundTrips(line, rendered)
+    }
+
+    func testUnknownSchemeStaysInText() throws {
+        let line = "- [ ] Check 🔗 ftp:foo <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let (task, rendered) = try parseGenericLine(line)
+        XCTAssertEqual(task.text, "Check 🔗 ftp:foo")
+        XCTAssertNil(task.link)
+        assertRoundTrips(line, rendered)
+    }
+
+    func testLinkDoesNotEnableOwner() throws {
+        let line = "- [ ] Bel Kim — dringend 🔗 teams:19:abc <!-- casablanca-todo: 880E8400-E29B-41D4-A716-446655440000 -->"
+        let (task, rendered) = try parseGenericLine(line)
+        XCTAssertEqual(task.text, "Bel Kim — dringend")
+        XCTAssertNil(task.owner)
+        XCTAssertEqual(task.link, "teams:19:abc")
+        assertRoundTrips(line, rendered)
+    }
 }
