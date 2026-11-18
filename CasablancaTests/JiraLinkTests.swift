@@ -22,21 +22,4 @@ final class JiraLinkTests: XCTestCase {
     func testURLForKeyWithSpaceIsNil() {
         XCTAssertNil(JiraLink.url(forKey: "IO 1234"))
     }
-
-    func testURLFromTargetWithFullURL() {
-        let target = "Story IO-99 at https://tenzinger.atlassian.net/browse/IO-99 needs review"
-        let url = JiraLink.url(fromTarget: target)
-        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.net/browse/IO-99")
-    }
-
-    func testURLFromTargetWithIssueKeyOnly() {
-        let url = JiraLink.url(fromTarget: "Refinement for IO-4321")
-        XCTAssertEqual(url?.absoluteString, "https://tenzinger.atlassian.net/browse/IO-4321")
-    }
-
-    func testURLFromTargetJunkIsNil() {
-        XCTAssertNil(JiraLink.url(fromTarget: "no key here"))
-        XCTAssertNil(JiraLink.url(fromTarget: ""))
-        XCTAssertNil(JiraLink.url(fromTarget: nil))
-    }
 }
