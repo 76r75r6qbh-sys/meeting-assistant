@@ -196,7 +196,7 @@ enum ObsidianTodoSyncService {
             let current = ObsidianTodoMarkdown.taskLine(for: todo)
             let updatedTask = ObsidianTodoMarkdown.TaskLine(
                 id: todo.id, text: todo.text, isCompleted: isCompleted,
-                owner: current.owner, due: current.due, timestamp: current.timestamp
+                owner: current.owner, due: current.due, timestamp: current.timestamp, link: current.link
             )
             if isCompleted {
                 document.doneTasks.append(updatedTask)
@@ -413,7 +413,9 @@ enum ObsidianTodoSyncService {
             // bullet (`Youri — Plan de demo [00:20]`), an unassigned
             // `A — B [12:34]`, an owner too long to be written, a `**Urgent:**`
             // text. Only a line edited outside Casablanca updates the row.
-            let lineText = task.text + ObsidianTodoMarkdown.suffix(owner: task.owner, due: task.due, timestamp: task.timestamp)
+            let lineText = task.text + ObsidianTodoMarkdown.suffix(
+                owner: task.owner, due: task.due, timestamp: task.timestamp, link: task.link
+            )
             if existing.text + ObsidianTodoMarkdown.suffix(for: existing) == lineText {
                 return
             }
@@ -432,6 +434,9 @@ enum ObsidianTodoSyncService {
                 owner = kept
             }
             existing.text = text
+            // The line is the source of truth for the link: one added,
+            // changed or removed in Obsidian always reaches the row.
+            existing.sourceRef = task.link
             // The suffix is the line's own record of these fields; a line
             // without one keeps the row's values.
             if task.hasSuffix {
@@ -468,6 +473,7 @@ enum ObsidianTodoSyncService {
         todo.owner = task.owner
         todo.dueDate = task.due.flatMap(TodoReviewService.dueDate(fromISO:))
         todo.sourceTimestamp = task.timestamp
+        todo.sourceRef = task.link
     }
 
     private static func removeMissingGenericRows(

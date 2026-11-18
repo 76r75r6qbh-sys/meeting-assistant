@@ -3,7 +3,7 @@ import Foundation
 /// Tiny helper for building Jira issue URLs from a bare issue key or from an
 /// item's freeform `target` string, to make story / issue keys clickable.
 enum JiraLink {
-    static let browseBase = "https://tenzinger.atlassian.com/browse/"
+    static let browseBase = "https://tenzinger.atlassian.net/browse/"
 
     /// Build a browse URL for a bare issue key (e.g. "IO-1234"). Trims whitespace
     /// and returns nil for empty / whitespace-only keys.

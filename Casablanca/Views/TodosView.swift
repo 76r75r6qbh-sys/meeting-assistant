@@ -271,6 +271,51 @@ struct TodoRowPresentation {
         formatter.dateFormat = "MMM d"
         return "\(meeting.title) \u{00B7} \(formatter.string(from: meeting.date))"
     }
+
+    /// The to-do's source link, when it has a readable one.
+    var sourceLink: TodoSourceLink? {
+        todo.sourceRef.flatMap(TodoSourceLink.init)
+    }
+}
+
+/// A to-do's source link under its text: the label as a caption pill, a
+/// button opening the URL when the link has one. Its own button, so a click
+/// opens the link and never the row's meeting.
+struct TodoSourceLinkChip: View {
+    let link: TodoSourceLink
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        if let url = link.url {
+            Button {
+                openURL(url)
+            } label: {
+                pill(systemImage: "arrow.up.right.square")
+            }
+            .buttonStyle(.borderless)
+            .help("Open \(link.label)")
+            .accessibilityLabel("Open source: \(link.label)")
+        } else {
+            pill(systemImage: "link")
+                .help("Source: \(link.label)")
+                .accessibilityLabel("Source: \(link.label)")
+        }
+    }
+
+    private func pill(systemImage: String) -> some View {
+        HStack(spacing: CasaSpace.xxs) {
+            Image(systemName: systemImage)
+                .imageScale(.small)
+            Text(link.label)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.caption)
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, CasaSpace.sm)
+        .padding(.vertical, CasaSpace.xxs)
+        .background(Color.backgroundTertiary, in: Capsule())
+    }
 }
 
 private struct TodoRow: View {
@@ -305,10 +350,17 @@ private struct TodoRow: View {
                     .strikethrough(todo.isCompleted)
                     .foregroundStyle(todo.isCompleted ? Color.textTertiary : Color.textPrimary)
 
-                if let subtitle = presentation.meetingSubtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(Color.textTertiary)
+                if presentation.meetingSubtitle != nil || presentation.sourceLink != nil {
+                    HStack(spacing: CasaSpace.sm) {
+                        if let subtitle = presentation.meetingSubtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                        if let sourceLink = presentation.sourceLink {
+                            TodoSourceLinkChip(link: sourceLink)
+                        }
+                    }
                 }
             }
 

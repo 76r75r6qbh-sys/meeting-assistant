@@ -48,8 +48,8 @@ enum ObsidianTodoMarkdown {
         return out
     }
 
-    /// Schemes a `🔗 <scheme>:<ref>` source link may use.
-    static let linkSchemes: Set<String> = ["outlook", "teams", "jira", "topdesk", "url"]
+    /// Schemes a `🔗 <scheme>:<ref>` source link may use (``TodoSourceLink/Scheme``).
+    static let linkSchemes: Set<String> = Set(TodoSourceLink.Scheme.allCases.map(\.rawValue))
 
     private static let linkMarker = " 🔗 "
 
@@ -85,16 +85,18 @@ enum ObsidianTodoMarkdown {
         return nil
     }
 
-    /// The suffix for a stored to-do (`dueDate` as local `yyyy-MM-dd`).
+    /// The suffix for a stored to-do (`dueDate` as local `yyyy-MM-dd`, the
+    /// `sourceRef` link last).
     static func suffix(for todo: TodoItem) -> String {
-        suffix(owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp)
+        suffix(owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp, link: todo.sourceRef)
     }
 
     /// A to-do as a task line, suffix fields included.
     static func taskLine(for todo: TodoItem) -> TaskLine {
         TaskLine(
             id: todo.id, text: todo.text, isCompleted: todo.isCompleted,
-            owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp
+            owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp,
+            link: todo.sourceRef
         )
     }
 

@@ -141,6 +141,65 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(todos.first { $0.text == "Book room" }?.isCompleted, true)
     }
 
+    // MARK: - V3 -> V4
+
+    func testV3StoreMigratesToV4WithNilSourceRef() throws {
+        let storeURL = tempDir.appending(path: "default.store")
+        let seededDate = Date(timeIntervalSince1970: 1_760_000_000)
+
+        // 1. Seed a store with ONLY the frozen V3 schema, then release it.
+        try autoreleasepool {
+            let v3Schema = Schema(versionedSchema: CasablancaSchemaV3.self)
+            let config = ModelConfiguration(schema: v3Schema, url: storeURL)
+            let container = try ModelContainer(for: v3Schema, configurations: config)
+            let context = ModelContext(container)
+
+            let meeting = CasablancaSchemaV3.Meeting(title: "Refinement", date: seededDate)
+            meeting.summaryTemplateID = "standard"
+            context.insert(meeting)
+            let todo = CasablancaSchemaV3.TodoItem(text: "Send minutes", meeting: meeting)
+            todo.owner = "Youri"
+            todo.sourceTimestamp = "12:34"
+            todo.statusRaw = TodoStatus.proposed.rawValue
+            context.insert(todo)
+            context.insert(CasablancaSchemaV3.TodoItem(text: "Loose task", isCompleted: true))
+            try context.save()
+        }
+
+        // 2. Reopen via the production path: top-level models + migration plan.
+        let result = try PersistenceController.makeContainer(storeURL: storeURL) { url in
+            try ModelContainer(
+                for: Meeting.self, TodoItem.self,
+                migrationPlan: CasablancaMigrationPlan.self,
+                configurations: ModelConfiguration(url: url)
+            )
+        }
+
+        XCTAssertEqual(result.recovery, .clean, "the V3 store must open via migration, not via backup-and-recreate")
+        let context = ModelContext(result.container)
+        let meeting = try XCTUnwrap(try context.fetch(FetchDescriptor<Meeting>()).first)
+        XCTAssertEqual(meeting.title, "Refinement")
+        XCTAssertEqual(meeting.summaryTemplateID, "standard")
+
+        let todos = try context.fetch(FetchDescriptor<TodoItem>(sortBy: [SortDescriptor(\.text)]))
+        XCTAssertEqual(todos.map(\.text), ["Loose task", "Send minutes"])
+        for todo in todos {
+            XCTAssertNil(todo.sourceRef, "existing to-dos have no source link")
+        }
+        let sent = try XCTUnwrap(todos.last)
+        XCTAssertEqual(sent.owner, "Youri")
+        XCTAssertEqual(sent.sourceTimestamp, "12:34")
+        XCTAssertEqual(sent.status, .proposed)
+        XCTAssertEqual(sent.meeting?.id, meeting.id)
+        XCTAssertTrue(try XCTUnwrap(todos.first).isCompleted)
+
+        // The new field is writable and persists.
+        sent.sourceRef = "jira:IO-1"
+        try context.save()
+        let reread = try ModelContext(result.container).fetch(FetchDescriptor<TodoItem>())
+        XCTAssertEqual(reread.first { $0.text == "Send minutes" }?.sourceRef, "jira:IO-1")
+    }
+
     /// The fetch predicates the sidebar badge and the Todos view use must see
     /// migrated legacy to-dos as accepted: `statusRaw` has to be stored as
     /// "accepted" (not NULL) in the migrated store, or the SQL-side predicate
