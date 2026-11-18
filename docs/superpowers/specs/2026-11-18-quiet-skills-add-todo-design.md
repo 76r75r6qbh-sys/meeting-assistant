@@ -35,7 +35,7 @@ Youri, never a draft, and stop pinging.
 - Changing what the briefings and wrap-ups *report*: they still tell Youri
   what is waiting on him, as text in the run's output. Only the queue and the
   drafts go.
-- App changes beyond one contract test (below).
+- App changes beyond one contract test and the sync fix in §5 (below).
 
 ## Anti-goals
 
@@ -119,7 +119,7 @@ says "add a to-do" / "zet op mijn lijst". It holds:
   after the message that asked him; `jira:` — the issue is resolved/done, or
   Youri posted the comment the to-do asked for; `topdesk:` — the call is
   closed. It flips `- [ ]` to `- [x]` in place, keeping the line and its
-  marker (the app moves it to Done), and names each ticked to-do with its
+  marker (the app marks it completed; the line may stay under `## Open` until the app next re-renders the file), and names each ticked to-do with its
   proof in the EOD summary. No link, unclear proof or a connector error →
   leave it open.
 - **Cap:** at most **5** new to-dos per skill run. Beyond that, list the
@@ -176,7 +176,13 @@ live only in the app (Review filter); and 280 completed ones.
   `~/.claude/retired/2026-11-18/meeting-notes-backup/` (same relative paths).
 - Delete only the open marked lines (`- [ ] … casablanca-todo:`) from notes
   whose filename date is before 2026-11-01; touch nothing else in those
-  notes. The app's next sync drops the rows.
+  notes.
+- **App fix needed (found in plan review):** `removeMissingMeetingRows` only
+  considers files that still contain task lines, so a note left with no
+  task lines keeps its rows in the app (21 of the 29 affected notes). Fix:
+  every existing scanned meeting file counts as a source path, so its
+  missing rows are removed. TDD'd, released as v0.23.1; the cleanup takes
+  effect in the app once that build runs.
 - Verify: the store copy query and a grep both return 0 open pre-November
   to-dos; the notes otherwise diff clean against the backup.
 - The 5 proposed ones are app-only; Youri dismisses them in the Review
