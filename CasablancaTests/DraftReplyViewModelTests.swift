@@ -243,17 +243,58 @@ final class DraftReplyViewModelTests: XCTestCase {
         XCTAssertEqual(model.channel, "email", "a revision without a channel line keeps the channel")
     }
 
-    func testRevisionFailureShowsMessage() async {
-        let model = await readyModel()
+    func testRevisionFailureKeepsDraftAndShowsError() async {
+        let model = await readyModel(body: "Hoi Kim,", channel: "email")
+        model.draftText = "Hoi Kim, dank je."
         model.steer = "korter"
         model.revise()
         await waitForPendingCall()
         fake.resume(with: .failure(LLMProviderError.requestFailed(
-            provider: "Claude Code", kind: .backendError, message: "Rate limited"
+            provider: "Claude Code", kind: .backendError, message: "Not logged in · Please run /login"
         )))
         await model.inFlight?.value
 
-        XCTAssertEqual(model.phase, .failed("Rate limited"))
+        XCTAssertEqual(model.phase, .ready)
+        XCTAssertEqual(model.draftText, "Hoi Kim, dank je.")
+        XCTAssertEqual(model.steer, "korter")
+        XCTAssertTrue(model.isEdited)
+        XCTAssertEqual(model.channel, "email")
+        XCTAssertTrue(model.revisionError?.contains("Not logged in") == true, "\(String(describing: model.revisionError))")
+        XCTAssertTrue(model.canRevise, "the revision can be retried as is")
+    }
+
+    func testNextReviseClearsRevisionError() async {
+        let model = await readyModel()
+        model.steer = "korter"
+        model.revise()
+        await waitForPendingCall()
+        fake.resume(with: .failure(LLMProviderError.emptyResponse(provider: "Claude Code")))
+        await model.inFlight?.value
+        XCTAssertNotNil(model.revisionError)
+
+        model.revise()
+        XCTAssertNil(model.revisionError, "cleared as soon as the next revision starts")
+        await waitForPendingCall()
+        fake.resume(with: .success(DraftReplyOutput(channel: nil, body: "Dank, Kim.")))
+        await model.inFlight?.value
+        XCTAssertNil(model.revisionError)
+        XCTAssertEqual(model.draftText, "Dank, Kim.")
+    }
+
+    func testStartClearsRevisionError() async {
+        let model = await readyModel()
+        model.steer = "korter"
+        model.revise()
+        await waitForPendingCall()
+        fake.resume(with: .failure(LLMProviderError.emptyResponse(provider: "Claude Code")))
+        await model.inFlight?.value
+        XCTAssertNotNil(model.revisionError)
+
+        model.startOver()
+        XCTAssertNil(model.revisionError)
+        await waitForPendingCall()
+        fake.resume(with: .success(DraftReplyOutput(channel: nil, body: "x")))
+        await model.inFlight?.value
     }
 
     func testCanReviseRequiresSteerOrEdit() async {

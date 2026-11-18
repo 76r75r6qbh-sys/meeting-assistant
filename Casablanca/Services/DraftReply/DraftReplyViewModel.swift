@@ -41,6 +41,10 @@ final class DraftReplyViewModel {
     }
     var steer = ""
     private(set) var channel: String?
+    /// Why the last revision failed. A failed revision leaves the sheet
+    /// `.ready` with the draft, edits and steer intact; this is shown beside it.
+    /// Cleared when the next ``revise()`` or ``start()`` begins.
+    private(set) var revisionError: String?
     /// True once the user changed the draft since the last result; the view
     /// asks before discarding it on Start over.
     var isEdited = false
@@ -80,6 +84,7 @@ final class DraftReplyViewModel {
         setDraft("", channel: nil)
         hasDraft = false
         steer = ""
+        revisionError = nil
         let label = context.sourceRef == nil ? Self.writingLabel : Self.readingSourceLabel
         let drafter = drafter
         let context = context
@@ -91,8 +96,11 @@ final class DraftReplyViewModel {
     }
 
     /// Rewrites the current draft, including the user's edits, as ``steer`` asks.
+    /// On failure the phase returns to `.ready` with the draft, edits and steer
+    /// untouched and the message in ``revisionError``.
     func revise() {
         guard canRevise else { return }
+        revisionError = nil
         let drafter = drafter
         let context = context
         let draft = draftText
@@ -103,6 +111,10 @@ final class DraftReplyViewModel {
             guard let self else { return }
             self.setDraft(output.body, channel: output.channel ?? self.channel)
             self.steer = ""
+        } onFailure: { [weak self] message in
+            // Revise never loses edits: back to the draft as it was, with the error.
+            self?.revisionError = message
+            self?.phase = .ready
         }
     }
 
@@ -123,7 +135,8 @@ final class DraftReplyViewModel {
     private func run(
         label: String,
         _ operation: @escaping @MainActor @Sendable () async throws -> DraftReplyOutput,
-        onSuccess: @escaping @MainActor @Sendable (DraftReplyOutput) -> Void
+        onSuccess: @escaping @MainActor @Sendable (DraftReplyOutput) -> Void,
+        onFailure: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
         inFlight?.cancel()
         generation += 1
@@ -138,7 +151,12 @@ final class DraftReplyViewModel {
                 self.phase = .ready
             } catch {
                 guard let self, self.generation == token else { return }
-                self.phase = .failed(Self.message(for: error))
+                let message = Self.message(for: error)
+                if let onFailure {
+                    onFailure(message)
+                } else {
+                    self.phase = .failed(message)
+                }
             }
         }
     }
