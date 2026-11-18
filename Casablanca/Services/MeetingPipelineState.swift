@@ -288,6 +288,8 @@ struct MeetingPipelinePresentation {
                 )
             case .merging(let level):
                 return SummarizationService.mergingStatus(level: level)
+            case .repairing:
+                return SummarizationService.repairingStatus
             default:
                 return "Generating summary…"
             }

@@ -1,0 +1,20 @@
+{
+  "schema": "casablanca.eval-gold",
+  "schemaVersion": 1,
+  "meetingId": "00000000-0000-4000-8000-000000000001",
+  "title": "Refinement Demo-team",
+  "date": "2026-01-15",
+  "reviewed": true,
+  "notes": "Synthetic example — not a real meeting.",
+  "ownerAliases": {"Ik": "Alex", "Me": "Alex", "Alex Jansen": "Alex", "Sam de Vries": "Sam"},
+  "decisions": [
+    {"text": "De zoekfunctie gaat mee in sprint 4"},
+    {"text": "De demo verschuift naar vrijdag"}
+  ],
+  "actionItems": [
+    {"task": "Testdata voor de demo-omgeving klaarzetten", "owner": "Sam", "due": "2026-01-19"},
+    {"task": "Acceptatiecriteria voor de zoekfunctie uitschrijven", "owner": "Alex", "due": null},
+    {"task": "Offerte voor extra licenties opvragen", "owner": null, "due": null},
+    {"task": "Datum voor de retrospective prikken", "owner": "Alex", "due": null}
+  ]
+}

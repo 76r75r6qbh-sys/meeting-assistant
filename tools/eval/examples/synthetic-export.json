@@ -1,0 +1,186 @@
+{
+  "actionItems": [
+    {
+      "confidence": 0.9,
+      "due": "2026-01-19",
+      "dueIsExplicit": true,
+      "owner": "Sam",
+      "quote": "Ik zet de testdata maandag klaar.",
+      "task": "Testdata klaarzetten in de demo-omgeving",
+      "timestamp": "01:10",
+      "verificationReason": null,
+      "verified": "supported"
+    },
+    {
+      "confidence": 0.85,
+      "due": null,
+      "dueIsExplicit": false,
+      "owner": "Ik",
+      "quote": "Die schrijf ik deze week uit.",
+      "task": "Acceptatiecriteria zoekfunctie uitschrijven",
+      "timestamp": "03:20",
+      "verificationReason": null,
+      "verified": "supported"
+    },
+    {
+      "confidence": 0.6,
+      "due": null,
+      "dueIsExplicit": false,
+      "owner": "Sam",
+      "quote": "Iemand moet die offerte opvragen",
+      "task": "Offerte extra licenties opvragen bij leverancier",
+      "timestamp": "04:30",
+      "verificationReason": "Nobody takes the task in the quote.",
+      "verified": "unsupported"
+    },
+    {
+      "confidence": 0.8,
+      "due": null,
+      "dueIsExplicit": false,
+      "owner": "Sam",
+      "quote": "Ik deel de notulen straks met het team.",
+      "task": "Notulen van de refinement delen met het team",
+      "timestamp": "07:10",
+      "verificationReason": null,
+      "verified": "supported"
+    }
+  ],
+  "actionItemsSource": "structured",
+  "appVersion": "0.0.0-synthetic",
+  "decisions": [
+    {
+      "source": "summaryMarkdown",
+      "text": "Zoekfunctie wordt opgepakt in sprint 4"
+    },
+    {
+      "source": "summaryMarkdown",
+      "text": "Demo verplaatst naar vrijdag"
+    }
+  ],
+  "exportedAt": "2026-01-15T10:00:00Z",
+  "meeting": {
+    "date": "2026-01-15T09:00:00Z",
+    "durationSeconds": 1800.0,
+    "endDate": "2026-01-15T09:30:00Z",
+    "id": "00000000-0000-4000-8000-000000000001",
+    "language": "nl-NL",
+    "participants": [
+      "Alex Jansen",
+      "Sam de Vries",
+      "Ik"
+    ],
+    "summaryTemplateID": null,
+    "tags": [
+      "synthetic"
+    ],
+    "title": "Refinement Demo-team"
+  },
+  "schema": "casablanca.eval-export",
+  "schemaVersion": 1,
+  "speakers": [
+    {
+      "displayName": "Alex",
+      "id": "me",
+      "isUser": true,
+      "nameConfirmed": true,
+      "source": "microphone"
+    },
+    {
+      "displayName": "Sam",
+      "id": "S1",
+      "isUser": false,
+      "nameConfirmed": true,
+      "source": "system"
+    }
+  ],
+  "summary": {
+    "actionItemTexts": [
+      "**Sam** — testdata klaarzetten in de demo-omgeving (2026-01-19) [01:10]",
+      "**Ik** — acceptatiecriteria zoekfunctie uitschrijven [03:20]",
+      "**Sam** — offerte extra licenties opvragen bij leverancier [04:30]",
+      "**Sam** — notulen van de refinement delen met het team [07:10]"
+    ],
+    "decisions": [
+      "Zoekfunctie wordt opgepakt in sprint 4",
+      "Demo verplaatst naar vrijdag"
+    ],
+    "markdown": "# Refinement Demo-team\n\nSynthetisch voorbeeld — geen echte meeting.\n\n## Besluiten\n- Zoekfunctie wordt opgepakt in sprint 4\n- Demo verplaatst naar vrijdag\n\n## Actiepunten\n- **Sam** — testdata klaarzetten in de demo-omgeving (2026-01-19) [01:10]\n- **Ik** — acceptatiecriteria zoekfunctie uitschrijven [03:20]\n- **Sam** — offerte extra licenties opvragen bij leverancier [04:30]\n- **Sam** — notulen van de refinement delen met het team [07:10]\n"
+  },
+  "transcript": {
+    "lines": [
+      {
+        "label": "00:05",
+        "seconds": 5.0,
+        "speaker": "Alex",
+        "text": "Goedemorgen, we beginnen met de refinement."
+      },
+      {
+        "label": "00:40",
+        "seconds": 40.0,
+        "speaker": "Sam",
+        "text": "Voor de demo hebben we nog geen testdata in de demo-omgeving."
+      },
+      {
+        "label": "01:10",
+        "seconds": 70.0,
+        "speaker": "Sam",
+        "text": "Ik zet de testdata maandag klaar."
+      },
+      {
+        "label": "02:15",
+        "seconds": 135.0,
+        "speaker": "Alex",
+        "text": "Dan de zoekfunctie: die nemen we mee in sprint 4."
+      },
+      {
+        "label": "02:50",
+        "seconds": 170.0,
+        "speaker": "Sam",
+        "text": "Prima, maar de acceptatiecriteria ontbreken nog."
+      },
+      {
+        "label": "03:20",
+        "seconds": 200.0,
+        "speaker": "Alex",
+        "text": "Die schrijf ik deze week uit."
+      },
+      {
+        "label": "04:05",
+        "seconds": 245.0,
+        "speaker": "Sam",
+        "text": "Voor de extra licenties hebben we een offerte nodig."
+      },
+      {
+        "label": "04:30",
+        "seconds": 270.0,
+        "speaker": "Alex",
+        "text": "Iemand moet die offerte opvragen, dat zoeken we nog uit."
+      },
+      {
+        "label": "05:45",
+        "seconds": 345.0,
+        "speaker": "Sam",
+        "text": "De demo op donderdag lukt niet, kan het vrijdag?"
+      },
+      {
+        "label": "06:00",
+        "seconds": 360.0,
+        "speaker": "Alex",
+        "text": "Goed, de demo verschuift naar vrijdag."
+      },
+      {
+        "label": "06:30",
+        "seconds": 390.0,
+        "speaker": "Alex",
+        "text": "En we moeten nog een datum voor de retrospective prikken."
+      },
+      {
+        "label": "07:10",
+        "seconds": 430.0,
+        "speaker": "Sam",
+        "text": "Ik deel de notulen straks met het team."
+      }
+    ],
+    "text": "[00:05] Alex: Goedemorgen, we beginnen met de refinement.\n[00:40] Sam: Voor de demo hebben we nog geen testdata in de demo-omgeving.\n[01:10] Sam: Ik zet de testdata maandag klaar.\n[02:15] Alex: Dan de zoekfunctie: die nemen we mee in sprint 4.\n[02:50] Sam: Prima, maar de acceptatiecriteria ontbreken nog.\n[03:20] Alex: Die schrijf ik deze week uit.\n[04:05] Sam: Voor de extra licenties hebben we een offerte nodig.\n[04:30] Alex: Iemand moet die offerte opvragen, dat zoeken we nog uit.\n[05:45] Sam: De demo op donderdag lukt niet, kan het vrijdag?\n[06:00] Alex: Goed, de demo verschuift naar vrijdag.\n[06:30] Alex: En we moeten nog een datum voor de retrospective prikken.\n[07:10] Sam: Ik deel de notulen straks met het team."
+  }
+}

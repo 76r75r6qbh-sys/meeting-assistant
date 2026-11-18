@@ -239,6 +239,24 @@ final class MeetingPipelineStateTests: XCTestCase {
         XCTAssertEqual(p.statusText, "Generating summary…")
     }
 
+    func testVerifyingPhaseFallsBackToGeneratingSummary() {
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .verifying,
+            summarizationStartedAt: Date()
+        )
+        XCTAssertEqual(p.statusText, "Generating summary…")
+    }
+
+    func testRepairingSurfacesInStatusText() {
+        let p = make(
+            isSummarizingThisMeeting: true,
+            summarizationPhase: .repairing,
+            summarizationStartedAt: Date()
+        )
+        XCTAssertEqual(p.statusText, "Repairing the structured notes…")
+    }
+
     // MARK: - Chip state
 
     func testChipStatesDuringTranscription() {

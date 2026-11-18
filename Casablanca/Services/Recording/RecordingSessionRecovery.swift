@@ -169,7 +169,8 @@ struct RecordingSessionRecovery {
         segmentNumber: Int,
         for meetingID: UUID,
         slot: SegmentSlot,
-        store: RecordingResumeSessionStore
+        store: RecordingResumeSessionStore,
+        availableCapacity: @escaping RecordingDiskSpace.CapacityProvider = RecordingDiskSpace.systemCapacity
     ) throws -> Bool {
         let microphoneFrames = AVAudioFramePosition(slot.microphonePCMByteCount / bytesPerFloatSample)
         let systemAudioFrames = AVAudioFramePosition(slot.systemAudioPCMByteCount / bytesPerFloatSample)
@@ -197,7 +198,8 @@ struct RecordingSessionRecovery {
             microphoneFrames: microphoneFrames,
             systemAudioFrames: systemAudioFrames,
             outputURL: outputURL,
-            expectedOutputFrames: max(microphoneFrames, systemAudioFrames)
+            expectedOutputFrames: max(microphoneFrames, systemAudioFrames),
+            availableCapacity: availableCapacity
         )
         try renderer.render()
 

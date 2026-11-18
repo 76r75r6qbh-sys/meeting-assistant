@@ -3,8 +3,127 @@ import Foundation
 enum ObsidianTodoMarkdown {
     struct TaskLine: Equatable {
         let id: UUID?
+        /// The task without its ` — owner 📅 due [timestamp]` suffix.
         let text: String
         let isCompleted: Bool
+        var owner: String? = nil
+        /// `yyyy-MM-dd`.
+        var due: String? = nil
+        /// Transcript timestamp label (`mm:ss` or `h:mm:ss`).
+        var timestamp: String? = nil
+
+        /// `true` when the line carried (or will carry) a suffix.
+        var hasSuffix: Bool { !ObsidianTodoMarkdown.suffix(owner: owner, due: due, timestamp: timestamp).isEmpty }
+
+        /// The same task with another id; suffix fields are kept.
+        func withID(_ id: UUID) -> TaskLine {
+            TaskLine(id: id, text: text, isCompleted: isCompleted, owner: owner, due: due, timestamp: timestamp)
+        }
+    }
+
+    // MARK: - Suffix ` — <owner> 📅 <yyyy-MM-dd> [<label>]`
+
+    /// The suffix written after a task's text: `""`, or e.g.
+    /// `" — Youri 📅 2026-11-06 [12:34]"`. Each part is written only when set
+    /// and valid; the owner only together with a due date or timestamp (and
+    /// only when it is 1–60 characters without `—`), so the line parses back
+    /// unambiguously and a user-typed `Bel Kim — dringend` is never read as an
+    /// owner.
+    static func suffix(owner: String?, due: String?, timestamp: String?) -> String {
+        let due = due.flatMap { isISODay($0) ? $0 : nil }
+        let timestamp = timestamp.flatMap { TranscriptLineFormat.seconds(fromLabel: $0) != nil ? $0 : nil }
+        guard due != nil || timestamp != nil else { return "" }
+        var out = ""
+        if let owner = owner?.trimmingCharacters(in: .whitespacesAndNewlines), isValidOwner(owner) {
+            out += " — \(owner)"
+        }
+        if let due { out += " 📅 \(due)" }
+        if let timestamp { out += " [\(timestamp)]" }
+        return out
+    }
+
+    /// The suffix for a stored to-do (`dueDate` as local `yyyy-MM-dd`).
+    static func suffix(for todo: TodoItem) -> String {
+        suffix(owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp)
+    }
+
+    /// A to-do as a task line, suffix fields included.
+    static func taskLine(for todo: TodoItem) -> TaskLine {
+        TaskLine(
+            id: todo.id, text: todo.text, isCompleted: todo.isCompleted,
+            owner: todo.owner, due: todo.dueDate.map(isoDay), timestamp: todo.sourceTimestamp
+        )
+    }
+
+    /// `date` as `yyyy-MM-dd` in the current time zone.
+    static func isoDay(_ date: Date) -> String {
+        let components = Calendar(identifier: .gregorian).dateComponents(in: .current, from: date)
+        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+    }
+
+    /// A real `yyyy-MM-dd` date (`2026-02-30` is not), so an impossible date
+    /// stays in the text instead of vanishing on a re-render.
+    private static func isISODay(_ text: String) -> Bool {
+        text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
+            && isoDayValidator.date(from: text) != nil
+    }
+
+    /// Non-lenient `yyyy-MM-dd` parser used only to reject impossible dates.
+    /// Configured once and only read afterwards (thread-safe for parsing).
+    private static let isoDayValidator: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }()
+
+    /// Whether `owner` can be written in (and parsed back from) the suffix.
+    static func isValidOwner(_ owner: String) -> Bool {
+        (1...60).contains(owner.count) && !owner.contains("—") && !owner.contains(where: \.isNewline)
+    }
+
+    /// Splits a parsed task text from the end: optional ` [<label>]`, then
+    /// optional ` 📅 yyyy-MM-dd`, then — only if one of those matched —
+    /// optional ` — <owner>`. Anything else stays in the text. A text that
+    /// starts with a bullet owner prefix (`**Youri** — …`, as
+    /// `ActionItemOwnership.parse` recognises it) is a summary-tab to-do that
+    /// stores the whole bullet: nothing is split off it.
+    static func splittingSuffix(_ text: String) -> (text: String, owner: String?, due: String?, timestamp: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ActionItemOwnership.parse(trimmed).action == trimmed else { return (text, nil, nil, nil) }
+        var rest = text
+        var timestamp: String?
+        var due: String?
+        var owner: String?
+
+        if rest.hasSuffix("]"), let open = rest.range(of: " [", options: .backwards) {
+            let label = String(rest[open.upperBound..<rest.index(before: rest.endIndex)])
+            if TranscriptLineFormat.seconds(fromLabel: label) != nil {
+                timestamp = label
+                rest = String(rest[..<open.lowerBound])
+            }
+        }
+        if let marker = rest.range(of: " 📅 ", options: .backwards) {
+            let candidate = String(rest[marker.upperBound...])
+            if isISODay(candidate) {
+                due = candidate
+                rest = String(rest[..<marker.lowerBound])
+            }
+        }
+        if due != nil || timestamp != nil, let dash = rest.range(of: " — ", options: .backwards) {
+            let candidate = String(rest[dash.upperBound...])
+            let remaining = String(rest[..<dash.lowerBound])
+            if isValidOwner(candidate), candidate == candidate.trimmingCharacters(in: .whitespaces),
+               !remaining.trimmingCharacters(in: .whitespaces).isEmpty {
+                owner = candidate
+                rest = remaining
+            }
+        }
+        guard !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return (text, nil, nil, nil) }
+        return (rest, owner, due, timestamp)
     }
 
     struct GenericDocument: Equatable {
@@ -171,7 +290,7 @@ enum ObsidianTodoMarkdown {
                 tasks.append(task)
                 continue
             }
-            let assigned = TaskLine(id: UUID(), text: task.text, isCompleted: task.isCompleted)
+            let assigned = task.withID(UUID())
             let lineEnding = lines[index].hasSuffix("\r") ? "\r" : ""
             let content = stripCR(lines[index])
             if content.range(of: "<!-- casablanca-todo:", options: .caseInsensitive) == nil {
@@ -223,7 +342,7 @@ enum ObsidianTodoMarkdown {
 
     static func tasksAssigningIDsIfNeeded(_ tasks: [TaskLine]) -> [TaskLine] {
         tasks.map { task in
-            TaskLine(id: task.id ?? UUID(), text: task.text, isCompleted: task.isCompleted)
+            task.id == nil ? task.withID(UUID()) : task
         }
     }
 
@@ -241,7 +360,8 @@ enum ObsidianTodoMarkdown {
         }
 
         let completedMarker = nsLine.substring(with: match.range(at: 1))
-        let text = nsLine.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let fullText = nsLine.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let split = splittingSuffix(fullText)
 
         let id: UUID?
         let idRange = match.range(at: 3)
@@ -253,8 +373,11 @@ enum ObsidianTodoMarkdown {
 
         return TaskLine(
             id: id,
-            text: text,
-            isCompleted: completedMarker.lowercased() == "x"
+            text: split.text,
+            isCompleted: completedMarker.lowercased() == "x",
+            owner: split.owner,
+            due: split.due,
+            timestamp: split.timestamp
         )
     }
 
@@ -266,10 +389,11 @@ enum ObsidianTodoMarkdown {
         return tasks
             .map { task in
                 let marker = task.isCompleted ? "x" : " "
+                let body = task.text + suffix(owner: task.owner, due: task.due, timestamp: task.timestamp)
                 if let id = task.id {
-                    return "- [\(marker)] \(task.text) <!-- casablanca-todo: \(id.uuidString.uppercased()) -->"
+                    return "- [\(marker)] \(body) <!-- casablanca-todo: \(id.uuidString.uppercased()) -->"
                 }
-                return "- [\(marker)] \(task.text)"
+                return "- [\(marker)] \(body)"
             }
             .joined(separator: "\n")
     }

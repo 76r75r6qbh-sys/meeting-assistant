@@ -5,7 +5,9 @@ import SwiftData
 
 struct TodosView: View {
     @Bindable var viewModel: MeetingListViewModel
-    @Query(sort: \TodoItem.createdAt, order: .reverse) private var allTodos: [TodoItem]
+    /// Rejected to-dos are never shown, so they are not fetched.
+    @Query(filter: TodoCounting.notRejectedPredicate, sort: \TodoItem.createdAt, order: .reverse)
+    private var allTodos: [TodoItem]
     @Environment(\.modelContext) private var modelContext
     @Environment(AppModel.self) private var appModel
     @State private var filter: TodoFilter = .open
@@ -17,6 +19,23 @@ struct TodosView: View {
         case open = "Open"
         case done = "Done"
         case all = "All"
+        case review = "Review"
+
+        /// Open, Done and All list accepted to-dos only; Review lists the
+        /// proposed ones. Rejected to-dos are never shown.
+        func todos(from todos: [TodoItem]) -> [TodoItem] {
+            switch self {
+            case .open: return todos.filter { $0.status == .accepted && !$0.isCompleted }
+            case .done: return todos.filter { $0.status == .accepted && $0.isCompleted }
+            case .all: return todos.filter { $0.status == .accepted }
+            case .review: return todos.filter { $0.status == .proposed }
+            }
+        }
+
+        /// The segment label; Review shows its count when there is one.
+        func label(reviewCount: Int) -> String {
+            self == .review && reviewCount > 0 ? "\(rawValue) (\(reviewCount))" : rawValue
+        }
     }
 
     var body: some View {
@@ -56,11 +75,11 @@ struct TodosView: View {
             ToolbarItem(placement: .principal) {
                 Picker("Filter", selection: $filter) {
                     ForEach(TodoFilter.allCases, id: \.self) { filter in
-                        Text(filter.rawValue).tag(filter)
+                        Text(filter.label(reviewCount: reviewCount)).tag(filter)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 200)
+                .frame(maxWidth: 320)
             }
         }
     }
@@ -79,26 +98,70 @@ struct TodosView: View {
     }
 
     private var filteredTodos: [TodoItem] {
-        switch filter {
-        case .open:
-            return allTodos.filter { !$0.isCompleted }
-        case .done:
-            return allTodos.filter { $0.isCompleted }
-        case .all:
-            return allTodos
-        }
+        filter.todos(from: allTodos)
+    }
+
+    private var reviewCount: Int {
+        TodoFilter.review.todos(from: allTodos).count
     }
 
     private var todoList: some View {
-        List(filteredTodos) { todo in
-            TodoRow(todo: todo, reduceMotion: reduceMotion, toastCenter: appModel.toastCenter) {
-                if let meetingID = TodoRowPresentation(todo: todo).meetingID {
-                    viewModel.sidebarSelection = .meeting(meetingID)
+        let todos = filteredTodos
+        let itemsByMeeting = filter == .review ? Self.actionItemsByMeeting(of: todos) : [:]
+        return List(todos) { todo in
+            if filter == .review {
+                reviewRow(todo, actionItems: todo.meeting.flatMap { itemsByMeeting[$0.id] } ?? [])
+            } else {
+                TodoRow(todo: todo, reduceMotion: reduceMotion, toastCenter: appModel.toastCenter) {
+                    navigateToMeeting(of: todo)
                 }
             }
         }
         .listStyle(.inset)
-        .animation(reduceMotion ? nil : CasaAnimation.fast, value: filteredTodos.map(\.id))
+        .animation(reduceMotion ? nil : CasaAnimation.fast, value: todos.map(\.id))
+    }
+
+    /// Each meeting's extracted items, decoded once per meeting.
+    private static func actionItemsByMeeting(of todos: [TodoItem]) -> [UUID: [ExtractedActionItem]] {
+        var result: [UUID: [ExtractedActionItem]] = [:]
+        for case let meeting? in todos.map(\.meeting) where result[meeting.id] == nil {
+            result[meeting.id] = meeting.actionItems
+        }
+        return result
+    }
+
+    /// A proposal across meetings: the review row, with its meeting below it.
+    private func reviewRow(_ todo: TodoItem, actionItems: [ExtractedActionItem]) -> some View {
+        let actions = TodoReviewActions(modelContext: modelContext, appModel: appModel)
+        let presentation = TodoRowPresentation(todo: todo)
+        return VStack(alignment: .leading, spacing: CasaSpace.xs) {
+            TodoReviewRow(
+                todo: todo,
+                actionItems: actionItems,
+                onAccept: { actions.accept(todo) },
+                onReject: { actions.reject(todo) },
+                onEdit: { task, owner, due in actions.edit(todo, task: task, owner: owner, dueDate: due) }
+            )
+            if let subtitle = presentation.meetingSubtitle {
+                Button {
+                    navigateToMeeting(of: todo)
+                } label: {
+                    Label(subtitle, systemImage: "chevron.right")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .buttonStyle(GhostButtonStyle())
+                .help("Open the meeting")
+            }
+        }
+        .padding(.vertical, CasaSpace.xs)
+    }
+
+    private func navigateToMeeting(of todo: TodoItem) {
+        if let meetingID = TodoRowPresentation(todo: todo).meetingID {
+            viewModel.sidebarSelection = .meeting(meetingID)
+        }
     }
 
     private var emptyState: some View {
@@ -114,6 +177,7 @@ struct TodosView: View {
         case .open: return "All Done"
         case .done: return "No Completed Items"
         case .all: return "No Action Items"
+        case .review: return "Nothing to Review"
         }
     }
 
@@ -122,6 +186,7 @@ struct TodosView: View {
         case .open: return "checkmark.circle"
         case .done: return "circle"
         case .all: return "checklist"
+        case .review: return "checkmark.seal"
         }
     }
 
@@ -130,6 +195,7 @@ struct TodosView: View {
         case .open: return "No open action items. Nice work."
         case .done: return "Completed action items will appear here."
         case .all: return "Action items from your meetings and the managed Casablanca todo file will appear here."
+        case .review: return "To-dos proposed from meeting summaries appear here until you accept or reject them."
         }
     }
 
@@ -169,6 +235,22 @@ struct TodosView: View {
             in: modelContext
         )
         newTodoText = ""
+    }
+}
+
+/// Which to-dos count as open everywhere a count is shown (the sidebar's
+/// To-Dos badge): accepted and not completed. Proposed to-dos wait for review
+/// and rejected ones are gone, so neither counts.
+enum TodoCounting {
+    static var openTodoPredicate: Predicate<TodoItem> {
+        let accepted = TodoStatus.accepted.rawValue
+        return #Predicate<TodoItem> { !$0.isCompleted && $0.statusRaw == accepted }
+    }
+
+    /// Everything the Todos view can show: rejected to-dos are left out.
+    static var notRejectedPredicate: Predicate<TodoItem> {
+        let rejected = TodoStatus.rejected.rawValue
+        return #Predicate<TodoItem> { $0.statusRaw != rejected }
     }
 }
 

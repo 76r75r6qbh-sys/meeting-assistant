@@ -29,28 +29,21 @@ struct TranscriptSegment: Identifiable, Codable {
     let startTime: TimeInterval
     let endTime: TimeInterval
     let text: String
+    /// Word timings, when Whisper produced them (`wordTimestampsEnabled`).
+    /// `nil` for live segments and when word timestamps are off; speaker
+    /// attribution then works per segment.
+    let words: [TranscriptWord]?
 
-    init(startTime: TimeInterval, endTime: TimeInterval, text: String) {
+    init(startTime: TimeInterval, endTime: TimeInterval, text: String, words: [TranscriptWord]? = nil) {
         self.id = UUID()
         self.startTime = startTime
         self.endTime = endTime
         self.text = text
+        self.words = words
     }
 
     var formattedTimestamp: String {
-        let start = Self.formatTime(startTime)
-        return "[\(start)]"
-    }
-
-    private static func formatTime(_ time: TimeInterval) -> String {
-        let totalSeconds = Int(time)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%02d:%02d", minutes, seconds)
+        "[\(TranscriptLineFormat.timestampLabel(seconds: startTime))]"
     }
 }
 
@@ -111,6 +104,10 @@ final class TranscriptionService {
     /// Where the last finished run's time went. Logged as one line when the run
     /// ends; kept so anything that later wants to show or compare runs can.
     private(set) var lastTimingReport: TranscriptionTimingReport?
+    /// The decoding options the last run actually used, prompt tokens
+    /// included — the benchmark records this instead of re-resolving, which
+    /// could not know the prompt-token count.
+    private(set) var lastResolvedSummaryLine: String?
 
     /// The meeting whose post-recording pipeline is running (nil when idle).
     /// Unlike `isTranscribing` this stays set for the whole pipeline — including
@@ -136,20 +133,18 @@ final class TranscriptionService {
     ]
 
     static let availableWhisperModels: [WhisperModelOption] = [
-        WhisperModelOption(id: "openai_whisper-tiny", name: "Tiny"),
-        WhisperModelOption(id: "openai_whisper-base", name: "Base"),
-        WhisperModelOption(id: "openai_whisper-small", name: "Small"),
-        WhisperModelOption(id: "openai_whisper-medium", name: "Medium"),
-        WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3"),
+        // Approximate one-time download sizes of the CoreML models, so the
+        // picker says what a choice costs before the first transcription
+        // starts fetching it.
+        WhisperModelOption(id: "openai_whisper-tiny", name: "Tiny (~75 MB)"),
+        WhisperModelOption(id: "openai_whisper-base", name: "Base (~150 MB)"),
+        WhisperModelOption(id: "openai_whisper-small", name: "Small (~500 MB)"),
+        WhisperModelOption(id: "openai_whisper-medium", name: "Medium (~1.5 GB)"),
+        WhisperModelOption(id: "openai_whisper-large-v3", name: "Large v3 (~3 GB)"),
+        // Same encoder as large-v3 with a 4-layer distilled decoder; the
+        // 2024-09-30 build is the one WhisperKit `d447d308` lists as supported.
+        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo", name: "Large v3 Turbo (~1.6 GB)"),
     ]
-
-    private static let whisperControlTokenRegex = try! NSRegularExpression(pattern: #"<\|[^|>]+?\|>"#)
-    /// Hoisted alongside the control-token pattern: `cleanWhisperText` runs once
-    /// per segment (thousands of times for a long meeting) and
-    /// `replacingOccurrences(options: .regularExpression)` recompiles the pattern
-    /// on every call.
-    private static let repeatedWhitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
-    private static let whitespaceBeforePunctuationRegex = try! NSRegularExpression(pattern: #"\s+([,.;:!?])"#)
 
     private var transcriptionTask: Task<TranscriptionResult, Error>?
     /// The service-owned task running `transcribeInBackground`. Deliberately not
@@ -332,7 +327,8 @@ final class TranscriptionService {
 #endif
         return PostTranscriptionPipeline.live(
             terminologyService: terminologyService,
-            exportReporter: exportReporter
+            exportReporter: exportReporter,
+            speakerStatus: { [weak self] message in self?.statusMessage = message }
         )
     }
 
@@ -508,13 +504,38 @@ final class TranscriptionService {
 
         await updateStatus("Preparing local Whisper model...", progress: 0.05)
 
-        let resolved = TranscriptionOptionsBuilder.resolve(
+        let baseResolved = TranscriptionOptionsBuilder.resolve(
             language: Self.whisperLanguageCode(for: localeIdentifier)
         )
 
         let modelLoadStart = ContinuousClock.now
-        let whisperKit = try await loadWhisperKit(compute: resolved.compute)
+        let whisperKit = try await loadWhisperKit(compute: baseResolved.compute)
         let modelLoadWall = ContinuousClock.now - modelLoadStart
+
+        // Terminology as Whisper prompt tokens. Needs the loaded tokenizer, so
+        // it is attached after the load; the pipeline cache key does not
+        // depend on it. `promptTerms` holds only the terms that fit in the
+        // prompt actually sent (empty when none was), so the echo filter only
+        // runs on prompted output and only matches what Whisper was shown.
+        var resolved = baseResolved
+        var promptTerms: [String] = []
+        if baseResolved.promptTermsEnabled {
+            let terms = WhisperPromptBuilder.terms(
+                enabled: UserDefaults.standard.bool(forKey: AppPreferenceKey.terminologyCorrectionEnabled),
+                raw: UserDefaults.standard.string(forKey: AppPreferenceKey.terminologyList) ?? ""
+            )
+            if !terms.isEmpty {
+                let prompt = WhisperPromptBuilder.prompt(
+                    for: terms,
+                    encode: { whisperKit.tokenizer?.encode(text: $0) ?? [] },
+                    specialTokenBegin: whisperKit.tokenizer?.specialTokens.specialTokenBegin ?? Int.max
+                )
+                resolved = baseResolved.withPromptTokens(prompt.tokens)
+                promptTerms = prompt.terms
+            }
+        }
+        let echoTerms = promptTerms
+        lastResolvedSummaryLine = resolved.summaryLine
 
         // With `chunking=none` WhisperKit seeks through the whole file, so
         // `SegmentSeeker` reports times that are already absolute.
@@ -545,7 +566,8 @@ final class TranscriptionService {
                         return Self.makeTranscriptSegment(
                             startTime: times.startTime,
                             endTime: times.endTime,
-                            rawText: segment.text
+                            rawText: segment.text,
+                            echoTerms: echoTerms
                         )
                     }
                 self.liveSegmentMerger.merge(chunkSegments: mappedSegments, chunkKey: chunkKey)
@@ -567,12 +589,19 @@ final class TranscriptionService {
 
         try Task.checkCancellation()
 
+        // Prompt echoes are dropped inside `makeTranscriptSegment`, on the
+        // same cleaned text as the live list and `fullText` below.
         let segments = run.segments
             .compactMap { segment in
+                // Word timings are already on the absolute clock: WhisperKit's
+                // `updateSeekOffsetsForResults` shifts `segment.words` by the
+                // same seek time as the segment, on both chunked paths.
                 Self.makeTranscriptSegment(
                     startTime: TimeInterval(segment.start),
                     endTime: TimeInterval(segment.end),
-                    rawText: segment.text
+                    rawText: segment.text,
+                    words: Self.makeTranscriptWords(segment.words),
+                    echoTerms: echoTerms
                 )
             }
         currentSegments = segments
@@ -580,7 +609,7 @@ final class TranscriptionService {
 
         let fullText = run.texts
             .map(Self.cleanWhisperText)
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && !WhisperPromptBuilder.isPromptEcho($0, terms: echoTerms) }
             .joined(separator: "\n\n")
 
         let report = TranscriptionTimingReport(
@@ -811,42 +840,56 @@ final class TranscriptionService {
         return localeIdentifier.split(separator: "-").first.map(String.init) ?? "en"
     }
 
+    /// See `WhisperTextCleaner.clean`; shared with SpeakerAttribution.
     private static func cleanWhisperText(_ text: String) -> String {
-        let nsRange = NSRange(text.startIndex..., in: text)
-        let withoutControlTokens = whisperControlTokenRegex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: nsRange,
-            withTemplate: " "
-        )
-
-        let collapsedWhitespace = repeatedWhitespaceRegex.stringByReplacingMatches(
-            in: withoutControlTokens,
-            options: [],
-            range: NSRange(withoutControlTokens.startIndex..., in: withoutControlTokens),
-            withTemplate: " "
-        )
-        let withoutExtraWhitespace = whitespaceBeforePunctuationRegex.stringByReplacingMatches(
-            in: collapsedWhitespace,
-            options: [],
-            range: NSRange(collapsedWhitespace.startIndex..., in: collapsedWhitespace),
-            withTemplate: "$1"
-        )
-
-        return withoutExtraWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        WhisperTextCleaner.clean(text)
     }
 
-    private static func makeTranscriptSegment(startTime: TimeInterval, endTime: TimeInterval, rawText: String) -> TranscriptSegment? {
+    /// Live segments pass no words: the live list never attributes speakers.
+    ///
+    /// `echoTerms` are the terms of the Whisper prompt actually sent (empty
+    /// without one). Whisper's prompt hallucination — emitting the prompt on a
+    /// window with no speech — is not speech, so such a segment is dropped.
+    /// The check runs on the cleaned text, the same text `fullText` checks.
+    private static func makeTranscriptSegment(
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        rawText: String,
+        words: [TranscriptWord]? = nil,
+        echoTerms: [String] = []
+    ) -> TranscriptSegment? {
         let cleanedText = cleanWhisperText(rawText)
-        guard !cleanedText.isEmpty else {
+        guard !cleanedText.isEmpty,
+              !WhisperPromptBuilder.isPromptEcho(cleanedText, terms: echoTerms)
+        else {
             return nil
         }
 
         return TranscriptSegment(
             startTime: startTime,
             endTime: endTime,
-            text: cleanedText
+            text: cleanedText,
+            words: words
         )
+    }
+
+    /// Maps WhisperKit word timings onto `TranscriptWord`.
+    ///
+    /// Whisper's leading space stays in `text` on purpose: SpeakerAttribution
+    /// rebuilds run text by joining words with no separator, so the space is
+    /// the word boundary. Control tokens (`<|nl|>`, `<|0.00|>`) are stripped
+    /// in place, and words left empty or whitespace-only are dropped — they
+    /// carry no speech and would only skew attribution. `nil` for `nil` input
+    /// or when nothing survives, so a segment without usable words falls back
+    /// to per-segment attribution.
+    nonisolated static func makeTranscriptWords(_ timings: [WordTiming]?) -> [TranscriptWord]? {
+        guard let timings else { return nil }
+        let words = timings.compactMap { timing -> TranscriptWord? in
+            let text = WhisperTextCleaner.removingControlTokens(timing.word)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return TranscriptWord(start: Double(timing.start), end: Double(timing.end), text: text)
+        }
+        return words.isEmpty ? nil : words
     }
 
     private static func whisperDownloadBaseURL() throws -> URL {

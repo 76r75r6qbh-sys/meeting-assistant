@@ -209,6 +209,56 @@ final class RecordingSessionRecoveryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(store.loadSession(for: meetingID)).segments.count, 0)
     }
 
+    /// A crash-recovered segment keeps its per-source PCM (under the kept
+    /// names) so Stop can still merge it into the speaker tracks.
+    func testRecoveredSegmentKeepsTrackPCMForTheMerge() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let directory = try store.sessionDirectory(for: meetingID)
+        let micURL = directory.appendingPathComponent("segment-001.mic.pcm")
+        let systemURL = directory.appendingPathComponent("segment-001.system.pcm")
+        try writeFloatSamples(count: 800, to: micURL)
+        try writeFloatSamples(count: 600, to: systemURL)
+
+        let rendered = try RecordingSessionRecovery.renderSegment(
+            segmentNumber: 1,
+            for: meetingID,
+            slot: RecordingSessionRecovery.SegmentSlot(
+                microphonePCM: micURL,
+                microphonePCMByteCount: 800 * 4,
+                systemAudioPCM: systemURL,
+                systemAudioPCMByteCount: 600 * 4
+            ),
+            store: store,
+            // Plenty of space, whatever the machine running the test has.
+            availableCapacity: { _ in .max }
+        )
+
+        XCTAssertTrue(rendered)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: micURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: systemURL.path))
+        XCTAssertEqual(try fileSize(of: directory.appendingPathComponent("segment-001.mic.kept.pcm")), 800 * 4)
+        XCTAssertEqual(try fileSize(of: directory.appendingPathComponent("segment-001.system.kept.pcm")), 600 * 4)
+    }
+
+    /// Kept track PCM is neither re-rendered nor reported as stranded: it
+    /// does not end in `.mic.pcm` / `.system.pcm`.
+    func testScanDoesNotReportKeptTrackPCMAsStranded() throws {
+        let meetingID = UUID()
+        try store.createSession(for: meetingID, systemAudioEnabled: true, selectedInputDeviceID: nil)
+        let segmentURL = try store.nextSegmentURL(for: meetingID, segmentNumber: 1)
+        try write(bytes: 2_048, to: segmentURL.lastPathComponent, for: meetingID)
+        try store.appendSegment(for: meetingID, segmentURL: segmentURL, duration: 42)
+        try write(bytes: 4_096, to: "segment-001.mic.kept.pcm", for: meetingID)
+        try write(bytes: 4_096, to: "segment-001.system.kept.pcm", for: meetingID)
+
+        XCTAssertEqual(
+            try RecordingSessionRecovery.scan(store: store),
+            [.resumable(meetingID, segmentCount: 1, strandedPCM: [])]
+        )
+        XCTAssertTrue(store.hasRecoverableAudio(for: meetingID))
+    }
+
     func testScanContinuesPastAnUnlistableDirectory() throws {
         // One permission-denied folder among nine must not cost us the other
         // eight — the 130 MB PCM pair could be in any of them.

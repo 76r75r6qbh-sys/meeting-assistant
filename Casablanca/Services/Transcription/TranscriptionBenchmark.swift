@@ -104,7 +104,7 @@ enum TranscriptionBenchmark {
             let report = Report(
                 variant: request.variant,
                 inputPath: request.fileURL.path,
-                options: resolved.summaryLine,
+                options: service.lastResolvedSummaryLine ?? resolved.summaryLine,
                 timing: service.lastTimingReport
             )
             let encoder = JSONEncoder()

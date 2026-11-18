@@ -35,6 +35,12 @@ struct RecordedMeetingView: View {
     // resets when the user navigates to a different meeting (keyed internally by
     // meeting id). No persistence in v1.
     @State private var chatService = MeetingChatService()
+    /// A timestamp-link jump handed to the transcript tab, until it is done.
+    @State private var transcriptJump: TimestampJump?
+    /// "Regenerate summary" after a speaker rename or merge, per meeting.
+    @State private var summaryOffer = SummaryRegenerationOffer()
+    private let navigator = MeetingDetailNavigator.shared
+    private let playback = TranscriptPlayback.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Responsive width tier of the window, published by ContentView. Defaults
     /// to `.expanded` so previews and tests keep the inspector visible.
@@ -49,14 +55,52 @@ struct RecordedMeetingView: View {
         var id: String { rawValue }
     }
 
+    /// Changes when the meeting or the pending jump does.
+    private struct JumpKey: Equatable {
+        let meetingID: UUID
+        let token: UUID?
+    }
+
     var body: some View {
-        ScrollView {
-            readingColumn
-                .padding(CasaSpace.xl)
-                .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                readingColumn(scrollProxy: scrollProxy)
+                    .padding(CasaSpace.xl)
+                    .frame(maxWidth: CasaLayout.contentMaxWidth, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
+            }
+            // Pinned above the transcript, outside the scroll content.
+            // Playback keeps going on other tabs; it stops when the meeting
+            // changes or this view goes away.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if selectedTab == .transcript {
+                    TranscriptTransportInset(
+                        meeting: meeting,
+                        isTranscribing: isTranscribingThisMeeting,
+                        playback: playback
+                    )
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A timestamp link for this meeting: show the transcript tab, which
+        // scrolls and plays. `initial` covers a jump that selected this
+        // meeting and created this view.
+        .onChange(of: JumpKey(meetingID: meeting.id, token: navigator.pendingJump?.token), initial: true) { _, _ in
+            guard let jump = navigator.pendingJump, jump.meetingID == meeting.id else { return }
+            selectedTab = .transcript
+            transcriptJump = jump
+            navigator.complete(jump)
+        }
+        .onDisappear { stopPlayback(unlessItBelongsTo: nil) }
+        // Any new summary run (banner, template menu, retry, toolbar) reads the
+        // renamed transcript, so it answers that meeting's offer. Keyed on the
+        // start time, not on "this meeting is summarizing", so navigating back
+        // to a meeting mid-run does not count as a new start.
+        .onChange(of: summarizationService.summarizationStartedAt) { _, started in
+            guard started != nil, let id = summarizationService.summarizingMeetingID else { return }
+            summaryOffer.summaryStarted(for: id)
+        }
         // Native trailing inspector (AppKit-driven resize, HIG-compliant),
         // presented only while the window is wide enough to hold it.
         .widthGatedInspector(isPresented: $showInspector, idealWidth: 320) {
@@ -99,6 +143,12 @@ struct RecordedMeetingView: View {
             isEditingNotes = false
             saveTask = nil
             terminologyService.clearWarning()
+            // Another meeting's recording must not keep playing without a
+            // visible transport (a jump into this meeting may already play).
+            stopPlayback(unlessItBelongsTo: meeting)
+            // A playback failure is shown for the meeting it happened in only.
+            playback.clearFailure(unlessFor: meeting.id)
+            if transcriptJump?.meetingID != meeting.id { transcriptJump = nil }
             await triggerAutomaticSummaryIfNeeded()
         }
         .alert("Summary Error", isPresented: summaryErrorBinding) {
@@ -112,9 +162,19 @@ struct RecordedMeetingView: View {
 
     // MARK: - Reading column
 
-    private var readingColumn: some View {
+    private func readingColumn(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: CasaSpace.xl) {
             infoBar
+
+            // Above the tab switch, so it shows on the Transcript tab where
+            // speakers are renamed as well as on the Summary tab.
+            if summaryOffer.offerRegenerateSummary(for: meeting, isSummarizing: summarizationService.isSummarizing) {
+                SummaryRegenerationBanner(
+                    canRegenerate: canSummarize,
+                    onRegenerate: regenerateSummaryWithNames,
+                    onDismiss: { summaryOffer.dismiss(meeting) }
+                )
+            }
 
             Picker("View", selection: $selectedTab) {
                 ForEach(DetailTab.allCases) { tab in
@@ -152,7 +212,18 @@ struct RecordedMeetingView: View {
                     meeting: meeting,
                     terminologyService: terminologyService,
                     onTranscribe: onTranscribe,
-                    onSave: save
+                    onSave: save,
+                    onSpeakersChanged: { changed in
+                        summaryOffer.speakersChanged(
+                            on: changed,
+                            isSummarizingThisMeeting: isSummarizingThisMeeting
+                        )
+                    },
+                    jump: transcriptJump,
+                    scrollProxy: scrollProxy,
+                    isTranscribing: isTranscribingThisMeeting,
+                    onJumpHandled: { transcriptJump = nil },
+                    playback: playback
                 )
             case .notes:
                 MeetingNotesTab(
@@ -263,9 +334,7 @@ struct RecordedMeetingView: View {
             summarizationService.summarizeInBackground(meeting: meeting, modelContext: modelContext)
         case .export:
             exportStatusCenter.clearFailure(for: meeting.id)
-            Task { @MainActor in
-                await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
-            }
+            MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
         }
     }
 
@@ -333,6 +402,19 @@ struct RecordedMeetingView: View {
         return URL(fileURLWithPath: path)
     }
 
+    /// Stops the shared player unless it holds one of `owner`'s audio files.
+    private func stopPlayback(unlessItBelongsTo owner: Meeting?) {
+        let player = AudioClipPlayer.shared
+        guard let url = player.playingURL else { return }
+        if let owner, TimestampJumpPlan.isAudio(
+            url,
+            ofPaths: [owner.recordingFileURL, owner.micTrackFileURL, owner.systemTrackFileURL]
+        ) {
+            return
+        }
+        player.stop()
+    }
+
     /// True only when the shared summarization service is processing THIS
     /// meeting — the service is app-wide, so other meetings' detail views must
     /// not show this one's "generating…" state.
@@ -385,7 +467,11 @@ struct RecordedMeetingView: View {
         )
         guard !entries.isEmpty else { return }
 
-        let corrected = await terminologyService.correct(raw, entries: entries)
+        // A labelled transcript keeps its speaker prefixes through the correction.
+        let knownSpeakers = Set(
+            meeting.speakers.map { TranscriptLineFormat.sanitizedSpeakerName($0.displayName) }.filter { !$0.isEmpty }
+        )
+        let corrected = await terminologyService.correct(raw, entries: entries, knownSpeakers: knownSpeakers)
         guard meeting.modelContext != nil else { return }
         meeting.transcript = corrected
         save()
@@ -476,9 +562,7 @@ struct RecordedMeetingView: View {
 
     private func save() {
         try? modelContext.save()
-        Task { @MainActor in
-            await ExportService.exportAutomaticallyIfEnabled(meeting, reporter: exportStatusCenter)
-        }
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: exportStatusCenter)
     }
 
     private func debouncedSave() {
@@ -487,6 +571,19 @@ struct RecordedMeetingView: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             save()
+        }
+    }
+
+    /// Never automatic: the user may have accepted or edited to-dos. The
+    /// regeneration keeps accepted and rejected to-dos and replaces only
+    /// pending proposals; the explicit template is kept (nil = auto).
+    private func regenerateSummaryWithNames() {
+        summaryOffer.regenerate(meeting) { templateID in
+            summarizationService.summarizeInBackground(
+                meeting: meeting,
+                modelContext: modelContext,
+                templateID: templateID
+            )
         }
     }
 

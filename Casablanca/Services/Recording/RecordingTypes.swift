@@ -5,6 +5,11 @@ import Foundation
 struct RecordingResult {
     let outputURL: URL
     let duration: TimeInterval
+    /// The per-source speaker tracks merged at Stop, aligned sample for sample
+    /// with `outputURL`. `nil` when a source captured nothing or the track
+    /// merge failed (which never fails the Stop).
+    var microphoneTrackURL: URL? = nil
+    var systemTrackURL: URL? = nil
 }
 
 struct AudioInputDevice: Identifiable, Equatable {

@@ -13,12 +13,15 @@ struct ContentView: View {
     // background, and a reopened window built a duplicate set.
     @State private var sidebarMeetings: SidebarMeetingsProvider?
     @State private var searchViewModel: GlobalSearchViewModel?
+    @State private var askService: AskService?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var windowWidth: CGFloat = CasaLayout.windowDefaultWidth
     @State private var detailRoute: SidebarDestination? = .dashboard
     @State private var showSearch = false
     @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Timestamp-link clicks anywhere in the window land here first.
+    private let navigator = MeetingDetailNavigator.shared
 
     /// Focus mode is only meaningful inside a meeting workspace.
     private var isFocusModeActive: Bool {
@@ -61,6 +64,8 @@ struct ContentView: View {
             }
         }
         .toastOverlay(appModel.toastCenter)
+        // `[mm:ss]` links in the summary, to-dos and transcript lines.
+        .handlesTimestampLinks(navigator)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -104,6 +109,8 @@ struct ContentView: View {
         }
         .task {
             viewModel.setModelContext(modelContext)
+            // Automatic exports skip meetings in the delete grace period.
+            MeetingExportCoalescer.shared.isPendingDeletion = { [viewModel] id in viewModel.isPendingDeletion(id) }
             if sidebarMeetings == nil {
                 sidebarMeetings = SidebarMeetingsProvider(modelContext: modelContext)
             }
@@ -111,6 +118,14 @@ struct ContentView: View {
                 searchViewModel = GlobalSearchViewModel(
                     modelContext: modelContext,
                     actionQueueModel: appModel.actionQueueModel,
+                    isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
+                )
+            }
+            if askService == nil {
+                // Paged background snapshot loading on the shared container,
+                // debounced invalidation on store saves.
+                askService = AskService(
+                    container: modelContext.container,
                     isPendingDeletion: { [viewModel] id in viewModel.isPendingDeletion(id) }
                 )
             }
@@ -122,11 +137,34 @@ struct ContentView: View {
         .onChange(of: viewModel.sidebarSelection) { _, new in
             detailRoute = new
         }
+        .onChange(of: navigator.pendingJump) { _, jump in
+            if let jump { openMeeting(for: jump) }
+        }
+        .onChange(of: viewModel.pendingDeletionIDs) { _, _ in
+            askService?.refreshFilterOptions()
+        }
         .onChange(of: isFocusModeActive) { _, _ in
             updateColumnVisibility()
         }
         .onChange(of: widthClass, initial: true) { _, _ in
             updateColumnVisibility()
+        }
+    }
+
+    /// Selects the jump's meeting. RecordedMeetingView carries the jump out
+    /// (transcript tab, scroll, playback) and completes it. A meeting that is
+    /// gone, pending deletion or not completed (recording, transcribing: no
+    /// transcript tab to scroll) is only selected when it exists, and the
+    /// jump is completed here so it cannot fire later.
+    private func openMeeting(for jump: TimestampJump) {
+        guard !viewModel.isPendingDeletion(jump.meetingID),
+              let meeting = viewModel.fetchMeeting(byID: jump.meetingID) else {
+            navigator.complete(jump)
+            return
+        }
+        viewModel.sidebarSelection = .meeting(jump.meetingID)
+        if meeting.status.detailPresentation != .completed {
+            navigator.complete(jump)
         }
     }
 
@@ -166,6 +204,31 @@ struct ContentView: View {
             TodosView(viewModel: viewModel)
         case .actionQueue:
             ActionQueueView()
+        case .ask:
+            if let askService {
+                AskView(
+                    service: askService,
+                    isSummaryInProgress: appModel.summarizationService.summarizingMeetingID != nil,
+                    // The single seam for citation taps: a citation with a
+                    // time jumps there (transcript + audio); without one it
+                    // only opens the meeting. Bare `[mm:ss]` in an Ask
+                    // answer have no meeting context and stay plain text
+                    // (no `TimestampLinkText`).
+                    onOpenCitation: { target in
+                        // A meeting deleted (pending undo) after the answer
+                        // arrived must not reopen.
+                        guard !viewModel.isPendingDeletion(target.meetingID) else { return }
+                        if let seconds = target.seconds {
+                            navigator.jump(to: target.meetingID, seconds: seconds)
+                        } else {
+                            viewModel.sidebarSelection = .meeting(target.meetingID)
+                        }
+                    }
+                )
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         case .meeting(let id):
             if let meeting = viewModel.selectedMeeting ?? viewModel.fetchMeeting(byID: id) {
                 switch meeting.status.detailPresentation {

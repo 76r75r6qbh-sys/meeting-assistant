@@ -106,8 +106,9 @@ enum MeetingSeriesResolver {
     /// The previous meeting's unchecked todos, in stable creation order. Exposed
     /// for the carry-over card's "N open action items" count.
     static func openTodos(of meeting: Meeting) -> [TodoItem] {
+        // Only accepted to-dos carry over: a proposal is not an action item yet.
         meeting.todos
-            .filter { !$0.isCompleted }
+            .filter { !$0.isCompleted && $0.status == .accepted }
             .sorted { $0.createdAt < $1.createdAt }
     }
 

@@ -151,6 +151,123 @@ obvious candidate is `openai_whisper-large-v3_turbo`, which keeps the same encod
 swaps in a distilled 4-layer decoder. That is out of scope here (the constraint was to keep
 the model), and it is measurable with the harness in one run whenever it is in scope.
 
+## Word timestamps, 2026-11-05
+
+Speaker attribution (Track A) splits segments per word, so `DecodingOptions.wordTimestamps`
+is now read from the user preference `wordTimestampsEnabled` (default **on**) instead of
+being hard-coded off. The resolved value is in the `transcription finished` summary line
+(`wordTimestamps=true|false`). Word timings ride along on `TranscriptSegment.words`; on
+both chunked paths WhisperKit's `updateSeekOffsetsForResults` shifts word times by the
+same seek offset as their segment, so they are on the absolute clock.
+
+The setting stays default-on whatever the measurement says; the number is there to tell
+the user what it costs. A `transcribeWall` delta above 15 % goes into the Phase 3
+CHANGELOG.
+
+TODO(measure): not run yet — the benchmark audio is not available to the agent that made
+this change. On device, build Release (`scripts/build-release.sh`) and run each variant
+twice:
+
+```bash
+BIN=/Applications/Casablanca.app/Contents/MacOS/Casablanca
+AUDIO="$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.m4a"
+for v in off on; do for i in 1 2; do
+  flag=$([ $v = on ] && echo YES || echo NO)
+  "$BIN" --benchmark-transcription "$AUDIO" --benchmark-variant words-$v \
+    -whisperModel openai_whisper-large-v3 -wordTimestampsEnabled $flag
+done; done
+```
+
+Score each `.txt` with `scripts/transcript-agreement.py` against `vzvz-44min.reference.txt`
+and fill in:
+
+| Variant | Run | transcribeWall | Disagreement |
+| --- | --- | --- | --- |
+| words-off | 1 | TODO(measure) | TODO(measure) |
+| words-off | 2 | TODO(measure) | TODO(measure) |
+| words-on | 1 | TODO(measure) | TODO(measure) |
+| words-on | 2 | TODO(measure) | TODO(measure) |
+
+Median `transcribeWall` delta (on vs off): TODO(measure).
+
+## Terminology prompt and default model for new installs, 2026-11-05
+
+### Terminology as Whisper prompt tokens
+
+When terminology correction is on and the list is non-empty, the canonical spellings are
+sent to Whisper as previous-text prompt tokens (`DecodingOptions.promptTokens`):
+`" Wegiz, BgZ, Medicore, …"`, the longest whole-term prefix of the list that fits in
+223 tokens (WhisperKit keeps at most `n_text_ctx/2 − 1` of a prompt). The hidden key
+`whisperPromptTerms` (default on) A/Bs it; the summary line reports `promptTerms=` and
+`promptTokens=<n>`, and the benchmark JSON now records the options the run actually used.
+
+Whisper can echo a prompt on a window with no speech. A segment is dropped from the live
+list, the final segments and the full text (always checked on the cleaned text) when its
+normalised text (lowercase, letters and digits only) equals the joined prompt or is a
+≥ 20-character prefix of it, or when it is a run of prompt terms in any order: ≥ 3 term
+matches covering ≥ 80 % of its words. Only the terms that fitted in the prompt count, and the
+filter only runs when a prompt was sent. A real sentence mentioning one or two terms is kept.
+
+Known cost: WhisperKit `d447d308` skips its prefill KV cache whenever `promptTokens` is set
+(`TextDecoder.prepareDecoderInputs`), so a prompted run decodes a few more tokens per
+window. Measure it with the runs below before treating it as free.
+
+### Default model for new installs
+
+The model ID was checked against `argmaxinc/whisperkit-coreml` on Hugging Face (2026-11-05):
+both `openai_whisper-large-v3-v20240930_turbo` and `openai_whisper-large-v3_turbo` exist,
+and WhisperKit `d447d308` lists `openai_whisper-large-v3-v20240930_turbo` among its supported
+models (`Models.swift`). It is added to the Settings picker as "Large v3 Turbo (~1.6 GB)";
+every picker entry now shows its approximate download size (from the Hugging Face folder
+sizes: tiny 77 MB, base 147 MB, small 486 MB, medium 1.53 GB, large-v3 3.09 GB, turbo
+1.64 GB).
+
+**Decision: `WhisperModelDefaults.newInstallDefault = openai_whisper-large-v3`.** The turbo
+runs below need the benchmark audio, which was not available to the agent that made this
+change, so turbo has no measurement and cannot pass the gate. `large-v3` is the best
+measured model (2026-09 campaign: ≈ 4.0× realtime, 10.2–10.7 % from the reference). If the
+turbo runs pass the gate — speed ≥ 1.25× large-v3's and disagreement ≤ large-v3's + 1
+point — change the constant to the turbo ID.
+
+Only new installs get it. At launch `WhisperModelDefaults.pinIfNeeded` writes `whisperModel`
+when it is absent: an existing install (store on disk, onboarding completed, or any of
+`llmProvider` / `obsidianVaultPath` / `terminologyList` set) is pinned to
+`openai_whisper-base`, the fallback it has been running on; a new install gets
+`newInstallDefault`. A stored choice is never touched.
+
+TODO(measure): run on device, each variant twice, with terminology correction on and the
+list set (Settings → Transcription), from a Release build (`scripts/build-release.sh`):
+
+```bash
+BIN=/Applications/Casablanca.app/Contents/MacOS/Casablanca
+AUDIO="$HOME/Library/Application Support/Casablanca/Benchmarks/vzvz-44min.m4a"
+for m in openai_whisper-large-v3 openai_whisper-large-v3-v20240930_turbo; do for i in 1 2; do
+  "$BIN" --benchmark-transcription "$AUDIO" --benchmark-variant "model-$m" \
+    -whisperModel "$m" -whisperPromptTerms NO
+done; done
+# then on the chosen model:
+for p in NO YES; do for i in 1 2; do
+  "$BIN" --benchmark-transcription "$AUDIO" --benchmark-variant "prompt-$p" \
+    -whisperModel <chosen model> -whisperPromptTerms $p
+done; done
+```
+
+Score each `.txt` with `scripts/transcript-agreement.py` against `vzvz-44min.reference.txt`.
+Also count how often the terminology's canonical spellings appear in the prompt-NO vs
+prompt-YES transcripts; that is the effect the prompt is for, and the reference (itself an
+unprompted Whisper transcript) cannot show it.
+
+| Variant | Run | transcribeWall | speed × | Disagreement |
+| --- | --- | --- | --- | --- |
+| large-v3 | 1 | TODO(measure) | TODO(measure) | TODO(measure) |
+| large-v3 | 2 | TODO(measure) | TODO(measure) | TODO(measure) |
+| large-v3-v20240930_turbo | 1 | TODO(measure) | TODO(measure) | TODO(measure) |
+| large-v3-v20240930_turbo | 2 | TODO(measure) | TODO(measure) | TODO(measure) |
+| prompt NO (chosen model) | 1 | TODO(measure) | TODO(measure) | TODO(measure) |
+| prompt NO (chosen model) | 2 | TODO(measure) | TODO(measure) | TODO(measure) |
+| prompt YES (chosen model) | 1 | TODO(measure) | TODO(measure) | TODO(measure) |
+| prompt YES (chosen model) | 2 | TODO(measure) | TODO(measure) | TODO(measure) |
+
 ## Reproducing
 
 Build a Release binary (`scripts/build-release.sh`) and run it against a benchmark file in
