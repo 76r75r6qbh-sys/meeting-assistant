@@ -13,9 +13,10 @@ struct TodosView: View {
     @State private var filter: TodoFilter = .open
     @State private var newTodoText = ""
     @State private var isRefreshing = false
-    /// The to-do whose draft sheet is open. The sheet hangs off the list, not
-    /// a row, so a lazily recycled row cannot take it down.
-    @State private var draftReplyTodo: TodoItem?
+    /// The open draft sheet's snapshot of its to-do, taken when the user asked
+    /// for the draft. The sheet hangs off the list, not a row, so a lazily
+    /// recycled row cannot take it down.
+    @State private var draftReply: DraftReplyRequest?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum TodoFilter: String, CaseIterable {
@@ -74,9 +75,9 @@ struct TodosView: View {
                 appModel.toastCenter.show(message: "Couldn't sync to Obsidian — \(error.localizedDescription)")
             }
         }
-        .sheet(item: $draftReplyTodo) { todo in
-            DraftReplySheet(todo: todo, toastCenter: appModel.toastCenter) {
-                navigateToMeeting(of: todo)
+        .sheet(item: $draftReply) { request in
+            DraftReplySheet(request: request, toastCenter: appModel.toastCenter) {
+                navigateToMeeting(id: request.meetingID)
             }
         }
         .toolbar {
@@ -125,7 +126,7 @@ struct TodosView: View {
                     reduceMotion: reduceMotion,
                     toastCenter: appModel.toastCenter,
                     onNavigateToMeeting: { navigateToMeeting(of: todo) },
-                    onDraftReply: { draftReplyTodo = todo }
+                    onDraftReply: { draftReply = DraftReplyRequest(todo: todo) }
                 )
             }
         }
@@ -171,7 +172,11 @@ struct TodosView: View {
     }
 
     private func navigateToMeeting(of todo: TodoItem) {
-        if let meetingID = TodoRowPresentation(todo: todo).meetingID {
+        navigateToMeeting(id: TodoRowPresentation(todo: todo).meetingID)
+    }
+
+    private func navigateToMeeting(id meetingID: UUID?) {
+        if let meetingID {
             viewModel.sidebarSelection = .meeting(meetingID)
         }
     }
@@ -417,6 +422,15 @@ struct TodoRow: View {
         .contextMenu {
             if presentation.canDraftReply {
                 Button("Draft reply", systemImage: "text.bubble") {
+                    onDraftReply()
+                }
+            }
+        }
+        // The hover button is invisible to the keyboard and VoiceOver; this
+        // is their way to it.
+        .accessibilityActions {
+            if presentation.canDraftReply {
+                Button("Draft reply") {
                     onDraftReply()
                 }
             }

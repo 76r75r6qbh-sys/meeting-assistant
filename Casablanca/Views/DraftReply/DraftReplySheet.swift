@@ -1,6 +1,35 @@
 import AppKit
 import SwiftUI
 
+/// What the draft sheet shows and drafts from, read from the to-do once, when
+/// the user asks for a draft. `.sheet(item:)` re-runs its content closure on
+/// every parent render; with this value it never reads the live `TodoItem`
+/// again, so the transcript is cut once and a sync that deletes the to-do while
+/// the sheet is open has nothing to read.
+struct DraftReplyRequest: Identifiable {
+    let id = UUID()
+    let todoText: String
+    let meetingSubtitle: String?
+    let sourceLink: TodoSourceLink?
+    let meetingID: UUID?
+    /// Made once, here; the sheet keeps this instance in `@State`.
+    let viewModel: DraftReplyViewModel
+
+    /// Drafts with ``DraftReplyService`` unless `drafter` says otherwise.
+    @MainActor
+    init(todo: TodoItem, drafter: (any DraftReplyDrafting)? = nil) {
+        let presentation = TodoRowPresentation(todo: todo)
+        todoText = todo.text
+        meetingSubtitle = presentation.meetingSubtitle
+        sourceLink = presentation.sourceLink
+        meetingID = presentation.meetingID
+        viewModel = DraftReplyViewModel(
+            context: DraftReplyContext(todo: todo),
+            drafter: drafter ?? DraftReplyService()
+        )
+    }
+}
+
 /// The draft reply for one to-do: drafted by headless Claude Code on open,
 /// editable, revisable with a steer, copied or handed to an interactive Claude
 /// Code session. Nothing is sent and nothing is kept: closing the sheet stops
@@ -17,39 +46,28 @@ struct DraftReplySheet: View {
     private let onOpenMeeting: (() -> Void)?
     private let continueInClaudeCode: ContinueInClaudeCode
 
-    /// Held in `@State`, so the first view model sticks for the sheet's life
-    /// even though the parent rebuilds this view (and a new, unused one).
+    /// The request's view model. Held in `@State`, so it sticks for the sheet's
+    /// life; every rebuild of this view passes the same instance anyway.
     @State private var viewModel: DraftReplyViewModel
     @State private var isConfirmingStartOver = false
     @State private var isOpeningClaudeCode = false
     @Environment(\.dismiss) private var dismiss
 
-    /// Drafts with ``DraftReplyService``. Snapshots the to-do on the main
-    /// actor; the run never touches SwiftData.
-    init(todo: TodoItem, toastCenter: ToastCenter, onOpenMeeting: (() -> Void)?) {
-        self.init(
-            todo: todo,
-            viewModel: DraftReplyViewModel(context: DraftReplyContext(todo: todo), drafter: DraftReplyService()),
-            toastCenter: toastCenter,
-            onOpenMeeting: onOpenMeeting
-        )
-    }
-
+    /// Builds nothing: everything comes from the `request` snapshot, so the
+    /// run never touches SwiftData and a rebuild never reads the to-do.
     init(
-        todo: TodoItem,
-        viewModel: DraftReplyViewModel,
+        request: DraftReplyRequest,
         toastCenter: ToastCenter,
         onOpenMeeting: (() -> Void)?,
         continueInClaudeCode: @escaping ContinueInClaudeCode = DraftReplySheet.openClaudeCode
     ) {
-        let presentation = TodoRowPresentation(todo: todo)
-        self.todoText = todo.text
-        self.meetingSubtitle = presentation.meetingSubtitle
-        self.sourceLink = presentation.sourceLink
+        self.todoText = request.todoText
+        self.meetingSubtitle = request.meetingSubtitle
+        self.sourceLink = request.sourceLink
         self.toastCenter = toastCenter
-        self.onOpenMeeting = presentation.meetingID == nil ? nil : onOpenMeeting
+        self.onOpenMeeting = request.meetingID == nil ? nil : onOpenMeeting
         self.continueInClaudeCode = continueInClaudeCode
-        _viewModel = State(initialValue: viewModel)
+        _viewModel = State(initialValue: request.viewModel)
     }
 
     var body: some View {
