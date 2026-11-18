@@ -58,7 +58,8 @@ final class DraftReplyViewModel {
     /// await it settling.
     @ObservationIgnored private(set) var inFlight: Task<Void, Never>?
 
-    @ObservationIgnored private let context: DraftReplyContext
+    /// What the draft is about; the sheet builds its Claude Code prompt from it.
+    @ObservationIgnored let context: DraftReplyContext
     @ObservationIgnored private let drafter: any DraftReplyDrafting
     /// Bumped by every run and by ``cancel()``; a result whose run is no longer
     /// the current one is dropped.

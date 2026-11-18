@@ -340,6 +340,8 @@ struct SettingsView: View {
 
             ActionItemReviewSettingsSection()
 
+            DraftReplySettingsSection()
+
             Section("Terminology") {
                 Toggle("Correct terminology after transcription", isOn: $terminologyCorrectionEnabled)
 
@@ -665,5 +667,42 @@ private struct KeyboardDismissCatcher: View {
             .frame(width: 0, height: 0)
             .opacity(0)
             .accessibilityHidden(true)
+    }
+}
+
+/// The model behind "Draft reply" on to-dos, and the `claude` CLI it runs.
+struct DraftReplySettingsSection: View {
+    static let models = ["haiku", "sonnet", "opus"]
+
+    @AppStorage(AppPreferenceKey.draftReplyModel) private var draftReplyModel = DraftReplyService.defaultModel
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
+
+    /// The stored path, which a successful run records; empty means auto-detect.
+    private var cliPathLabel: String {
+        let path = claudeCLIPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? "Auto-detect" : path
+    }
+
+    var body: some View {
+        Section("Draft replies") {
+            Picker("Model", selection: $draftReplyModel) {
+                ForEach(Self.models, id: \.self) { model in
+                    Text(model.capitalized).tag(model)
+                }
+            }
+
+            LabeledContent("Claude Code CLI") {
+                Text(cliPathLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Text("Drafts come from Claude Code, which can read your mail, Teams, Jira and Confluence but cannot send or change anything. The CLI path is shared with the Claude Code summarization provider.")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

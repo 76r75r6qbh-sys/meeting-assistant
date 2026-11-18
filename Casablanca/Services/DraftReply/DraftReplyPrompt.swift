@@ -54,6 +54,14 @@ enum DraftReplyPrompt {
         ].joined(separator: "\n\n")
     }
 
+    /// What "Continue in Claude Code" hands over: the revision prompt once
+    /// there is a draft (with the user's edits and any steer), else the first.
+    static func continuation(draft: String, steer: String, context: DraftReplyContext) -> String {
+        nonBlank(draft) == nil
+            ? initial(context)
+            : revision(draft: draft, steer: steer, context: context)
+    }
+
     // MARK: - Sections
 
     private static func todoSection(_ c: DraftReplyContext) -> String {
