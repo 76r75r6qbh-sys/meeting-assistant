@@ -1908,7 +1908,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1924,7 +1924,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.23.0;
+				MARKETING_VERSION = 0.23.1;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1943,7 +1943,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 77YQ5E8KT3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1959,7 +1959,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.23.0;
+				MARKETING_VERSION = 0.23.1;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
