@@ -74,8 +74,9 @@ enum ObsidianTodoSyncService {
             index: index,
             fileManager: fileManager
         )
-        // Every existing note file was scanned, also one with no task lines
-        // left, so its rows go; a file that is missing keeps its rows.
+        // Every existing, non-empty note file was scanned, also one with no
+        // task lines left, so its rows go; a file that is missing, vanished
+        // mid-read or 0 bytes keeps its rows.
         removeMissingMeetingRows(
             for: meeting,
             sourcePaths: scannedPaths,
@@ -364,7 +365,17 @@ enum ObsidianTodoSyncService {
         ).filter { fileManager.fileExists(atPath: $0.path) }
 
         for url in existingURLs {
-            let markdown = try readMarkdownIfPresent(at: url, fileManager: fileManager)
+            // Read directly so a file that vanished after the exists check
+            // throws instead of reading as "". A vanished or 0-byte file (an
+            // outside truncate-then-write in progress) is not counted as
+            // scanned, so its rows stay until a real read sees the file.
+            let markdown: String
+            do {
+                markdown = try String(contentsOf: url, encoding: .utf8)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+                continue
+            }
+            guard !markdown.isEmpty else { continue }
             scannedPaths.insert(url.path)
             let (updatedMarkdown, assignedTasks) = ObsidianTodoMarkdown.assigningMissingTaskIDs(markdown)
 

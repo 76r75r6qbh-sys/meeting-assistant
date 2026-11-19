@@ -246,6 +246,49 @@ final class ObsidianTodoSyncServiceTests: XCTestCase {
         XCTAssertEqual(rows.count, 2)
     }
 
+    /// A 0-byte note is what Obsidian's truncate-then-write leaves for a moment.
+    /// It was not really scanned, so its rows stay.
+    func testZeroByteNoteKeepsRows() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+        let notesURL = try syncNotesFileWithTwoTasks(meeting: meeting, in: context, defaults: defaults)
+
+        let handle = try FileHandle(forWritingTo: notesURL)
+        try handle.truncate(atOffset: 0)
+        try handle.close()
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: notesURL.path)[.size] as? Int, 0)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let rows = try context.fetch(FetchDescriptor<TodoItem>())
+            .filter { $0.meeting?.id == meeting.id && $0.status == .accepted }
+        XCTAssertEqual(rows.count, 2)
+    }
+
+    /// A note that keeps its prose but lost the whole `## Action Items` section
+    /// was scanned and holds none of the rows, so they go.
+    func testRowsRemovedWhenActionItemsHeadingRemoved() throws {
+        let context = ModelContext(try makeContainer())
+        let defaults = makeDefaults(vaultURL: try makeVault())
+        let meeting = makeMeeting()
+        context.insert(meeting)
+        try context.save()
+        let notesURL = try syncNotesFileWithTwoTasks(meeting: meeting, in: context, defaults: defaults)
+
+        try """
+        # Notes
+
+        Some discussion.
+        """.write(to: notesURL, atomically: true, encoding: .utf8)
+        try ObsidianTodoSyncService.refreshTodos(for: meeting, in: context, userDefaults: defaults)
+
+        let rows = try context.fetch(FetchDescriptor<TodoItem>())
+            .filter { $0.meeting?.id == meeting.id && $0.status == .accepted }
+        XCTAssertEqual(rows.count, 0)
+    }
+
     /// Regression: with no Prep file, meeting todos live in the Notes file, and an
     /// auto-export after a notes edit used to rewrite that file without its
     /// Action Items. The next new todo then made refresh delete the old rows.
