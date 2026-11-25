@@ -1,0 +1,715 @@
+import OSLog
+import SwiftUI
+import SwiftData
+
+struct SettingsView: View {
+    @Environment(AppModel.self) private var appModel
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage(AppPreferenceKey.obsidianVaultPath) private var obsidianVaultPath = ""
+    @AppStorage(AppPreferenceKey.autoExportEnabled) private var autoExportEnabled: Bool = false
+    @AppStorage(AppPreferenceKey.exportDestination) private var exportDestinationRaw: String = ExportDestination.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.prepTodoStorage) private var prepTodoStorageRaw: String = PrepTodoStorage.obsidian.rawValue
+    @AppStorage(AppPreferenceKey.userNameAliases) private var userNameAliases = ""
+    @AppStorage(AppPreferenceKey.includeUnassignedActionItems) private var includeUnassignedActionItems = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
+    @AppStorage(AppPreferenceKey.defaultRecordingInputDeviceID) private var defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+    @AppStorage(AppPreferenceKey.keepOriginalWAV) private var keepOriginalWAV = false
+    @AppStorage(AppPreferenceKey.llmProvider) private var llmProviderRaw: String = LLMProviderKind.ollama.rawValue
+    @AppStorage(AppPreferenceKey.ollamaEndpoint) private var ollamaEndpoint = "http://localhost:11434"
+    @AppStorage(AppPreferenceKey.ollamaModel) private var ollamaModel = "llama3.2"
+    @AppStorage(AppPreferenceKey.omlxEndpoint) private var omlxEndpoint = "http://localhost:8000/v1"
+    @AppStorage(AppPreferenceKey.omlxModel) private var omlxModel = ""
+    @AppStorage(AppPreferenceKey.omlxAPIKey) private var omlxAPIKey = ""
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
+    @AppStorage(AppPreferenceKey.claudeCLIModel) private var claudeCLIModel = "sonnet"
+    @AppStorage(AppPreferenceKey.whisperModel) private var whisperModel = AppPreferenceValue.defaultWhisperModel
+    @AppStorage(AppPreferenceKey.defaultTranscriptionLanguage) private var defaultTranscriptionLanguage = "en-US"
+    @AppStorage(AppPreferenceKey.autoSummarizeAfterTranscription) private var autoSummarizeAfterTranscription = false
+    @AppStorage(AppPreferenceKey.summaryThinkingEnabled) private var summaryThinkingEnabled = false
+    @AppStorage(AppPreferenceKey.terminologyCorrectionEnabled) private var terminologyCorrectionEnabled = false
+    @AppStorage(AppPreferenceKey.terminologyList) private var terminologyList = ""
+    @AppStorage(AppPreferenceKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.meetingStartNotificationsEnabled) private var meetingStartNotificationsEnabled = true
+    @AppStorage(AppPreferenceKey.meetingStartNotificationLeadTime) private var meetingStartLeadTimeRaw = MeetingStartLeadTime.atStart.rawValue
+    @AppStorage(AppPreferenceKey.teamsAutoRecordEnabled) private var teamsAutoRecordEnabled = false
+    @AppStorage(AppPreferenceKey.teamsAutoRecordStopWhenCallEnds) private var teamsAutoRecordStopWhenCallEnds = true
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = false
+    @State private var modelsError = ""
+    @State private var availableInputDevices: [AudioInputDevice] = []
+    @State private var systemDefaultInputDeviceName = ""
+    @State private var presentedSheet: SettingsSheet?
+    @State private var notificationsDenied = false
+
+    private enum SettingsSheet: Identifiable {
+        case terminologyList
+        var id: Self { self }
+    }
+
+    private var exportDestination: ExportDestination {
+        ExportDestination(rawValue: exportDestinationRaw) ?? .obsidian
+    }
+
+    private var prepTodoStorage: PrepTodoStorage {
+        PrepTodoStorage(rawValue: prepTodoStorageRaw) ?? .obsidian
+    }
+
+    private var llmProvider: LLMProviderKind {
+        LLMProviderKind(rawValue: llmProviderRaw) ?? .ollama
+    }
+
+    private var providerEndpointBinding: Binding<String> {
+        switch llmProvider {
+        case .ollama: return Binding(get: { ollamaEndpoint }, set: { ollamaEndpoint = $0 })
+        case .omlx: return Binding(get: { omlxEndpoint }, set: { omlxEndpoint = $0 })
+        // Carries the `claude` CLI path, not a URL. Empty means auto-detect.
+        case .claudeCode: return Binding(get: { claudeCLIPath }, set: { claudeCLIPath = $0 })
+        }
+    }
+
+    private var providerModelBinding: Binding<String> {
+        switch llmProvider {
+        case .ollama: return Binding(get: { ollamaModel }, set: { ollamaModel = $0 })
+        case .omlx: return Binding(get: { omlxModel }, set: { omlxModel = $0 })
+        case .claudeCode: return Binding(get: { claudeCLIModel }, set: { claudeCLIModel = $0 })
+        }
+    }
+
+    /// Empty for the local providers, which have no caveats worth a caption.
+    private var providerCaveats: String {
+        LLMProviderCopy.caveats(for: llmProvider)
+    }
+
+    /// Shown in the Terminology section rather than here, next to the toggle it is
+    /// actually about. Empty for the local providers.
+    private var terminologyCaveat: String {
+        LLMProviderCopy.terminologyCaveat(for: llmProvider)
+    }
+
+    var body: some View {
+        TabView {
+            generalSettings
+                .tabItem {
+                    Label("General", systemImage: "gear")
+                }
+
+            aiSettings
+                .tabItem {
+                    Label("AI", systemImage: "sparkles")
+                }
+
+            recordingSettings
+                .tabItem {
+                    Label("Recording", systemImage: "mic")
+                }
+
+            UpdatesSettingsView(updateService: appModel.updateService)
+                .tabItem {
+                    Label("Updates", systemImage: "arrow.triangle.2.circlepath")
+                }
+        }
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 560, idealHeight: 640)
+        .task {
+            refreshRecordingInputDevices()
+            await refreshModels()
+        }
+    }
+
+    private var generalSettings: some View {
+        Form {
+            Section("Obsidian Vault") {
+                HStack {
+                    TextField("Vault path", text: $obsidianVaultPath)
+
+                    Button("Browse...") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Select your Obsidian vault folder"
+
+                        if panel.runModal() == .OK, let url = panel.url {
+                            obsidianVaultPath = url.path
+                        }
+                    }
+                }
+
+                if obsidianVaultPath.isEmpty {
+                    Text("Your Obsidian vault path is required when Obsidian is selected for export or for prep & todo storage.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                } else {
+                    Text("Casablanca stores generic todos in `tasks/Casablanca Todos.md` and syncs meeting action items from your meeting notes files.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
+            }
+
+            Section("Export & Storage") {
+                Picker("Export destination", selection: $exportDestinationRaw) {
+                    Text("Obsidian").tag(ExportDestination.obsidian.rawValue)
+                    Text("Apple Notes").tag(ExportDestination.appleNotes.rawValue)
+                }
+
+                Text(exportDestination == .obsidian
+                    ? "Meeting notes are saved as Markdown to your Obsidian vault."
+                    : "Meeting notes are saved to the Casablanca folder in Apple Notes. The first export will ask for permission to control Notes.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Prep & todo storage", selection: $prepTodoStorageRaw) {
+                    Text("Obsidian").tag(PrepTodoStorage.obsidian.rawValue)
+                    Text("Local (Casablanca only)").tag(PrepTodoStorage.local.rawValue)
+                }
+
+                Text(prepTodoStorage == .obsidian
+                    ? "Prep notes are read from your Obsidian vault and todos sync to and from your vault."
+                    : "Prep notes and todos are stored only inside Casablanca.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Open meeting prep automatically in notes", isOn: $autoOpenMeetingPrep)
+
+                Text("When a meeting has prep, its notes open with the Prep panel showing. Not in focus mode.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Action Items") {
+                TextField(
+                    "Your name(s)",
+                    text: $userNameAliases,
+                    prompt: Text(AppPreferences.derivedUserNameAliases(fullName: NSFullUserName()).joined(separator: ", "))
+                )
+
+                Text("Action items assigned to these names become your to-dos. Separate aliases with commas.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Also add action items without an owner", isOn: $includeUnassignedActionItems)
+
+                Text("Action items for other people stay in the summary and exported notes, but are not added to your to-dos.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Automation") {
+                Toggle("Automatically summarize after transcription", isOn: $autoSummarizeAfterTranscription)
+
+                Toggle("Automatically export notes after recording", isOn: $autoExportEnabled)
+
+                Text("Automations run in sequence after recording: transcription, summary generation, then export to the selected destination when enabled.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Setup") {
+                Button("Show Setup Guide Again") {
+                    hasCompletedOnboarding = false
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("Re-run the first-run onboarding to revisit vault, permissions and language model setup.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: prepTodoStorageRaw) { _, newValue in
+            if newValue == PrepTodoStorage.obsidian.rawValue {
+                Task { @MainActor in
+                    do {
+                        try ObsidianTodoSyncService.refreshAllTodos(in: modelContext)
+                    } catch {
+                        // Best-effort refresh — surface non-blocking error in the log only.
+                        Log.persistence.error("Storage transition refresh failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
+    private var aiSettings: some View {
+        Form {
+            Section("Language Model (Summarization)") {
+                Picker("Provider", selection: $llmProviderRaw) {
+                    Text("Ollama").tag(LLMProviderKind.ollama.rawValue)
+                    Text("oMLX").tag(LLMProviderKind.omlx.rawValue)
+                    Text("Claude Code").tag(LLMProviderKind.claudeCode.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: llmProviderRaw) { _, _ in
+                    Task { await refreshModels() }
+                }
+
+                TextField(LLMProviderCopy.locationFieldLabel(for: llmProvider), text: providerEndpointBinding)
+                    .onSubmit {
+                        Task { await refreshModels() }
+                    }
+
+                if llmProvider == .omlx {
+                    SecureField("API key", text: $omlxAPIKey)
+                        .onSubmit {
+                            Task { await refreshModels() }
+                        }
+
+                    Text("Optional. Required if oMLX was started with --api-key.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
+
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Model", selection: providerModelBinding) {
+                        ForEach(modelOptions, id: \.self) { model in
+                            if availableModels.contains(model) {
+                                Text(model).tag(model)
+                            } else {
+                                Text("\(model) \(LLMProviderCopy.modelUnavailableSuffix(for: llmProvider))").tag(model)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .disabled(isLoadingModels || modelOptions.isEmpty)
+
+                    Button("Refresh Models") {
+                        Task { await refreshModels() }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(isLoadingModels)
+                }
+
+                if isLoadingModels {
+                    HStack(spacing: CasaSpace.sm) {
+                        ProgressView().controlSize(.small)
+                        Text(LLMProviderCopy.modelLoadingLabel(for: llmProvider))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                } else if !modelsError.isEmpty {
+                    Text(modelsError)
+                        .font(.caption)
+                        .foregroundStyle(Color.red)
+                } else if availableModels.isEmpty {
+                    Text(LLMProviderCopy.noModelsFound(for: llmProvider))
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                } else if !availableModels.contains(providerModelBinding.wrappedValue) {
+                    Text(LLMProviderCopy.modelNotAvailable(for: llmProvider))
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                }
+
+                Text(LLMProviderCopy.summarizationFooter(for: llmProvider))
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !providerCaveats.isEmpty {
+                    Text(providerCaveats)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Summary Prompt") {
+                Toggle("Allow model thinking", isOn: $summaryThinkingEnabled)
+                Text("Reasoning models think before answering. Off (recommended) gives faster, more concise summaries; on allows extended reasoning (slower, larger output budget).")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                // The prompts are edited in Summary Templates, right below;
+                // General is the prompt the old "Customize Prompt…" sheet edited.
+                Text("Edit the prompts under Summary Templates below. General is the default prompt; Reset restores the shipped text.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Supported placeholders: {{title}}, {{scheduled_time}}, {{participants}}, {{user_name}}, {{transcript}}, {{freeform_notes}}.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            SummaryTemplatesSettingsSection()
+
+            ActionItemReviewSettingsSection()
+
+            DraftReplySettingsSection()
+
+            Section("Terminology") {
+                Toggle("Correct terminology after transcription", isOn: $terminologyCorrectionEnabled)
+
+                Text("Domain-specific terms that are often misspelled by the transcriber. One term per line. Use a colon to list common misspellings, e.g.:\n    Zenith: Zenit, Zen-ith")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Customize Terminology List...") {
+                    presentedSheet = .terminologyList
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Text("When the toggle is on and the list is non-empty, Casablanca runs a deterministic find/replace plus a low-temperature pass through \(LLMProviderCopy.displayName(for: llmProvider)) on each new transcript before summarization.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !terminologyCaveat.isEmpty {
+                    Text(terminologyCaveat)
+                        .font(.caption)
+                        .foregroundStyle(Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .terminologyList:
+                terminologyListSheet
+            }
+        }
+    }
+
+    private var recordingSettings: some View {
+        Form {
+            Section("Input Device") {
+                HStack(spacing: CasaSpace.md) {
+                    Picker("Default microphone", selection: $defaultRecordingInputDeviceID) {
+                        ForEach(recordingInputOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+
+                    Button("Refresh Devices") {
+                        refreshRecordingInputDevices()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+
+                Text(systemDefaultInputDeviceDescription)
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Storage") {
+                Toggle("Keep original WAV", isOn: $keepOriginalWAV)
+
+                Text("When off (default), finished recordings are compressed to AAC/m4a after transcription and the original WAV is deleted (~8x smaller, no audible loss for speech). Turn on to keep the uncompressed WAV instead.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Section("Transcription") {
+                Picker("Default language", selection: $defaultTranscriptionLanguage) {
+                    ForEach(TranscriptionService.supportedLanguages, id: \.id) { lang in
+                        Text(lang.name).tag(lang.id)
+                    }
+                }
+
+                Text("Can be overridden per meeting before transcribing")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+
+                Picker("Local Whisper model", selection: $whisperModel) {
+                    ForEach(TranscriptionService.availableWhisperModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+
+                Text("Downloaded automatically inside Casablanca on first use. Larger models are slower but usually more accurate.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            SpeakerSettingsSection()
+
+            PrivacySettingsSection()
+
+            Section("Notifications") {
+                Toggle("Notify me to start recording at meeting time", isOn: $meetingStartNotificationsEnabled)
+
+                Picker("Notify", selection: $meetingStartLeadTimeRaw) {
+                    ForEach(MeetingStartLeadTime.allCases) { lead in
+                        Text(lead.displayName).tag(lead.rawValue)
+                    }
+                }
+                .disabled(!meetingStartNotificationsEnabled)
+
+                Text("Shows a notification with a “Start Recording” button at each upcoming meeting's start time, so you can begin recording with one click. Tapping it does nothing if a recording is already running.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if meetingStartNotificationsEnabled, notificationsDenied {
+                    Label(
+                        "Notifications are disabled in System Settings — enable them for Casablanca to receive these prompts.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Microsoft Teams") {
+                Toggle("Automatically record Microsoft Teams calls", isOn: $teamsAutoRecordEnabled)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Toggle("Stop recording automatically when a Teams call ends", isOn: $teamsAutoRecordStopWhenCallEnds)
+                    .disabled(!appModel.teamsCallMonitor.isSupported)
+
+                Text("Auto-record starts once Teams has used your microphone for a few seconds, without bringing Casablanca to the front. The recording goes to the calendar meeting happening now, or to a new “Teams call” meeting when there is none; nothing starts while another recording is running.\nAuto-stop ends any recording that ran during a Teams call — also one you started yourself — about 20 seconds after the call ends, then transcribes it as usual. A recording that never overlapped a Teams call is never stopped.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !appModel.teamsCallMonitor.isSupported {
+                    Label(
+                        "This version of macOS does not report which apps are using the microphone, so Teams calls cannot be detected. Requires macOS 14 Sonoma or later.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Editor") {
+                Toggle("Use native notes editor (beta)", isOn: $useNativeMarkdownEditor)
+
+                Text("Replaces the web-based notes editor with a native macOS text view: live markdown highlighting, native undo, ⌘F find, and dictation. Restart not required — open a meeting's notes to try it.")
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: meetingStartNotificationsEnabled) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+            Task { await refreshNotificationAuthorizationStatus() }
+        }
+        .onChange(of: meetingStartLeadTimeRaw) { _, _ in
+            appModel.meetingStartNotifier.reschedule()
+        }
+        .onChange(of: teamsAutoRecordEnabled) { _, _ in
+            appModel.updateTeamsCallMonitoring()
+        }
+        .onChange(of: teamsAutoRecordStopWhenCallEnds) { _, _ in
+            appModel.updateTeamsCallMonitoring()
+        }
+        .task {
+            await refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    /// Reflect the current system notification authorization in the Settings hint.
+    /// Only `.denied` surfaces the warning; `.notDetermined` stays quiet (the
+    /// prompt fires lazily) and `.authorized`/`.provisional` need no caption.
+    private func refreshNotificationAuthorizationStatus() async {
+        let status = await NotificationAuthorization.shared.currentStatus()
+        notificationsDenied = status == .denied
+    }
+
+    private var modelOptions: [String] {
+        let current = providerModelBinding.wrappedValue
+        if availableModels.contains(current) || current.isEmpty {
+            return availableModels
+        }
+        return [current] + availableModels
+    }
+
+    private var recordingInputOptions: [(id: String, label: String)] {
+        var options: [(id: String, label: String)] = [
+            (
+                id: AppPreferenceValue.systemDefaultRecordingInputDevice,
+                label: systemDefaultPickerLabel
+            )
+        ]
+
+        if defaultRecordingInputDeviceID != AppPreferenceValue.systemDefaultRecordingInputDevice,
+           !availableInputDevices.contains(where: { $0.id == defaultRecordingInputDeviceID }) {
+            options.append((
+                id: defaultRecordingInputDeviceID,
+                label: "Unavailable device (\(defaultRecordingInputDeviceID))"
+            ))
+        }
+
+        options.append(contentsOf: availableInputDevices.map { ($0.id, $0.name) })
+        return options
+    }
+
+    private var systemDefaultPickerLabel: String {
+        if systemDefaultInputDeviceName.isEmpty {
+            return "System Default"
+        }
+        return "System Default (\(systemDefaultInputDeviceName))"
+    }
+
+    private var systemDefaultInputDeviceDescription: String {
+        if systemDefaultInputDeviceName.isEmpty {
+            return "Choose a specific microphone or let Casablanca follow the current macOS system default input device."
+        }
+        return "macOS currently reports “\(systemDefaultInputDeviceName)” as the system default microphone."
+    }
+
+    private func refreshModels() async {
+        isLoadingModels = true
+        modelsError = ""
+        defer { isLoadingModels = false }
+
+        let endpoint = providerEndpointBinding.wrappedValue
+        do {
+            let models = try await SummarizationService.fetchAvailableModels(endpoint: endpoint)
+            availableModels = models
+            let current = providerModelBinding.wrappedValue
+            if current.isEmpty, let firstModel = models.first {
+                providerModelBinding.wrappedValue = firstModel
+            }
+        } catch {
+            availableModels = []
+            modelsError = error.localizedDescription
+        }
+    }
+
+    private func refreshRecordingInputDevices() {
+        if defaultRecordingInputDeviceID.isEmpty {
+            defaultRecordingInputDeviceID = AppPreferenceValue.systemDefaultRecordingInputDevice
+        }
+
+        availableInputDevices = AudioRecordingService.availableRecordingInputDevices()
+        systemDefaultInputDeviceName = AudioRecordingService.systemDefaultInputDeviceName() ?? ""
+    }
+
+    private var terminologyListSheet: some View {
+        sheetContainer(title: "Customize Terminology List") {
+            Text("One term per line. Optional aliases follow a colon, comma-separated.")
+                .font(.subheadline)
+                .foregroundStyle(Color.textSecondary)
+
+            TextEditor(text: $terminologyList)
+                .font(.system(.body, design: .monospaced))
+                .frame(height: 200)
+
+            Text("Examples:\n    Zenith: Zenit, Zen-ith\n    Lorem IpS: Lorum, IPS\n    Nimbus\n\nLines starting with `#` are ignored.")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("Reset to Empty") {
+                    terminologyList = ""
+                }
+                .buttonStyle(.bordered)
+                .disabled(terminologyList.isEmpty)
+
+                Spacer()
+            }
+        }
+    }
+
+    /// Sheet container with title at the top, content body, and a
+    /// bottom-anchored Done bar. Sized to its intrinsic content so macOS
+    /// doesn't clip it to the parent Settings window. Escape and Enter
+    /// both dismiss.
+    @ViewBuilder
+    private func sheetContainer<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+
+                content()
+            }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.top, CasaSpace.lg)
+            .padding(.bottom, CasaSpace.md)
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Done") {
+                    presentedSheet = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                .controlSize(.large)
+            }
+            .padding(.horizontal, CasaSpace.xl)
+            .padding(.vertical, CasaSpace.sm)
+        }
+        .frame(width: CasaLayout.modalWidthLarge)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(KeyboardDismissCatcher { presentedSheet = nil })
+    }
+}
+
+/// Invisible helper view that listens for the Escape key to dismiss the
+/// surrounding sheet. SwiftUI's `.keyboardShortcut(.cancelAction)` only
+/// works when the focused button is reachable via Tab; placing the
+/// shortcut on a hidden Button as a `.background` makes Escape work
+/// regardless of focus.
+private struct KeyboardDismissCatcher: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { EmptyView() }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The model behind "Draft reply" on to-dos, and the `claude` CLI it runs.
+struct DraftReplySettingsSection: View {
+    static let models = ["haiku", "sonnet", "opus"]
+
+    @AppStorage(AppPreferenceKey.draftReplyModel) private var draftReplyModel = DraftReplyService.defaultModel
+    @AppStorage(AppPreferenceKey.claudeCLIPath) private var claudeCLIPath = ""
+    @AppStorage(AppPreferenceKey.draftReplyGatewayName) private var gatewayName = ""
+    @AppStorage(AppPreferenceKey.draftReplyGatewayURL) private var gatewayURL = ""
+    @AppStorage(AppPreferenceKey.jiraSiteURL) private var jiraSiteURL = ""
+
+    /// The stored path, which a successful run records; empty means auto-detect.
+    private var cliPathLabel: String {
+        let path = claudeCLIPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? "Auto-detect" : path
+    }
+
+    var body: some View {
+        Section("Draft replies") {
+            Picker("Model", selection: $draftReplyModel) {
+                ForEach(Self.models, id: \.self) { model in
+                    Text(model.capitalized).tag(model)
+                }
+            }
+
+            LabeledContent("Claude Code CLI") {
+                Text(cliPathLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            TextField("MCP gateway name", text: $gatewayName, prompt: Text(DraftReplyGateway.defaultName))
+            TextField("MCP gateway URL", text: $gatewayURL, prompt: Text(DraftReplyGateway.defaultURL))
+            TextField("Jira site", text: $jiraSiteURL, prompt: Text(JiraLink.defaultSiteURL))
+
+            Text("Drafts come from Claude Code, which can read your mail, Teams, Jira and Confluence through the MCP gateway above but cannot send or change anything. The Jira site makes `jira:` to-do links clickable. The CLI path is shared with the Claude Code summarization provider.")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

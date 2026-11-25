@@ -1,0 +1,343 @@
+import XCTest
+@testable import Casablanca
+
+/// Golden-fixture pinning tests for the recording mixdown (Phase 1b).
+///
+/// `mixTemporaryRecordings()` is private to `RecordingSession` and needs audio
+/// hardware (a running `AVAudioEngine` + `SCStream`) to reach, so it cannot be
+/// invoked headlessly. The load-bearing, hardware-independent part is the
+/// per-frame mixing arithmetic. Phase 1b lifted that loop verbatim into the
+/// `RecordingMixdownRenderer.mixFrames(microphoneSamples:systemAudioSamples:)` seam
+/// (internal, body unchanged) so it can be pinned here.
+///
+/// The mixing formula being pinned:
+///   sample = mic[i] * 1.35 + system[i] * 0.8   (each term present only if in range)
+///   clamped = clamp(sample, -1, 1)
+///   out[i]  = Int16((clamped * 32767).rounded())
+///   frameCount = max(mic.count, system.count); the shorter track contributes 0
+///   beyond its length (tail handling).
+///
+/// Expected values are literal constants captured from the current
+/// implementation, NOT recomputed via the function under test.
+final class RecordingMixdownTests: XCTestCase {
+    func testOverlappingFramesUseExactMixFormulaAndClamping() {
+        let mic: [Float] = [0.0, 0.5, -0.5, 1.0, -1.0, 0.25]
+        let system: [Float] = [0.0, 0.5, -0.5, 0.5, -0.5, 0.1]
+
+        // index 1: 0.5*1.35 + 0.5*0.8 = 1.075 -> clamp 1.0 -> 32767
+        // index 4: -1.0*1.35 + -0.5*0.8 = -1.75 -> clamp -1.0 -> -32767
+        // index 5: 0.25*1.35 + 0.1*0.8 = 0.4175 -> 13680
+        let expected: [Int16] = [0, 32767, -32767, 32767, -32767, 13680]
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            expected
+        )
+    }
+
+    func testMicrophoneTrackLongerThanSystemTailUsesMicOnly() {
+        let mic: [Float] = [0.2, 0.4, 0.6, 0.8]
+        let system: [Float] = [0.1, 0.1]
+
+        // index 2/3 have no system sample: mic*1.35 only.
+        let expected: [Int16] = [11468, 20316, 26541, 32767]
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            expected
+        )
+    }
+
+    func testSystemTrackLongerThanMicrophoneTailUsesSystemOnly() {
+        let mic: [Float] = [0.3]
+        let system: [Float] = [0.3, 0.9, -0.9]
+
+        // index 1/2 have no mic sample: system*0.8 only.
+        let expected: [Int16] = [21135, 23592, -23592]
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            expected
+        )
+    }
+
+    func testExtremesClampToInt16Range() {
+        let mic: [Float] = [1.0, -1.0, 0.9]
+        let system: [Float] = [1.0, -1.0, 0.9]
+
+        // 1.0*1.35 + 1.0*0.8 = 2.15 -> clamp 1.0 -> 32767, and symmetric negative.
+        // index 2: 0.9*2.15 = 1.935 -> clamp 1.0 -> 32767
+        let expected: [Int16] = [32767, -32767, 32767]
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: system),
+            expected
+        )
+    }
+
+    func testEmptyInputsProduceEmptyOutput() {
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: [], systemAudioSamples: []),
+            []
+        )
+    }
+
+    func testOnlyMicrophoneTrackAppliesMicGain() {
+        // 0.1*1.35 = 0.135 -> 0.135*32767 = 4423.5 -> 4424.
+        // `.rounded()` is round-half-away-from-zero (NOT banker's rounding), so
+        // the .5 tie rounds up to 4424.
+        let mic: [Float] = [0.1]
+        let result = RecordingMixdownRenderer.mixFrames(microphoneSamples: mic, systemAudioSamples: [])
+        // Pin the captured constant (mic-only gain path).
+        XCTAssertEqual(result, [4424])
+    }
+
+    /// Pins the Float32 -> Int16 PCM round trip through the same storage layer
+    /// production uses, then through the mix seam. This locks the sample format
+    /// (32-bit float, little-endian, interleaved mono) that the temp PCM files
+    /// use, which the mixdown reads via `TemporaryRecordingPCMStorage.samples`.
+    func testPCMStorageRoundTripFeedsMixFormula() {
+        let micFloats: [Float] = [0.2, 0.4]
+        let systemFloats: [Float] = [0.1, 0.1]
+
+        let micData = micFloats.withUnsafeBufferPointer { Data(buffer: $0) }
+        let systemData = systemFloats.withUnsafeBufferPointer { Data(buffer: $0) }
+
+        let micSamples = TemporaryRecordingPCMStorage.samples(from: micData)
+        let systemSamples = TemporaryRecordingPCMStorage.samples(from: systemData)
+
+        XCTAssertEqual(micSamples, micFloats)
+        XCTAssertEqual(systemSamples, systemFloats)
+
+        // 0.2*1.35 + 0.1*0.8 = 0.35 -> 11468 ; 0.4*1.35 + 0.1*0.8 = 0.62 -> 20316
+        XCTAssertEqual(
+            RecordingMixdownRenderer.mixFrames(microphoneSamples: micSamples, systemAudioSamples: systemSamples),
+            [11468, 20316]
+        )
+    }
+}
+
+/// What `render()` may delete. The temp PCM tracks are the only copy of the
+/// segment's audio until the WAV holds it, so a track that was counted but
+/// could not be read must survive -- and fail the render -- instead of being
+/// silently skipped and then removed after a "successful" mix.
+final class RecordingMixdownRendererFileSafetyTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MixdownFileSafety-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: mic.path)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func writeFloats(_ floats: [Float], to url: URL) throws {
+        try floats.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: url)
+    }
+
+    func testUnreadableCountedMicrophoneTrackFailsTheRenderAndIsKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2, 0.3, 0.4], to: mic)
+        try writeFloats([0.1, 0.1, 0.1, 0.1], to: system)
+        // Counted, but unopenable.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: mic.path)
+
+        let renderer = RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 4,
+            systemAudioFrames: 4,
+            outputURL: output,
+            expectedOutputFrames: 4
+        )
+
+        XCTAssertThrowsError(try renderer.render())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path), "The unread microphone audio must not be deleted")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: system.path), "A failed render deletes nothing")
+    }
+
+    /// Both fully read tracks leave their capture names (so recovery never
+    /// re-renders them) but survive under the kept names, byte for byte, for
+    /// the per-speaker track merge at Stop.
+    func testSuccessfulRenderKeepsBothTracksUnderKeptNames() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+        let micBytes = try Data(contentsOf: mic)
+        let systemBytes = try Data(contentsOf: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        let keptMic = RecordingFiles.keptTrackURL(for: mic)
+        let keptSystem = RecordingFiles.keptTrackURL(for: system)
+        XCTAssertEqual(keptMic.lastPathComponent, "segment-001.mic.kept.pcm")
+        XCTAssertEqual(keptSystem.lastPathComponent, "segment-001.system.kept.pcm")
+        XCTAssertEqual(try Data(contentsOf: keptMic), micBytes)
+        XCTAssertEqual(try Data(contentsOf: keptSystem), systemBytes)
+        XCTAssertEqual(try Data(contentsOf: output).count, 44 + 2 * MemoryLayout<Int16>.size)
+    }
+
+    /// A kept file left by an earlier render of the same segment number is
+    /// replaced, not a reason to fail or to delete the fresh track.
+    func testRenderReplacesAnExistingKeptTrack() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.3, 0.4, 0.5], to: mic)
+        try writeFloats([0.9], to: RecordingFiles.keptTrackURL(for: mic))
+        let micBytes = try Data(contentsOf: mic)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 3,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 3,
+            availableCapacity: Self.ampleCapacity
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertEqual(try Data(contentsOf: RecordingFiles.keptTrackURL(for: mic)), micBytes)
+    }
+
+    /// A track holding less than one whole sample is deleted, never kept.
+    func testSubSampleTrackIsDeletedNotKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try Data([0x01, 0x02]).write(to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
+        ).render()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: system).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
+    }
+
+    private static let ampleCapacity: RecordingDiskSpace.CapacityProvider = { _ in .max }
+
+    /// Low disk space: the speaker tracks are a luxury the live recording
+    /// cannot afford. The temp tracks are deleted as before, and the mix still
+    /// finalises.
+    func testLowDiskSpaceDeletesTracksInsteadOfKeepingThem() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks - 1 }
+        ).render()
+
+        for url in [mic, system, RecordingFiles.keptTrackURL(for: mic), RecordingFiles.keptTrackURL(for: system)] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), url.lastPathComponent)
+        }
+        XCTAssertEqual(try Data(contentsOf: output).count, 44 + 2 * MemoryLayout<Int16>.size)
+    }
+
+    func testEnoughDiskSpaceKeepsTracks() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 2,
+            systemAudioFrames: 0,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: { _ in RecordingDiskSpace.minimumFreeBytesForSpeakerTracks }
+        ).render()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
+    }
+
+    /// A track whose frames were not counted is not read; if it nevertheless
+    /// holds whole samples, it is not this render's to delete.
+    func testUncountedTrackWithSamplesIsKept() throws {
+        let mic = directory.appendingPathComponent("segment-001.mic.pcm")
+        let system = directory.appendingPathComponent("segment-001.system.pcm")
+        let output = directory.appendingPathComponent("segment-001.wav")
+        try writeFloats([0.1, 0.2], to: mic)
+        try writeFloats([0.1, 0.1], to: system)
+
+        try RecordingMixdownRenderer(
+            microphoneURL: mic,
+            systemAudioURL: system,
+            microphoneFrames: 0,
+            systemAudioFrames: 2,
+            outputURL: output,
+            expectedOutputFrames: 2,
+            availableCapacity: Self.ampleCapacity
+        ).render()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mic.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: system.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFiles.keptTrackURL(for: mic).path))
+    }
+}
+
+/// The free-space guard that protects a live recording from the kept speaker
+/// tracks.
+final class RecordingDiskSpaceTests: XCTestCase {
+    private let probe = URL(fileURLWithPath: "/tmp/segment-001.mic.pcm")
+
+    func testThresholdIsTwoGigabytesInclusive() {
+        let threshold = RecordingDiskSpace.minimumFreeBytesForSpeakerTracks
+        XCTAssertEqual(threshold, 2_000_000_000)
+        XCTAssertTrue(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in threshold }))
+        XCTAssertFalse(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in threshold - 1 }))
+    }
+
+    /// An unknown capacity is treated as low: the recording comes first.
+    func testUnknownCapacityCountsAsLow() {
+        XCTAssertFalse(RecordingDiskSpace.allowsSpeakerTracks(at: probe, capacity: { _ in nil }))
+    }
+
+    func testSystemCapacityReadsTheTemporaryVolume() {
+        let capacity = RecordingDiskSpace.systemCapacity(FileManager.default.temporaryDirectory.appendingPathComponent("x.pcm"))
+        XCTAssertNotNil(capacity)
+        XCTAssertGreaterThan(capacity ?? 0, 0)
+    }
+
+    func testLowSpaceIsLoggedOncePerSession() {
+        let session = URL(fileURLWithPath: "/tmp/\(UUID().uuidString)", isDirectory: true)
+        XCTAssertTrue(RecordingDiskSpace.claimLowSpaceLog(for: session))
+        XCTAssertFalse(RecordingDiskSpace.claimLowSpaceLog(for: session))
+        XCTAssertTrue(RecordingDiskSpace.claimLowSpaceLog(for: URL(fileURLWithPath: "/tmp/\(UUID().uuidString)")))
+    }
+}

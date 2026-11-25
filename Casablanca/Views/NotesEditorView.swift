@@ -1,0 +1,608 @@
+import AppKit
+import SwiftData
+import SwiftUI
+
+struct NotesEditorView: View {
+    private enum RecordingActionPhase { case start, pause, resume, stop }
+
+    @Bindable var meeting: Meeting
+    @Bindable var recordingService: AudioRecordingService
+    var interruptionCoordinator: RecordingInterruptionCoordinator? = nil
+    let autoStartRecording: Bool
+    let onBack: () -> Void
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AppModel.self) private var appModel
+    /// The window's width tier (ContentView); the inspector only opens at `.expanded`.
+    @Environment(\.layoutWidthClass) private var layoutWidthClass
+    @AppStorage(AppPreferenceKey.recordingWorkspaceFocusMode) private var recordingWorkspaceFocusMode = false
+    @AppStorage(AppPreferenceKey.useNativeMarkdownEditor) private var useNativeMarkdownEditor = false
+    @AppStorage(AppPreferenceKey.autoOpenMeetingPrep) private var autoOpenMeetingPrep = true
+    @State private var saveTask: Task<Void, Never>?
+    /// The meeting this view already asked the controller to start. Keyed by
+    /// id, not a Bool: ContentView reuses this view instance across workspace
+    /// meetings, and a flag left set by meeting A made a later Record on
+    /// meeting B a silent no-op (status `.recording`, nothing capturing).
+    @State private var startTriggeredForMeetingID: UUID?
+    @State private var prepMarkdown: String?
+    // Native trailing inspector hosting Prep + To-Dos as tabs. Resizing and the
+    // toggle state are handled by AppKit (smooth + HIG-compliant).
+    @State private var isInspectorPresented = false
+    @State private var inspectorTab: InspectorTab = .prep
+    /// Which meeting's Stop this view is finalizing. Keyed, not a Bool: the
+    /// view is reused across meetings, and a flag left set by A's stop showed
+    /// finalizing chrome on B and turned B's Stop into a no-op.
+    @State private var stopGate = EditorStopGate()
+    @State private var recordingActionPhase: RecordingActionPhase = .start
+
+    private var isFinalizingRecording: Bool { stopGate.isFinalizing(meeting.id) }
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                if presentation.showsExpandedRecordingChrome && !presentation.isFocusModeActive {
+                    RecordingStatusBar(
+                        presentation: presentation,
+                        autoPause: autoPauseIndicatorPresentation,
+                        elapsed: formattedElapsed,
+                        recordingService: recordingService,
+                        isPreparing: recordingService.isPreparing,
+                        isFinalizing: isFinalizingRecording,
+                        isRecordingState: isRecordingState,
+                        onPause: { Task { await pauseRecording() } },
+                        onResume: { Task { await resumeRecording() } },
+                        onStop: { Task { await stopRecording() } },
+                        deviceChip: { deviceLanguageChip }
+                    )
+                    Divider()
+                }
+
+                if presentation.showsNotesHeader {
+                    MeetingNotesHeader(meeting: meeting)
+                    Divider()
+                }
+
+                mainContent
+
+                if !presentation.isFocusModeActive {
+                    Divider()
+                    footer
+                }
+            }
+            .blur(radius: presentation.showsBlockingOverlay ? 1.5 : 0)
+
+            if presentation.showsFocusRecordingPill {
+                FocusRecordingPill(
+                    presentation: presentation,
+                    elapsed: formattedElapsed,
+                    isRecordingState: isRecordingState,
+                    isPreparing: recordingService.isPreparing,
+                    isFinalizing: isFinalizingRecording,
+                    onPause: { Task { await pauseRecording() } },
+                    onResume: { Task { await resumeRecording() } },
+                    onStop: { Task { await stopRecording() } }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(CasaSpace.lg)
+                .transition(.opacity)
+            }
+
+            if presentation.isFocusModeActive {
+                FocusExitButton(onExitFocus: { recordingWorkspaceFocusMode = false })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(CasaSpace.lg)
+                    .transition(.opacity)
+            }
+
+            if presentation.showsBlockingOverlay {
+                BlockingProgressOverlay(
+                    title: presentation.blockingOverlayTitle ?? "Finalizing recording…",
+                    message: "Just a moment — Casablanca is preparing the recording for transcription."
+                )
+            }
+        }
+        .casaAnimation(CasaAnimation.standard, value: presentation.isFocusModeActive)
+        .onExitCommand {
+            if recordingWorkspaceFocusMode {
+                recordingWorkspaceFocusMode = false
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button(action: onBack) {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .disabled(presentation.backButtonDisabled)
+            }
+
+            // Pane controls live in the toolbar (top-right), consistent across the
+            // notes and recording states — matching the approved mockup.
+            if !presentation.isFocusModeActive && !presentation.isFinalizing {
+                ToolbarItemGroup {
+                    // Single inspector toggle (Prep & To-Dos live as tabs inside).
+                    // A Toggle with .button style shows a clear on-state natively.
+                    Toggle(isOn: $isInspectorPresented) {
+                        Label("Inspector", systemImage: "sidebar.right")
+                    }
+                    .toggleStyle(.button)
+                    .disabled(!layoutWidthClass.allowsInspector)
+                    .help(layoutWidthClass.allowsInspector
+                        ? (isInspectorPresented ? "Hide Inspector" : "Show Prep & To-Dos")
+                        : "Widen the window to show Prep & To-Dos")
+
+                    Button {
+                        recordingWorkspaceFocusMode.toggle()
+                    } label: {
+                        Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    // No .keyboardShortcut here: ⌘⇧F belongs to the View menu's
+                    // "Toggle Focus Mode" command, which works in every state
+                    // this button is shown in (and in focus mode, where it is not).
+                    .help("Distraction-free notes (\u{2318}\u{21E7}F · Esc to exit)")
+                }
+            }
+        }
+        .navigationTitle("\(meeting.title) · \(meeting.formattedTime)")
+        .task(id: meeting.id) {
+            // The previous meeting's last action (its Stop, say) must not pick
+            // this meeting's error-alert buttons.
+            recordingActionPhase = .start
+            interruptionCoordinator?.bind(meeting: meeting)
+            try? ObsidianTodoSyncService.refreshTodos(for: meeting, in: modelContext)
+            // Never show the previous meeting's prep while this one loads.
+            prepMarkdown = nil
+
+            if meeting.status == .pausedRecording {
+                // `hasResumableSession` is true while a manifest *or* any
+                // recoverable audio survives, so a meeting whose files are
+                // still on disk is never demoted to notes-only.
+                if recordingService.hasResumableSession(for: meeting.id) {
+                    // Nothing ticks the timer across an app relaunch, so the
+                    // paused display would read 00:00 instead of the total
+                    // already captured.
+                    recordingService.refreshElapsed(for: meeting.id)
+                } else {
+                    recordingActionPhase = .resume
+                    recordingService.setErrorMessage("This paused recording can no longer be resumed.")
+                    meeting.status = .notesOnly
+                    save()
+                }
+            }
+
+            // Last, and awaited: the vault read runs off the main actor, and
+            // the inspector is only opened once it returns — after the first
+            // layout pass, never during it (split/inspector columns changing
+            // inside the initial constraint pass is how 0.16.0 crashed).
+            await loadPrepAndAutoOpenInspector()
+        }
+        // The coordinator is created once by `AppModel.bootstrap`; an editor
+        // that appeared before that binds as soon as it exists.
+        .onChange(of: interruptionCoordinator.map(ObjectIdentifier.init)) { _, _ in
+            interruptionCoordinator?.bind(meeting: meeting)
+        }
+        .onDisappear {
+            interruptionCoordinator?.bind(meeting: nil)
+        }
+        // Keyed by meeting too: moving between two meetings that both want
+        // capture must re-run it. A start for a meeting already capturing (or
+        // in flight via the Teams monitor) is a no-op/joined by the controller.
+        .task(id: AutoStartKey(meetingID: meeting.id, autoStart: autoStartRecording)) {
+            guard autoStartRecording else { return }
+            recordingService.refreshInputDevices(forcePreferredSelection: true)
+            await startRecordingIfNeeded()
+        }
+        .alert("Recording Error", isPresented: recordingErrorBinding) {
+            if recordingActionPhase == .start {
+                Button("Retry") {
+                    recordingService.clearError()
+                    startTriggeredForMeetingID = nil
+                    Task {
+                        await startRecordingIfNeeded()
+                    }
+                }
+
+                Button("Open Privacy Settings") {
+                    openRelevantPrivacySettings()
+                }
+
+                Button("Back to Notes", role: .cancel) {
+                    meeting.status = .notesOnly
+                    save()
+                }
+            } else {
+                Button("OK", role: .cancel) {
+                    if !recordingService.hasResumableSession(for: meeting.id) && meeting.status != .pausedRecording {
+                        meeting.status = .notesOnly
+                        save()
+                    }
+                }
+            }
+        } message: {
+            Text(recordingService.errorMessage ?? "Unable to start recording.")
+        }
+    }
+
+    private struct AutoStartKey: Hashable {
+        let meetingID: UUID
+        let autoStart: Bool
+    }
+
+    private var presentation: MeetingWorkspacePresentation {
+        MeetingWorkspacePresentation(
+            meeting: meeting,
+            activeMeetingID: recordingService.activeMeetingID,
+            isRecording: recordingService.isRecording,
+            isPreparing: recordingService.isPreparing,
+            isFinalizing: isFinalizingRecording,
+            prefersRecordingFocusMode: recordingWorkspaceFocusMode
+        )
+    }
+
+    private var autoPauseIndicatorPresentation: AutoPauseIndicatorPresentation? {
+        guard let interruptionCoordinator else { return nil }
+        return AutoPauseIndicatorPresentation(
+            records: interruptionCoordinator.recentEvents.suffix(5).map { $0 },
+            referenceDate: Date()
+        )
+    }
+
+    private var prepPresentation: MeetingPrepPresentation {
+        MeetingPrepPresentation(
+            markdown: prepMarkdown,
+            isExpanded: isInspectorPresented
+        )
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        freeformWorkspace
+    }
+
+    private var isRecordingState: Bool {
+        meeting.status == .recording && recordingService.isRecording
+    }
+
+    // MARK: - Device & language quick-control
+
+    private var deviceLanguageChip: some View {
+        DeviceLanguageChip(
+            recordingService: recordingService,
+            transcriptionLanguage: $meeting.transcriptionLanguage,
+            onLanguageChanged: { save() }
+        )
+    }
+
+    @ViewBuilder
+    private var freeformWorkspace: some View {
+        if presentation.isFocusModeActive {
+            focusNotesCanvas
+        } else {
+            // Native trailing inspector (AppKit-driven resize, HIG-compliant)
+            // hosting Prep & To-Dos as tabs. The notes editor keeps its proven
+            // bounded layout as the primary content.
+            // Presented only while the window is wide enough to hold it; an
+            // open request (the prep auto-open) made while it is too narrow is
+            // kept and shows once the window widens.
+            notesColumn
+                .widthGatedInspector(isPresented: $isInspectorPresented, idealWidth: 340) {
+                    NotesEditorInspector(
+                        meeting: meeting,
+                        prepPresentation: prepPresentation,
+                        inspectorTab: $inspectorTab
+                    )
+                }
+        }
+    }
+
+    // MARK: - Focus mode
+
+    /// Distraction-free writing surface: centers the editor at a comfortable
+    /// reading measure with airier, slightly larger text. No prep, no to-dos,
+    /// no device chip — just the notes.
+    private var focusNotesCanvas: some View {
+        // ToastMarkdownEditor wraps a WKWebView, which has no intrinsic height.
+        // It must be given a bounded fill frame (it scrolls its own content
+        // internally) — wrapping it in a SwiftUI ScrollView collapses it to
+        // zero height (blank screen). Mirror the working `notesColumn` framing,
+        // just centered at a comfortable reading measure. The native editor
+        // fills the same frame (its NSScrollView scrolls internally).
+        Group {
+            if useNativeMarkdownEditor {
+                NativeMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            } else {
+                ToastMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            }
+        }
+        .frame(maxWidth: 600, maxHeight: .infinity, alignment: .top)
+        .padding(.horizontal, CasaSpace.xl)
+        .padding(.vertical, CasaSpace.xxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.backgroundPrimary)
+        .onChange(of: meeting.userNotes) {
+            debouncedSave()
+        }
+    }
+
+    private var notesColumn: some View {
+        // Pane controls now live in the toolbar (consistent across states), so
+        // the notes column is just the editor — its proven layout is untouched.
+        freeformNotesEditor
+    }
+
+    private var freeformNotesEditor: some View {
+        Group {
+            if useNativeMarkdownEditor {
+                NativeMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            } else {
+                ToastMarkdownEditor(
+                    text: $meeting.userNotes,
+                    placeholder: "Type your notes here..."
+                )
+            }
+        }
+        .padding(CasaSpace.lg)
+        .onChange(of: meeting.userNotes) {
+            debouncedSave()
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            if recordingService.isPreparing && presentation.showsExpandedRecordingChrome {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Spacer()
+
+            if presentation.showsStartRecordingButton {
+                deviceLanguageChip
+
+                Button(action: requestRecordingStart) {
+                    Label("Start Recording", systemImage: "record.circle")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+
+            Button {
+                recordingWorkspaceFocusMode = true
+            } label: {
+                Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .help("Distraction-free notes (Esc to exit)")
+
+            Button {
+                exportNotes()
+            } label: {
+                Label("Save & Export", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(CasaSpace.lg)
+        .background(.bar)
+    }
+
+    private func requestRecordingStart() {
+        guard meeting.status != .recording else { return }
+        meeting.status = .recording
+        save()
+        recordingService.refreshInputDevices(forcePreferredSelection: true)
+        Task {
+            await startRecordingIfNeeded()
+        }
+    }
+
+    private func pauseRecording() async {
+        recordingActionPhase = .pause
+        do {
+            let result = try await recordingService.pauseRecording()
+            meeting.recordingDuration = (meeting.recordingDuration ?? 0) + result.duration
+            meeting.status = .pausedRecording
+            interruptionCoordinator?.notifyMeetingTransitioned(to: .pausedRecording)
+            save()
+        } catch {
+            recordingService.setErrorMessage(error.localizedDescription)
+            save()
+        }
+    }
+
+    private func resumeRecording() async {
+        recordingActionPhase = .resume
+        do {
+            try await recordingService.resumeRecording(for: meeting)
+            meeting.status = .recording
+            interruptionCoordinator?.notifyMeetingTransitioned(to: .recording)
+            save()
+        } catch RecordingError.resumeOvertaken {
+            // The wake's auto-resume (or another start) published the segment
+            // first and is recording right now — this call tore down only its
+            // own attempt. So there is nothing to report, and above all nothing
+            // to flip: writing `.pausedRecording` here would contradict a live
+            // recording and strand it as paused-with-a-running-session.
+            Log.recording.notice(
+                """
+                Resume for meeting \(meeting.id.uuidString, privacy: .public) was overtaken by \
+                another session that is already recording; leaving it alone
+                """
+            )
+        } catch {
+            // Without this the Resume button looked dead: the status flipped
+            // back to paused and the user got no reason why. A cancelled resume
+            // is the user's own Stop, so it stays silent — see
+            // `AudioRecordingService.resumeRecording`.
+            if !(error is CancellationError) {
+                recordingService.setErrorMessage(error.localizedDescription)
+            }
+            meeting.status = .pausedRecording
+            save()
+        }
+    }
+
+    private var formattedElapsed: String {
+        let totalSeconds = max(Int(recordingService.elapsedTime.rounded()), 0)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private var recordingErrorBinding: Binding<Bool> {
+        Binding(
+            get: { recordingService.errorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    recordingService.clearError()
+                }
+            }
+        )
+    }
+
+    private func startRecordingIfNeeded() async {
+        guard startTriggeredForMeetingID != meeting.id else { return }
+
+        if recordingService.isRecording && recordingService.activeMeetingID == meeting.id {
+            return
+        }
+
+        recordingActionPhase = .start
+        startTriggeredForMeetingID = meeting.id
+
+        // The controller owns the start (and the status flip), so a start the
+        // Teams monitor kicked off for this same meeting is joined, not doubled.
+        let outcome = await appModel.recordingController.startRecording(for: meeting, save: { save() })
+        if outcome == .failed {
+            startTriggeredForMeetingID = nil
+        }
+    }
+
+    private func stopRecording() async {
+        // `meeting` is the one on screen now; by the time the stop returns the
+        // view may show another, so everything below is keyed by this id.
+        let meetingID = meeting.id
+        guard stopGate.begin(meetingID) else { return }
+        recordingActionPhase = .stop
+        defer { stopGate.end(meetingID) }
+
+        // `nil`: a stop for this meeting is already running elsewhere (the
+        // Teams monitor's auto-stop); it moves the meeting on by itself. On
+        // success the controller ends the interruption bookkeeping; on failure
+        // it has already surfaced the error and reset the status.
+        _ = try? await appModel.recordingController.stopRecording(for: meeting, save: { save() })
+    }
+
+    /// Loads the meeting's prep (vault file, else local prep notes) and, once
+    /// per meeting appearance, opens the inspector on the Prep tab when there
+    /// is prep. Runs from `.task(id: meeting.id)`, so closing the inspector
+    /// afterwards sticks until another meeting is opened.
+    private func loadPrepAndAutoOpenInspector() async {
+        let markdown = await MeetingPrepService.loadResolvedPrepMarkdown(for: meeting)
+        // The meeting changed (or the view went away) while reading.
+        guard !Task.isCancelled else { return }
+        prepMarkdown = markdown
+
+        let decision = PrepInspectorAutoOpenDecision(
+            isEnabled: autoOpenMeetingPrep,
+            hasPrep: MeetingPrepService.hasPrepContent(markdown),
+            isFocusModeActive: presentation.isFocusModeActive
+        )
+        if decision.shouldOpenPrep {
+            inspectorTab = .prep
+            isInspectorPresented = true
+        }
+    }
+
+    private func debouncedSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            save()
+        }
+    }
+
+    private func save() {
+        try? modelContext.save()
+        MeetingExportCoalescer.shared.scheduleAutomaticExport(of: meeting, reporter: appModel.exportStatusCenter)
+    }
+
+    private func exportNotes() {
+        save()
+
+        Task { @MainActor in
+            do {
+                let result = try await ExportService.exportRawNotes(meeting)
+                switch result {
+                case .obsidian(let export):
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: "Saved raw notes to your Obsidian meeting notes folder.",
+                        exportedURLs: export.exportedURLs
+                    )
+                case .appleNotes:
+                    presentExportAlert(
+                        title: "Export Complete",
+                        message: "Saved to Apple Notes folder \"Casablanca\".",
+                        exportedURLs: []
+                    )
+                }
+            } catch {
+                presentExportAlert(
+                    title: "Export Failed",
+                    message: error.localizedDescription,
+                    exportedURLs: []
+                )
+            }
+        }
+    }
+
+    private func openPrivacySettings(anchor: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openRelevantPrivacySettings() {
+        let message = recordingService.errorMessage ?? ""
+        let anchor = message.localizedCaseInsensitiveContains("microphone")
+            ? "Privacy_Microphone"
+            : "Privacy_ScreenCapture"
+        openPrivacySettings(anchor: anchor)
+    }
+}
+
+/// The editor's Stop, per meeting. One editor instance shows many meetings in
+/// turn, so "a stop is finalizing" has to say which meeting: A's stop still in
+/// flight must neither show finalizing chrome on B nor swallow B's Stop.
+struct EditorStopGate: Equatable {
+    private(set) var finalizingMeetingIDs: Set<UUID> = []
+
+    func isFinalizing(_ meetingID: UUID) -> Bool { finalizingMeetingIDs.contains(meetingID) }
+
+    /// Claims the stop for `meetingID`. False when that meeting's stop is
+    /// already running (a double-click). A stop for another meeting still in
+    /// flight does not block it.
+    mutating func begin(_ meetingID: UUID) -> Bool {
+        finalizingMeetingIDs.insert(meetingID).inserted
+    }
+
+    /// Ends `meetingID`'s stop, whatever happened to the others.
+    mutating func end(_ meetingID: UUID) {
+        finalizingMeetingIDs.remove(meetingID)
+    }
+}

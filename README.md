@@ -1,0 +1,155 @@
+# Casablanca
+
+Casablanca is a macOS meeting assistant for capturing notes during meetings, recording audio, transcribing sessions on-device with Whisper, generating summaries through a selectable LLM provider — a local model via Ollama or oMLX, or Claude Code billed against your Claude subscription — and exporting meeting notes to Obsidian or Apple Notes. Recording and transcription always stay on your Mac; with Claude Code selected, the transcript is sent to Anthropic for summarization.
+
+## What `v0.8.0` includes
+
+- Calendar-driven meeting list plus manual meetings
+- Live meeting workspace with freeform notes by default and optional timestamped capture
+- Local meeting recording with microphone and optional system audio capture
+- Local transcription through WhisperKit
+- Summary generation through a selectable LLM provider — a local model via Ollama (default) or oMLX, or Claude Code (headless `claude -p`, no API key) — with per-provider endpoint / CLI-path and model settings and optional oMLX API-key authentication
+- Export to Obsidian (Markdown) or Apple Notes (HTML), selectable in Settings
+- Optional Local-only mode for prep notes and todos (no Obsidian vault required)
+- **Teams call recording** — optionally starts recording when a Microsoft Teams call starts (filed under the calendar event that is running) and stops it when the call ends
+- **Prep at hand** — a meeting's prep opens automatically beside the notes
+- **Your own to-dos only** — only action items assigned to you (Settings → Action Items → Your name(s)) become to-dos
+- **To-dos are the one list** — the Approvals inbox (`action-queue.json`) is gone; drafts are made only when you ask for one
+- **Draft reply** — on an open, accepted to-do (hover the row, or right-click → Draft reply), Claude Code drafts a reply in a sheet, using the to-do, its meeting's summary and transcript, and its source link. The run is headless and read-only: it loads only the MCP gateway you set in Settings → Draft replies (one server that exposes mail, Teams, Jira and Confluence), with read tools allowed and every send/write tool blocked, so the app never sends anything. Edit the draft, **Revise** it with a steer ("shorter, Dutch, more formal…") without losing your edits, **Start over**, **Copy**, or **Continue in Claude Code** (opens Terminal in ask mode). Drafts are not saved. Pick the model in Settings → Draft replies (default Sonnet).
+- **Source links on to-dos** — an Obsidian to-do line can end with `🔗 <scheme>:<ref>`, written last, after ` — owner 📅 yyyy-MM-dd [mm:ss]` (each part optional, the owner only together with a date or timestamp; a link on its own is valid). Schemes: `outlook`, `teams`, `jira`, `topdesk`, `url`. Example: `- [ ] Answer Kim about the API scope — Joris 📅 2026-11-20 [12:34] 🔗 jira:ABC-1234`. The link shows as a chip on the to-do; `jira` opens the issue on the Jira site set in Settings → Draft replies and `url` opens http(s) links in the browser.
+
+### New in `v0.8.0`
+
+- **Meeting tags** — label meetings and filter the sidebar by tag; tags are searchable and written to Obsidian frontmatter
+- **Ask your meeting** — a grounded Q&A chat that answers from a meeting's transcript, summary, and notes using your local LLM
+- **Auto-record prompt** — an optional notification at a meeting's start time with a one-tap "Start Recording" action
+- **Recurring-series linking** — surfaces the previous occurrence's summary and carries open action items into prep; fixes an occurrence-collision bug
+- **Compressed recordings** — finished recordings are encoded to AAC/m4a (~5–8× smaller), with a "Keep original WAV" option
+- **Unified processing status** — a single transcribe → summarize → export card with per-stage cancel, retry, and error surfacing
+- **Faster at scale** — windowed sidebar and debounced full-content search (including summaries) stay responsive with thousands of meetings
+- **Reliability** — local-LLM retry with backoff, corrupt-store recovery, event-driven calendar refresh, and audio thread-safety hardening
+- **UX polish** — undoable meeting deletion, loading skeletons, transcript chapters, search highlight-all, reduce-motion support, and a `⌘⇧F` focus-mode shortcut
+- **Native notes editor (beta)** — an `NSTextView`-based markdown editor behind a Settings toggle, with selection-aware formatting
+- See [`CHANGELOG.md`](CHANGELOG.md) for the full list.
+
+## Requirements
+
+- macOS 14 or later
+- Xcode 16 or later
+- Microphone permission
+- Screen Recording permission if you want system audio capture
+- Optional, for summaries — either a local LLM server ([Ollama](https://ollama.com), the default, or [oMLX](https://github.com/jundot/omlx)) or the [Claude Code](https://claude.com/claude-code) CLI with an active Claude subscription
+
+## Build
+
+```bash
+./scripts/build-release.sh
+```
+
+This script:
+
+- builds the app in `Release`
+- re-signs the `.app` bundle with hardened runtime, the app entitlements, and a pinned, team-based designated requirement so resources are sealed correctly **and** macOS treats it as the same app as the Xcode build
+- verifies the signature with `codesign --verify`
+- produces a zip asset in `.build/release-assets/`
+
+By default the script auto-selects a signing identity: a **Developer ID Application** cert if you have one, otherwise an **Apple Development** cert, otherwise ad-hoc. The pinned designated requirement (`scripts/casablanca.req`) is keyed on the team ID (`OU`), not a specific certificate, so macOS keeps microphone / screen-recording / calendar permissions across rebuilds, version updates, and certificate renewals. The same requirement is pinned on the Xcode build via `OTHER_CODE_SIGN_FLAGS`, so switching between the Xcode build and the distributed `.app` no longer wipes permissions. Ad-hoc signing (no identity available) breaks this — each build looks like a different app to TCC.
+
+The built app bundle is produced at a path like:
+
+```text
+.build/release-dist/Build/Products/Release/Casablanca.app
+```
+
+Optional environment variables:
+
+```bash
+SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' ./scripts/build-release.sh
+DERIVED_DATA_PATH=.build/custom-release ./scripts/build-release.sh
+ZIP_OUTPUT_PATH=.build/release-assets/Casablanca-custom.zip ./scripts/build-release.sh
+
+# Notarize for frictionless public download (requires a paid Developer ID + a
+# stored notarytool credential profile: xcrun notarytool store-credentials):
+NOTARIZE=1 NOTARY_PROFILE='casablanca-notary' \
+  SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+  ./scripts/build-release.sh
+```
+
+> If the pinned requirement's team ID ever changes (e.g. enrolling the same
+> Apple ID in the paid Developer Program issues a new Team ID), update the `OU`
+> value in `scripts/casablanca.req` to match. Confirm the team with
+> `codesign -dvv <app>` (`TeamIdentifier=…`).
+
+## Test
+
+```bash
+xcodebuild test -project Casablanca.xcodeproj \
+  -scheme Casablanca \
+  -derivedDataPath .build/test \
+  -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_IDENTITY=''
+```
+
+## Benchmarking transcription
+
+Transcription speed can only be judged on a real recording, so the app can transcribe one file and exit. Put the audio in `~/Library/Application Support/Casablanca/Benchmarks/` and run the built binary directly:
+
+```bash
+/Applications/Casablanca.app/Contents/MacOS/Casablanca \
+  --benchmark-transcription "$HOME/Library/Application Support/Casablanca/Benchmarks/lorem-44min.m4a" \
+  --benchmark-variant baseline \
+  -whisperFallbackCount 5 -whisperWorkers 16
+```
+
+The run transcribes in Dutch (`nl-NL`), prints the timing summary to stdout, and writes `<yyyyMMdd-HHmmss>-<variant>.json` (timings plus the decoding options the run resolved to) and `<yyyyMMdd-HHmmss>-<variant>.txt` (the transcript, in the same format as a saved transcript) into that same `Benchmarks` folder. Nothing is recorded and the meeting database is never opened.
+
+The `-whisper…` arguments are hidden tuning knobs read from the argument domain of `UserDefaults` (see `TranscriptionOptionsBuilder.Key`), so any combination can be A/B'd without a rebuild: `whisperFallbackCount`, `whisperWorkers`, `whisperEncoderCompute` / `whisperDecoderCompute` (`ane` | `gpu` | `cpu`), `whisperLogProbThreshold`, `whisperCompressionRatioThreshold`, `whisperChunking` (`vad` | `none` — `none` runs WhisperKit's sequential seek loop instead of splitting on silence), `whisperDropSilentChunks` (drops the VAD chunks with no speech in them; only applies to `whisperChunking vad`), `whisperSilentChunkEnergy`.
+
+A faster run is only a win if the transcript holds up, so compare it against a reference transcript of the same recording:
+
+```bash
+scripts/transcript-agreement.py \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/lorem-44min.reference.txt" \
+  "$HOME/Library/Application Support/Casablanca/Benchmarks/20260903-140501-baseline.txt"
+# disagreement=4.21% ref_words=6021 cand_words=6010 edits=253
+```
+
+It ignores the header, timestamps, case and punctuation, and reports the word-level Levenshtein distance as a percentage of the reference. `scripts/transcript-agreement.py --self-test` checks the script itself.
+
+WhisperKit is pinned to an exact revision in `project.pbxproj` rather than tracking `main`, so the engine cannot move between two runs being compared. Bumping it is a deliberate change: update the revision, re-run the benchmark, and treat the new numbers as a new baseline.
+
+The knobs have been measured: [`docs/transcription-benchmarks.md`](docs/transcription-benchmarks.md) records the 2026-09-04/07 campaign on a 44-minute Dutch meeting (Apple M4 Pro, `openai_whisper-large-v3`). **No default was changed as a result** — nothing tested beat the shipped configuration of `ane`/`ane` compute, 16 workers, 5 temperature fallbacks and `vad` chunking, and `chunkingStrategy none` turned out to be 46 % slower rather than faster. The pipeline is ANE-bound at roughly 4× realtime for this model, the run-to-run noise floor is 0.56 % word disagreement, and the keys stay in place so the next idea can be measured instead of argued.
+
+## Notes
+
+- Each GitHub release ships a zipped `.app` bundle.
+- A raw `xcodebuild` output with signing disabled is not suitable for distribution by itself; re-sign the bundle before sharing it.
+- Signing every release with the same team identity is what keeps users' TCC permissions intact across in-app updates — the bundle's designated requirement must stay stable, or macOS revokes the grants on each update.
+- For a frictionless **first** download from GitHub on someone else's Mac, macOS still requires Developer ID signing **and** notarization (a paid Apple Developer account). Without it, Gatekeeper blocks the initial download (the in-app updater strips quarantine, so subsequent updates are unaffected).
+
+## Auto-update
+
+Casablanca checks `https://api.github.com/repos/76r75r6qbh-sys/meeting-assistant/releases/latest` shortly after launch (only when more than 24 hours have passed since the last successful check) and then every 24 hours. Manual checks live under `Casablanca → Check for Updates…`.
+
+When a newer release is found, you'll see a prompt with the release notes and three options:
+
+- **Install Update** — downloads the zip, strips the macOS quarantine attribute, atomically swaps `/Applications/Casablanca.app`, and relaunches.
+- **Remind Me Later** — re-prompts at the next check.
+- **Skip This Version** — silenced until a strictly newer version (per SemVer 2.0.0) appears.
+
+### Requirements
+- Casablanca must live at `/Applications/Casablanca.app`. On first launch from any other location, you'll be prompted to move it there.
+- Install is refused while a recording, transcription, or summarization is in flight.
+- Updates are not cryptographically signed beyond GitHub's HTTPS — same trust model as `brew install`. If the GitHub repo is compromised, the updater would deliver the compromised binary.
+
+### Settings → Updates
+- Toggle: **Automatically check for updates**
+- Last-checked timestamp
+- Manual **Check for Updates…** button
+- Hidden (Option-click the section title): **Include prereleases**, **Reveal install logs in Finder**
+
+### Recovering from a failed update
+- The install is atomic — either the new bundle is in place or the existing one is untouched.
+- Failed installs leave a log under `~/Library/Application Support/Casablanca/Updates/logs/install-<timestamp>.log`. The Settings pane has a button to reveal that folder.

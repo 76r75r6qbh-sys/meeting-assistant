@@ -1,0 +1,220 @@
+import Foundation
+
+enum ObsidianMeetingExporter {
+    /// - Parameter userDefaults: the domain the vault path is read from. Tests
+    ///   MUST pass a scratch domain; the app-facing default is the standard one.
+    static func exportCompletedMeeting(
+        _ meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) throws -> ExportResult {
+        let directory = try meetingNotesDirectory(userDefaults: userDefaults)
+        let notesURL = rawNotesURL(for: meeting, in: directory)
+        let summaryURL = summaryURL(for: meeting, in: directory)
+        let shouldExportSummary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        try preservingActionItems(
+            in: notesURL,
+            rawNotesMarkdown(for: meeting, summaryFileName: shouldExportSummary ? summaryURL.deletingPathExtension().lastPathComponent : nil)
+        )
+        .write(to: notesURL, atomically: true, encoding: .utf8)
+
+        if shouldExportSummary {
+            try summaryMarkdown(for: meeting, notesFileName: notesURL.deletingPathExtension().lastPathComponent)
+                .write(to: summaryURL, atomically: true, encoding: .utf8)
+        }
+
+        return ExportResult(summaryURL: shouldExportSummary ? summaryURL : nil, notesURL: notesURL)
+    }
+
+    static func exportRawNotes(
+        _ meeting: Meeting,
+        userDefaults: UserDefaults = .standard
+    ) throws -> ExportResult {
+        let directory = try meetingNotesDirectory(userDefaults: userDefaults)
+        let notesURL = rawNotesURL(for: meeting, in: directory)
+
+        try preservingActionItems(in: notesURL, rawNotesMarkdown(for: meeting, summaryFileName: nil))
+            .write(to: notesURL, atomically: true, encoding: .utf8)
+
+        return ExportResult(summaryURL: nil, notesURL: notesURL)
+    }
+
+    /// The Notes file doubles as the meeting's todo file when there is no Prep
+    /// file (`ObsidianMeetingFiles.canonicalTodoWriteURL`), so a re-export must
+    /// carry over the `## Action Items` already on disk. The file as it is now is
+    /// the source of truth: deletes and toggles have already been written there.
+    /// Only a missing file counts as "nothing to keep"; any other read failure
+    /// throws so the export fails instead of overwriting the file.
+    private static func preservingActionItems(in notesURL: URL, _ markdown: String) throws -> String {
+        guard FileManager.default.fileExists(atPath: notesURL.path) else { return markdown }
+        let existing = try String(contentsOf: notesURL, encoding: .utf8)
+        let actionItems = ObsidianTodoMarkdown.parseMeetingActionItems(existing)
+        guard !actionItems.isEmpty else { return markdown }
+
+        // The user's own notes carry an `## Action Items` heading: merge, so
+        // newly typed tasks and the lines around them are not dropped.
+        guard let typedNonTaskLines = ObsidianTodoMarkdown.meetingActionItemsNonTaskLines(markdown) else {
+            return ObsidianTodoMarkdown.renderMeetingDocument(markdown, actionItems: actionItems)
+        }
+        let knownTexts = Set(actionItems.map(\.text))
+        let typedTasks = ObsidianTodoMarkdown.parseMeetingActionItems(markdown).filter { !knownTexts.contains($0.text) }
+        return ObsidianTodoMarkdown.renderMeetingDocument(
+            markdown,
+            actionItems: actionItems + typedTasks,
+            trailingLines: typedNonTaskLines
+        )
+    }
+
+    // MARK: - Private (moved verbatim from ExportService)
+
+    private static func meetingNotesDirectory(userDefaults: UserDefaults) throws -> URL {
+        let vaultPath = userDefaults.string(forKey: AppPreferenceKey.obsidianVaultPath)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !vaultPath.isEmpty else {
+            throw ExportError.missingVaultPath
+        }
+
+        let directory = URL(fileURLWithPath: vaultPath, isDirectory: true)
+            .appendingPathComponent("meeting notes", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private static func rawNotesURL(for meeting: Meeting, in directory: URL) -> URL {
+        directory.appendingPathComponent("\(meeting.obsidianFileName) - Notes.md")
+    }
+
+    private static func summaryURL(for meeting: Meeting, in directory: URL) -> URL {
+        directory.appendingPathComponent("\(meeting.obsidianFileName).md")
+    }
+
+    private static func summaryMarkdown(for meeting: Meeting, notesFileName: String) -> String {
+        let summary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let notesLink = "[[\(notesFileName)]]"
+        // Proposed and rejected to-dos stay out of the vault until accepted.
+        let todos = meeting.todos.filter { $0.status == .accepted }
+        let actionItemsSection = todos.isEmpty
+            ? ""
+            : "\n\n## Action Items\n\n" + todos.map { "- [\($0.isCompleted ? "x" : " ")] \($0.text)\(ObsidianTodoMarkdown.suffix(for: $0))" }.joined(separator: "\n")
+
+        return """
+        ---
+        title: \(yamlEscaped(meeting.obsidianFileName))
+        meeting_title: \(yamlEscaped(meeting.title))
+        meeting_date: \(yamlEscaped(isoTimestamp(meeting.date)))
+        casablanca_type: "meeting-summary"\(tagsFrontmatterLine(for: meeting))
+        raw_notes: \(yamlEscaped(notesLink))
+        ---
+
+        # Summary
+
+        \(summary)\(actionItemsSection)
+
+        ## Meeting
+
+        - Scheduled: \(meetingDisplayDate(meeting))
+        \(participantsLine(for: meeting))
+        \(recordingLine(for: meeting))
+        - Transcript: Saved locally by Casablanca.
+
+        ## Raw Notes
+
+        \(notesLink)
+        """
+    }
+
+    private static func rawNotesMarkdown(for meeting: Meeting, summaryFileName: String?) -> String {
+        let freeformNotes = meeting.userNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let renderedFreeformNotes = freeformNotes.isEmpty ? "_No freeform notes captured._" : freeformNotes
+        let summaryLink = summaryFileName.map { "[[\($0)]]" } ?? "_Not exported yet._"
+
+        return """
+        ---
+        title: \(yamlEscaped("\(meeting.obsidianFileName) - Notes"))
+        meeting_title: \(yamlEscaped(meeting.title))
+        meeting_date: \(yamlEscaped(isoTimestamp(meeting.date)))
+        casablanca_type: "raw-notes"\(tagsFrontmatterLine(for: meeting))
+        summary_note: \(yamlEscaped(summaryLink))
+        ---
+
+        # Raw Notes
+
+        ## Meeting
+
+        - Scheduled: \(meetingDisplayDate(meeting))
+        \(participantsLine(for: meeting))
+        \(recordingLine(for: meeting))
+        - Summary note: \(summaryLink)
+
+        ## Freeform Notes
+
+        \(renderedFreeformNotes)
+        """
+    }
+
+    private static func participantsLine(for meeting: Meeting) -> String {
+        let participants = meeting.participants
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !participants.isEmpty else { return "- Participants: Not captured." }
+        return "- Participants: \(participants.joined(separator: ", "))"
+    }
+
+    private static func recordingLine(for meeting: Meeting) -> String {
+        guard let duration = meeting.recordingDuration else { return "- Recording: Not recorded." }
+        return "- Recording: \(formattedDuration(duration))"
+    }
+
+    private static func formattedDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(Int(duration.rounded()), 0)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 { return String(format: "%dh %02dm %02ds", hours, minutes, seconds) }
+        if minutes > 0 { return String(format: "%dm %02ds", minutes, seconds) }
+        return "\(seconds)s"
+    }
+
+    private static func meetingDisplayDate(_ meeting: Meeting) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: meeting.date)
+    }
+
+    private static func isoTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    /// A leading-newline `tags:` YAML block-sequence line for the frontmatter, or
+    /// empty string when the meeting has no tags (so the key is omitted entirely).
+    /// Tags are normalized (lowercase, trimmed) at write time, but we still quote
+    /// each value so any spaces stay valid YAML and Obsidian's tag parser is happy.
+    /// Emitted as a `casablanca-` prefix-free flow list under `tags:` so Obsidian's
+    /// native tag system picks them up.
+    static func tagsFrontmatterLine(for meeting: Meeting) -> String {
+        let tags = Meeting.normalizeTags(meeting.tags)
+        guard !tags.isEmpty else { return "" }
+        let items = tags.map { "\n  - \(yamlEscaped($0))" }.joined()
+        return "\ntags:\(items)"
+    }
+
+    /// A YAML double-quoted scalar. Backslash first (so the escapes added after
+    /// it are not doubled), then the quote, then line breaks and tabs — a raw
+    /// newline in a title would otherwise end the scalar and break the
+    /// frontmatter.
+    static func yamlEscaped(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        return "\"\(escaped)\""
+    }
+}

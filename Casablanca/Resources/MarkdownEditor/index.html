@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="toastui-editor.min.css">
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --editor-foreground: #1f2937;
+      --editor-muted: #475569;
+      --editor-link: #2563eb;
+      --editor-toolbar-background: rgba(248, 250, 252, 0.96);
+      --editor-toolbar-border: rgba(15, 23, 42, 0.08);
+      --editor-code-background: rgba(148, 163, 184, 0.18);
+      --editor-selection-background: rgba(59, 130, 246, 0.2);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --editor-foreground: #e5e7eb;
+        --editor-muted: #cbd5e1;
+        --editor-link: #93c5fd;
+        --editor-toolbar-background: rgba(15, 23, 42, 0.82);
+        --editor-toolbar-border: rgba(148, 163, 184, 0.2);
+        --editor-code-background: rgba(148, 163, 184, 0.24);
+        --editor-selection-background: rgba(96, 165, 250, 0.28);
+      }
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    body {
+      color: var(--editor-foreground);
+    }
+
+    #editor {
+      width: 100%;
+      height: 100%;
+    }
+
+    .toastui-editor-defaultUI {
+      border: 0;
+      background: transparent;
+      height: 100%;
+    }
+
+    .toastui-editor-toolbar {
+      border-bottom-color: var(--editor-toolbar-border);
+      background: var(--editor-toolbar-background);
+    }
+
+    .toastui-editor-main {
+      background: transparent;
+    }
+
+    .toastui-editor-md-container,
+    .toastui-editor-ww-container {
+      background: transparent;
+    }
+
+    .toastui-editor-contents,
+    .toastui-editor-md-preview,
+    .toastui-editor-md-container .CodeMirror,
+    .toastui-editor-md-container .CodeMirror-scroll {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      background: transparent;
+      color: var(--editor-foreground);
+    }
+
+    .toastui-editor-toolbar button,
+    .toastui-editor-toolbar button svg,
+    .toastui-editor-defaultUI-toolbar button,
+    .toastui-editor-defaultUI-toolbar button svg,
+    .toastui-editor-mode-switch .tab-item {
+      color: var(--editor-foreground);
+      fill: var(--editor-foreground);
+    }
+
+    .toastui-editor-contents a,
+    .toastui-editor-md-preview a {
+      color: var(--editor-link);
+    }
+
+    .toastui-editor-contents code,
+    .toastui-editor-contents pre,
+    .toastui-editor-md-preview code,
+    .toastui-editor-md-preview pre {
+      background: var(--editor-code-background);
+    }
+
+    .toastui-editor-contents blockquote,
+    .toastui-editor-md-preview blockquote {
+      color: var(--editor-muted);
+    }
+
+    .toastui-editor-md-container .CodeMirror pre,
+    .toastui-editor-md-container .CodeMirror-line,
+    .toastui-editor-md-container .CodeMirror-lineLike,
+    .toastui-editor-md-container .CodeMirror-gutters,
+    .toastui-editor-md-container .CodeMirror-cursor {
+      color: var(--editor-foreground);
+      border-color: var(--editor-foreground);
+    }
+
+    .toastui-editor-md-container .CodeMirror-selected,
+    .toastui-editor-md-container .CodeMirror-line::selection,
+    .toastui-editor-md-container .CodeMirror-line > span::selection,
+    .toastui-editor-md-container .CodeMirror-line > span > span::selection {
+      background: var(--editor-selection-background);
+    }
+
+    body[data-editable="false"] .toastui-editor-toolbar,
+    body[data-editable="false"] .toastui-editor-mode-switch {
+      display: none;
+    }
+
+    body[data-editable="false"] .toastui-editor-main {
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body data-editable="true">
+  <div id="editor"></div>
+  <script src="toastui-editor-all.min.js"></script>
+  <script src="bridge.js"></script>
+</body>
+</html>

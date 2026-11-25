@@ -1,0 +1,17 @@
+## Xcode user-specific files
+*.xcuserstate
+xcuserdata/
+
+## Build artifacts
+build/
+.build/
+DerivedData/
+
+## macOS metadata
+.DS_Store
+
+## Conductor workspace
+.context/
+
+## Coverage artifacts
+default.profraw

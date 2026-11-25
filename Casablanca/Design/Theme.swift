@@ -1,0 +1,129 @@
+import AppKit
+import SwiftUI
+
+// MARK: - Adaptive Color Helper
+
+extension Color {
+    init(light: Color, dark: Color) {
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark ? NSColor(dark) : NSColor(light)
+        })
+    }
+}
+
+// MARK: - Color Tokens
+
+extension Color {
+    // Background
+    static let backgroundPrimary = Color(nsColor: .windowBackgroundColor)
+    static let backgroundSecondary = Color(nsColor: .controlBackgroundColor)
+    static let backgroundTertiary = Color(light: .init(red: 0.937, green: 0.937, blue: 0.941),
+                                          dark: .init(red: 0.110, green: 0.110, blue: 0.118))
+    static let backgroundHover = Color(light: .init(red: 0.910, green: 0.910, blue: 0.918),
+                                       dark: .init(red: 0.137, green: 0.137, blue: 0.149))
+    static let backgroundActive = Color(light: .init(red: 0.875, green: 0.875, blue: 0.882),
+                                        dark: .init(red: 0.173, green: 0.173, blue: 0.180))
+
+    // Text
+    static let textPrimary = Color(nsColor: .labelColor)
+    static let textSecondary = Color(nsColor: .secondaryLabelColor)
+    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
+
+    // Border
+    static let borderSubtle = Color(nsColor: .separatorColor)
+    static let borderDefault = Color(nsColor: .tertiaryLabelColor).opacity(0.3)
+    static let borderFocus = Color.accentColor
+
+    // Accent — honor the user's System Settings accent color (HIG)
+    static let accentPrimary = Color.accentColor
+    static let accentSecondary = Color(nsColor: .systemPurple)  // AI / processing tint
+    static let accentSuccess = Color(nsColor: .systemGreen)
+    static let accentWarning = Color(nsColor: .systemOrange)
+    static let accentDanger  = Color(nsColor: .systemRed)
+
+    // State (semantic; adapt to appearance & Increased Contrast)
+    static let stateRecording  = accentDanger
+    static let stateProcessing = accentSecondary
+    static let stateLive       = accentSuccess
+    static let stateIdle       = Color(nsColor: .tertiaryLabelColor)
+    static let stateAIGenerated = accentSecondary.opacity(0.15)
+}
+
+// MARK: - View Modifiers
+
+struct CardStyle: ViewModifier {
+    var isHighlighted: Bool = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(CasaSpace.md)
+            .background {
+                // Layered material: base fill + a gentle top-down highlight for depth.
+                // The base token keeps the fill appearance-correct in light & dark;
+                // the white-opacity gradient adds a soft raised-edge highlight that
+                // reads as depth in dark mode and stays subtle in light mode.
+                Color.backgroundTertiary
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.06), Color.white.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: CasaRadius.xl))
+            // 1px hairline border, appearance-correct in both light and dark.
+            .overlay(
+                RoundedRectangle(cornerRadius: CasaRadius.xl)
+                    .strokeBorder(Color.borderSubtle, lineWidth: 1)
+            )
+            .overlay(alignment: .leading) {
+                if isHighlighted {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                        .padding(.vertical, CasaSpace.xs)
+                }
+            }
+    }
+}
+
+extension View {
+    func cardStyle(isHighlighted: Bool = false) -> some View {
+        modifier(CardStyle(isHighlighted: isHighlighted))
+    }
+}
+
+// MARK: - Native macOS Button Style Wrappers
+// These wrap native styles to respect system accent color, focus rings,
+// Increased Contrast, and standard macOS press feedback (no scale effect).
+
+struct PrimaryButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+    }
+}
+
+struct GhostButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+struct SecondaryButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(role: nil, action: configuration.trigger) {
+            configuration.label
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+    }
+}

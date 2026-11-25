@@ -1,0 +1,359 @@
+# Changelog
+
+All notable changes to Casablanca are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.23.0] — 2026-11-18
+
+One list: the To-Dos. The Approvals inbox is gone, and a draft reply is made only when you ask for one on a to-do.
+
+> **One-way upgrade:** this version migrates the store to schema V4. Older builds (0.22.x and earlier) cannot open it afterwards.
+
+### Added
+
+- **Draft reply on to-dos.** Open, accepted to-dos have a *Draft reply* action (hover the row, or the context menu); it is not offered on proposed or done to-dos. A sheet shows the to-do, a link to its meeting and its source link, and Claude Code writes a draft from the to-do, the meeting's summary and transcript, and the source it points to, in the language of the source, with a one-line hint of the channel (email, Teams, Jira, Topdesk). The run is headless (`claude -p`) and read-only: only `work-gateway` is loaded (`--strict-mcp-config`), only read tools are allowed, every gateway send/write tool plus `Bash`, `Write` and `Edit` is blocked, and `--permission-mode default` overrides a user `auto` mode, so the app cannot send anything. User skills and `CLAUDE.md` apply; user hooks do not run. Timeout 180 s.
+  - **Revise** rewrites the current draft, including your edits, with a steer ("shorter, Dutch, more formal…"); it runs without tools and a failed revision keeps the draft.
+  - **Start over** runs the full draft again and asks before discarding edits. **Copy** puts the draft on the clipboard. **Continue in Claude Code** opens Terminal with an interactive `claude` session in ask mode (`--permission-mode default`), seeded with the prompt, the draft and the steer.
+  - Drafts are never saved; closing the sheet cancels a running draft.
+  - *Settings → Draft replies* picks the model (Haiku, Sonnet or Opus; default Sonnet) and shows the `claude` CLI it uses, shared with the Claude Code summarization provider.
+- **Source links on to-dos.** An Obsidian to-do line can end with `🔗 <scheme>:<ref>`, written last after ` — owner 📅 yyyy-MM-dd [mm:ss]`, e.g. `🔗 jira:ABC-1234` or `🔗 topdesk:LI2611 0123`. Schemes: `outlook`, `teams`, `jira`, `topdesk`, `url`. A line with only a link is valid, and lines round-trip unchanged. The link is stored on the to-do (schema V4, a lightweight migration from V3) and shown as a chip next to the meeting; `jira` opens the issue on your-site.atlassian.net and `url` opens http(s) links in the browser. A `topdesk` ref is passed to the draft as text only (no Topdesk connector in the run).
+
+### Removed
+
+- **The Approvals inbox.** The sidebar item, its cards, the Approvals results in global search, *Settings → Action Queue* (the `action-queue.json` path), the menu-bar pending count and the Dock badge are gone. Casablanca no longer reads `action-queue.json`; the file itself is left alone. `docs/action-queue-approvals.md` is marked retired.
+
+## [0.22.0] — 2026-11-10
+
+Teams' compact meeting view no longer splits a recording into several meetings.
+
+### Fixed
+
+- **The compact meeting view is part of the call.** Teams shows a small floating "Meeting compact view" window when the meeting window is not in front or a screen is shared. Casablanca read it as a new call: each time it opened or closed, the recording stopped and a new one started, so one meeting became several ("<meeting> (continued)" for a calendar meeting, or "Meeting compact view | <meeting>" for an ad-hoc one). The compact view now resolves to the meeting's own name, and any Teams window titled "<something> | <current call>" counts as the current call, so a variant not seen yet (such as the Dutch Teams wording) does not split a recording either. A new call whose title is exactly "<something> | <current call's name>" is therefore not detected as a switch.
+
+## [0.21.0] — 2026-11-06
+
+Casablanca now knows who said what, writes summaries from structured facts with a source for every action item, and lets you approve to-dos before they reach Obsidian. Based on a comparison with Granola, Otter, Fireflies, Teams Copilot and recent research (see `docs/research/2026-11-05-transcription-diarization-summary-best-practices.md`).
+
+### Added
+
+- **Speakers.** The microphone and the call audio are kept as separate tracks, so the transcript marks your own lines ("Me") apart from the others. Lines from the call that leak into the microphone are attributed to the call. On macOS 15 and later, the other voices are told apart on this Mac (FluidAudio with the pyannote community-1 models; see *Licences* below), as "Speaker 1", "Speaker 2", and so on. In a room meeting with one microphone, everyone becomes a room speaker. Rename a speaker in the speakers bar above the transcript and listen to a short sample of their voice. Giving two speakers the same name merges them. "Suggest names" asks the summary model to propose names from the calendar attendees and what was said; this is a button, and automatic suggestions are off by default, so transcript excerpts never go to a model without you asking.
+- **Action items with a source.** Every action item now carries an owner, a due date (relative dates such as "vrijdag" become a date), a quote and a `[mm:ss]` timestamp. A second check compares each item with the transcript and marks it *supported*, *unsupported* or *not checked*.
+- **Approve to-dos before they sync.** New to-dos are *proposed*: review them in the strip at the top of the summary, in *To-dos → Review*, or in the meeting panel. Accept, edit or reject each one, or *Accept all verified*. Only accepted to-dos are written to Obsidian, exported or counted. *Settings → Action Items → Auto-accept verified to-dos* (off by default) accepts items the transcript supports. Your decisions are logged on this Mac (Application Support/Casablanca/feedback) to measure quality; the log can be deleted in Settings, and deleting a meeting removes its entries.
+- **Clickable timestamps.** Every `[mm:ss]` in a summary, to-do or Ask answer jumps to that line in the transcript and plays the recording from there. The transcript has a small play/pause bar.
+- **Summary templates per meeting type.** General, 1:1 / bilateral, Stand-up, Refinement / planning, Workshop and External / partner are picked automatically from the title and the attendees. Change the template with *Regenerate with…*, and edit or add templates in *Settings → Summary Templates*. After you rename speakers, the meeting offers to regenerate the summary with the new names.
+- **Ask across meetings.** Ask a question over all your meetings, for example "what did we agree with Northwind?". The answer cites the meetings and timestamps it is based on. Search runs on this Mac; only the selected passages go to your summary model.
+- **Voice profiles (off by default).** With your colleague's explicit consent, save their voice once; Casablanca then suggests their name in later meetings. A voice profile is biometric personal data (GDPR/AVG art. 9). It is stored only on this Mac, encrypted (AES-GCM, key in the Keychain), and used only for suggestions. Turning the setting off deletes all profiles and their suggestions. Within an organisation, do a DPIA first.
+- **Export for evaluation.** *File → Export Meeting for Evaluation…* writes the meeting as JSON for the `tools/eval` scorer, which measures the recall and precision of action items against a hand-made gold set.
+
+### Changed
+
+- **Summaries always start from structured facts.** Decisions, action items and open questions are extracted first (per part for long meetings, also with Claude Code), and the summary is written from them. If the model's JSON is unusable, Casablanca repairs it once and otherwise falls back to the previous method, never silently with fewer action items.
+- **Your prep and notes guide the summary.** They are sent as "what I find important". The attendee list marks you and includes e-mail addresses.
+- **Whisper gets your terminology as a prompt** (the most important terms, within Whisper's 224-token limit), and word timestamps are on so speakers line up with the words. New installs default to `large-v3`; existing installs keep their model. *Measurements of WER and speed on this Mac follow after on-device testing.*
+- **A custom General prompt** still applies to General meetings. Meetings that auto-select another template (1:1 / bilateral, Stand-up, External / partner) now use that template; choose *Regenerate with… → General* to use your own prompt, or edit the other templates.
+- The old *Customize Prompt…* editor in Settings is replaced by *Settings → Summary Templates* (General edits the same prompt).
+- Automatic exports of one meeting are combined and never overlap, so rapid edits or accepts no longer risk duplicate Apple Notes. Quitting finishes pending exports.
+
+### Licences
+
+Speaker separation uses [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0) and the pyannote speaker-diarization-community-1 models (segmentation, WeSpeaker embedding and PLDA by BUT Speech@FIT), converted to Core ML by Fluid Inference and licensed [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). About 22 MB, downloaded once from Hugging Face; audio never leaves this Mac.
+
+## [0.20.0] — 2026-11-05
+
+Teams auto-record now knows which call it is recording. An ad-hoc 1:1 taken during a calendar item no longer ends up in that item's meeting, and a call that follows another without a break is recorded too.
+
+### Changed
+
+- **Teams auto-record names the recording after the call.** Casablanca reads the Teams call window's title (a person, e.g. "Marco Smit", or a meeting subject) with the Screen Recording permission it already has. A call whose name matches a running calendar event is recorded into that event, even when another event overlaps. An ad-hoc call whose name matches no running event no longer lands in an overlapping calendar event: it becomes a meeting named after the call. Without a readable title, the old time-based choice applies.
+- **A new Teams call during a running one is recorded too.** Teams can keep the microphone open from one call into the next, so a 1:1 right after a meeting used to look like the same call and was never recorded. With auto-record on, Casablanca now checks the Teams call windows every 10 seconds during a call: once a new call window has been the newest for 10 seconds, it ends the old call (stopping its recording when auto-stop is on) and starts recording the new one. Detection takes up to about 25 seconds, and the new recording starts once the previous one has stopped, so the start of the new call is not recorded.
+
+## [0.19.1] — 2026-11-05
+
+Long meetings are now summarized in full. Until now every transcript was cut to about 24,000 characters before summarizing, so a 2.5-hour meeting lost about 84 % of its content (only the start and end were used).
+
+### Fixed
+
+- **Long transcripts are no longer cut before summarizing.** With Claude Code, the whole transcript goes to the model in one call (up to about 300,000 characters). With a local model (Ollama, oMLX), a meeting that doesn't fit is summarized in parts: each part is condensed into short notes with timestamps (topics, decisions, action items, open questions), and your own summary template then runs over those notes. The summary format, to-dos and export are unchanged.
+- **Ollama no longer drops the start of long prompts.** Casablanca now tells Ollama how much context each request needs (16k–32k tokens) instead of relying on Ollama's small default.
+- **Terminology correction no longer risks saving a transcript with its start missing.** For transcripts over about 47,000 characters, the model-based correction step is skipped with a warning; the dictionary replacements still apply.
+- **Chat about a meeting** uses the whole transcript with Claude Code, instead of the same short limit as local models.
+
+### Changed
+
+- While a long meeting is summarized in parts, the status shows the progress ("Summarizing part 3 of 13 with Ollama…", "Combining notes…"). A part that fails is retried, and a retry reuses parts that already succeeded.
+- When part notes hit the model's output limit, the summary says so ("Notes for some parts hit the output limit; the summary may miss details from them.").
+
+## [0.19.0] — 2026-10-22
+
+Records Teams calls by itself, opens a meeting's prep next to the notes, and stops filling your to-do list with other people's action items. Also a broad code review: fixes for lost audio, lost Obsidian content and a crash when narrowing the window.
+
+### Added
+
+- **Record Teams calls automatically.** With *Settings → Automatically record Microsoft Teams calls* on (off by default), Casablanca starts recording when a Teams call has used the microphone for 5 seconds. The recording goes to the calendar event running at that moment (from 10 minutes before its start, preferring events with a Teams link); without one, it creates a "Teams call HH:mm" meeting. A notification with a Stop button confirms it. Recording also works with the main window closed, and doesn't bring Casablanca to the front.
+- **Stop recording when the Teams call ends** (on by default, independent of auto-record). A recording that overlapped a Teams call — auto-started, or started by hand — stops about 20 seconds after Teams stops using both the microphone and the speakers, then transcribes as usual. A long mute no longer ends the call. A recording that never overlapped a call is never stopped.
+- **Prep opens automatically.** Opening a meeting that has prep (a `- Prep.md` in the vault, or local prep notes) opens the side panel on the Prep tab. Can be turned off in Settings. Local prep notes now show in the panel too.
+- **Only your own action items become to-dos.** Set your name and aliases in *Settings → Action Items* (defaults to your account name). Action items for others stay in the summary and the exported notes but no longer land on your to-do list. Items without an owner are skipped unless you turn them on. The summary prompt now knows who the note-taker is.
+
+### Fixed
+
+- **The Approvals inbox reads the right queue.** It now defaults to `<vault>/Memory/action-queue.json` instead of a folder that no longer holds the queue. Concurrent writes by skills are no longer lost.
+- **Ticking or deleting a to-do keeps the rest of the Obsidian file.** Sub-bullets, free text and other headings under "Action Items" were removed; to-do edits now change only their own line. A file that can't be read is never overwritten.
+- **Saving prep no longer overwrites newer content.** It writes back to the file it was loaded from, keeps to-dos added meanwhile, and never replaces a vault prep file it didn't load.
+- **No more crash when narrowing the window with the side panel open.** The panel now hides below 880 pt and comes back when the window is wide enough.
+- **Recording keeps capturing the microphone** when the audio device switches format (e.g. AirPods switching to call mode), after a second unplug of the same mic, and after wake (devices are now remembered by their stable ID). A mic track that can't be read is no longer deleted during mixdown. Mid-recording mic and system-audio changes survive a sleep/resume.
+- **Sleep and lock handling keeps working with the main window closed**, and reopening the window no longer re-runs launch work (which could delete a staged update).
+- **Switching meetings resets per-meeting state:** auto-summarize runs for the next meeting, and Stop works after switching meetings during a stop.
+- **Stopping a long recording no longer freezes the app**: segments are merged by streaming, off the main thread.
+- Updates must be signed by Casablanca's team; YAML frontmatter escapes backslashes and line breaks; the Claude CLI path probe accepts only an executable path.
+
+### Changed
+
+- The side panel (Prep & To-Dos, meeting details) is a Casablanca panel instead of the system inspector, with a drag-to-resize edge.
+- Less work per frame while recording and transcribing (audio meter, sidebar rows, dashboard).
+
+### Internal
+
+- Dead code removed (unused views, types and helpers); shared recording file helpers. 950 → 1121 tests.
+
+## [0.18.1] — 2026-10-19
+
+Fixes to-dos disappearing from a meeting's Obsidian notes after the meeting was edited.
+
+### Fixed
+
+- **Editing a meeting no longer removes its to-dos from Obsidian.** With auto-export on, every save rewrote the meeting's `- Notes.md` file without its "Action Items" section. For a meeting without a Prep file, that section is where its to-dos live. They disappeared from the vault, and the next to-do added to that meeting made Casablanca delete the old ones. Exports now keep the existing to-dos with their IDs and checked state.
+- **To-dos you type under your own "## Action Items" heading are kept.** They are added after the existing to-dos instead of being replaced by them.
+- **An unreadable Notes file is no longer overwritten.** If the existing file can't be read (an encoding or permission problem, or an iCloud file that isn't downloaded), the export now fails and shows an error, and the file is left as it is.
+
+### Internal
+
+- 943 → 950 tests.
+
+## [0.18.0] — 2026-10-19
+
+Fixes the "Your meeting database could not be opened and may have been corrupted" alert and the lost meetings that came with it. The database was not corrupt: another app was writing to the same file.
+
+### Fixed
+
+- **Another app can no longer overwrite Casablanca's meeting database.** Casablanca stored its database at SwiftData's shared default location, `~/Library/Application Support/default.store`. Any other app without the macOS sandbox that uses SwiftData's default writes to that same file. One such app replaced it, and Casablanca's corrupt-store recovery then set the other app's database aside and started empty, so both apps lost data. The database now lives at `~/Library/Application Support/Casablanca/Casablanca.store`. Backups and corrupt-store recovery only ever touch that file.
+- **Existing data moves over once, as a copy.** On first launch, Casablanca copies the old `default.store` only if it actually contains Casablanca's tables and passes an integrity check. The copy is written as one self-contained file and synced to disk before it is put in place. The old file is never opened, changed or deleted. A marker file records that the move was decided, so old data is never imported twice. If the old database belongs to Casablanca but cannot be copied, Casablanca starts a new database and names the old file's path in an alert. If copying fails because of a filesystem error, Casablanca runs in temporary mode for that launch and tries again on the next one.
+
+### Internal
+
+- The unit-test host now uses an in-memory store and skips launch work, so a test run can no longer open, back up or prune the real database, or clean up real recording sessions. 926 → 943 tests.
+
+## [0.17.0] — 2026-10-06
+
+Fixes a crash that could take Casablanca down shortly after launch or while making the window smaller.
+
+### Fixed
+
+- **No more crash shortly after launch or when shrinking the window.** The main window's detail column reported a minimum size that depended on its content, such as the dashboard's "Up next" card appearing after a calendar refresh, or text re-wrapping as the window narrowed. Each change re-triggered AppKit's layout pass from inside that pass. In a small, tiled or background window this could repeat until macOS aborted the app ("more Update Constraints in Window passes than there are views"). The detail column and both inspectors now report a fixed minimum size. The window minimum stays 480 × 500, and the sidebar still collapses below 600 pt.
+- **The dashboard's "Up next" card no longer wraps one character per line in a narrow window.** The label and time line stay on one line, and the buttons shrink to icons before the text truncates.
+
+### Internal
+
+- `SplitLayoutStabilityTests` hosts the main window's split layout in a real window. It counts the exact AppKit call path from the crash report while the dashboard's content changes at small window sizes. It first checks that the layout without the fix is still detected on the current macOS; with the fix the count is zero. 925 → 926 tests.
+
+## [0.16.0] — 2026-09-07
+
+Recordings now survive the laptop sleeping or locking, and unfinished recordings from earlier incidents are recovered at launch. The transcription pipeline was instrumented and benchmarked; the model and its defaults were deliberately left unchanged after measurement, but the transcript now appears sooner and the model no longer reloads for every meeting.
+
+### Fixed
+
+- **A recording is no longer lost when the Mac sleeps or the screen locks.** Finalizing a segment is now one-shot and decides "nothing was captured" from the bytes on disk, so an interrupted recording can no longer be deleted by a second stop racing the first. Segment numbers are reserved so a retry or a second start can never overwrite an earlier segment, and the app never deletes a session folder that still holds audio.
+- **Stop can no longer race an interruption.** A user Stop that arrives while the sleep handler is finalizing now waits for that finalize and merges every segment, instead of merging a truncated recording and deleting the rest.
+- **Sleep no longer strands the recording.** Casablanca holds an idle-sleep assertion while recording (and while transcribing), so an idle Mac stays awake without Amphetamine. When the lid closes anyway, the recording is finalized before the Mac suspends (via IOKit's power-change deferral), and on wake it resumes automatically as long as you are still within the meeting's slot plus 15 minutes (30 minutes after the pause for manual meetings). Beyond that it stays paused with Resume and Stop offered; nothing is deleted.
+- **Locking the screen or letting the display sleep no longer pauses a recording.**
+- **Resume failures are shown instead of silently ignored**, the audio engine is retried with backoff right after wake, and the paused timer shows the total already recorded after a relaunch. A paused meeting whose recording is still recoverable is no longer converted to notes-only.
+- **A dead system-audio stream can no longer hang the stop**, and a stale stream from before a sleep can no longer pause the resumed recording.
+- **Navigating away from a meeting during transcription no longer starts a second transcription** when you come back; the post-recording pipeline is owned by the app, not the view.
+
+### Added
+
+- **Recovery of unfinished recordings at launch.** Orphaned raw audio from earlier data-loss incidents is rendered into segments, stuck meetings are reconciled (paused where audio exists, notes-only where none does), and a one-time toast tells you what to Resume or Stop. Also available as Casablanca → Recover Unfinished Recordings…. Nothing is deleted until you press Stop.
+- **Transcription timing report and benchmark harness.** Each transcription logs per-phase timings and fallback counts; `--benchmark-transcription` measures a recording under any combination of hidden tuning keys, and `scripts/transcript-agreement.py` compares transcripts. See `docs/transcription-benchmarks.md`.
+- **Diagnostics.** Every interruption, finalize, resume attempt, recovery step and transcription run is logged under `app.casablanca` so `log show` has evidence next time.
+
+### Changed
+
+- **The Whisper model stays loaded between meetings** when Claude Code is the language-model provider (Ollama and oMLX still unload it to free RAM), saving the 20–25 s reload per meeting. It is unloaded under memory pressure.
+- **The transcript appears before the recording is compressed**: AAC compression now runs after the transcript is saved and exported instead of before.
+- **Live transcript** entries merge per chunk with absolute timestamps instead of flickering between chunks.
+- **Transcription defaults are unchanged by design.** A benchmark campaign on this hardware showed `large-v3` is Neural-Engine-bound at ~4× realtime and that worker count, encoder placement, fallback count and chunking cannot improve it; details in `docs/transcription-benchmarks.md`. WhisperKit is now pinned to a fixed revision.
+
+### Internal
+
+- Tests can no longer write to the real Obsidian vault or the real preference domain (guarded by `TestVaultGuard` and a source scanner). 736 → 925 tests.
+
+### Verify on device
+
+The lid-close finalize, the 2-minute lock, idle sleep under `pmset sleep 1`, the 35-minute sleep policy and the launch recovery of existing session folders need confirmation on real hardware; see the plan's verification list.
+
+## [0.15.0] — 2026-07-30
+
+Claude Code joins Ollama and oMLX as a language-model provider, so summaries can come from a frontier model billed against your existing Claude subscription instead of a model running on this Mac.
+
+### Added
+
+- **Claude Code as a third LLM provider.** Settings → AI now offers "Claude Code" alongside Ollama and oMLX. Choosing it runs the installed `claude` CLI in headless mode for summaries, "Ask your meeting" chat, and prep drafting — no API key, and usage draws on your Claude subscription's limits rather than a per-token charge. The CLI path is detected automatically on first lookup (the native installer's `~/.local/bin/claude`, Homebrew, and `/usr/local/bin` are all checked, with a login-shell `command -v` as the fallback) and written back into Settings so you can see and override it.
+- **Retry feedback while a chat answer is being fetched.** "Ask your meeting" now says which attempt it is on when a request fails and is retried, instead of showing an indefinite "Thinking…". Summaries already did this.
+
+### Changed
+
+- **Settings and onboarding no longer claim everything stays on your Mac.** That was true with only local providers and is not with Claude Code, so the wording is now provider-aware throughout: the AI section is headed "Language Model" rather than "Local LLM", the endpoint field becomes "CLI path", and onboarding's privacy line names Anthropic as the recipient of the transcript when Claude Code is selected. Wording for Ollama and oMLX is unchanged.
+- **Each provider can ask for the timeout it needs.** A frontier model producing a full structured summary takes longer than a local one, and the previous fixed 120-second limit would have failed and then retried — billing several generations to deliver nothing. Claude Code now gets 300 seconds for summaries, chat, and prep drafts. Ollama and oMLX keep their existing 120 seconds.
+- **Terminology correction skips its model pass when the provider cannot echo a whole transcript.** The pass sends the full untruncated transcript and expects the complete text back, which is not workable with Claude Code within any sane timeout — it would have stalled the post-recording pipeline for four minutes, spent a billed generation, and then fallen back anyway. The deterministic find/replace still runs, and a notice explains what did and did not happen.
+
+### Fixed
+
+- **A subprocess whose output never reaches end-of-file now fails loudly instead of reporting success with empty output.** Previously a reply still being held open past its grace period produced an apparently successful but blank result, which cannot be retried because nothing looks wrong.
+- **Cancelling a summary or chat no longer leaves the language-model process running.** Cancellation now terminates the child process, escalating from `SIGTERM` to `SIGKILL` if needed, so a cancelled request stops consuming subscription usage.
+
+## [0.14.0] — 2026-07-16
+
+Performance pass across the post-recording pipeline: terminology correction, summarization, and the transcribing progress bar.
+
+### Changed
+
+- **Terminology correction is dramatically faster with a long custom terminology list.** It used to run one full-transcript regex pass per alias — hundreds of full scans once the list grew — synchronously on the main thread, and re-parsed the raw settings text on every call. Now it's a single combined regex pass with cached parsing and a cached compiled dictionary, running off the main thread so a long list no longer freezes the UI.
+- **Meeting summaries no longer send an unbounded transcript to the local model.** Long meetings (this app's own recordings run 50-80k+ characters) are now bounded to the same context-window budget and head/tail-preserving truncation already used by "Ask your meeting" chat, so the prompt reliably fits alongside the rest of the context. A warning appears if a transcript had to be shortened.
+- **Transcribing progress no longer looks frozen then jumps to 100%.** The local Whisper model now prewarms during loading instead of compiling on the first real chunk (the likely cause of the bar appearing stuck around 12%), and the bar now creeps gently between real progress updates instead of sitting dead still.
+
+### Fixed
+
+- **Terminology correction no longer silently times out on the app's largest transcripts.** The LLM correction pass had a fixed 60-second timeout; it now scales with transcript length, so large meetings don't quietly fall back to regex-only correction without any visible error.
+
+## [0.13.0] — 2026-07-16
+
+Much better meeting summaries: a richer "Pocket-style" default prompt and working action-item extraction for Dutch meetings.
+
+### Changed
+
+- **New default summary prompt (Pocket-style).** Summaries are now written in the language of the transcript and structured as a short lead summary, 2–5 thematic sections, an optional chronological **Planning** section, and an optional personnel section, followed by the fixed closing sections (Decisions / Action Items / Risks and Blockers / Follow-ups — or their Dutch equivalents). Action items are owner-tagged (`- **Wesley** — …`), decisions include their stated rationale, and the model is instructed to correct speech-recognition mistranscriptions of names using the terminology and participants lists — and to never comment on transcript quality in the notes. **Note:** if you customized the prompt template in Settings, reset it to the default to pick this up.
+- **Participants are now injected into the summarization prompt** (`{{participants}}` template variable), so the model can attribute action items to the right people and correct misheard names.
+- **Summary output limit raised from 2000 to 3500 tokens** (thinking off) so the richer structure doesn't get truncated — truncation used to eat the closing action-items section first.
+
+### Fixed
+
+- **Dutch summaries now produce to-dos.** The summary parser only recognized English section headers (`## Action Items`, `## Decisions`, …), so Dutch summaries (`## Actiepunten`, `## Besluiten`, `## Risico's en blockers`, `## Opvolging`) silently produced no extracted decisions, action items, risks, or follow-ups — and no meeting to-dos. The parser now accepts Dutch header aliases, both curly and straight apostrophes (`Risico’s`/`Risico's`), and trailing colons.
+
+## [0.12.0] — 2026-06-25
+
+Pause/resume correctness: a lost display now pauses the recording (instead of silently going microphone-only), and resuming continues the timer instead of resetting it.
+
+### Changed
+
+- **Losing the display auto-pauses the recording.** When no display is available to ScreenCaptureKit (lid closed with no external monitor), the recording now cleanly **auto-pauses** rather than continuing microphone-only (the v0.11.0 behavior). It auto-resumes when a display returns (within the auto-resume window; otherwise it stays paused for a manual resume). Detection uses the *online* display list, so an idle screen that merely went to sleep (lid open) does **not** pause a running recording. The lid-close path raises both screen-lock and display-unavailable interruptions; resume is guarded so it never deadlocks if the screen-parameters notification doesn't re-fire on wake.
+
+### Fixed
+
+- **Resume no longer resets the timer to 00:00.** The elapsed-time display now continues from the total already recorded across earlier segments when a paused recording resumes (and the paused display shows the cumulative total), instead of restarting from the new segment.
+
+### Verify on device
+
+- The display-loss auto-pause depends on macOS reporting the built-in display as offline when the lid closes and posting a screen-parameters change. Confirm on real hardware: start a recording, close the lid (no external monitor) → recording pauses; reopen → it resumes and the timer continues. Clamshell with an external display should keep recording without pausing.
+
+## [0.11.0] — 2026-06-25
+
+More recording resilience: closing the laptop lid no longer fails the recording outright.
+
+### Fixed
+
+- **Recording continues (microphone-only) when system audio can't be captured.** System audio is captured via ScreenCaptureKit, which streams off a *display*; a closed lid with no external monitor has no capturable display, so the stream failed to start with "Geen beeldschermen of vensters gevonden om op te nemen" / "no displays or windows found to record" — and that error aborted the whole recording, resetting the timer to 00:00. The session now degrades to microphone-only instead of failing: the recording (and timer) keep running, and a non-fatal notification tells you system audio is unavailable (so you know remote meeting audio may be missing). System audio recovers automatically on the next resume once a display is available again.
+
+### Known follow-ups (not in this release)
+
+- A system-audio stream that dies **mid-recording** (e.g. undocking an external display partway through) still stops the recording rather than degrading to microphone-only — same root cause as the lid-closed case, different timing.
+- No power assertion is held, so a Mac that actually sleeps on lid-close (no clamshell/external display) still captures nothing while asleep.
+
+## [0.10.0] — 2026-06-23
+
+Recording resilience: an interruption that tears down the audio device mid-recording (most commonly closing the laptop lid / system sleep) no longer discards the entire recording.
+
+### Fixed
+
+- **Recording no longer lost when the input device disappears mid-session.** When the machine slept or the capture device went away, ScreenCaptureKit had usually already torn the `SCStream` down, so `RecordingSession.stop()`'s `stopCapture()` threw — and that throw aborted teardown *before* the microphone track was drained, closed, and mixed down. The microphone audio that had been streaming to disk the whole meeting was orphaned and then deleted by the resume store. Stopping the system-audio stream is now best-effort: a stop failure is logged and the captured tracks are still finalized into the output file. (Known narrower gap, tracked separately: a genuine `render()` I/O failure during an interrupt can still drop that segment.)
+
+### Internal
+
+- Extracted a `SystemAudioCapturing` protocol and a headless teardown test seam; added `RecordingSessionTeardownResilienceTests` (fails against the pre-fix teardown, passes after).
+
+## [0.9.0] — 2026-06-14
+
+A focused release turning the approvals inbox into a first-class surface: the action queue now groups by bucket, renders a bespoke editable card per item type, folds paired ticket+response drafts into one composite, and shows a live open-approvals badge on the Dock and menu bar. Built against the new bucket-based `action-queue.json` schema (see `action-queue-schema.md`).
+
+### Added
+
+- **Bucket-based action queue** — the queue decodes four new fields (`bucket`, `attachments`, `externalRef`, `linkedItemIds`) and two new draft types (`calendar`, `topdesk`). Unknown buckets/values round-trip verbatim; missing fields never fail to load.
+- **Bespoke approval cards per bucket** — email-shaped partner-API replies (To/Cc chips, attachment "Reveal in Finder"), Jira ticket drafts (field chips, custom-fields table with Release-notes-radio call-out, Jira-markup-rendered description), Topdesk responses (visibility toggle, Jira-link chip), refinement-prep (current→proposed radio/priority compare with editable dropdowns and flag pills), roadmap commitments (Teams excerpt + nested ticket), and calendar events. Every card edits in place and round-trips its changes back into the draft body; malformed bodies fall back to a plain-text editor so approval is never blocked.
+- **Composite linked drafts** — a paired ticket + reply (linked via `linkedItemIds`) renders as one card with per-item Approve/Decline/Revise and a primary "Approve all".
+- **Jira wiki-markup renderer** — bold/italic/headings/lists/links/code/tables render in card descriptions, degrading to literal text on anything unrecognized.
+- **Bucket-grouped, collapsible list** — approvals group into fixed-order bucket sections with `(pending / total)` headers and per-bucket collapse state; duplicate items sharing an `externalRef` fold behind a `+N` indicator.
+- **Open-approvals badge** — a live count of pending items on the Dock icon and the menu-bar item, recomputed on launch, on file changes, and after every in-app decision.
+
+### Changed
+
+- Approving a `todo`-bucket item now marks it complete in-app (status, decided/executed timestamps, and an execution result) instead of routing to a remote action.
+
+## [0.8.2] — 2026-06-14
+
+### Fixed
+
+- Opening a past meeting in a narrow window no longer makes the sidebar jump out of sight. The layout is now responsive: a narrow window hides the meeting inspector (keeping the sidebar visible), and only a very small window gracefully collapses the sidebar — instead of `NavigationSplitView` silently dropping it.
+
+## [0.8.1] — 2026-06-14
+
+### Fixed
+
+- Automatic pre-migration store backup — the meeting database is copied aside before every launch so an upgrade can never make data unrecoverable (the last 3 backups are kept).
+
+### Changed
+
+- Explicit, versioned SwiftData migration plan so schema upgrades are deterministic across macOS versions instead of relying on inference (which silently reset some v0.8.0 stores).
+
+## [0.8.0] — 2026-06-14
+
+A large quality + feature release: new meeting intelligence features, a reliability and performance pass across the recording → transcription → summary → export pipeline, an internal architecture cleanup, and broad UX polish.
+
+### Added
+
+- **Meeting tags** — label meetings, filter the sidebar by tag (OR semantics), search by tag, and export tags to Obsidian YAML frontmatter. A token-style tag editor lives in the meeting inspector with existing-tag suggestions.
+- **Ask your meeting** — a grounded Q&A chat that answers questions about a single meeting using its transcript, summary, and notes via the local LLM. Disabled until there is content to ground on, and while a summary is still generating.
+- **Auto-record prompt** — an optional local notification at a meeting's start time with a one-tap "Start Recording" action, plus a lead-time picker. Toggle in Settings → Recording → Notifications.
+- **Recurring-series linking** — the prep view surfaces the previous occurrence's summary and open action items, with one-click carry-over into prep notes; the detail inspector links to the previous/next occurrence.
+- **Unified processing-status card** — a single transcribe → summarize → export status surface with determinate transcription progress, elapsed-time summarization, per-stage Cancel, and error rows with Retry.
+- **Native markdown editor (beta)** — an `NSTextView`-based editor with live markdown syntax styling and selection-aware formatting, behind a default-off Settings toggle ("Use native notes editor").
+- **Undoable meeting deletion** — deleting a meeting shows an Undo toast for a grace period before the audio file and record are removed.
+- **UX polish** — loading skeletons, transcript chapter grouping with a timestamp gutter, highlight-all in global search, reduce-motion support throughout, a `⌘⇧F` focus-mode shortcut, and a `.help()`/accessibility-label pass on icon buttons.
+- **Release hygiene** — copyright string and a Credits.rtf About-panel attribution; graceful microphone-only recording when Screen Recording is denied, with clear onboarding copy.
+- First-run onboarding flow, grouped Settings with a dedicated Recording tab, and a native `.inspector` workspace with Prep and To-Dos panels.
+
+### Changed
+
+- **Smaller recordings** — finished recordings are encoded to AAC/m4a after transcription (~5–8× smaller than WAV); a "Keep original WAV" setting preserves the uncompressed file.
+- **Scales to thousands of meetings** — the sidebar uses a windowed partial fetch (transcripts kept off the hot path) and global search is debounced with database-side predicates plus a bounded in-memory transcript/participant scan. Global search now covers meeting summaries.
+- **Event-driven calendar refresh** — replaced 5-minute polling with `EKEventStoreChanged` notifications (debounced) plus a long fallback timer.
+- **Local-LLM resilience** — transcription frees the Whisper model before summarization; summarization runs in a navigation-independent background task with a visible retrying status and a thinking-mode toggle.
+- **Internal architecture** — decomposed the recording engine, the live notes editor, and the meeting detail view into focused components; centralized logging via `os.Logger`. No user-facing behavior change from these refactors.
+
+### Fixed
+
+- **Recording finalize dropped the recording** — `RecordingSession.stop()` released the track writers before the facade read the captured-frame count, so every finished recording was discarded as "no audio samples were captured." The frame total is now cached before teardown.
+- **Recurring-meeting occurrence collisions** — opening the Nth occurrence of a recurring event no longer returns the first occurrence's notes/transcript; occurrence start is matched at whole-second granularity to avoid duplicate rows.
+- **Audio thread-safety** — replaced unsynchronized cross-thread state in the recording session with lock-guarded access; fixed a heap-corrupting data race in the interruption-coordinator tests.
+- **Corrupt-store recovery** — a corrupt or incompatible data store is backed up and recreated instead of crashing on launch; user data is never deleted.
+- **Action-queue robustness** — lenient, data-preserving decoding of the agent-shared `action-queue.json` (unknown enum values and malformed items are preserved on rewrite, including large-integer precision).
+- **Apple Notes export** — a single-flight guard prevents a second AppleScript from running against Notes after a timeout.
+- **Lifecycle** — background summarization is cancelled on quit; the action-queue file watcher uses a race-safe debounce.
+- **Persistence** — `try?`-swallowed save failures now surface a user-visible alert.
+- Focus-mode editor no longer renders blank (WKWebView height in a scroll container); summarizing UI is scoped to the meeting being processed; summary generation length is capped.
+
+## [0.7.1]
+
+- Calendar-driven meeting list, manual meetings, and the live meeting workspace
+- Local recording (microphone + optional system audio), WhisperKit transcription, and local LLM summaries (Ollama / oMLX)
+- Export to Obsidian (Markdown) or Apple Notes (HTML); optional Local-only mode
+- Approvals inbox backed by a shared `action-queue.json`
+- Stable team-based designated requirement so TCC permissions persist across rebuilds

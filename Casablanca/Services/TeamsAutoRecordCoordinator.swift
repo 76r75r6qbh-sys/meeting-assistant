@@ -1,0 +1,755 @@
+import EventKit
+import Foundation
+
+/// A calendar event flattened to what Teams auto-record needs, so the choice of
+/// event is testable without EventKit (`EKEvent.eventIdentifier` cannot be set
+/// in a test).
+struct TeamsCallEventCandidate: Equatable {
+    let identifier: String
+    let title: String
+    let startDate: Date
+    let endDate: Date
+    /// Location, notes and URL joined: where Outlook puts the join link.
+    let searchableText: String
+
+    init(identifier: String, title: String, startDate: Date, endDate: Date, searchableText: String = "") {
+        self.identifier = identifier
+        self.title = title
+        self.startDate = startDate
+        self.endDate = endDate
+        self.searchableText = searchableText
+    }
+
+    init?(event: EKEvent) {
+        guard let identifier = event.eventIdentifier, !identifier.isEmpty,
+              let startDate = event.startDate, let endDate = event.endDate else { return nil }
+        self.init(
+            identifier: identifier,
+            title: event.title ?? "Untitled Meeting",
+            startDate: startDate,
+            endDate: endDate,
+            searchableText: [event.location, event.notes, event.url?.absoluteString]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+        )
+    }
+
+    var mentionsTeams: Bool {
+        searchableText.localizedCaseInsensitiveContains("teams.microsoft.com")
+            || searchableText.localizedCaseInsensitiveContains("Microsoft Teams")
+    }
+}
+
+/// The decisions behind Teams auto-record, free of any app state.
+enum TeamsAutoRecordPolicy {
+    /// Joining a few minutes early still belongs to the meeting.
+    static let earlyJoinWindow: TimeInterval = 10 * 60
+
+    enum StartDecision: Equatable {
+        case skip(String)
+        case recordEvent(identifier: String)
+        case recordManual(title: String)
+    }
+
+    /// A start decision and the match it was made from, so the coordinator
+    /// logs the rule from the same computation. `match` is nil when the start
+    /// was skipped before any matching.
+    struct StartPlan: Equatable {
+        let decision: StartDecision
+        let match: EventMatch?
+    }
+
+    /// How the call was tied to a calendar event (or not), so the coordinator
+    /// can log which rule decided.
+    enum EventMatch: Equatable {
+        /// No usable call name: today's rule (Teams-mention preference,
+        /// closest start). The event is nil when nothing is running.
+        case timeBased(TeamsCallEventCandidate?)
+        /// A call name equals a running event's title once normalized.
+        case exactTitle(TeamsCallEventCandidate)
+        /// A call name and an event title: one is a whole-word prefix
+        /// (≥ 2 words) of the other, for exactly one running event.
+        case titlePrefix(TeamsCallEventCandidate)
+        /// The call has usable names and no running event matches any of
+        /// them; `callName` is the newest one.
+        case noTitleMatch(callName: String)
+
+        var event: TeamsCallEventCandidate? {
+            switch self {
+            case .timeBased(let event): return event
+            case .exactTitle(let event), .titlePrefix(let event): return event
+            case .noTitleMatch: return nil
+            }
+        }
+
+        /// For the log; never contains the call name or the event title.
+        var ruleDescription: String {
+            switch self {
+            case .timeBased: return "no usable title, time-based"
+            case .exactTitle: return "title matched event (exact)"
+            case .titlePrefix: return "title matched event (prefix)"
+            case .noTitleMatch: return "title matched no running event"
+            }
+        }
+    }
+
+    /// The calendar event a call that starts at `now` belongs to: one running
+    /// from `start − 10 min` until its end.
+    ///
+    /// Without a call name: events that mention Teams win over those that do
+    /// not; among equals, the start closest to `now`. With names (the Teams
+    /// call windows' titles, newest first): only a running event whose title
+    /// matches one of them, so an ad-hoc call taken during another calendar
+    /// item is not filed under it.
+    static func resolveEvent(
+        from candidates: [TeamsCallEventCandidate],
+        now: Date,
+        callNames: [String] = []
+    ) -> TeamsCallEventCandidate? {
+        matchEvent(from: candidates, now: now, callNames: callNames).event
+    }
+
+    /// `resolveEvent`, plus which rule decided. See `normalizedTitle` for
+    /// what "matches" ignores.
+    ///
+    /// Names that normalize to nothing (emoji only) or to a Teams placeholder
+    /// say nothing about the meeting and are dropped; none left means
+    /// time-based. Every remaining name is tried for an exact match before
+    /// any is tried for a prefix match, in the given (newest-first) order;
+    /// the first match wins. A stray pop-out newer than the call window then
+    /// cannot hide the call's own name.
+    static func matchEvent(
+        from candidates: [TeamsCallEventCandidate],
+        now: Date,
+        callNames: [String]
+    ) -> EventMatch {
+        let live = candidates.filter {
+            $0.startDate.addingTimeInterval(-earlyJoinWindow) <= now && now < $0.endDate
+        }
+        let closestStart: ([TeamsCallEventCandidate]) -> TeamsCallEventCandidate? = { pool in
+            pool.min {
+                abs($0.startDate.timeIntervalSince(now)) < abs($1.startDate.timeIntervalSince(now))
+            }
+        }
+
+        // The parser already drops placeholders; filtering here again is
+        // deliberate defence-in-depth for names from any other source.
+        let usable = callNames.compactMap { callName -> (original: String, normalized: String)? in
+            let name = normalizedTitle(callName)
+            guard !name.isEmpty, !TeamsCallWindowTitle.isPlaceholderCallName(callName) else { return nil }
+            return (callName, name)
+        }
+        guard let newest = usable.first else { return .timeBased(timeBasedEvent(live, closestStart)) }
+        let liveTitles = live.map { (event: $0, title: normalizedTitle($0.title)) }
+
+        // Rule 1: exact normalized equality. A title match beats the Teams
+        // mention: the window names the meeting outright. Among several
+        // events with that title, the closest start.
+        for name in usable {
+            let exact = liveTitles.filter { $0.title == name.normalized }.map(\.event)
+            if let event = closestStart(exact) { return .exactTitle(event) }
+        }
+
+        // Rule 2: guarded whole-word prefix, only when exactly one event
+        // qualifies for that name.
+        for name in usable {
+            let nameWords = name.normalized.split(separator: " ")
+            let prefixed = liveTitles.filter {
+                isGuardedPrefixMatch(nameWords, $0.title.split(separator: " "))
+            }
+            if prefixed.count == 1, let match = prefixed.first { return .titlePrefix(match.event) }
+        }
+
+        return .noTitleMatch(callName: newest.original)
+    }
+
+    private static func timeBasedEvent(
+        _ live: [TeamsCallEventCandidate],
+        _ closestStart: ([TeamsCallEventCandidate]) -> TeamsCallEventCandidate?
+    ) -> TeamsCallEventCandidate? {
+        let teams = live.filter(\.mentionsTeams)
+        return closestStart(teams.isEmpty ? live : teams)
+    }
+
+    /// One word list is a strict whole-word prefix of the other and the shorter
+    /// has at least two words, so a one-word "Daily" never swallows "Daily AI
+    /// team".
+    private static func isGuardedPrefixMatch(_ a: [Substring], _ b: [Substring]) -> Bool {
+        let (shorter, longer) = a.count <= b.count ? (a, b) : (b, a)
+        guard shorter.count >= 2, shorter.count < longer.count else { return false }
+        return Array(longer.prefix(shorter.count)) == shorter
+    }
+
+    /// Mail and calendar tags Outlook puts in front of a subject. Matched
+    /// case-insensitively and stripped repeatedly, leading only.
+    static let leadingTitleTags = [
+        "[EXTERN]", "[EXTERNAL]", "[EXT]", "FW:", "FWD:", "RE:",
+        "Canceled:", "Cancelled:", "Geannuleerd:", "Updated:", "Bijgewerkt:",
+    ]
+
+    /// A title reduced to what identifies the meeting: leading tags stripped,
+    /// case and diacritics folded, punctuation and symbols (emoji included)
+    /// turned into spaces, whitespace collapsed.
+    static func normalizedTitle(_ title: String) -> String {
+        var rest = Substring(title)
+        stripping: while true {
+            rest = rest.drop(while: \.isWhitespace)
+            for tag in leadingTitleTags where rest.count >= tag.count
+                && rest.prefix(tag.count).caseInsensitiveCompare(tag) == .orderedSame {
+                rest = rest.dropFirst(tag.count)
+                continue stripping
+            }
+            break
+        }
+
+        let folded = String(rest)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+        var kept = String.UnicodeScalarView()
+        for scalar in folded.unicodeScalars {
+            kept.append(isTitleWordScalar(scalar) ? scalar : " ")
+        }
+        return String(kept).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// Letters, numbers and the marks that belong to them; everything else
+    /// (punctuation, symbols, emoji and their modifiers, joiners, variation
+    /// selectors) separates words.
+    private static func isTitleWordScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .decimalNumber, .letterNumber, .otherNumber:
+            return true
+        case .nonspacingMark, .spacingMark:
+            return !scalar.properties.isVariationSelector
+        default:
+            return false
+        }
+    }
+
+    /// Why a call start is skipped before any event matching, or nil when a
+    /// start can follow. The coordinator checks this before reading the
+    /// Teams window titles, so a skipped start never reads them.
+    static func skipReason(
+        isEnabled: Bool,
+        isRecordingBusy: Bool,
+        selectedMeetingStatus: MeetingStatus?
+    ) -> String? {
+        guard isEnabled else { return "auto-record is off" }
+        guard !isRecordingBusy else { return "a recording is already active" }
+        if selectedMeetingStatus == .recording || selectedMeetingStatus == .pausedRecording {
+            return "the open meeting is already recording or paused"
+        }
+        return nil
+    }
+
+    static func startDecision(
+        isEnabled: Bool,
+        isRecordingBusy: Bool,
+        selectedMeetingStatus: MeetingStatus?,
+        candidates: [TeamsCallEventCandidate],
+        now: Date,
+        callNames: [String] = [],
+        manualTitle: (Date) -> String = manualMeetingTitle
+    ) -> StartPlan {
+        if let reason = skipReason(
+            isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
+        ) {
+            return StartPlan(decision: .skip(reason), match: nil)
+        }
+        let match = matchEvent(from: candidates, now: now, callNames: callNames)
+        let decision: StartDecision
+        switch match {
+        case .exactTitle(let event), .titlePrefix(let event), .timeBased(.some(let event)):
+            decision = .recordEvent(identifier: event.identifier)
+        case .timeBased(nil):
+            decision = .recordManual(title: manualTitle(now))
+        case .noTitleMatch(let callName):
+            decision = .recordManual(title: callName)
+        }
+        return StartPlan(decision: decision, match: match)
+    }
+
+    /// Whether the call's end should stop the recording linked to it. A
+    /// recording is linked when it was capturing at some point during the call
+    /// — started by the monitor, started by hand mid-call, or already running
+    /// when the call began. One that never overlapped a call is never linked,
+    /// so never stopped. The linked meeting is stopped while it is still
+    /// capturing, or finalized if the user paused it; anything else (stopped
+    /// already, or the service now capturing another meeting) is left alone.
+    static func shouldAutoStop(
+        linkedMeetingID: UUID?,
+        activeMeetingID: UUID?,
+        isRecording: Bool,
+        linkedMeetingStatus: MeetingStatus?,
+        isStopEnabled: Bool
+    ) -> Bool {
+        guard isStopEnabled, let linkedMeetingID else { return false }
+        if isRecording, activeMeetingID == linkedMeetingID { return true }
+        // Paused: nothing captures (`activeMeetingID` is nil), the segments
+        // wait on disk, and Stop merges them.
+        return linkedMeetingStatus == .pausedRecording && activeMeetingID != linkedMeetingID
+    }
+
+    /// Whether a new recording must not start: something is capturing,
+    /// preparing or starting. A capture whose Stop is in flight is ignored —
+    /// it is going away, and the start waits for it to release the session.
+    static func isRecordingBusy(
+        isRecording: Bool,
+        isPreparing: Bool,
+        isStartInFlight: Bool,
+        activeMeetingID: UUID?,
+        stoppingMeetingIDs: Set<UUID>
+    ) -> Bool {
+        if isPreparing || isStartInFlight { return true }
+        guard isRecording else { return false }
+        guard let activeMeetingID else { return true }
+        return !stoppingMeetingIDs.contains(activeMeetingID)
+    }
+
+    /// The monitor has work while either half of the feature is on.
+    static func isMonitorNeeded(autoRecordEnabled: Bool, autoStopEnabled: Bool) -> Bool {
+        autoRecordEnabled || autoStopEnabled
+    }
+
+    /// Whether the event's existing meeting can take this recording. One that
+    /// was already recorded and stopped (`.processing`/`.completed`) cannot:
+    /// recording it again — the call dropped and was re-joined after the
+    /// auto-stop — would replace its recording and transcript. A paused one
+    /// can; starting it resumes the session it already has.
+    ///
+    /// A meeting whose Stop is in flight counts as `.processing` even though
+    /// its status still reads `.recording`/`.pausedRecording` until the merge
+    /// finishes: the user stopped it, and a start into it is refused (and used
+    /// to flip it to `.notesOnly` mid-merge), so the call would go unrecorded.
+    static func canRecordInto(existingStatus: MeetingStatus, isStopInFlight: Bool = false) -> Bool {
+        if isStopInFlight { return false }
+        switch existingStatus {
+        case .upcoming, .notesOnly, .recording, .pausedRecording: return true
+        case .processing, .completed: return false
+        }
+    }
+
+    /// "Teams call 14:05", in the user's locale time format.
+    static func manualMeetingTitle(at date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return "Teams call \(formatter.string(from: date))"
+    }
+}
+
+/// Notices a new Teams call that starts while the mic monitor still reports
+/// the previous one. Teams can keep the microphone open from one call into
+/// the next, so a 1:1 right after a meeting fires no call start of its own.
+/// The coordinator feeds it the call windows during a call; it confirms a
+/// switch once a new call window has been the newest one on two reads at
+/// least `confirmAfter` apart. Free of app state; the clock is passed in.
+///
+/// Calls are identified by window number and normalized name
+/// (`TeamsAutoRecordPolicy.normalizedTitle`). A known window that is
+/// retitled, a new window with a known name (a shared-content pop-out), or
+/// one whose name is a known name behind one leading title component (an
+/// auxiliary window's token the parser does not strip yet), is adopted as
+/// known without a switch. Pre-join windows are ignored: they
+/// are never known and never a candidate.
+struct TeamsCallSwitchDetector {
+    /// The window server is read at most this often during a call; monitor
+    /// ticks come from every CoreAudio callback plus a 5 s poll.
+    static let defaultCheckInterval: TimeInterval = 10
+    /// How long a new window has to stay the newest before it counts, so a
+    /// window Teams opens or retitles during a transition splits nothing.
+    static let defaultConfirmAfter: TimeInterval = 10
+
+    let checkInterval: TimeInterval
+    let confirmAfter: TimeInterval
+    /// Window numbers and normalized names seen during the current call.
+    private(set) var knownNumbers: Set<Int> = []
+    private(set) var knownNames: Set<String> = []
+    /// The window waiting for confirmation, and when it was first newest.
+    private var pending: (number: Int, since: Date)?
+    private var lastCheck: Date?
+
+    init(checkInterval: TimeInterval = defaultCheckInterval, confirmAfter: TimeInterval = defaultConfirmAfter) {
+        self.checkInterval = checkInterval
+        self.confirmAfter = confirmAfter
+    }
+
+    /// At every call start (real or switched): the windows read for it, or
+    /// `[]` when the start did not read. Without a baseline the first check
+    /// adopts what it reads.
+    mutating func begin(windows: [TeamsCallWindowName], at date: Date) {
+        reset()
+        adopt(windows)
+        lastCheck = date
+    }
+
+    /// The call ended or the monitor was switched off.
+    mutating func reset() {
+        knownNumbers = []
+        knownNames = []
+        pending = nil
+        lastCheck = nil
+    }
+
+    /// Whether the call windows are due to be read again.
+    func shouldCheck(at date: Date) -> Bool {
+        guard let lastCheck else { return true }
+        return date.timeIntervalSince(lastCheck) >= checkInterval
+    }
+
+    /// Feeds one read of the call windows, newest first. Returns the new
+    /// call's window once the switch is confirmed, else nil.
+    mutating func observe(windows: [TeamsCallWindowName], at date: Date) -> TeamsCallWindowName? {
+        lastCheck = date
+        let inCall = windows.filter { !$0.isPreJoin }.sorted { $0.number > $1.number }
+        // No title (no permission, Teams hidden, between calls) is never
+        // evidence of a new call; a pending candidate waits.
+        guard let newest = inCall.first else { return nil }
+        // No baseline: there is no telling whether this is a new call.
+        guard !knownNumbers.isEmpty || !knownNames.isEmpty else {
+            adopt(inCall)
+            return nil
+        }
+        if isKnown(newest) {
+            // Only the newest window (a retitle or a pop-out) and windows
+            // repeating a known name: an unknown window that was pending
+            // and got overtaken stays a candidate.
+            pending = nil
+            adopt([newest])
+            adopt(inCall.filter { knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle($0.name)) })
+            return nil
+        }
+        if let pending, pending.number == newest.number {
+            guard date.timeIntervalSince(pending.since) >= confirmAfter else { return nil }
+            self.pending = nil
+            return newest
+        }
+        pending = (newest.number, date)
+        return nil
+    }
+
+    /// A window is known by its number, its name, or a name that is a known
+    /// name behind one leading title component: Teams' auxiliary windows put
+    /// a single token in front of the call name ("Meeting compact view |
+    /// <call>"), and a token the parser does not strip yet (another UI
+    /// language) must not split the recording. Accepted trade-off: a real new
+    /// call titled "<X> | <known name>" is not seen as a switch.
+    private func isKnown(_ window: TeamsCallWindowName) -> Bool {
+        if knownNumbers.contains(window.number)
+            || knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(window.name)) {
+            return true
+        }
+        let components = window.name.components(separatedBy: TeamsCallWindowTitle.separator)
+        guard components.count > 1 else { return false }
+        let tail = components.dropFirst().joined(separator: TeamsCallWindowTitle.separator)
+        return knownNames.contains(TeamsAutoRecordPolicy.normalizedTitle(tail))
+    }
+
+    /// Pre-join windows never become known: the in-call window that replaces
+    /// one is then adopted by its name, not mistaken for a new call.
+    private mutating func adopt(_ windows: [TeamsCallWindowName]) {
+        for window in windows where !window.isPreJoin {
+            knownNumbers.insert(window.number)
+            let name = TeamsAutoRecordPolicy.normalizedTitle(window.name)
+            if !name.isEmpty { knownNames.insert(name) }
+        }
+    }
+}
+
+/// What the coordinator needs from the app. `AppModel` implements it; tests
+/// pass a fake.
+@MainActor
+protocol TeamsAutoRecordHost: AnyObject {
+    /// Capturing, preparing, or a start already in flight.
+    var isRecordingBusy: Bool { get }
+    var isRecording: Bool { get }
+    var activeRecordingMeetingID: UUID? { get }
+    var selectedMeetingStatus: MeetingStatus? { get }
+    func meetingStatus(id: UUID) -> MeetingStatus?
+    /// The user (or an earlier auto-stop) already stopped this meeting and
+    /// its finalize/merge is running.
+    func isStopInFlight(meetingID: UUID) -> Bool
+    func teamsCallCandidates() -> [TeamsCallEventCandidate]
+    /// The Teams call windows (a person, or the meeting subject, per
+    /// window), newest window first; empty when no title is readable. Reads
+    /// the window server, so the coordinator calls it only when a start can
+    /// follow, and during a call at most every 10 s with auto-record on.
+    /// `isPeriodic` marks those mid-call reads, which log at debug level.
+    func teamsCallWindows(isPeriodic: Bool) -> [TeamsCallWindowName]
+    /// Starts recording the event's meeting, or a new manual meeting when
+    /// `eventIdentifier` is nil. Returns the meeting ID once capture runs,
+    /// `nil` when it did not start.
+    func startAutoRecording(eventIdentifier: String?, manualTitle: String) async -> UUID?
+    /// Stops (or, when paused, finalizes) the meeting's recording through the
+    /// normal Stop path, so transcription and summary run as usual.
+    func stopRecordingForEndedCall(meetingID: UUID) async
+}
+
+/// Glue between `TeamsCallMonitor` and the app: applies `TeamsAutoRecordPolicy`
+/// and remembers which recording overlapped the current call — the only one
+/// the call's end may stop.
+@MainActor
+final class TeamsAutoRecordCoordinator {
+    private weak var host: TeamsAutoRecordHost?
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    /// The meeting whose recording overlapped the current call. Last one wins:
+    /// stopping one recording and starting another mid-call re-links.
+    private(set) var linkedMeetingID: UUID?
+    /// Bumped by every call start and end (and `reset`). The monitor's
+    /// callbacks each run in their own Task, so `callEnded` can run while
+    /// `callStarted` is still awaiting a slow start (retries, a first-run
+    /// permission prompt); the start then compares generations to learn that
+    /// the call it was started for is over.
+    private var callGeneration = 0
+    private(set) var isCallLive = false
+    /// Notices a new call while the mic monitor still reports the old one.
+    private var switchDetector: TeamsCallSwitchDetector
+    /// The call generation a confirmed switch left behind, until its Task
+    /// hands over to `callStarted`. The old call is over by then but the new
+    /// one is not live yet; a slow start finishing in that gap is kept.
+    private var switchGeneration: Int?
+    /// A switch is between ending the old call and starting the new one. A
+    /// mic end or `reset()` moves the generation, which ends the switch even
+    /// while its stop is still awaiting (or never returns).
+    var isSwitchInFlight: Bool { switchGeneration == callGeneration }
+    /// The latest call switch's stop-then-start, so tests can await it.
+    private(set) var switchTask: Task<Void, Never>?
+
+    init(
+        host: TeamsAutoRecordHost,
+        defaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        switchDetector: TeamsCallSwitchDetector = TeamsCallSwitchDetector()
+    ) {
+        self.host = host
+        self.defaults = defaults
+        self.now = now
+        self.switchDetector = switchDetector
+    }
+
+    func callStarted() async {
+        await startCall(switchedTo: nil)
+    }
+
+    /// `switchedTo` is the confirmed window of a call switch, nil for a mic
+    /// start. A switch's baseline holds only that call's windows, so going
+    /// back to a call that was on hold counts as another switch.
+    private func startCall(switchedTo: TeamsCallWindowName?) async {
+        guard let host else { return }
+        // A new call supersedes whatever the last one left behind.
+        linkedMeetingID = nil
+        callGeneration += 1
+        isCallLive = true
+        let generation = callGeneration
+
+        // Already recording when the call began: that recording is the call's —
+        // unless its Stop is already in flight. Linking a meeting the user just
+        // stopped left this call unrecorded: its end found the meeting
+        // `.processing` and stopped nothing.
+        if let active = host.activeRecordingMeetingID, !host.isStopInFlight(meetingID: active) {
+            switchDetector.begin(windows: Self.baseline(read: [], switchedTo: switchedTo), at: now())
+            link(active, why: "was already recording when the call started")
+            return
+        }
+
+        // The call windows' titles are read only when a start can follow:
+        // `startDecision` checks the same conditions, but too late to save
+        // the read.
+        let isEnabled = AppPreferences.teamsAutoRecordEnabled(in: defaults)
+        let isRecordingBusy = host.isRecordingBusy
+        let selectedMeetingStatus = host.selectedMeetingStatus
+        let canStart = TeamsAutoRecordPolicy.skipReason(
+            isEnabled: isEnabled, isRecordingBusy: isRecordingBusy, selectedMeetingStatus: selectedMeetingStatus
+        ) == nil
+        let callWindows = canStart ? host.teamsCallWindows(isPeriodic: false) : []
+        let callNames = TeamsCallWindowTitle.callNames(from: callWindows)
+
+        let plan = TeamsAutoRecordPolicy.startDecision(
+            isEnabled: isEnabled,
+            isRecordingBusy: isRecordingBusy,
+            selectedMeetingStatus: selectedMeetingStatus,
+            candidates: host.teamsCallCandidates(),
+            now: now(),
+            callNames: callNames
+        )
+        if let match = plan.match {
+            logCallNames(callNames, match: match)
+        }
+        // Before any await, so ticks during a slow start compare against
+        // this call's windows; a skipped start gets an empty baseline.
+        switchDetector.begin(windows: Self.baseline(read: callWindows, switchedTo: switchedTo), at: now())
+        let started: UUID?
+        switch plan.decision {
+        case .skip(let reason):
+            Log.recording.notice("Teams call started; not auto-recording: \(reason, privacy: .public)")
+            return
+        case .recordEvent(let identifier):
+            Log.recording.notice("Teams call started; recording calendar event \(identifier, privacy: .public)")
+            started = await host.startAutoRecording(eventIdentifier: identifier, manualTitle: "")
+        case .recordManual(let title):
+            Log.recording.notice("Teams call started; no matching calendar event, recording a manual meeting")
+            started = await host.startAutoRecording(eventIdentifier: nil, manualTitle: title)
+        }
+        guard let started else { return }
+        guard generation != callGeneration else {
+            link(started, why: "auto-started for the call")
+            return
+        }
+        await handleStartThatOutlivedItsCall(started)
+    }
+
+    /// The windows a call start makes known: all it read for a mic start; for
+    /// a switch, the switch's window and those repeating its name.
+    private static func baseline(
+        read windows: [TeamsCallWindowName], switchedTo: TeamsCallWindowName?
+    ) -> [TeamsCallWindowName] {
+        guard let switchedTo else { return windows }
+        let name = TeamsAutoRecordPolicy.normalizedTitle(switchedTo.name)
+        let sameCall = windows.filter {
+            $0.number != switchedTo.number && TeamsAutoRecordPolicy.normalizedTitle($0.name) == name
+        }
+        return [switchedTo] + sameCall
+    }
+
+    /// The start finished after the call it was made for ended. Linking it now
+    /// would tie it to no call (or the wrong one) and nothing would stop it.
+    private func handleStartThatOutlivedItsCall(_ meetingID: UUID) async {
+        guard let host else { return }
+        if isCallLive || isSwitchInFlight {
+            // A newer call is running (or a call switch is starting one):
+            // the recording overlaps it, so it is that call's (as `callTick`
+            // would decide on its next tick).
+            if linkedMeetingID == nil {
+                link(meetingID, why: "auto-start finished during a later call")
+            }
+            return
+        }
+        guard TeamsAutoRecordPolicy.shouldAutoStop(
+            linkedMeetingID: meetingID,
+            activeMeetingID: host.activeRecordingMeetingID,
+            isRecording: host.isRecording,
+            linkedMeetingStatus: host.meetingStatus(id: meetingID),
+            isStopEnabled: AppPreferences.teamsAutoRecordStopWhenCallEnds(in: defaults)
+        ), !host.isStopInFlight(meetingID: meetingID) else {
+            Log.recording.notice(
+                "Teams auto-start finished after the call ended; leaving meeting \(meetingID.uuidString, privacy: .public) as it is"
+            )
+            return
+        }
+        Log.recording.notice(
+            "Teams auto-start finished after the call ended; stopping meeting \(meetingID.uuidString, privacy: .public)"
+        )
+        await host.stopRecordingForEndedCall(meetingID: meetingID)
+    }
+
+    /// Called on every monitor evaluation during a call: ties a recording that
+    /// started or resumed mid-call to it, then checks whether a new call has
+    /// replaced it in Teams.
+    func callTick() {
+        guard let host else { return }
+        if let active = host.activeRecordingMeetingID, active != linkedMeetingID,
+           !host.isStopInFlight(meetingID: active) {
+            link(active, why: "recording during the call")
+        }
+        checkForCallSwitch(host)
+    }
+
+    /// Reads the call windows (throttled) and, on a confirmed switch, ends
+    /// the old call and starts the new one. With auto-record off it never
+    /// reads: a switch could only auto-stop, and the mic end does that.
+    ///
+    /// The old call's end is booked synchronously, before any Task exists,
+    /// so a mic end or `reset()` that lands at any later point moves the
+    /// generation and the Task starts nothing.
+    private func checkForCallSwitch(_ host: TeamsAutoRecordHost) {
+        guard isCallLive, !isSwitchInFlight, AppPreferences.teamsAutoRecordEnabled(in: defaults) else { return }
+        let time = now()
+        guard switchDetector.shouldCheck(at: time),
+              let newWindow = switchDetector.observe(
+                  windows: host.teamsCallWindows(isPeriodic: true), at: time
+              ) else { return }
+
+        Log.recording.notice(
+            "Teams call switched: a new call window (\(newWindow.number, privacy: .public), name private) replaced the running call; ending the old call and starting a new one"
+        )
+        let endedMeetingID = endCallBookkeeping()
+        let generation = callGeneration
+        switchGeneration = generation
+        switchTask = Task { [weak self] in
+            guard let self else { return }
+            await self.stopRecordingOfEndedCall(endedMeetingID, event: "Teams call switched")
+            guard generation == self.callGeneration else {
+                Log.recording.notice("Teams call switch: the call ended or was reset meanwhile; not starting a new one")
+                return
+            }
+            // Cleared before the start takes over: from there on the new call
+            // is live, and a mic end during its start is an ordinary end.
+            self.switchGeneration = nil
+            await self.startCall(switchedTo: newWindow)
+        }
+    }
+
+    func callEnded() async {
+        let meetingID = endCallBookkeeping()
+        await stopRecordingOfEndedCall(meetingID, event: "Teams call ended")
+    }
+
+    /// The synchronous half of a call's end: forgets the call and returns the
+    /// meeting whose recording the end may stop.
+    private func endCallBookkeeping() -> UUID? {
+        callGeneration += 1
+        isCallLive = false
+        switchDetector.reset()
+        let meetingID = linkedMeetingID
+        linkedMeetingID = nil
+        return meetingID
+    }
+
+    /// The async half: stops `meetingID`'s recording when `shouldAutoStop`
+    /// says so.
+    private func stopRecordingOfEndedCall(_ meetingID: UUID?, event: String) async {
+        guard let host else { return }
+        guard let meetingID, TeamsAutoRecordPolicy.shouldAutoStop(
+            linkedMeetingID: meetingID,
+            activeMeetingID: host.activeRecordingMeetingID,
+            isRecording: host.isRecording,
+            linkedMeetingStatus: host.meetingStatus(id: meetingID),
+            isStopEnabled: AppPreferences.teamsAutoRecordStopWhenCallEnds(in: defaults)
+        ) else {
+            Log.recording.notice("\(event, privacy: .public); no linked recording to stop (or auto-stop is off)")
+            return
+        }
+        Log.recording.notice("\(event, privacy: .public); stopping linked recording \(meetingID.uuidString, privacy: .public)")
+        await host.stopRecordingForEndedCall(meetingID: meetingID)
+    }
+
+    /// The monitor was switched off: forget the call so a later end cannot
+    /// stop anything, and a call switch in flight starts nothing.
+    func reset() {
+        linkedMeetingID = nil
+        callGeneration += 1
+        isCallLive = false
+        switchGeneration = nil
+        switchDetector.reset()
+    }
+
+    /// Whether the call windows had names and which rule picked the meeting.
+    /// A name is a person's name or a meeting subject, so it stays private.
+    private func logCallNames(_ callNames: [String], match: TeamsAutoRecordPolicy.EventMatch) {
+        if callNames.isEmpty {
+            Log.recording.notice("Teams call name not found; \(match.ruleDescription, privacy: .public)")
+        } else {
+            Log.recording.notice(
+                "Teams call names found (\(callNames.count, privacy: .public): \(callNames.joined(separator: "; "), privacy: .private)); \(match.ruleDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func link(_ meetingID: UUID, why: String) {
+        linkedMeetingID = meetingID
+        Log.recording.notice(
+            "Teams call linked to meeting \(meetingID.uuidString, privacy: .public): \(why, privacy: .public)"
+        )
+    }
+}

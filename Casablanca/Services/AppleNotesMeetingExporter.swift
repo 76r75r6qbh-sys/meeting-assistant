@@ -1,0 +1,129 @@
+import Foundation
+
+struct AppleNotesExportResult {
+    let summaryNoteId: String?
+    let rawNotesNoteId: String
+}
+
+@MainActor
+final class AppleNotesMeetingExporter {
+    static let folderName = "Casablanca"
+
+    private let scripting: AppleNotesScripting
+
+    init(scripting: AppleNotesScripting) {
+        self.scripting = scripting
+    }
+
+    @discardableResult
+    func export(_ meeting: Meeting) async throws -> AppleNotesExportResult {
+        let folder = try await ensureFolderMappingErrors()
+
+        let summaryHTML = AppleNotesBodyRenderer.summaryHTML(for: meeting)
+        let rawNotesHTML = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
+        let shouldExportSummary = meeting.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        let summaryMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .summary)
+        let notesMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .notes)
+
+        var summaryId: String? = nil
+        if shouldExportSummary {
+            summaryId = try await upsert(
+                cachedId: meeting.appleNotesSummaryNoteID,
+                marker: summaryMarker,
+                title: meeting.obsidianFileName,
+                body: summaryHTML,
+                folder: folder
+            )
+            meeting.appleNotesSummaryNoteID = summaryId
+        } else {
+            meeting.appleNotesSummaryNoteID = nil
+        }
+
+        let rawNotesId = try await upsert(
+            cachedId: meeting.appleNotesRawNotesNoteID,
+            marker: notesMarker,
+            title: "\(meeting.obsidianFileName) - Notes",
+            body: rawNotesHTML,
+            folder: folder
+        )
+        meeting.appleNotesRawNotesNoteID = rawNotesId
+
+        return AppleNotesExportResult(summaryNoteId: summaryId, rawNotesNoteId: rawNotesId)
+    }
+
+    @discardableResult
+    func exportRawNotesOnly(_ meeting: Meeting) async throws -> AppleNotesExportResult {
+        let folder = try await ensureFolderMappingErrors()
+        let rawNotesHTML = AppleNotesBodyRenderer.rawNotesHTML(for: meeting)
+        let notesMarker = AppleNotesBodyRenderer.marker(for: meeting.id, kind: .notes)
+
+        let rawNotesId = try await upsert(
+            cachedId: meeting.appleNotesRawNotesNoteID,
+            marker: notesMarker,
+            title: "\(meeting.obsidianFileName) - Notes",
+            body: rawNotesHTML,
+            folder: folder
+        )
+        meeting.appleNotesRawNotesNoteID = rawNotesId
+
+        return AppleNotesExportResult(summaryNoteId: nil, rawNotesNoteId: rawNotesId)
+    }
+
+    private func ensureFolderMappingErrors() async throws -> AppleNotesFolderRef {
+        do {
+            return try await scripting.ensureFolder(named: Self.folderName)
+        } catch {
+            throw mapped(error)
+        }
+    }
+
+    private func upsert(
+        cachedId: String?,
+        marker: String,
+        title: String,
+        body: String,
+        folder: AppleNotesFolderRef
+    ) async throws -> String {
+        do {
+            // 1. Cached id fast path with body verification.
+            if let cachedId,
+               let existingBody = try await scripting.noteBody(id: cachedId),
+               existingBody.contains(marker) {
+                try await scripting.updateNote(id: cachedId, title: title, body: body)
+                return cachedId
+            }
+
+            // 2. Name lookup. Apple Notes preserves note names verbatim; the marker scan is
+            // unreliable in practice because Notes can mangle body text in its canonical
+            // storage form. Names are derived from `Meeting.obsidianFileName`, which is
+            // stable per meeting, so this is the most reliable recovery path.
+            if let match = try await scripting.findNote(named: title, in: folder) {
+                try await scripting.updateNote(id: match.id, title: title, body: body)
+                return match.id
+            }
+
+            // 3. Marker scan (defensive — recovers a note the user renamed in Apple Notes).
+            if let match = try await scripting.findNote(markerContaining: marker, in: folder) {
+                try await scripting.updateNote(id: match.id, title: title, body: body)
+                return match.id
+            }
+
+            // 4. Create.
+            let ref = try await scripting.createNote(title: title, body: body, in: folder)
+            return ref.id
+        } catch let error as AppleNotesExportError {
+            throw error
+        } catch {
+            throw mapped(error)
+        }
+    }
+
+    private func mapped(_ error: Error) -> Error {
+        let nsError = error as NSError
+        if let code = nsError.userInfo["NSAppleScriptErrorNumber"] as? Int {
+            return AppleNotesExportError.from(appleScriptErrorCode: code, message: nsError.localizedDescription)
+        }
+        return error
+    }
+}

@@ -1,0 +1,363 @@
+import EventKit
+import SwiftUI
+
+struct DashboardView: View {
+    @Bindable var viewModel: MeetingListViewModel
+    @State private var selectedDay: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if !viewModel.calendarAuthorized {
+                calendarAccessView
+            } else if viewModel.isLoading && !viewModel.hasEvents {
+                // Skeleton only for the first load: a refresh keeps the list
+                // (and its scroll position) on screen instead of swapping it out.
+                loadingSkeleton
+            } else if !viewModel.hasEvents {
+                emptyStateView
+            } else {
+                meetingListView
+            }
+        }
+        .frame(maxWidth: CasaLayout.contentMaxWidth)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            syncSelectedDay()
+        }
+        .onChange(of: dayIdentifiers) { _, _ in
+            syncSelectedDay()
+        }
+        .task {
+            if viewModel.calendarAuthorized {
+                await viewModel.refreshEvents()
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.beginManualMeeting()
+                } label: {
+                    Label("Start Manual Meeting", systemImage: "plus")
+                }
+            }
+        }
+    }
+
+    /// Placeholder hero + meeting rows shown while the calendar is loading, so
+    /// the dashboard keeps its shape instead of flashing a bare spinner.
+    private var loadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            // Hero placeholder
+            HStack(alignment: .center, spacing: CasaSpace.lg) {
+                VStack(alignment: .leading, spacing: CasaSpace.sm) {
+                    Text("Up next placeholder")
+                        .font(.title2.weight(.bold))
+                    Text("Meeting title placeholder line here")
+                        .font(.body)
+                }
+                Spacer()
+            }
+            .padding(CasaSpace.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
+
+            // Meeting row placeholders
+            VStack(alignment: .leading, spacing: CasaSpace.md) {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                        Text("Meeting title placeholder row")
+                            .font(.headline)
+                        Text("10:00 – 11:00 placeholder subtitle")
+                            .font(.caption)
+                    }
+                    .padding(CasaSpace.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardStyle()
+                }
+            }
+        }
+        .padding(CasaSpace.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .casaSkeleton(true)
+        .accessibilityLabel("Loading your calendar")
+    }
+
+    private var meetingListView: some View {
+        VStack(alignment: .leading, spacing: CasaSpace.xxl) {
+            dayNavigator
+
+            if let event = viewModel.actionableEventToday(),
+               let hero = viewModel.heroPresentation() {
+                heroCard(presentation: hero, event: event)
+            }
+
+            if let activeDay = selectedDay,
+               let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: activeDay) }) {
+                dayPage(date: group.date, events: group.events)
+                    .animation(reduceMotion ? nil : CasaAnimation.standard, value: activeDay)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(CasaSpace.xl)
+    }
+
+    @ViewBuilder
+    private func heroCard(presentation: DashboardHeroPresentation, event: EKEvent) -> some View {
+        HStack(alignment: .center, spacing: CasaSpace.lg) {
+            VStack(alignment: .leading, spacing: CasaSpace.xs) {
+                HStack(spacing: CasaSpace.xs) {
+                    Circle()
+                        .fill(presentation.isLive ? Color.stateLive : Color.accentColor)
+                        .frame(width: 6, height: 6)
+
+                    Text(presentation.eyebrow)
+                        .font(.caption2.weight(.bold))
+                        .textCase(.uppercase)
+                        .kerning(0.6)
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                }
+
+                Text(presentation.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Text(presentation.detailLine)
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+                    .lineLimit(1)
+            }
+            // Keep the one-line eyebrow and time readable when the window is
+            // narrow, without taking width from the buttons at normal sizes.
+            .frame(minWidth: 120, alignment: .leading)
+
+            Spacer(minLength: CasaSpace.sm)
+
+            HStack(spacing: CasaSpace.sm) {
+                Button {
+                    viewModel.beginPrepare(for: event)
+                } label: {
+                    Label("Prepare", systemImage: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
+                    viewModel.beginNotes(for: event)
+                } label: {
+                    Label("Take Notes", systemImage: "pencil.line")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+
+                Button {
+                    viewModel.beginRecording(for: event)
+                } label: {
+                    Label("Start Recording", systemImage: "record.circle")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .padding(CasaSpace.lg)
+        .background(
+            Color.accentColor.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: CasaRadius.xl)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: CasaRadius.xl)
+                .strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(presentation.eyebrow). \(presentation.title)")
+    }
+
+    private var groupedEvents: [(date: Date, events: [EKEvent])] {
+        viewModel.groupedEvents
+    }
+
+    private var dayIdentifiers: [Date] {
+        groupedEvents.map(\.date)
+    }
+
+    private var dayNavigator: some View {
+        HStack(spacing: CasaSpace.md) {
+            Button {
+                stepDay(by: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(previousDay == nil)
+            .help("Previous day")
+            .accessibilityLabel("Previous day")
+
+            VStack(alignment: .leading, spacing: CasaSpace.xxs) {
+                Text(selectedDayTitle)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Text(selectedDaySubtitle)
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Spacer()
+
+            Button {
+                stepDay(by: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(nextDay == nil)
+            .help("Next day")
+            .accessibilityLabel("Next day")
+        }
+    }
+
+    private func dayPage(date _: Date, events: [EventKit.EKEvent]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: CasaSpace.lg) {
+                ForEach(events, id: \.eventIdentifier) { event in
+                    MeetingCardView(
+                        event: event,
+                        isNextUpcoming: viewModel.isNextUpcoming(event),
+                        timeUntil: viewModel.timeUntil(event),
+                        onStartRecording: {
+                            viewModel.beginRecording(for: event)
+                        },
+                        onTakeNotes: {
+                            viewModel.beginNotes(for: event)
+                        },
+                        onViewDetails: {
+                            viewModel.openMeetingDetails(for: event)
+                        },
+                        onPrepare: {
+                            viewModel.beginPrepare(for: event)
+                        }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .padding(.vertical, CasaSpace.xs)
+        }
+    }
+
+    private var previousDay: Date? {
+        guard let selectedDay,
+              let selectedIndex = dayIdentifiers.firstIndex(of: selectedDay),
+              selectedIndex > 0
+        else {
+            return nil
+        }
+        return dayIdentifiers[selectedIndex - 1]
+    }
+
+    private var nextDay: Date? {
+        guard let selectedDay,
+              let selectedIndex = dayIdentifiers.firstIndex(of: selectedDay),
+              selectedIndex < dayIdentifiers.count - 1
+        else {
+            return nil
+        }
+        return dayIdentifiers[selectedIndex + 1]
+    }
+
+    private func stepDay(by offset: Int) {
+        if offset < 0 {
+            selectedDay = previousDay ?? selectedDay
+        } else {
+            selectedDay = nextDay ?? selectedDay
+        }
+    }
+
+    private func syncSelectedDay() {
+        guard let firstDay = dayIdentifiers.first else {
+            selectedDay = nil
+            return
+        }
+
+        guard let selectedDay, dayIdentifiers.contains(selectedDay) else {
+            self.selectedDay = firstDay
+            return
+        }
+    }
+
+    private var selectedDayTitle: String {
+        guard let selectedDay else { return "" }
+        return dayChipTitle(for: selectedDay)
+    }
+
+    private var selectedDaySubtitle: String {
+        guard let selectedDay,
+              let group = groupedEvents.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selectedDay) })
+        else {
+            return ""
+        }
+
+        return "\(dayChipSubtitle(for: selectedDay)) · \(meetingCountLabel(for: group.events.count))"
+    }
+
+    private func dayChipTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Today"
+        }
+        if calendar.isDateInTomorrow(date) {
+            return "Tomorrow"
+        }
+
+        return Self.weekdayFormatter.string(from: date)
+    }
+
+    private func dayChipSubtitle(for date: Date) -> String {
+        Self.dayMonthFormatter.string(from: date)
+    }
+
+    // Built once: these run for every day chip on every body pass.
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+
+    private static let dayMonthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM"
+        return formatter
+    }()
+
+    private func meetingCountLabel(for count: Int) -> String {
+        count == 1 ? "1 meeting" : "\(count) meetings"
+    }
+
+    private var emptyStateView: some View {
+        ContentUnavailableView {
+            Label("No Upcoming Meetings", systemImage: "calendar")
+        } description: {
+            Text("Your calendar is clear. Start a manual meeting or check back later.")
+        } actions: {
+            Button {
+                viewModel.beginManualMeeting()
+            } label: {
+                Label("Start Manual Meeting", systemImage: "plus.circle")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+
+    private var calendarAccessView: some View {
+        ContentUnavailableView {
+            Label("Calendar Access Required", systemImage: "calendar.badge.exclamationmark")
+        } description: {
+            Text("Casablanca needs access to your calendar to show upcoming meetings.")
+        } actions: {
+            Button("Grant Access") {
+                Task {
+                    await viewModel.requestCalendarAccess()
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+}

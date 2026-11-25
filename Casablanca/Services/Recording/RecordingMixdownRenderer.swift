@@ -1,0 +1,201 @@
+@preconcurrency import AVFoundation
+import Foundation
+import OSLog
+
+/// Mixes the two temporary float32 PCM tracks into the final 16 kHz mono 16-bit
+/// WAV. Phase 1c extraction from `RecordingSession.mixTemporaryRecordings()`:
+/// hardware-free and unit-testable. The chunked read/mix/write loop, the WAV
+/// header write, and the gain constants are unchanged (the golden pins in
+/// `RecordingMixdownTests` lock the mix arithmetic).
+struct RecordingMixdownRenderer {
+    let microphoneURL: URL
+    let systemAudioURL: URL
+    let microphoneFrames: AVAudioFramePosition
+    let systemAudioFrames: AVAudioFramePosition
+    let outputURL: URL
+    let expectedOutputFrames: AVAudioFramePosition
+    /// Free space on the recording volume. Below
+    /// `RecordingDiskSpace.minimumFreeBytesForSpeakerTracks` the temp tracks
+    /// are deleted instead of kept, so the speaker tracks never cost the live
+    /// recording its disk.
+    var availableCapacity: RecordingDiskSpace.CapacityProvider = RecordingDiskSpace.systemCapacity
+
+    func render() throws {
+        let microphoneBytes = RecordingFiles.trackByteCount(at: microphoneURL)
+        let systemAudioBytes = RecordingFiles.trackByteCount(at: systemAudioURL)
+
+        Log.recording.debug(
+            "Finalizing recording: micFrames=\(self.microphoneFrames) micBytes=\(microphoneBytes) systemFrames=\(self.systemAudioFrames) systemBytes=\(systemAudioBytes)"
+        )
+
+        // A counted track that will not open fails the render. Skipping it
+        // (`try?`) used to mix the other track alone and then delete the
+        // unread one below as if it had been consumed -- the microphone audio
+        // of the segment, gone for good.
+        let microphoneHandle: FileHandle?
+        let systemAudioHandle: FileHandle?
+        do {
+            microphoneHandle = microphoneFrames > 0 ? try FileHandle(forReadingFrom: microphoneURL) : nil
+            systemAudioHandle = systemAudioFrames > 0 ? try FileHandle(forReadingFrom: systemAudioURL) : nil
+        } catch {
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not reopen its temporary recordings: \(Self.describeFinalizationError(error)). micFrames=\(microphoneFrames), micBytes=\(microphoneBytes), systemFrames=\(systemAudioFrames), systemBytes=\(systemAudioBytes)."
+            )
+        }
+
+        guard microphoneHandle != nil || systemAudioHandle != nil else {
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not reopen its temporary recordings. micFrames=\(microphoneFrames), micBytes=\(microphoneBytes), systemFrames=\(systemAudioFrames), systemBytes=\(systemAudioBytes)."
+            )
+        }
+
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            bestEffort("remove existing output file", Log.recording) {
+                try FileManager.default.removeItem(at: outputURL)
+            }
+        }
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+              let outputHandle = try? FileHandle(forWritingTo: outputURL)
+        else {
+            throw RecordingError.failedToFinalizeRecording("Casablanca could not create the final WAV file.")
+        }
+
+        let chunkFrames = 4_096
+        let chunkBytes = chunkFrames * MemoryLayout<Float>.size
+        var mixedAudioByteCount = 0
+
+        do {
+            try outputHandle.write(contentsOf: Data(repeating: 0, count: WAVCodec.headerByteCount))
+        } catch {
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not initialize the final WAV file: \(Self.describeFinalizationError(error))."
+            )
+        }
+
+        do {
+            while true {
+                let microphoneData = try microphoneHandle?.read(upToCount: chunkBytes) ?? Data()
+                let systemAudioData = try systemAudioHandle?.read(upToCount: chunkBytes) ?? Data()
+
+                let microphoneSamples = TemporaryRecordingPCMStorage.samples(from: microphoneData)
+                let systemAudioSamples = TemporaryRecordingPCMStorage.samples(from: systemAudioData)
+                let frameCount = max(microphoneSamples.count, systemAudioSamples.count)
+
+                guard frameCount > 0 else { break }
+
+                let mixedSamples = Self.mixFrames(
+                    microphoneSamples: microphoneSamples,
+                    systemAudioSamples: systemAudioSamples
+                )
+
+                let mixedData = mixedSamples.withUnsafeBufferPointer { buffer in
+                    Data(buffer: buffer)
+                }
+                try outputHandle.write(contentsOf: mixedData)
+                mixedAudioByteCount += mixedData.count
+            }
+        } catch {
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not read one of the temporary recordings: \(Self.describeFinalizationError(error))."
+            )
+        }
+
+        do {
+            try outputHandle.seek(toOffset: 0)
+            try outputHandle.write(contentsOf: WAVCodec.header(dataByteCount: mixedAudioByteCount))
+            try outputHandle.close()
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
+        } catch {
+            bestEffort("close output handle", Log.recording) { try outputHandle.close() }
+            bestEffort("close microphone handle", Log.recording) { try microphoneHandle?.close() }
+            bestEffort("close system audio handle", Log.recording) { try systemAudioHandle?.close() }
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca could not finalize the final WAV file: \(Self.describeFinalizationError(error))."
+            )
+        }
+
+        let renderedFrameCount = mixedAudioByteCount / MemoryLayout<Int16>.size
+        if expectedOutputFrames > 0, renderedFrameCount == 0 {
+            throw RecordingError.failedToFinalizeRecording(
+                "Casablanca produced an empty final mix despite capturing audio. expectedFrames=\(expectedOutputFrames)."
+            )
+        }
+
+        // Only what the loop above read to its end is now in the WAV. Such a
+        // track moves to its kept name for the speaker-track merge at Stop. A
+        // track that was not read is removed only when it holds no whole
+        // sample, and is never kept.
+        if microphoneHandle != nil {
+            keepTrack(at: microphoneURL)
+        } else if microphoneBytes < Int64(MemoryLayout<Float>.size) {
+            bestEffort("remove microphone temp file", Log.recording) { try FileManager.default.removeItem(at: microphoneURL) }
+        }
+        if systemAudioHandle != nil {
+            keepTrack(at: systemAudioURL)
+        } else if systemAudioBytes < Int64(MemoryLayout<Float>.size) {
+            bestEffort("remove system audio temp file", Log.recording) { try FileManager.default.removeItem(at: systemAudioURL) }
+        }
+    }
+
+    /// Moves a fully mixed temp track to `RecordingFiles.keptTrackURL(for:)`,
+    /// replacing a kept file an earlier render of the segment left. If the
+    /// move fails the track is deleted as before: the mix already holds its
+    /// audio, and a temp track left under its capture name would be rendered
+    /// again by launch recovery. When disk space is low the track is deleted
+    /// without trying to keep it (logged once per session).
+    private func keepTrack(at url: URL) {
+        let fileManager = FileManager.default
+        guard RecordingDiskSpace.allowsSpeakerTracks(at: url, capacity: availableCapacity) else {
+            RecordingDiskSpace.noteLowSpace(for: url.deletingLastPathComponent(), capacity: availableCapacity)
+            bestEffort("remove temp track on low disk space", Log.recording) { try fileManager.removeItem(at: url) }
+            return
+        }
+        let keptURL = RecordingFiles.keptTrackURL(for: url)
+        do {
+            if fileManager.fileExists(atPath: keptURL.path) {
+                try fileManager.removeItem(at: keptURL)
+            }
+            try fileManager.moveItem(at: url, to: keptURL)
+        } catch {
+            Log.recording.error(
+                "Could not keep \(url.lastPathComponent, privacy: .public) for the speaker tracks: \(error.localizedDescription, privacy: .public); deleting it, the mix holds its audio"
+            )
+            bestEffort("remove temp track after a failed keep", Log.recording) { try fileManager.removeItem(at: url) }
+        }
+    }
+
+    // Test seam (Phase 1b golden-fixture pinning): the per-frame mixing
+    // arithmetic was lifted verbatim out of the chunk loop so it can be
+    // exercised headlessly. The formula is unchanged:
+    // clamp(mic*1.35 + system*0.8, -1, 1) scaled to Int16. `internal` so tests
+    // can pin it; the production call site is byte-identical.
+    static func mixFrames(microphoneSamples: [Float], systemAudioSamples: [Float]) -> [Int16] {
+        let frameCount = max(microphoneSamples.count, systemAudioSamples.count)
+        var mixedSamples = [Int16](repeating: 0, count: frameCount)
+        for index in 0..<frameCount {
+            var sample: Float = 0
+
+            if index < microphoneSamples.count {
+                sample += microphoneSamples[index] * 1.35
+            }
+
+            if index < systemAudioSamples.count {
+                sample += systemAudioSamples[index] * 0.8
+            }
+
+            let clamped = min(max(sample, -1), 1)
+            mixedSamples[index] = Int16((clamped * Float(Int16.max)).rounded())
+        }
+        return mixedSamples
+    }
+
+    private static func describeFinalizationError(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
+    }
+}
