@@ -153,3 +153,9 @@ When a newer release is found, you'll see a prompt with the release notes and th
 ### Recovering from a failed update
 - The install is atomic — either the new bundle is in place or the existing one is untouched.
 - Failed installs leave a log under `~/Library/Application Support/Casablanca/Updates/logs/install-<timestamp>.log`. The Settings pane has a button to reveal that folder.
+
+## License
+
+Copyright (C) 2026 the Casablanca contributors.
+
+Casablanca is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE). Bundled third-party components keep their own licenses.
