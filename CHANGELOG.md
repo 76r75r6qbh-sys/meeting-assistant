@@ -4,6 +4,18 @@ All notable changes to Casablanca are documented here. This project follows [Sem
 
 ## [Unreleased]
 
+## [0.23.1] — 2026-11-19
+
+To-dos removed from a meeting note now leave the app too.
+
+### Fixed
+
+- **A meeting note without to-do lines releases its to-dos.** When every to-do line was removed from a meeting's note (by hand, or by a cleanup), the app kept showing those to-dos, because it only looked at notes that still had to-do lines. Every existing note is now checked, so its removed to-dos disappear on the next sync. A note that is missing, cannot be found mid-read, or reads as empty (for example while Obsidian is saving it) keeps its to-dos, so nothing is lost by accident.
+
+### Added
+
+- A contract test locks the to-do line format the `add-todo` skill writes (`- [ ] <action> 📅 <date> 🔗 <scheme>:<ref>`) to the app's parser.
+
 ## [0.23.0] — 2026-11-18
 
 One list: the To-Dos. The Approvals inbox is gone, and a draft reply is made only when you ask for one on a to-do.

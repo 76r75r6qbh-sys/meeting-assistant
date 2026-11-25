@@ -92,6 +92,7 @@
 		98195E7F969DD1342F53252C /* JiraLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6AA3B5E51EEF28C1346272 /* JiraLinkTests.swift */; };
 		9830C7FE591F467C61E600DC /* PostTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C406C6F00345734EFB94560 /* PostTranscriptionPipeline.swift */; };
 		994D8439800CC2173671781A /* LLMRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80915210664EE00AB59D117 /* LLMRetryPolicy.swift */; };
+		99B20A1D0FD3E8868605FC9F /* AddTodoSkillContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E0B5D5271C256415B290F1 /* AddTodoSkillContractTests.swift */; };
 		9A1E2C3D4B5F60718293A4C6 /* TerminologyServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1E2C3D4B5F60718293A4C7 /* TerminologyServiceTests.swift */; };
 		9B2AF0E9AA2D3E3854897D24 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A49CA3494756C27CD173CA /* SemanticVersion.swift */; };
 		9BEF92EEB18A36DC9F07B108 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48FF6FBD168B2E9103E4BABA /* LLMProvider.swift */; };
@@ -417,6 +418,7 @@
 		2ED040940F5803E66DD0C95A /* SleepPreventer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepPreventer.swift; sourceTree = "<group>"; };
 		2FC460B2BFF0B3C00963217D /* UpdatePreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdatePreferences.swift; sourceTree = "<group>"; };
 		310E92C5D41E167DF057834E /* DraftReplyService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Casablanca/Services/DraftReply/DraftReplyService.swift; sourceTree = SOURCE_ROOT; };
+		31E0B5D5271C256415B290F1 /* AddTodoSkillContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AddTodoSkillContractTests.swift; sourceTree = SOURCE_ROOT; };
 		323D33001F55D2B58702027B /* AskPromptTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AskPromptTests.swift; sourceTree = SOURCE_ROOT; };
 		32B51921F50F3E8C0BABECD0 /* AskViewLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/AskViewLayoutTests.swift; sourceTree = SOURCE_ROOT; };
 		32F9FB83D2CBAC8D76A1B5C8 /* StubLLMProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CasablancaTests/LLM/StubLLMProvider.swift; sourceTree = SOURCE_ROOT; };
@@ -1238,6 +1240,7 @@
 				467D4CA07AE2C448204EC777 /* DraftReplyViewModelTests.swift */,
 				C58EF8BE97E42FC3416E68CA /* ClaudeCodeLauncherTests.swift */,
 				6535B433D2DB73B88B073DAE /* DraftReplySheetTests.swift */,
+				31E0B5D5271C256415B290F1 /* AddTodoSkillContractTests.swift */,
 			);
 			path = CasablancaTests;
 			sourceTree = "<group>";
@@ -1832,6 +1835,7 @@
 				E816D8D2B7D14C4EAEC5C0C6 /* DraftReplyViewModelTests.swift in Sources */,
 				88B2F0BF5AC0C71CCA45E678 /* ClaudeCodeLauncherTests.swift in Sources */,
 				75B8A06F4525A1F5E212D40B /* DraftReplySheetTests.swift in Sources */,
+				99B20A1D0FD3E8868605FC9F /* AddTodoSkillContractTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1904,7 +1908,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1920,7 +1924,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.23.0;
+				MARKETING_VERSION = 0.23.1;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1939,7 +1943,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1955,7 +1959,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.23.0;
+				MARKETING_VERSION = 0.23.1;
 				OTHER_CODE_SIGN_FLAGS = "-r $(SRCROOT)/scripts/casablanca.req";
 				PRODUCT_BUNDLE_IDENTIFIER = com.casablanca.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

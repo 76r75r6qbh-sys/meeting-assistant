@@ -67,16 +67,19 @@ enum ObsidianTodoSyncService {
             fileManager: fileManager
         )
 
-        let syncedTasks = try syncMeetingFiles(
+        let (syncedTasks, scannedPaths) = try syncMeetingFiles(
             files,
             meeting: meeting,
             in: modelContext,
             index: index,
             fileManager: fileManager
         )
+        // Every existing, non-empty note file was scanned, also one with no
+        // task lines left, so its rows go; a file that is missing, vanished
+        // mid-read or 0 bytes keeps its rows.
         removeMissingMeetingRows(
             for: meeting,
-            sourcePaths: Set(syncedTasks.map(\.sourceFilePath)),
+            sourcePaths: scannedPaths,
             importedIDs: Set(syncedTasks.map(\.id)),
             in: modelContext,
             index: index
@@ -353,15 +356,27 @@ enum ObsidianTodoSyncService {
         in modelContext: ModelContext,
         index: TodoIndex,
         fileManager: FileManager
-    ) throws -> [SyncedTask] {
+    ) throws -> (tasks: [SyncedTask], scannedPaths: Set<String>) {
         var syncedTasks: [SyncedTask] = []
+        var scannedPaths: Set<String> = []
 
         let existingURLs = Array(
             Set(files.prepCandidates + files.notesCandidates)
         ).filter { fileManager.fileExists(atPath: $0.path) }
 
         for url in existingURLs {
-            let markdown = try readMarkdownIfPresent(at: url, fileManager: fileManager)
+            // Read directly so a file that vanished after the exists check
+            // throws instead of reading as "". A vanished or 0-byte file (an
+            // outside truncate-then-write in progress) is not counted as
+            // scanned, so its rows stay until a real read sees the file.
+            let markdown: String
+            do {
+                markdown = try String(contentsOf: url, encoding: .utf8)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+                continue
+            }
+            guard !markdown.isEmpty else { continue }
+            scannedPaths.insert(url.path)
             let (updatedMarkdown, assignedTasks) = ObsidianTodoMarkdown.assigningMissingTaskIDs(markdown)
 
             if updatedMarkdown != markdown {
@@ -376,7 +391,7 @@ enum ObsidianTodoSyncService {
             }
         }
 
-        return syncedTasks
+        return (syncedTasks, scannedPaths)
     }
 
     /// Every TodoItem keyed by id, fetched once per refresh and kept in step
